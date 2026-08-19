@@ -1,0 +1,113 @@
+# Cuts a GitHub Release for a pushed `vX.Y.Z` tag, builds the Portal
+# frontend, and attaches it to that release as an asset.
+#
+# Unlike the devkit monorepo this repository was ported from, the Portal
+# package always exists here -- there is no SDK-only release to fall back
+# to, so every step below runs unconditionally (no `hashFiles(...)` guard).
+#
+# Why a release asset instead of committing the built bundle: the minified
+# frontend is only needed by the device (plus the OS image) at runtime, so
+# committing it would make every frontend PR carry that diff and need its
+# own drift gate. Why build in CI instead of on the device: no Node on the
+# device image, no `npm ci` on every update, and a deterministic build --
+# this workflow's pinned Linux + Node runner (from frontend/.nvmrc) is what
+# makes the output deterministic.
+#
+# The release is created as a **draft** on purpose: a maintainer reads and
+# edits the auto-generated notes (shaped by .github/release.yml) and
+# publishes by hand -- see doc/releasing.md. `GET .../releases/latest`
+# (what every device's Updater queries) ignores drafts, so devices never
+# see a release before a human publishes it.
+#
+# Re-running this workflow for a tag that already has a release (e.g. a
+# maintainer re-pushing after fixing something) is idempotent as long as
+# that release is still a draft: it uploads with `--clobber` instead of
+# failing on "asset already exists". Once a release has been published,
+# this workflow refuses to touch it -- see the "already published" guard
+# below; the maintainer is meant to publish a new tag instead of silently
+# replacing a published release's assets underneath any device that may
+# already be running it.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify the tag points at a commit on main
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "tag $TAG does not point at a commit on main" >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Build the frontend
+        run: make build
+
+      - name: Package the release asset
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Mirrors palmimo_portal.core.update.STATIC_ASSET_NAME_TEMPLATE --
+          # the single source of truth for this name. Kept in sync by
+          # tests/contracts/test_release_workflow_contract.py, which
+          # imports the template and checks this literal against it.
+          asset="palmimo-portal-static-${TAG}.tar.gz"
+          # `static/` must stay the top-level prefix inside the tarball --
+          # palmimo_portal/adapters/static_asset.py's extractor refuses any
+          # member not rooted under `static/`.
+          tar -C palmimo_portal -czf "$asset" static
+          sha256sum "$asset" > "$asset.sha256"
+
+      - name: Create or update the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          asset="palmimo-portal-static-${TAG}.tar.gz"
+          assets=("$asset" "$asset.sha256")
+          # A hyphenated tag (v1.2.0-rc1, etc.) is a pre-release -- pass
+          # --prerelease so it can never end up as `releases/latest` (what
+          # every device's Updater queries) by a maintainer forgetting to
+          # tick the box by hand when publishing the draft.
+          prerelease_flag=()
+          case "$TAG" in
+            *-*) prerelease_flag=(--prerelease) ;;
+          esac
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            is_draft="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft -q .isDraft)"
+            if [ "$is_draft" != "true" ]; then
+              echo "release $TAG is already published; publish a new tag instead of replacing its assets" >&2
+              exit 1
+            fi
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber "${assets[@]}"
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --generate-notes --title "$TAG" \
+              "${prerelease_flag[@]}" "${assets[@]}"
+          fi

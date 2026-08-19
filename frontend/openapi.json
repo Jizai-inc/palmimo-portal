@@ -1,0 +1,1218 @@
+{
+  "components": {
+    "schemas": {
+      "AddKeyRequest": {
+        "properties": {
+          "public_key": {
+            "title": "Public Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "public_key"
+        ],
+        "title": "AddKeyRequest",
+        "type": "object"
+      },
+      "ApplyRequest": {
+        "properties": {
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag"
+        ],
+        "title": "ApplyRequest",
+        "type": "object"
+      },
+      "ChangePasswordRequest": {
+        "properties": {
+          "current_password": {
+            "title": "Current Password",
+            "type": "string"
+          },
+          "new_password": {
+            "title": "New Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "ChangePasswordRequest",
+        "type": "object"
+      },
+      "ChangePasswordResponse": {
+        "properties": {
+          "mode": {
+            "default": "full",
+            "title": "Mode",
+            "type": "string"
+          },
+          "status": {
+            "default": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "ChangePasswordResponse",
+        "type": "object"
+      },
+      "ConnectRequest": {
+        "properties": {
+          "psk": {
+            "title": "Psk",
+            "type": "string"
+          },
+          "ssid": {
+            "title": "Ssid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ssid",
+          "psk"
+        ],
+        "title": "ConnectRequest",
+        "type": "object"
+      },
+      "ConnectResponse": {
+        "properties": {
+          "status": {
+            "default": "attempting",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "ConnectResponse",
+        "type": "object"
+      },
+      "ForgetResponse": {
+        "properties": {
+          "status": {
+            "default": "forgetting",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "ForgetResponse",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "InstalledInfo": {
+        "properties": {
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          }
+        },
+        "required": [
+          "tag",
+          "commit"
+        ],
+        "title": "InstalledInfo",
+        "type": "object"
+      },
+      "LoginResponse": {
+        "properties": {
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "status": {
+            "default": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "LoginResponse",
+        "type": "object"
+      },
+      "PasswordRequest": {
+        "properties": {
+          "password": {
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "title": "PasswordRequest",
+        "type": "object"
+      },
+      "ReleaseInfo": {
+        "properties": {
+          "html_url": {
+            "title": "Html Url",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "published_at": {
+            "title": "Published At",
+            "type": "string"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tag",
+          "name",
+          "published_at",
+          "html_url"
+        ],
+        "title": "ReleaseInfo",
+        "type": "object"
+      },
+      "ResetResponse": {
+        "properties": {
+          "auth_state": {
+            "default": "initial",
+            "title": "Auth State",
+            "type": "string"
+          },
+          "status": {
+            "default": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "ResetResponse",
+        "type": "object"
+      },
+      "SshKeyResponse": {
+        "properties": {
+          "comment": {
+            "title": "Comment",
+            "type": "string"
+          },
+          "fingerprint": {
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "key_type": {
+            "title": "Key Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fingerprint",
+          "key_type",
+          "comment"
+        ],
+        "title": "SshKeyResponse",
+        "type": "object"
+      },
+      "StatusResponse": {
+        "properties": {
+          "status": {
+            "default": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "StatusResponse",
+        "type": "object"
+      },
+      "SystemStatus": {
+        "properties": {
+          "adapters": {
+            "title": "Adapters",
+            "type": "string"
+          },
+          "auth_state": {
+            "title": "Auth State",
+            "type": "string"
+          },
+          "device_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Id"
+          },
+          "hostname": {
+            "title": "Hostname",
+            "type": "string"
+          },
+          "last_wifi_attempt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WifiAttemptInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "state_dir": {
+            "title": "State Dir",
+            "type": "string"
+          },
+          "versions": {
+            "$ref": "#/components/schemas/VersionInfo"
+          }
+        },
+        "required": [
+          "state",
+          "hostname",
+          "auth_state",
+          "device_id",
+          "versions",
+          "last_wifi_attempt",
+          "adapters",
+          "state_dir"
+        ],
+        "title": "SystemStatus",
+        "type": "object"
+      },
+      "UpdateJobInfo": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "restarting_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restarting At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          }
+        },
+        "required": [
+          "kind",
+          "state",
+          "target",
+          "step",
+          "error",
+          "started_at",
+          "finished_at",
+          "restarting_at"
+        ],
+        "title": "UpdateJobInfo",
+        "type": "object"
+      },
+      "UpdateStatusResponse": {
+        "properties": {
+          "checked_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "installed": {
+            "$ref": "#/components/schemas/InstalledInfo"
+          },
+          "job": {
+            "$ref": "#/components/schemas/UpdateJobInfo"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReleaseInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "previous_tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Tag"
+          },
+          "retry_available": {
+            "title": "Retry Available",
+            "type": "boolean"
+          },
+          "update_available": {
+            "title": "Update Available",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "installed",
+          "latest",
+          "checked_at",
+          "update_available",
+          "previous_tag",
+          "job",
+          "retry_available"
+        ],
+        "title": "UpdateStatusResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "VersionInfo": {
+        "properties": {
+          "portal": {
+            "title": "Portal",
+            "type": "string"
+          },
+          "sdk": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sdk"
+          }
+        },
+        "required": [
+          "portal",
+          "sdk"
+        ],
+        "title": "VersionInfo",
+        "type": "object"
+      },
+      "WifiAttemptInfo": {
+        "properties": {
+          "observed_connection_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observed Connection Name"
+          },
+          "result": {
+            "title": "Result",
+            "type": "string"
+          },
+          "ssid": {
+            "title": "Ssid",
+            "type": "string"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "number"
+          }
+        },
+        "required": [
+          "ssid",
+          "result",
+          "timestamp"
+        ],
+        "title": "WifiAttemptInfo",
+        "type": "object"
+      },
+      "WifiNetworkResponse": {
+        "properties": {
+          "secured": {
+            "title": "Secured",
+            "type": "boolean"
+          },
+          "signal": {
+            "title": "Signal",
+            "type": "integer"
+          },
+          "ssid": {
+            "title": "Ssid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ssid",
+          "signal",
+          "secured"
+        ],
+        "title": "WifiNetworkResponse",
+        "type": "object"
+      },
+      "WifiStatusResponse": {
+        "properties": {
+          "ip_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ip Address"
+          },
+          "ssid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ssid"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "ssid",
+          "ip_address"
+        ],
+        "title": "WifiStatusResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Palmimo Portal",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/auth/change-password": {
+      "post": {
+        "description": "Change the Portal password, from either an initial or a full session.\n\nThis and ``POST /logout`` are the only authenticated endpoints\nreachable while the session's mode is ``\"initial\"`` --\n:func:`~palmimo_portal.api.deps.require_full_session`, applied everywhere\nelse, is deliberately not applied here. What \"change\" means depends on\nwhich mode the caller's session carries:\n\n- **From an initial session**: ``current_password`` is checked against\n  the identity file's sticker hash, and ``auth.json`` is *created* for\n  the first time (via :func:`~palmimo_portal.core.auth.change_password_from_initial`,\n  using the same exclusive-create machinery as ``POST /setup`` -- two\n  concurrent change-password requests from two initial sessions cannot\n  both win).\n- **From a full session**: ``current_password`` is checked against the\n  stored hash, and ``auth.json`` is rotated in place (via\n  :func:`~palmimo_portal.core.auth.change_password_from_full`).\n\nEither way, a fresh full-mode session is issued in the response so the\ncaller does not need to log in again -- required for the\ninitial-to-full transition, since an identity-carrying device's Wi-Fi\nendpoints are session-gated even while unprovisioned (see\n:func:`~palmimo_portal.api.deps.require_wifi_access`).\n\n``current_password`` verification shares :class:`~palmimo_portal.core.auth.LoginRateLimiter`\nwith ``POST /login`` (same instance, same budget, same lockout) rather\nthan having its own unlimited counter -- a stolen session cookie must\nnot hand an attacker an unlimited online oracle to brute-force the\ncurrent password. The lockout is checked before either verify path\nruns, so a locked-out caller never gets an attempt, even with the\ncorrect password.\n\nRaises:\n    PortalError: 409 ``auth_state_corrupt`` if ``auth.json`` is\n        corrupt (in practice unreachable: a corrupt ``auth.json``\n        already fails every session to verify, so ``require_auth``\n        rejects with 401 first -- kept as defense in depth); 429\n        ``auth_rate_limited`` while locked out; 401\n        ``invalid_current_password`` if ``current_password`` is wrong;\n        409 ``auth_change_conflict`` if a concurrent change from\n        another initial session already won the race to create\n        ``auth.json``; 409 ``auth_change_in_progress`` if a concurrent\n        full-mode change is already holding\n        :meth:`~palmimo_portal.ports.StateStore.lock_auth` past its\n        timeout.",
+        "operationId": "change_password_endpoint_api_v1_auth_change_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangePasswordResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Change Password Endpoint",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "description": "Verify the password and, on success, issue a session cookie.\n\nChecks against ``auth.json`` (mode ``\"full\"``) when a password has\nbeen set, or against the identity file's sticker hash (mode\n``\"initial\"``) when one hasn't but an identity file is present -- see\n:func:`~palmimo_portal.core.identity.compute_auth_state`. The response\nbody's ``mode`` lets the frontend route straight to the\nchange-password screen after an initial-mode login.\n\nFixed rate limit: 5 failures in a row locks further attempts out for\n60 seconds (see :class:`~palmimo_portal.core.auth.LoginRateLimiter`),\nregardless of which mode the attempt was checked against.\n\nRaises:\n    PortalError: 409 ``auth_state_corrupt`` if ``auth.json`` exists but\n        cannot be read (see :func:`setup`); 429 ``auth_rate_limited``\n        while locked out; 401 ``invalid_credentials`` on a wrong\n        password; 409 ``auth_not_set`` if no password has been set yet\n        and no identity file is present either (the DIY out-of-box\n        state -- ``POST /setup`` first), or if ``auth.json`` is\n        deleted between the classification above and the verify call\n        running (a race, not reachable from a normal request); 503\n        ``identity_unavailable`` if the identity file could not be\n        read (see :func:`setup`).",
+        "operationId": "login_api_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "description": "Clear the session cookie.\n\nCookie deletion only, not server-side revocation -- there is no\nsession table; a session is a signed, timestamped token verified\npurely from the signing key. A token copied off this browser before\nlogout therefore stays valid until it expires\n(:data:`SESSION_MAX_AGE_SECONDS`) or the signing key is rotated, which\nonly :func:`change_password` does. Deliberate trade-off: no\nserver-side session store on a single-account device with no database\nof its own.",
+        "operationId": "logout_api_v1_auth_logout_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Logout",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/reset": {
+      "post": {
+        "description": "Reset the Portal's login credentials -- unauthenticated, identity-carrying devices only.\n\nDeliberately carries **no** ``require_auth`` and **no**\n``require_provisioned_unless_identity`` dependency, unlike every other\nendpoint in this router: on an identity-carrying device, a forgotten\nowner-set password blocks the Wi-Fi setup flow itself (Wi-Fi is\nsession-gated the moment an identity file exists -- see\n:func:`~palmimo_portal.api.deps.require_wifi_access`), so a reset must\nwork before Wi-Fi is configured and without a session to present. The\nDIY case is refused by :func:`~palmimo_portal.core.auth.decide_reset`\nitself, so ``require_provisioned_unless_identity`` would add nothing\nhere.\n\nBecause this is the one unauthenticated state-changing action in the\nwhole API -- anyone on the LAN can trigger it on an identity-carrying\ndevice, by design, as a bounded nuisance/DoS (the device lands back in\n``initial`` mode, gated to the sticker password, never handed to the\ncaller) -- every accepted reset is logged at WARNING with the caller's\naddress, and throttled process-wide to one per\n:data:`~palmimo_portal.core.auth.RESET_LOCKOUT_SECONDS` via\n:meth:`~palmimo_portal.core.auth.ResetRateLimiter.try_acquire` (a\nseparate budget from :class:`~palmimo_portal.core.auth.LoginRateLimiter`,\nengaged only on an *accepted* reset, and released again if\n:meth:`~palmimo_portal.ports.StateStore.delete_auth` then fails).\n\nThe identity read feeding :func:`~palmimo_portal.core.auth.decide_reset`\nis :meth:`~palmimo_portal.ports.IdentityStore.read_identity_uncached`,\nnot the cached :meth:`~palmimo_portal.ports.IdentityStore.read_identity`\nevery other endpoint uses: this decision must never be made from a\nstale cache of an identity file since removed from disk.\n\nRaises:\n    PortalError: 429 ``auth_rate_limited`` while throttled -- checked\n        twice: a cheap non-atomic peek via\n        :meth:`~palmimo_portal.core.auth.ResetRateLimiter.is_locked`\n        before the identity/auth-state read, and again via\n        :meth:`~palmimo_portal.core.auth.ResetRateLimiter.try_acquire`\n        right before the delete, which atomically spends the budget;\n        403 ``reset_not_available`` on a DIY device (no identity\n        file); 503 ``identity_unavailable`` if the identity file\n        could not be read (see :func:`setup`); 409 ``auth_not_set`` if\n        the device is already in ``initial`` mode (nothing to reset);\n        409 ``auth_change_in_progress`` if a concurrent password\n        change is already holding\n        :meth:`~palmimo_portal.ports.StateStore.lock_auth` past its\n        timeout.",
+        "operationId": "reset_api_v1_auth_reset_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Reset",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/setup": {
+      "post": {
+        "description": "Set the Portal password for the first time -- the DIY (open-setup) flow only.\n\nReachable while unprovisioned (it is the bootstrap step) and requires no\nsession of its own.\n\nRaises:\n    PortalError: 409 ``auth_state_corrupt`` if ``auth.json`` exists but\n        cannot be read -- refused rather than treated as unset, so a\n        crash-corrupted auth file can't reopen an already-owned device\n        to anyone on the LAN; 503 ``identity_unavailable`` if the\n        identity file could not be read at all -- a transient error\n        (e.g. ``/boot/firmware`` not mounted yet) distinct from clean\n        absence, refused rather than treated as \"no identity file\" so\n        this unauthenticated flow can't open on a sticker/OEM device\n        for as long as the read keeps failing; 409\n        ``initial_credentials_required`` if this device carries a\n        manufacturing identity file -- it must go through\n        ``POST /login`` with the sticker password and then\n        ``POST /change-password`` instead, regardless of whether\n        ``auth.json`` happens to be set; 409 ``auth_already_set`` if a\n        password is already set.",
+        "operationId": "setup_api_v1_auth_setup_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Setup",
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/ssh-keys": {
+      "get": {
+        "description": "Return every registered key.",
+        "operationId": "list_keys_api_v1_ssh_keys_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SshKeyResponse"
+                  },
+                  "title": "Response List Keys Api V1 Ssh Keys Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Keys",
+        "tags": [
+          "ssh-keys"
+        ]
+      },
+      "post": {
+        "description": "Validate, fingerprint, and register a public key.\n\nRaises:\n    PortalError: 400 ``invalid_key_format`` if the text is not a\n        well-formed public key; 409 ``duplicate_key`` if it is already\n        registered; 409 ``ssh_keys_busy`` if the ``authorized_keys``\n        lock could not be acquired in time (a concurrent add/delete\n        holding it past :data:`~palmimo_portal.adapters.ssh_keys.SSH_KEYS_LOCK_TIMEOUT_SECONDS`).",
+        "operationId": "add_key_api_v1_ssh_keys_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SshKeyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Add Key",
+        "tags": [
+          "ssh-keys"
+        ]
+      }
+    },
+    "/api/v1/ssh-keys/{fingerprint}": {
+      "delete": {
+        "description": "Remove a registered key.\n\nDeleting the last remaining key requires ``?confirm=last-key`` \u2014\nwithout it, the OS user would be left with no way back in over SSH.\nEnforced inside :meth:`~palmimo_portal.ports.SshKeyPort.delete_key`\nitself, not by a separate ``list_keys`` pre-check here, so two\nconcurrent deletes cannot each observe two keys and both proceed,\ntogether emptying the file.\n\nRaises:\n    PortalError: 404 ``key_not_found`` if no key has that fingerprint;\n        409 ``last_key_deletion_requires_confirmation`` if it is the\n        last key and ``confirm`` was not given; 409 ``ssh_keys_busy``\n        if the ``authorized_keys`` lock could not be acquired in time\n        (a concurrent add/delete holding it past\n        :data:`~palmimo_portal.adapters.ssh_keys.SSH_KEYS_LOCK_TIMEOUT_SECONDS`).",
+        "operationId": "delete_key_api_v1_ssh_keys__fingerprint__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "fingerprint",
+            "required": true,
+            "schema": {
+              "title": "Fingerprint",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "confirm",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Confirm"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Key",
+        "tags": [
+          "ssh-keys"
+        ]
+      }
+    },
+    "/api/v1/system/reboot": {
+      "post": {
+        "description": "Reboot the machine.\n\nRaises:\n    PortalError: 503 ``system_backend_unavailable`` if the real\n        adapter's D-Bus call to logind times out or fails. Translated\n        from :class:`~palmimo_portal.ports.AdapterUnavailableError` by\n        the app-wide exception handler in :mod:`palmimo_portal.api.app`.\n        409 ``update_in_progress`` while an update/rollback job is\n        ``\"running\"`` -- see :func:`_refuse_while_updating`.",
+        "operationId": "reboot_api_v1_system_reboot_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Reboot",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/system/shutdown": {
+      "post": {
+        "description": "Shut the machine down safely.\n\nRaises:\n    PortalError: 503 ``system_backend_unavailable`` -- see\n        :func:`reboot`. 409 ``update_in_progress`` -- see\n        :func:`_refuse_while_updating`.",
+        "operationId": "shutdown_api_v1_system_shutdown_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Shutdown",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/system/status": {
+      "get": {
+        "description": "Report provisioning state, hostname, auth state, device id, versions, and the last Wi-Fi attempt.\n\nAlways unauthenticated and always served, even while unprovisioned \u2014\nthis is the one endpoint every client (including the setup flow itself)\npolls to decide what to show.\n\n``auth_state`` is one of ``\"open_setup\"`` (DIY, no identity file --\nlegacy open ``/auth/setup`` available), ``\"initial\"`` (identity file\npresent, no owner yet -- login with the sticker password), ``\"set\"``\n(normal operation), ``\"corrupt\"`` (``auth.json`` exists but cannot be\nread -- login and setup both refuse until an operator deletes it over\nSSH), or ``\"unavailable\"`` (identity file could not be read at all --\na transient error, not clean absence -- so ``/auth/setup`` and\n``/auth/login`` refuse with 503 until it clears) -- see\n:func:`~palmimo_portal.core.identity.compute_auth_state`.\n\n``device_id`` is the number printed on the device's sticker (also its\nhostname suffix) -- public, reported whenever the identity file was\nsuccessfully read, independent of ``auth_state``. ``None`` both when\nthere is no identity file and when the read is currently unavailable.\n\n``adapters`` and ``state_dir`` expose what this process is actually\nrunning as, so a device on fake adapters or the wrong state directory\nis diagnosable from a client request.",
+        "operationId": "get_status_api_v1_system_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Status",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/api/v1/update/apply": {
+      "post": {
+        "description": "Start applying ``tag`` in the background and return immediately.\n\nRaises:\n    PortalError: 409 ``update_in_progress``; 400 ``invalid_release_tag``\n        if ``tag`` is not a safe ``git``/``uv`` argument; 409\n        ``no_release_checked`` if no release has ever been checked; 409\n        ``update_target_mismatch`` if ``tag`` is not the last-checked\n        release's tag.",
+        "operationId": "apply_api_v1_update_apply_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apply",
+        "tags": [
+          "update"
+        ]
+      }
+    },
+    "/api/v1/update/check": {
+      "post": {
+        "description": "Fetch the latest GitHub Release synchronously (up to a 10s timeout) and persist it.\n\nRaises:\n    PortalError: 409 ``update_in_progress`` while a job is already\n        running/restarting/checking; 429 ``update_check_rate_limited``\n        (with ``retry_after_seconds``) if the last check was under a\n        minute ago; 404 ``no_release`` / 502\n        ``release_source_unavailable`` -- mapped 1:1 from\n        :class:`~palmimo_portal.ports.ReleaseSourceError`'s ``code``;\n        502 ``release_source_unavailable`` again if the release\n        source's ``tag_name`` is not\n        :func:`~palmimo_portal.core.update.is_valid_release_tag` -- a\n        malformed tag is exactly as unusable to this Portal as GitHub\n        itself being unreachable.",
+        "operationId": "check_api_v1_update_check_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Check",
+        "tags": [
+          "update"
+        ]
+      }
+    },
+    "/api/v1/update/rollback": {
+      "post": {
+        "description": "Start rolling back to the previous tag in the background and return immediately.\n\nRaises:\n    PortalError: 409 ``update_in_progress``; 409 ``no_previous_version``\n        if there is no previous tag to roll back to; 400\n        ``invalid_release_tag`` if the previous tag is not a safe\n        ``git``/``uv`` argument (defense in depth -- see\n        :func:`~palmimo_portal.core.update.start_rollback`'s docstring).",
+        "operationId": "rollback_api_v1_update_rollback_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Rollback",
+        "tags": [
+          "update"
+        ]
+      }
+    },
+    "/api/v1/update/status": {
+      "get": {
+        "description": "Report the installed version, the last-checked release, and any in-progress job.\n\nSelf-heals the persisted state first, via\n:func:`~palmimo_portal.core.update.current_update_state`: expires a\nstale ``\"restarting\"`` job (a restart that never came back up would\notherwise poll as \"restarting\" forever) and expires a ``\"running\"``\njob with no live runner in this process (a write failure can kill the\nrunner thread, leaving the job stuck with nothing left to advance it).",
+        "operationId": "get_status_api_v1_update_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Status",
+        "tags": [
+          "update"
+        ]
+      }
+    },
+    "/api/v1/wifi/connect": {
+      "post": {
+        "description": "Start a connect attempt and return immediately.\n\nThe AP-disconnection asymmetry (connecting to the home network tears\ndown the setup AP the client is talking through) means the result can\nnever come back on this response -- it is recorded via\n:class:`~palmimo_portal.ports.StateStore` and read back later through\n``GET /api/v1/system/status``.\n\nThe attempt is recorded *before* :meth:`~palmimo_portal.ports.NetworkPort.connect`\nis called: if ``connect`` raises or the process dies right after, a\nrecord written afterward would vanish. If ``connect`` raises, the\nattempt is corrected to a durable \"failed\" result rather than left\nclaiming \"attempting\" forever. This does *not* transition \"attempting\"\nto \"success\" asynchronously -- that belongs to the real network\nadapter, which observes the actual connection outcome.\n\nRaises:\n    PortalError: 502 ``wifi_connect_failed`` if ``network.connect``\n        itself raises (e.g. the radio is busy).\n\nNote: if the device is currently ``CONNECTED``, the real adapter\nforgets that network before connecting to the new one (see\n:meth:`~palmimo_portal.adapters.comitup.ComitupNetworkPort.connect`) --\ncomitup would otherwise short-circuit back to the old network. This\nhandler reads :meth:`~palmimo_portal.ports.NetworkPort.get_status`\nfirst purely for operator visibility: a WARNING is logged naming both\nthe network about to be forgotten and the one being connected to.",
+        "operationId": "connect_api_v1_wifi_connect_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Connect",
+        "tags": [
+          "wifi"
+        ]
+      }
+    },
+    "/api/v1/wifi/connection": {
+      "delete": {
+        "description": "Forget the currently connected network and drop the connection.\n\nForgetting must never be reachable anonymously -- unlike the rest of\nthis router, a device with no network yet has nothing to forget, so\nthis route adds :func:`~palmimo_portal.api.deps.require_provisioned`\nand :func:`~palmimo_portal.api.deps.require_auth` explicitly on top of\nthe router's own ``require_wifi_access`` + ``require_full_session``.\n\nUnlike ``POST /wifi/connect``, this does *not* write a\n``last_wifi_attempt`` record -- forgetting is not a connect attempt.\n\nRaises:\n    PortalError: 503 ``network_backend_unavailable`` if\n        ``network.forget_current`` raises\n        :class:`~palmimo_portal.ports.AdapterUnavailableError` --\n        translated by the app-wide exception handler in\n        :mod:`palmimo_portal.api.app`. 409 ``wifi_not_connected`` if\n        it raises :class:`~palmimo_portal.ports.NotConnectedError` --\n        the adapter's own fresh state read (never this endpoint's\n        ``status`` above, which can already be stale) found the\n        device not actually ``CONNECTED``. 502 ``wifi_forget_failed``\n        for any other exception.",
+        "operationId": "forget_api_v1_wifi_connection_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForgetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Forget",
+        "tags": [
+          "wifi"
+        ]
+      }
+    },
+    "/api/v1/wifi/networks": {
+      "get": {
+        "description": "Return the most recent nearby-SSID scan.\n\nRaises:\n    PortalError: 503 ``network_backend_unavailable`` -- see\n        :func:`get_status`.",
+        "operationId": "list_networks_api_v1_wifi_networks_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/WifiNetworkResponse"
+                  },
+                  "title": "Response List Networks Api V1 Wifi Networks Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Networks",
+        "tags": [
+          "wifi"
+        ]
+      }
+    },
+    "/api/v1/wifi/status": {
+      "get": {
+        "description": "Return the current connection state.\n\nRaises:\n    PortalError: 503 ``network_backend_unavailable`` if the real\n        adapter's D-Bus call to comitup times out or fails -- comitup\n        not running, or the system bus unreachable. Translated from\n        :class:`~palmimo_portal.ports.AdapterUnavailableError` by the\n        app-wide exception handler in :mod:`palmimo_portal.api.app`,\n        not caught here directly, since the same failure can equally\n        surface from :func:`~palmimo_portal.api.deps.require_wifi_access`\n        before this function body ever runs.",
+        "operationId": "get_status_api_v1_wifi_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WifiStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Status",
+        "tags": [
+          "wifi"
+        ]
+      }
+    }
+  }
+}

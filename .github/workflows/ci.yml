@@ -1,0 +1,91 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fail if uv.lock is out of sync with pyproject.toml — a forgotten
+  # `uv lock` after editing dependencies would otherwise slip through CI and
+  # make installs non-reproducible.
+  lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv lock --check
+
+  # ruff and mypy debt is cleared, so lint and type both run blocking. New
+  # violations fail the PR.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --dev
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+
+  type:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --dev
+      - run: uv run mypy
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --dev --python ${{ matrix.python-version }}
+      - run: uv run --python ${{ matrix.python-version }} pytest
+
+  # The frontend's drift gate: regenerate the two committed build artifacts
+  # (openapi.json, src/api/generated/ -- see the Makefile) and fail if
+  # doing so produced a diff, so a backend API change that never made it
+  # into the committed frontend client (or a hand-edit of a generated file)
+  # is caught mechanically. `make check` also runs a full frontend build to
+  # prove it still succeeds, but static/ (the build output) is not
+  # committed or diffed -- it ships as a GitHub Release asset instead,
+  # built by release.yml.
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          # One source of truth for the Node version: frontend/.nvmrc, not
+          # a duplicated literal here that could silently drift from it.
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: uv sync --dev
+      - run: npm ci --prefix frontend
+      - run: make check
+      - run: npm test --prefix frontend

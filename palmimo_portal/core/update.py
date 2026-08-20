@@ -114,6 +114,40 @@ def is_valid_release_tag(tag: str) -> bool:
     return ".." not in tag
 
 
+#: The two :class:`~palmimo_portal.ports.Updater` steps that mutate this
+#: repository's own git checkout -- see :func:`should_repair_dirty_checkout`.
+_TREE_MUTATING_STEPS = frozenset({"fetch", "checkout"})
+
+
+def should_repair_dirty_checkout(previous_job: UpdateJob) -> bool:
+    """Report whether ``previous_job``'s failure is one the updater may attribute to itself and self-heal.
+
+    True iff ``previous_job`` is ``"failed"`` at ``step`` ``"fetch"`` or
+    ``"checkout"`` -- the only two :class:`~palmimo_portal.ports.Updater.apply`
+    steps that touch the git checkout (``fetch`` for a killed ``git fetch``
+    leaving stale lock files, ``checkout`` for a killed ``git checkout``
+    leaving a half-switched working tree). This includes a job
+    :func:`finalize_after_restart` turned from ``"running"``/``"checking"``
+    into ``"failed"`` after the process itself died mid-step (SIGKILL from
+    a step timeout, or a power cut) -- that function records ``step =
+    job.step or "start"``, which is already ``"fetch"``/``"checkout"``
+    whenever the process died during one of them, since :meth:`UpdateRunner
+    <palmimo_portal.core.update_runner.UpdateRunner>` calls :func:`advance`
+    (setting ``job.step``) *before* the corresponding subprocess runs.
+
+    ``False`` for every other failed step (``"assets"``, ``"sync"``,
+    ``"install-assets"``, ``"restart"``, or no step at all/``"start"``),
+    for a job that never failed (``"idle"``/``"done"``/``"running"``/etc.),
+    and for a mess a human left by hand over SSH -- the caller only ever
+    passes the *updater's own* previous job (read from ``update.json``
+    immediately before starting the next one), so this can never attribute
+    a USER-dirty tree to the updater; see
+    :class:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater`'s module
+    docstring for why that distinction must stay.
+    """
+    return previous_job.state == "failed" and previous_job.step in _TREE_MUTATING_STEPS
+
+
 def is_update_available(installed: InstalledVersion, latest: Release | None) -> bool:
     """Report whether ``latest`` names a release the installed checkout is not already on.
 

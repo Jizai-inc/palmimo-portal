@@ -26,6 +26,7 @@ from palmimo_portal.core.update import (
     mark_failed,
     mark_restarting,
     record_latest,
+    should_repair_dirty_checkout,
     start_apply,
     start_check,
     start_rollback,
@@ -278,6 +279,65 @@ def test_mark_failed_records_step_and_error_and_keeps_previous_tag() -> None:
     assert result.job.error == "uv sync failed"
     assert result.job.finished_at == 2000.0
     assert result.previous_tag == "v1.0.0"
+
+
+# -- should_repair_dirty_checkout ----------------------------------------------------------
+
+
+def _failed_job(step: str | None, *, kind: Literal["update", "rollback"] = "update") -> UpdateJob:
+    return UpdateJob(
+        state="failed", kind=kind, target="v2.0.0", step=step, error="boom", started_at=100.0, finished_at=101.0
+    )
+
+
+@pytest.mark.parametrize("step", ["fetch", "checkout"])
+def test_should_repair_dirty_checkout_is_true_when_the_previous_job_failed_at_fetch_or_checkout(
+    step: str,
+) -> None:
+    assert should_repair_dirty_checkout(_failed_job(step)) is True
+
+
+def test_should_repair_dirty_checkout_is_true_for_a_failed_rollback_too() -> None:
+    # The same tree-mutating steps run for a rollback (it goes through
+    # Updater.apply the same way an update does) -- the attribution rule
+    # must not be update-only.
+    assert should_repair_dirty_checkout(_failed_job("checkout", kind="rollback")) is True
+
+
+@pytest.mark.parametrize("step", ["assets", "sync", "install-assets", "restart", "start", None])
+def test_should_repair_dirty_checkout_is_false_when_the_previous_job_failed_elsewhere(step: str | None) -> None:
+    assert should_repair_dirty_checkout(_failed_job(step)) is False
+
+
+def test_should_repair_dirty_checkout_is_false_when_there_is_no_previous_job() -> None:
+    assert should_repair_dirty_checkout(IDLE_UPDATE_STATE.job) is False
+
+
+def test_should_repair_dirty_checkout_is_false_when_the_previous_job_succeeded() -> None:
+    done_job = UpdateJob(
+        state="done", kind="update", target="v2.0.0", step=None, error=None, started_at=100.0, finished_at=101.0
+    )
+    assert should_repair_dirty_checkout(done_job) is False
+
+
+def test_should_repair_dirty_checkout_is_true_after_finalize_after_restart_attributes_an_interrupted_fetch() -> None:
+    # The scenario the design calls out explicitly: the process died mid-
+    # "fetch" (SIGKILL from the step timeout, or a power cut), so
+    # finalize_after_restart (run once at the next startup) turns the
+    # leftover "running" job into "failed" at step "fetch" -- that
+    # finalized job must still be recognized as repairable.
+    state = _running_state()
+    assert state.job.step == "fetch"
+
+    finalized = finalize_after_restart(state, InstalledVersion(tag="v1.0.0", commit="abc"), now=2000.0)
+
+    assert finalized.job.state == "failed"
+    assert finalized.job.step == "fetch"
+    assert should_repair_dirty_checkout(finalized.job) is True
+
+
+def test_should_repair_dirty_checkout_is_false_when_the_previous_job_is_still_running() -> None:
+    assert should_repair_dirty_checkout(_running_state().job) is False
 
 
 # -- finalize_after_restart ----------------------------------------------------------------

@@ -672,6 +672,110 @@ def test_retry_available_is_false_when_idle(client: TestClient, adapters: FakeAd
     assert response.json()["retry_available"] is False
 
 
+# -- repair_dirty attribution: a failed fetch/checkout self-heals the next attempt -----------------
+
+
+def test_apply_passes_repair_dirty_true_on_retry_after_a_failed_checkout(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    _log_in(client, adapters)
+    adapters.updater.installed_version = InstalledVersion(tag="v1.0.0", commit="abc")
+    _check_v2(client, adapters)
+    adapters.updater.fail_at_step = "checkout"
+    first = client.post("/api/v1/update/apply", json={"tag": "v2.0.0"}, headers=CSRF_HEADERS)
+    assert first.json()["job"]["state"] == "failed"
+    assert first.json()["job"]["step"] == "checkout"
+
+    adapters.updater.fail_at_step = None
+    response = client.post("/api/v1/update/apply", json={"tag": "v2.0.0"}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 202
+    assert adapters.updater.apply_repair_dirty_calls == [False, True]
+
+
+def test_apply_passes_repair_dirty_true_on_retry_after_a_failed_fetch(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    _log_in(client, adapters)
+    adapters.updater.installed_version = InstalledVersion(tag="v1.0.0", commit="abc")
+    _check_v2(client, adapters)
+    adapters.updater.fail_at_step = "fetch"
+    first = client.post("/api/v1/update/apply", json={"tag": "v2.0.0"}, headers=CSRF_HEADERS)
+    assert first.json()["job"]["state"] == "failed"
+    assert first.json()["job"]["step"] == "fetch"
+
+    adapters.updater.fail_at_step = None
+    response = client.post("/api/v1/update/apply", json={"tag": "v2.0.0"}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 202
+    assert adapters.updater.apply_repair_dirty_calls == [False, True]
+
+
+def test_apply_does_not_pass_repair_dirty_on_retry_after_a_failed_sync(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    # A sync failure is not a tree-mutating step -- pin that this case does
+    # not become repairable just because a job failed.
+    _log_in(client, adapters)
+    adapters.updater.installed_version = InstalledVersion(tag="v1.0.0", commit="abc")
+    _check_v2(client, adapters)
+    adapters.updater.fail_at_step = "sync"
+    first = client.post("/api/v1/update/apply", json={"tag": "v2.0.0"}, headers=CSRF_HEADERS)
+    assert first.json()["job"]["state"] == "failed"
+
+    adapters.updater.fail_at_step = None
+    response = client.post("/api/v1/update/apply", json={"tag": "v2.0.0"}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 202
+    assert adapters.updater.apply_repair_dirty_calls == [False, False]
+
+
+def test_apply_does_not_pass_repair_dirty_for_a_first_ever_apply(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    _log_in(client, adapters)
+    adapters.updater.installed_version = InstalledVersion(tag="v1.0.0", commit="abc")
+    _check_v2(client, adapters)
+
+    response = client.post("/api/v1/update/apply", json={"tag": "v2.0.0"}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 202
+    assert adapters.updater.apply_repair_dirty_calls == [False]
+
+
+def test_rollback_passes_repair_dirty_true_after_a_failed_checkout(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    # A previous rollback attempt died at "checkout" -- seeded directly
+    # (rather than driven through a first apply) because a healthy apply
+    # leaves the job "restarting", which start_rollback would then refuse
+    # as update_in_progress; the state below is what a real device's
+    # update.json looks like right after that interrupted rollback.
+    _log_in(client, adapters)
+    adapters.updater.installed_version = InstalledVersion(tag="v2.0.0", commit="def")
+    adapters.state.write_update_state(
+        UpdateState(
+            latest=RELEASE_V2,
+            checked_at=1.0,
+            previous_tag="v1.0.0",
+            job=UpdateJob(
+                state="failed",
+                kind="rollback",
+                target="v1.0.0",
+                step="checkout",
+                error="boom",
+                started_at=1.0,
+                finished_at=2.0,
+            ),
+        )
+    )
+
+    response = client.post("/api/v1/update/rollback", headers=CSRF_HEADERS)
+
+    assert response.status_code == 202
+    assert adapters.updater.apply_repair_dirty_calls == [True]
+
+
 def test_apply_after_a_failed_job_can_retry_the_same_target(client: TestClient, adapters: FakeAdapterBundle) -> None:
     """The uv-sync-failed case: retry must work even though `update_available` would say no."""
     _log_in(client, adapters)

@@ -46,6 +46,23 @@ there.
 Rollback goes through the same :meth:`GitUvUpdater.apply` entry point as a
 forward update (``api/update.py`` picks the tag) -- rolling back re-downloads
 that tag's own frontend asset rather than restoring a saved ``static/``.
+
+**Being killed mid-``fetch``/``checkout``.** The step timeouts SIGKILL a
+stuck subprocess, and a power cut does the same without even that much
+grace. Either can leave ``.git/index.lock`` and friends behind (every later
+git call then fails "File exists") and/or a half-checked-out dirty working
+tree. :meth:`apply` sweeps stale git lock files unconditionally at the
+start of every run (:meth:`_sweep_stale_locks`) -- they can only be debris
+from a previous run of this same updater, never a live process, since git
+is always run synchronously one step at a time. The dirty-tree guard
+itself stays in place for a USER-dirty tree (local changes an operator
+made over SSH) -- that remains an accepted risk requiring manual
+resolution, unchanged. What no longer requires SSH is a tree the *updater
+itself* left dirty: when the caller passes ``repair_dirty=True`` -- because
+``core/update.should_repair_dirty_checkout`` found the previous job in
+``update.json`` failed at ``"fetch"`` or ``"checkout"`` -- the guard is
+skipped and ``checkout`` runs ``--force``, clobbering the interrupted
+half-checkout with the validated tag rather than refusing it forever.
 """
 
 from __future__ import annotations
@@ -83,6 +100,10 @@ SYNC_TIMEOUT_SECONDS = 600.0
 #: carries -- enough to show the git/uv failure without unbounded output in
 #: persisted state (``update.json``) or a log line.
 _STDERR_TAIL_LINES = 20
+
+#: Git lock files directly under ``.git/`` that a killed ``git fetch``/
+#: ``git checkout`` can leave behind -- see :meth:`GitUvUpdater._sweep_stale_locks`.
+_GIT_DIR_LOCK_NAMES = ("index.lock", "packed-refs.lock", "shallow.lock", "HEAD.lock")
 
 Runner = Callable[..., "subprocess.CompletedProcess[str]"]
 
@@ -129,18 +150,55 @@ class GitUvUpdater(Updater):
         output = result.stdout.strip()
         return output or None
 
-    def apply(self, tag: str, on_step: Callable[[str], None]) -> None:
+    def apply(self, tag: str, on_step: Callable[[str], None], *, repair_dirty: bool = False) -> None:
+        self._sweep_stale_locks()
         self._step("fetch", ["git", "fetch", "--tags", "origin"], FETCH_TIMEOUT_SECONDS, on_step)
         temp_dir = self._assets(tag, on_step)
         try:
-            self._checkout(tag, on_step)
+            self._checkout(tag, on_step, repair_dirty=repair_dirty)
             self._sync(on_step)
         except Exception:
             shutil.rmtree(temp_dir, ignore_errors=True)
             raise
         self._install_assets(temp_dir, on_step)
 
-    def _checkout(self, tag: str, on_step: Callable[[str], None]) -> None:
+    def _sweep_stale_locks(self) -> None:
+        """Remove stale git lock files under ``.git/`` before every apply/rollback run.
+
+        A killed ``git fetch``/``git checkout`` (the step timeouts SIGKILL
+        the subprocess; a power cut does the same without even that much
+        grace) can leave ``.git/index.lock`` and friends behind, which
+        makes every later git invocation in this checkout fail with "File
+        exists" forever -- this device could otherwise never update again
+        without an operator clearing it over SSH.
+
+        Unconditional at the start of every run, not conditioned on
+        ``repair_dirty``: this class runs git synchronously, one
+        subprocess at a time (see the module docstring), so a lock file
+        found here cannot belong to a live git process of this updater's
+        own -- it can only be debris from a previous run of *this same
+        updater* (this method's caller), which is exactly the "messes it
+        can attribute to itself" the module docstring's accepted-risk
+        sentence describes. Logs one WARNING naming what was removed;
+        silent when there is nothing to remove.
+        """
+        git_dir = self.portal_dir / ".git"
+        candidates = [git_dir / name for name in _GIT_DIR_LOCK_NAMES]
+        refs_dir = git_dir / "refs"
+        if refs_dir.is_dir():
+            candidates.extend(sorted(refs_dir.rglob("*.lock")))
+        removed: list[str] = []
+        for path in candidates:
+            try:
+                if path.is_file():
+                    path.unlink()
+                    removed.append(str(path.relative_to(self.portal_dir)))
+            except OSError as error:
+                logger.warning("could not remove stale git lock %s: %s", path, error)
+        if removed:
+            logger.warning("removed stale git lock file(s) before update: %s", ", ".join(removed))
+
+    def _checkout(self, tag: str, on_step: Callable[[str], None], *, repair_dirty: bool = False) -> None:
         """Refuse a dirty checkout, resolve ``tag`` against a fully-qualified ref, then check it out.
 
         Three subprocess calls under one ``on_step("checkout")`` -- a caller
@@ -149,27 +207,35 @@ class GitUvUpdater(Updater):
 
         1. ``git status --porcelain --untracked-files=no`` -- refuses to
            touch a checkout with local changes; an operator resolves that
-           over SSH first (commit, stash, or reset).
+           over SSH first (commit, stash, or reset). Skipped entirely when
+           ``repair_dirty`` is ``True``: the caller (``core/update.py``'s
+           :func:`~palmimo_portal.core.update.should_repair_dirty_checkout`)
+           has already determined the *updater's own previous job* died at
+           ``"fetch"`` or ``"checkout"``, so any dirt here can only be that
+           job's half-finished work, not a human's.
         2. ``git rev-parse --verify --quiet refs/tags/<tag>^{commit}`` --
            confirms the tag exists after the fetch above, resolved against
            the fully-qualified ``refs/tags/`` ref so this can't be tricked
            into resolving a same-named branch instead.
         3. ``git checkout --detach refs/tags/<tag>`` -- same fully-qualified
-           ref, same reason.
+           ref, same reason. When ``repair_dirty`` is ``True`` this becomes
+           ``git checkout --force --detach refs/tags/<tag>``, which clobbers
+           the interrupted half-checkout rather than refusing it.
         """
         on_step("checkout")
-        status = self._run_or_raise(
-            "checkout", ["git", "status", "--porcelain", "--untracked-files=no"], CHECKOUT_TIMEOUT_SECONDS
-        )
-        if status.returncode != 0:
-            raise UpdateStepError(
-                "checkout", _stderr_tail(status.stderr or "") or f"git status exited {status.returncode}"
+        if not repair_dirty:
+            status = self._run_or_raise(
+                "checkout", ["git", "status", "--porcelain", "--untracked-files=no"], CHECKOUT_TIMEOUT_SECONDS
             )
-        if status.stdout.strip():
-            raise UpdateStepError(
-                "checkout",
-                "working tree has local changes; commit, stash, or reset them over SSH before updating",
-            )
+            if status.returncode != 0:
+                raise UpdateStepError(
+                    "checkout", _stderr_tail(status.stderr or "") or f"git status exited {status.returncode}"
+                )
+            if status.stdout.strip():
+                raise UpdateStepError(
+                    "checkout",
+                    "working tree has local changes; commit, stash, or reset them over SSH before updating",
+                )
 
         ref = f"refs/tags/{tag}"
         verify = self._run_or_raise(
@@ -178,7 +244,10 @@ class GitUvUpdater(Updater):
         if verify.returncode != 0:
             raise UpdateStepError("checkout", "tag not found after fetch")
 
-        checkout = self._run_or_raise("checkout", ["git", "checkout", "--detach", ref], CHECKOUT_TIMEOUT_SECONDS)
+        checkout_argv = ["git", "checkout", "--detach", ref]
+        if repair_dirty:
+            checkout_argv.insert(2, "--force")
+        checkout = self._run_or_raise("checkout", checkout_argv, CHECKOUT_TIMEOUT_SECONDS)
         if checkout.returncode != 0:
             raise UpdateStepError(
                 "checkout", _stderr_tail(checkout.stderr or "") or f"checkout {ref} exited {checkout.returncode}"

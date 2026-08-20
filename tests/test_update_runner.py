@@ -171,6 +171,35 @@ def test_run_sleeps_before_restart_even_when_restart_fails(monkeypatch: pytest.M
     assert state_store.read_update_state().job.state == "failed"
 
 
+# -- repair_dirty threading ---------------------------------------------------------------
+
+
+def test_start_defaults_repair_dirty_to_false(monkeypatch: pytest.MonkeyPatch) -> None:
+    state_store = FakeStateStore()
+    state_store.write_update_state(_running_state())
+    updater = FakeUpdater()
+    system = FakeSystemPort()
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+
+    runner = UpdateRunner(state_store, updater, system, run_in_thread=False)
+    runner.start("v2.0.0")
+
+    assert updater.apply_repair_dirty_calls == [False]
+
+
+def test_start_forwards_repair_dirty_true_to_the_updater(monkeypatch: pytest.MonkeyPatch) -> None:
+    state_store = FakeStateStore()
+    state_store.write_update_state(_running_state())
+    updater = FakeUpdater()
+    system = FakeSystemPort()
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+
+    runner = UpdateRunner(state_store, updater, system, run_in_thread=False)
+    runner.start("v2.0.0", repair_dirty=True)
+
+    assert updater.apply_repair_dirty_calls == [True]
+
+
 # -- alive liveness flag ------------------------------------------------------------------
 
 
@@ -185,9 +214,9 @@ def test_run_sets_alive_for_the_whole_duration_of_a_synchronous_run(monkeypatch:
 
     original_apply = updater.apply
 
-    def spying_apply(tag: str, on_step: Callable[[str], None]) -> None:
+    def spying_apply(tag: str, on_step: Callable[[str], None], *, repair_dirty: bool = False) -> None:
         observed_during_run.append(alive.is_set())
-        original_apply(tag, on_step)
+        original_apply(tag, on_step, repair_dirty=repair_dirty)
 
     monkeypatch.setattr(updater, "apply", spying_apply)
 
@@ -252,7 +281,7 @@ def test_run_in_a_background_thread_keeps_alive_set_until_the_thread_finishes() 
         def installed(self) -> InstalledVersion:
             return InstalledVersion(tag="v1.0.0", commit="abc")
 
-        def apply(self, tag: str, on_step: Callable[[str], None]) -> None:
+        def apply(self, tag: str, on_step: Callable[[str], None], *, repair_dirty: bool = False) -> None:
             apply_started.set()
             release_apply.wait(timeout=5.0)
             on_step("fetch")

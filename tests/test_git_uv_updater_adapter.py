@@ -149,6 +149,108 @@ def test_installed_uses_cwd_not_dash_c(tmp_path: Path) -> None:
         assert "-C" not in call["argv"]
 
 
+# --- stale git lock sweep: run at the start of every apply/rollback ---
+
+
+def _seed_git_dir(tmp_path: Path) -> Path:
+    git_dir = tmp_path / ".git"
+    (git_dir / "refs" / "heads").mkdir(parents=True)
+    (git_dir / "refs" / "tags").mkdir(parents=True)
+    return git_dir
+
+
+def test_apply_sweeps_the_exact_set_of_stale_lock_files_and_logs_one_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    git_dir = _seed_git_dir(tmp_path)
+    (git_dir / "index.lock").write_text("")
+    (git_dir / "packed-refs.lock").write_text("")
+    (git_dir / "shallow.lock").write_text("")
+    (git_dir / "HEAD.lock").write_text("")
+    (git_dir / "refs" / "heads" / "main.lock").write_text("")
+    (git_dir / "refs" / "tags" / "v2.0.0.lock").write_text("")
+    # Untouched: a non-lock file under .git, and a lock-named directory
+    # (unlikely, but the sweep must only ever unlink files).
+    (git_dir / "config").write_text("[core]\n")
+    (git_dir / "refs" / "heads" / "not-a-lock.txt").write_text("")
+    runner = _ScriptedRunner(_happy_checkout_script())
+    opener = _asset_opener("v2.0.0", _minimal_static_tar())
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner, opener=opener)
+
+    with caplog.at_level(logging.WARNING):
+        updater.apply("v2.0.0", on_step=lambda step: None)
+
+    assert not (git_dir / "index.lock").exists()
+    assert not (git_dir / "packed-refs.lock").exists()
+    assert not (git_dir / "shallow.lock").exists()
+    assert not (git_dir / "HEAD.lock").exists()
+    assert not (git_dir / "refs" / "heads" / "main.lock").exists()
+    assert not (git_dir / "refs" / "tags" / "v2.0.0.lock").exists()
+    assert (git_dir / "config").exists()
+    assert (git_dir / "refs" / "heads" / "not-a-lock.txt").exists()
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    message = warnings[0].message
+    assert "index.lock" in message
+    assert "packed-refs.lock" in message
+    assert "shallow.lock" in message
+    assert "HEAD.lock" in message
+    assert "main.lock" in message
+    assert "v2.0.0.lock" in message
+    assert "config" not in message  # the non-lock file is not mentioned
+    assert "not-a-lock.txt" not in message
+
+
+def test_apply_sweep_is_silent_and_a_no_op_when_no_locks_are_present(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    import logging
+
+    _seed_git_dir(tmp_path)
+    runner = _ScriptedRunner(_happy_checkout_script())
+    opener = _asset_opener("v2.0.0", _minimal_static_tar())
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner, opener=opener)
+
+    with caplog.at_level(logging.WARNING):
+        updater.apply("v2.0.0", on_step=lambda step: None)
+
+    assert not any("lock" in r.message for r in caplog.records)
+
+
+def test_apply_sweep_tolerates_a_missing_git_directory(tmp_path: Path) -> None:
+    # No .git at all (e.g. portal_dir misconfigured in a test) must not
+    # crash the sweep before fetch even runs.
+    runner = _ScriptedRunner(_happy_checkout_script())
+    opener = _asset_opener("v2.0.0", _minimal_static_tar())
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner, opener=opener)
+
+    updater.apply("v2.0.0", on_step=lambda step: None)  # must not raise
+
+    called_subcommands = [call["argv"][1] for call in runner.calls]
+    assert called_subcommands[0] == "fetch"
+
+
+def test_apply_sweeps_locks_before_fetch_runs(tmp_path: Path) -> None:
+    git_dir = _seed_git_dir(tmp_path)
+    (git_dir / "index.lock").write_text("")
+    seen_before_fetch = {}
+
+    def recording_runner(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if argv[1] == "fetch":
+            seen_before_fetch["index_lock_exists"] = (git_dir / "index.lock").exists()
+        script = _happy_checkout_script()
+        return script.get(argv[1], subprocess.CompletedProcess(argv, 0, stdout="", stderr=""))
+
+    opener = _asset_opener("v2.0.0", _minimal_static_tar())
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=recording_runner, opener=opener)
+
+    updater.apply("v2.0.0", on_step=lambda step: None)
+
+    assert seen_before_fetch == {"index_lock_exists": False}
+
+
 def _happy_checkout_script(**overrides: Any) -> dict[str, Any]:
     """A script dict where fetch/status/rev-parse/checkout/sync all succeed."""
     script: dict[str, Any] = {
@@ -299,6 +401,58 @@ def test_checkout_refuses_a_dirty_working_tree(tmp_path: Path) -> None:
     # Nothing must be discarded: rev-parse/checkout never run once dirty.
     called_subcommands = [call["argv"][1] for call in runner.calls]
     assert called_subcommands == ["status"]
+
+
+def test_checkout_repairs_a_dirty_tree_with_a_forced_checkout_when_repair_dirty_is_true(tmp_path: Path) -> None:
+    # A killed checkout can leave the working tree dirty -- with
+    # repair_dirty=True (the updater's own previous job failed at "fetch"
+    # or "checkout"), the dirty-tree guard must be skipped entirely and the
+    # checkout itself forced, rather than refusing forever.
+    runner = _ScriptedRunner(_happy_checkout_script(status=_ok(" M some/file.py\n")))
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner)
+
+    updater._checkout("v2.0.0", on_step=lambda step: None, repair_dirty=True)
+
+    called_subcommands = [call["argv"][1] for call in runner.calls]
+    assert "status" not in called_subcommands  # the dirty-tree guard itself never ran
+    checkout_call = next(call for call in runner.calls if call["argv"][:2] == ["git", "checkout"])
+    assert checkout_call["argv"] == ["git", "checkout", "--force", "--detach", "refs/tags/v2.0.0"]
+
+
+def test_checkout_still_refuses_a_dirty_tree_when_repair_dirty_is_false(tmp_path: Path) -> None:
+    # Pins today's behavior: repair_dirty defaults to False, so a
+    # USER-dirty tree still refuses -- the accepted-risk behavior must not
+    # regress.
+    runner = _ScriptedRunner(_happy_checkout_script(status=_ok(" M some/file.py\n")))
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner)
+
+    with pytest.raises(UpdateStepError) as excinfo:
+        updater._checkout("v2.0.0", on_step=lambda step: None)
+
+    assert "working tree has local changes" in str(excinfo.value)
+
+
+def test_apply_threads_repair_dirty_into_checkout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("palmimo_portal.adapters.git_uv_updater.shutil.which", lambda name: "/usr/bin/uv")
+    runner = _ScriptedRunner(_happy_checkout_script(status=_ok(" M some/file.py\n")))
+    opener = _asset_opener("v2.0.0", _minimal_static_tar())
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner, opener=opener)
+
+    updater.apply("v2.0.0", on_step=lambda step: None, repair_dirty=True)
+
+    checkout_call = next(call for call in runner.calls if call["argv"][:2] == ["git", "checkout"])
+    assert checkout_call["argv"] == ["git", "checkout", "--force", "--detach", "refs/tags/v2.0.0"]
+
+
+def test_apply_defaults_repair_dirty_to_false(tmp_path: Path) -> None:
+    runner = _ScriptedRunner(_happy_checkout_script(status=_ok(" M some/file.py\n")))
+    opener = _asset_opener("v2.0.0", _minimal_static_tar())
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner, opener=opener)
+
+    with pytest.raises(UpdateStepError) as excinfo:
+        updater.apply("v2.0.0", on_step=lambda step: None)
+
+    assert "working tree has local changes" in str(excinfo.value)
 
 
 def test_checkout_ignores_untracked_files_when_checking_dirtiness(tmp_path: Path) -> None:

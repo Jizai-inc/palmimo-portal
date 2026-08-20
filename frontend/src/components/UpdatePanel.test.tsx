@@ -423,11 +423,61 @@ describe("UpdatePanel", () => {
     expect(await screen.findByText("Updated to v1.0.0")).toBeInTheDocument();
   });
 
-  it("disables the update button when latest is null", async () => {
-    useStatus({ ...BASE_STATUS, latest: null, update_available: false });
+  it("hides the update button and shows the check-failed state when latest is null", async () => {
+    useStatus({ ...BASE_STATUS, latest: null, update_available: false, checked_at: null });
     renderWithProviders(<UpdatePanel />);
 
-    expect(await screen.findByRole("button", { name: /^Update to\s*$/ })).toBeDisabled();
+    expect(await screen.findByText("Could not fetch release information")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Update to/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "View release notes" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check now" })).toBeInTheDocument();
+  });
+
+  it("shows a checking title instead of the check-failed title while the first auto-check is pending", async () => {
+    useStatus({ ...BASE_STATUS, latest: null, update_available: false, checked_at: null });
+    server.use(
+      http.post("*/api/v1/update/check", async () => {
+        await delay(50);
+        return HttpResponse.json({ ...BASE_STATUS, checked_at: Math.floor(Date.now() / 1000) });
+      }),
+    );
+    renderWithProviders(<UpdatePanel />);
+
+    expect(await screen.findByText("Checking for updates…")).toBeInTheDocument();
+    expect(screen.queryByText("Could not fetch release information")).not.toBeInTheDocument();
+
+    expect(await screen.findByText("Up to date")).toBeInTheDocument();
+  });
+
+  it("keeps the failed job card visible after Check now succeeds (a check must not clear a failed job from view)", async () => {
+    const user = userEvent.setup();
+    const failedStatus: UpdateStatusResponse = {
+      ...UPDATE_AVAILABLE_STATUS,
+      installed: { tag: "v2.0.0", commit: "def5678" },
+      previous_tag: "v1.0.0",
+      job: { kind: "update", state: "failed", target: "v2.0.0", step: "sync", error: "uv sync failed", started_at: 1, finished_at: 2, restarting_at: null },
+    };
+    useStatus(failedStatus);
+    server.use(
+      // The real backend resets the job to idle as a side effect of a
+      // successful check (core/update.py's start_check/record_latest) --
+      // this mock reproduces that so the test exercises the actual bug.
+      http.post("*/api/v1/update/check", () =>
+        HttpResponse.json({ ...failedStatus, job: IDLE_JOB, checked_at: Math.floor(Date.now() / 1000) }),
+      ),
+    );
+    renderWithProviders(<UpdatePanel />);
+
+    expect(await screen.findByText(/uv sync failed/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Check now" }));
+
+    // Give the mutation a moment to resolve and re-render.
+    await waitFor(() => expect(screen.getByText(/uv sync failed/)).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Go back to v1.0.0" })).toBeInTheDocument();
+
+    // A second Check now press must not clear it either.
+    await user.click(screen.getByRole("button", { name: "Check now" }));
+    await waitFor(() => expect(screen.getByText(/uv sync failed/)).toBeInTheDocument());
   });
 
   it("shows restart-timed-out guidance with a reopen action after restartMaxWaitMs elapses", async () => {

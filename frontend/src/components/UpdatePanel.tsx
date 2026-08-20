@@ -121,12 +121,27 @@ export function UpdatePanel({
   const queryClient = useQueryClient();
   const statusQueryKey = getGetStatusApiV1UpdateStatusGetQueryKey();
 
-  // Write each check/apply/rollback response straight into the status query's cache so a job
+  // Write each apply/rollback response straight into the status query's cache so a job
   // that just moved to "running"/"restarting" is visible immediately; `refetchType: "none"`
   // only marks the entry stale rather than forcing an immediate refetch that could race this
   // write and clobber it with a stale read.
   function adoptStatus(data: UpdateStatusResponse) {
     queryClient.setQueryData(statusQueryKey, data);
+    void queryClient.invalidateQueries({ queryKey: statusQueryKey, refetchType: "none" });
+  }
+
+  // A check is a pure query: `start_check` (core/update.py) always resets a
+  // finished job -- including a "failed" one -- to idle as a side effect of
+  // starting the check, so the response's own `job` field cannot be trusted
+  // to reflect what the operator was looking at. Keep whatever job the cache
+  // already held and adopt every other field; only apply/rollback (via
+  // `adoptStatus`) or the next poll's independently-observed state may
+  // replace a visible job.
+  function adoptCheckStatus(data: UpdateStatusResponse) {
+    queryClient.setQueryData(statusQueryKey, (previous: UpdateStatusResponse | undefined) => ({
+      ...data,
+      job: previous?.job ?? data.job,
+    }));
     void queryClient.invalidateQueries({ queryKey: statusQueryKey, refetchType: "none" });
   }
 
@@ -141,7 +156,7 @@ export function UpdatePanel({
 
   const check = useCheckApiV1UpdateCheckPost({
     mutation: {
-      onSuccess: adoptStatus,
+      onSuccess: adoptCheckStatus,
     },
   });
   const apply = useApplyApiV1UpdateApplyPost({
@@ -345,9 +360,11 @@ function UpdateCard({
         <p className="font-semibold">
           {status.update_available
             ? t("update.newVersionAvailable")
-            : status.latest === null
-              ? t("update.checkFailedTitle")
-              : t("update.upToDate")}
+            : status.latest !== null
+              ? t("update.upToDate")
+              : checkPending
+                ? t("update.checkingTitle")
+                : t("update.checkFailedTitle")}
         </p>
         {status.latest ? (
           <Badge variant="outline" className="ml-auto">
@@ -412,19 +429,17 @@ function UpdateCard({
       <ApiErrorAlert error={applyError} />
 
       <div className="flex flex-col gap-3 md:flex-row">
-        <Button
-          className={cn("flex-1 md:flex-initial")}
-          disabled={
-            (!status.update_available && !status.retry_available) ||
-            !status.latest ||
-            applyPending ||
-            job.state === "running" ||
-            job.state === "restarting"
-          }
-          onClick={() => setDialogKind("update")}
-        >
-          {status.latest ? t("update.updateButton", { tag: status.latest.tag }) : t("update.updateButton", { tag: "" })}
-        </Button>
+        {status.latest ? (
+          <Button
+            className={cn("flex-1 md:flex-initial")}
+            disabled={
+              (!status.update_available && !status.retry_available) || applyPending || job.state === "running" || job.state === "restarting"
+            }
+            onClick={() => setDialogKind("update")}
+          >
+            {t("update.updateButton", { tag: status.latest.tag })}
+          </Button>
+        ) : null}
         {status.latest ? (
           <Button variant="outline" asChild>
             <a href={status.latest.html_url} target="_blank" rel="noreferrer">

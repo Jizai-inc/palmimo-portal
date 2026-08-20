@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from palmimo_portal.core.auth import hash_password
+from palmimo_portal.core.update import DIRTY_TREE_REFUSAL_PREFIX
 from palmimo_portal.ports import (
     AdapterUnavailableError,
     Identity,
@@ -672,12 +673,17 @@ def test_retry_available_is_false_when_idle(client: TestClient, adapters: FakeAd
     assert response.json()["retry_available"] is False
 
 
-# -- repair_dirty attribution: a failed fetch/checkout self-heals the next attempt -----------------
+# -- repair_dirty attribution: a failed checkout (not the dirty-tree refusal) self-heals the next attempt --
 
 
-def test_apply_passes_repair_dirty_true_on_retry_after_a_failed_checkout(
+def test_apply_passes_repair_dirty_true_on_retry_after_a_checkout_death_that_is_not_the_dirty_tree_refusal(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
+    # A subprocess timeout / nonzero git exit mid-checkout -- the
+    # dirty-tree guard already proved the tree clean before `git checkout`
+    # ran (it uses the default fail_message, not the refusal's own
+    # message), so a dirty tree found after this failure can only be the
+    # updater's own half-finished work.
     _log_in(client, adapters)
     adapters.updater.installed_version = InstalledVersion(tag="v1.0.0", commit="abc")
     _check_v2(client, adapters)
@@ -685,6 +691,7 @@ def test_apply_passes_repair_dirty_true_on_retry_after_a_failed_checkout(
     first = client.post("/api/v1/update/apply", json={"tag": "v2.0.0"}, headers=CSRF_HEADERS)
     assert first.json()["job"]["state"] == "failed"
     assert first.json()["job"]["step"] == "checkout"
+    assert DIRTY_TREE_REFUSAL_PREFIX not in (first.json()["job"]["error"] or "")
 
     adapters.updater.fail_at_step = None
     response = client.post("/api/v1/update/apply", json={"tag": "v2.0.0"}, headers=CSRF_HEADERS)
@@ -693,9 +700,38 @@ def test_apply_passes_repair_dirty_true_on_retry_after_a_failed_checkout(
     assert adapters.updater.apply_repair_dirty_calls == [False, True]
 
 
-def test_apply_passes_repair_dirty_true_on_retry_after_a_failed_fetch(
+def test_apply_still_refuses_a_user_dirty_tree_on_a_second_attempt_after_the_refusal_itself_failed_it(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
+    # The exact clobber scenario the design review caught: a USER-dirty
+    # tree (an operator's SSH edit) is refused on the first apply,
+    # recorded as failed at "checkout" -- the same shape a killed checkout
+    # would leave -- but it must NOT be force-checked-out on the very next
+    # apply. repair_dirty must stay False both times.
+    _log_in(client, adapters)
+    adapters.updater.installed_version = InstalledVersion(tag="v1.0.0", commit="abc")
+    _check_v2(client, adapters)
+    refusal_message = f"{DIRTY_TREE_REFUSAL_PREFIX}; commit, stash, or reset them over SSH before updating"
+    adapters.updater.fail_at_step = "checkout"
+    adapters.updater.fail_message = refusal_message
+
+    first = client.post("/api/v1/update/apply", json={"tag": "v2.0.0"}, headers=CSRF_HEADERS)
+    assert first.json()["job"]["state"] == "failed"
+    assert first.json()["job"]["step"] == "checkout"
+    assert refusal_message in (first.json()["job"]["error"] or "")
+
+    second = client.post("/api/v1/update/apply", json={"tag": "v2.0.0"}, headers=CSRF_HEADERS)
+
+    assert second.status_code == 202
+    assert second.json()["job"]["state"] == "failed"  # still refused, never force-clobbered
+    assert adapters.updater.apply_repair_dirty_calls == [False, False]
+
+
+def test_apply_does_not_pass_repair_dirty_on_retry_after_a_failed_fetch(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    # fetch can never dirty the working tree -- a failed fetch must not
+    # become repairable, even though it is a git step that can fail.
     _log_in(client, adapters)
     adapters.updater.installed_version = InstalledVersion(tag="v1.0.0", commit="abc")
     _check_v2(client, adapters)
@@ -708,7 +744,7 @@ def test_apply_passes_repair_dirty_true_on_retry_after_a_failed_fetch(
     response = client.post("/api/v1/update/apply", json={"tag": "v2.0.0"}, headers=CSRF_HEADERS)
 
     assert response.status_code == 202
-    assert adapters.updater.apply_repair_dirty_calls == [False, True]
+    assert adapters.updater.apply_repair_dirty_calls == [False, False]
 
 
 def test_apply_does_not_pass_repair_dirty_on_retry_after_a_failed_sync(
@@ -743,13 +779,14 @@ def test_apply_does_not_pass_repair_dirty_for_a_first_ever_apply(
     assert adapters.updater.apply_repair_dirty_calls == [False]
 
 
-def test_rollback_passes_repair_dirty_true_after_a_failed_checkout(
+def test_rollback_passes_repair_dirty_true_after_a_checkout_death_that_is_not_the_dirty_tree_refusal(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
-    # A previous rollback attempt died at "checkout" -- seeded directly
-    # (rather than driven through a first apply) because a healthy apply
-    # leaves the job "restarting", which start_rollback would then refuse
-    # as update_in_progress; the state below is what a real device's
+    # A previous rollback attempt died at "checkout" for a reason other
+    # than the dirty-tree refusal -- seeded directly (rather than driven
+    # through a first apply) because a healthy apply leaves the job
+    # "restarting", which start_rollback would then refuse as
+    # update_in_progress; the state below is what a real device's
     # update.json looks like right after that interrupted rollback.
     _log_in(client, adapters)
     adapters.updater.installed_version = InstalledVersion(tag="v2.0.0", commit="def")
@@ -763,7 +800,7 @@ def test_rollback_passes_repair_dirty_true_after_a_failed_checkout(
                 kind="rollback",
                 target="v1.0.0",
                 step="checkout",
-                error="boom",
+                error="checkout refs/tags/v1.0.0 timed out",
                 started_at=1.0,
                 finished_at=2.0,
             ),
@@ -774,6 +811,37 @@ def test_rollback_passes_repair_dirty_true_after_a_failed_checkout(
 
     assert response.status_code == 202
     assert adapters.updater.apply_repair_dirty_calls == [True]
+
+
+def test_rollback_does_not_pass_repair_dirty_after_a_dirty_tree_refusal(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    _log_in(client, adapters)
+    adapters.updater.installed_version = InstalledVersion(tag="v2.0.0", commit="def")
+    # The persisted error is "checkout: <message>" -- UpdateStepError's own
+    # __str__, written verbatim by mark_failed -- not the bare message.
+    refusal_message = f"checkout: {DIRTY_TREE_REFUSAL_PREFIX}; commit, stash, or reset them over SSH before updating"
+    adapters.state.write_update_state(
+        UpdateState(
+            latest=RELEASE_V2,
+            checked_at=1.0,
+            previous_tag="v1.0.0",
+            job=UpdateJob(
+                state="failed",
+                kind="rollback",
+                target="v1.0.0",
+                step="checkout",
+                error=refusal_message,
+                started_at=1.0,
+                finished_at=2.0,
+            ),
+        )
+    )
+
+    response = client.post("/api/v1/update/rollback", headers=CSRF_HEADERS)
+
+    assert response.status_code == 202
+    assert adapters.updater.apply_repair_dirty_calls == [False]
 
 
 def test_apply_after_a_failed_job_can_retry_the_same_target(client: TestClient, adapters: FakeAdapterBundle) -> None:

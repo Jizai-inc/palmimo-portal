@@ -8,6 +8,7 @@ import pytest
 
 from palmimo_portal.core.update import (
     DEFAULT_RESTART_MAX_AGE_SECONDS,
+    DIRTY_TREE_REFUSAL_PREFIX,
     IDLE_UPDATE_STATE,
     InvalidReleaseTagError,
     NoPreviousVersionError,
@@ -284,24 +285,34 @@ def test_mark_failed_records_step_and_error_and_keeps_previous_tag() -> None:
 # -- should_repair_dirty_checkout ----------------------------------------------------------
 
 
-def _failed_job(step: str | None, *, kind: Literal["update", "rollback"] = "update") -> UpdateJob:
+def _failed_job(step: str | None, *, kind: Literal["update", "rollback"] = "update", error: str = "boom") -> UpdateJob:
     return UpdateJob(
-        state="failed", kind=kind, target="v2.0.0", step=step, error="boom", started_at=100.0, finished_at=101.0
+        state="failed", kind=kind, target="v2.0.0", step=step, error=error, started_at=100.0, finished_at=101.0
     )
 
 
-@pytest.mark.parametrize("step", ["fetch", "checkout"])
-def test_should_repair_dirty_checkout_is_true_when_the_previous_job_failed_at_fetch_or_checkout(
-    step: str,
-) -> None:
-    assert should_repair_dirty_checkout(_failed_job(step)) is True
+def test_should_repair_dirty_checkout_is_true_when_checkout_failed_for_a_reason_other_than_the_dirty_guard() -> None:
+    # A subprocess timeout (SIGKILL mid-checkout) or a nonzero git exit
+    # (e.g. disk full mid-checkout) -- the dirty-tree guard already proved
+    # the tree clean before `git checkout` ran, so dirt found afterwards
+    # can only be this updater's own half-finished work.
+    assert should_repair_dirty_checkout(_failed_job("checkout", error="checkout refs/tags/v2.0.0 timed out")) is True
 
 
 def test_should_repair_dirty_checkout_is_true_for_a_failed_rollback_too() -> None:
-    # The same tree-mutating steps run for a rollback (it goes through
+    # "checkout" runs the same way for a rollback (it goes through
     # Updater.apply the same way an update does) -- the attribution rule
     # must not be update-only.
     assert should_repair_dirty_checkout(_failed_job("checkout", kind="rollback")) is True
+
+
+def test_should_repair_dirty_checkout_is_false_for_a_failed_fetch() -> None:
+    # `fetch` never touches the working tree, so it cannot be the reason a
+    # later checkout finds the tree dirty; the stale-lock sweep already
+    # covers what a killed fetch *can* leave behind. Repairing on a failed
+    # fetch would let "GitHub unreachable + a human's SSH edit sitting in
+    # the tree" also enable the force-clobber on retry.
+    assert should_repair_dirty_checkout(_failed_job("fetch")) is False
 
 
 @pytest.mark.parametrize("step", ["assets", "sync", "install-assets", "restart", "start", None])
@@ -320,12 +331,69 @@ def test_should_repair_dirty_checkout_is_false_when_the_previous_job_succeeded()
     assert should_repair_dirty_checkout(done_job) is False
 
 
-def test_should_repair_dirty_checkout_is_true_after_finalize_after_restart_attributes_an_interrupted_fetch() -> None:
-    # The scenario the design calls out explicitly: the process died mid-
-    # "fetch" (SIGKILL from the step timeout, or a power cut), so
-    # finalize_after_restart (run once at the next startup) turns the
-    # leftover "running" job into "failed" at step "fetch" -- that
-    # finalized job must still be recognized as repairable.
+def test_should_repair_dirty_checkout_is_false_when_the_previous_job_is_still_running() -> None:
+    assert should_repair_dirty_checkout(_running_state().job) is False
+
+
+# -- should_repair_dirty_checkout: the dirty-tree-refusal exclusion (the clobber hole) -----
+
+
+def test_should_repair_dirty_checkout_is_false_when_the_previous_failure_was_the_dirty_tree_refusal() -> None:
+    # This is the whole point of excluding the refusal: without it, a
+    # USER-dirty tree refused on the first apply -- recorded as failed at
+    # "checkout" exactly like a killed checkout would be -- would then be
+    # force-clobbered by `git checkout --force` on the very next apply.
+    # The persisted error is "checkout: <message>" -- UpdateStepError's own
+    # __str__, written verbatim by mark_failed -- not the bare message.
+    refusal_job = _failed_job(
+        "checkout",
+        error=f"checkout: {DIRTY_TREE_REFUSAL_PREFIX}; commit, stash, or reset them over SSH before updating",
+    )
+    assert should_repair_dirty_checkout(refusal_job) is False
+
+
+def test_should_repair_dirty_checkout_is_true_when_the_error_merely_mentions_the_refusal_prefix_mid_string() -> None:
+    # Defense against an overly-loose substring check: the refusal prefix
+    # appearing somewhere other than right after "checkout: " must not
+    # suppress repair -- only the exact persisted refusal shape should.
+    job = _failed_job("checkout", error=f"checkout: uv sync mentioned '{DIRTY_TREE_REFUSAL_PREFIX}' in its output")
+    assert should_repair_dirty_checkout(job) is True
+
+
+def test_should_repair_dirty_checkout_is_true_after_finalize_after_restart_attributes_an_interrupted_checkout() -> None:
+    # The process died mid-"checkout" (SIGKILL from the step timeout, or a
+    # power cut) -- finalize_after_restart (run once at the next startup)
+    # turns the leftover "running" job into "failed" at step "checkout"
+    # with its own "interrupted" message (never the dirty-guard's
+    # message, since the guard raises synchronously and could not have
+    # been in flight when the process died) -- that finalized job must
+    # still be recognized as repairable.
+    state = UpdateState(
+        latest=RELEASE_V2,
+        checked_at=100.0,
+        previous_tag="v1.0.0",
+        job=UpdateJob(
+            state="running",
+            kind="update",
+            target="v2.0.0",
+            step="checkout",
+            error=None,
+            started_at=100.0,
+            finished_at=None,
+        ),
+    )
+
+    finalized = finalize_after_restart(state, InstalledVersion(tag="v1.0.0", commit="abc"), now=2000.0)
+
+    assert finalized.job.state == "failed"
+    assert finalized.job.step == "checkout"
+    assert "interrupted" in (finalized.job.error or "")
+    assert should_repair_dirty_checkout(finalized.job) is True
+
+
+def test_should_repair_dirty_checkout_is_false_after_finalize_after_restart_attributes_an_interrupted_fetch() -> None:
+    # Mirrors the checkout case above, but for "fetch" -- must stay False,
+    # since fetch can never dirty the tree.
     state = _running_state()
     assert state.job.step == "fetch"
 
@@ -333,11 +401,7 @@ def test_should_repair_dirty_checkout_is_true_after_finalize_after_restart_attri
 
     assert finalized.job.state == "failed"
     assert finalized.job.step == "fetch"
-    assert should_repair_dirty_checkout(finalized.job) is True
-
-
-def test_should_repair_dirty_checkout_is_false_when_the_previous_job_is_still_running() -> None:
-    assert should_repair_dirty_checkout(_running_state().job) is False
+    assert should_repair_dirty_checkout(finalized.job) is False
 
 
 # -- finalize_after_restart ----------------------------------------------------------------

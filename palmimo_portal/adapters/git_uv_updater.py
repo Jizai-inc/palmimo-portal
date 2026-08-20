@@ -54,15 +54,43 @@ git call then fails "File exists") and/or a half-checked-out dirty working
 tree. :meth:`apply` sweeps stale git lock files unconditionally at the
 start of every run (:meth:`_sweep_stale_locks`) -- they can only be debris
 from a previous run of this same updater, never a live process, since git
-is always run synchronously one step at a time. The dirty-tree guard
-itself stays in place for a USER-dirty tree (local changes an operator
-made over SSH) -- that remains an accepted risk requiring manual
-resolution, unchanged. What no longer requires SSH is a tree the *updater
-itself* left dirty: when the caller passes ``repair_dirty=True`` -- because
+is always run synchronously one step at a time. That sweep runs for
+``fetch`` too, even though ``fetch`` cannot dirty the tree itself (see
+below) -- a killed ``fetch`` can still leave lock files.
+
+The dirty-tree guard itself stays in place for a USER-dirty tree (local
+changes an operator made over SSH) -- that remains an accepted risk
+requiring manual resolution, unchanged. What no longer requires SSH is a
+tree the *updater itself* left dirty mid-``checkout``: when the caller
+passes ``repair_dirty=True`` -- because
 ``core/update.should_repair_dirty_checkout`` found the previous job in
-``update.json`` failed at ``"fetch"`` or ``"checkout"`` -- the guard is
-skipped and ``checkout`` runs ``--force``, clobbering the interrupted
-half-checkout with the validated tag rather than refusing it forever.
+``update.json`` failed at ``"checkout"`` for a reason *other than* the
+guard's own refusal (a timeout, a nonzero git exit, or
+``finalize_after_restart``'s "interrupted" resolution of a process that
+died mid-step) -- the guard is skipped and ``checkout`` runs ``--force``,
+clobbering the interrupted half-checkout with the validated tag rather
+than refusing it forever.
+
+Two cases are deliberately *not* repairable, both to keep the guard's
+accepted-risk contract intact:
+
+- **A failed ``"fetch"``** never repairs, even though it is a git step
+  that can fail: ``fetch`` does not touch the working tree at all, so it
+  cannot be the reason a later ``checkout`` finds the tree dirty. Treating
+  it as repairable would add risk for no benefit -- "GitHub was
+  unreachable at fetch, and the tree happens to be dirty from an
+  operator's SSH edit" would then also enable the force-clobber on the
+  next apply.
+- **The dirty-tree refusal itself** never repairs. It is recorded as a
+  ``"checkout"`` failure (``fetch``/``assets`` already succeeded by the
+  time it raises) with a message built from
+  ``core.update.DIRTY_TREE_REFUSAL_PREFIX`` -- the same constant
+  :func:`~palmimo_portal.core.update.should_repair_dirty_checkout` checks
+  for, so the two sides cannot drift apart. Without this exclusion, a
+  USER-dirty tree would be refused on the first apply attempt, recorded
+  exactly like a killed checkout would be, and then force-clobbered by the
+  very next apply -- one retry away from silently destroying an operator's
+  changes.
 """
 
 from __future__ import annotations
@@ -82,7 +110,7 @@ from palmimo_portal.adapters.static_asset import (
     fetch_and_stage,
     swap_into_place,
 )
-from palmimo_portal.core.update import STATIC_ASSET_NAME_TEMPLATE
+from palmimo_portal.core.update import DIRTY_TREE_REFUSAL_PREFIX, STATIC_ASSET_NAME_TEMPLATE
 from palmimo_portal.ports import InstalledVersion, Updater, UpdateStepError
 from palmimo_portal.version import portal_version
 
@@ -210,9 +238,11 @@ class GitUvUpdater(Updater):
            over SSH first (commit, stash, or reset). Skipped entirely when
            ``repair_dirty`` is ``True``: the caller (``core/update.py``'s
            :func:`~palmimo_portal.core.update.should_repair_dirty_checkout`)
-           has already determined the *updater's own previous job* died at
-           ``"fetch"`` or ``"checkout"``, so any dirt here can only be that
-           job's half-finished work, not a human's.
+           has already determined the *updater's own previous job* died
+           mid-``"checkout"`` for a reason other than this very refusal
+           (a timeout, a nonzero git exit, or an interrupted-restart
+           resolution), so any dirt here can only be that job's
+           half-finished work, not a human's.
         2. ``git rev-parse --verify --quiet refs/tags/<tag>^{commit}`` --
            confirms the tag exists after the fetch above, resolved against
            the fully-qualified ``refs/tags/`` ref so this can't be tricked
@@ -234,7 +264,7 @@ class GitUvUpdater(Updater):
             if status.stdout.strip():
                 raise UpdateStepError(
                     "checkout",
-                    "working tree has local changes; commit, stash, or reset them over SSH before updating",
+                    f"{DIRTY_TREE_REFUSAL_PREFIX}; commit, stash, or reset them over SSH before updating",
                 )
 
         ref = f"refs/tags/{tag}"

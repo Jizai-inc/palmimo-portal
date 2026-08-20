@@ -30,7 +30,7 @@ import pytest
 
 from palmimo_portal.adapters.git_uv_updater import GitUvUpdater
 from palmimo_portal.adapters.static_asset import ASSET_MAX_BYTES, MEMBER_MAX_BYTES
-from palmimo_portal.core.update import STATIC_ASSET_NAME_TEMPLATE
+from palmimo_portal.core.update import DIRTY_TREE_REFUSAL_PREFIX, STATIC_ASSET_NAME_TEMPLATE
 from palmimo_portal.ports import InstalledVersion, UpdateStepError
 
 
@@ -401,6 +401,24 @@ def test_checkout_refuses_a_dirty_working_tree(tmp_path: Path) -> None:
     # Nothing must be discarded: rev-parse/checkout never run once dirty.
     called_subcommands = [call["argv"][1] for call in runner.calls]
     assert called_subcommands == ["status"]
+
+
+def test_checkout_refusal_message_starts_with_the_shared_dirty_tree_prefix(tmp_path: Path) -> None:
+    # The adapter's refusal message must be BUILT FROM
+    # core.update.DIRTY_TREE_REFUSAL_PREFIX, not merely happen to start
+    # with the same text -- this pins that contract so a reword of one
+    # side breaks this test, not the should_repair_dirty_checkout safety
+    # property that reads the persisted error message.
+    runner = _ScriptedRunner(_happy_checkout_script(status=_ok(" M some/file.py\n")))
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner)
+
+    with pytest.raises(UpdateStepError) as excinfo:
+        updater._checkout("v2.0.0", on_step=lambda step: None)
+
+    message = str(excinfo.value)
+    # str(UpdateStepError) is "<step>: <message>" -- strip the step prefix
+    # before checking against the shared error-message constant.
+    assert message.startswith(f"checkout: {DIRTY_TREE_REFUSAL_PREFIX}")
 
 
 def test_checkout_repairs_a_dirty_tree_with_a_forced_checkout_when_repair_dirty_is_true(tmp_path: Path) -> None:

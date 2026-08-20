@@ -114,38 +114,74 @@ def is_valid_release_tag(tag: str) -> bool:
     return ".." not in tag
 
 
-#: The two :class:`~palmimo_portal.ports.Updater` steps that mutate this
-#: repository's own git checkout -- see :func:`should_repair_dirty_checkout`.
-_TREE_MUTATING_STEPS = frozenset({"fetch", "checkout"})
+#: The stable prefix of the dirty-tree refusal's error *message* (not the
+#: full persisted ``UpdateJob.error`` string, which is
+#: ``f"{step}: {message}"`` -- see :class:`~palmimo_portal.ports.UpdateStepError`'s
+#: ``__str__`` and :meth:`~palmimo_portal.core.update_runner.UpdateRunner._run_steps`,
+#: which persists exactly that via :func:`mark_failed`). Shared between
+#: :func:`should_repair_dirty_checkout` (this module) and
+#: :class:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater` (which
+#: builds its refusal message *from* this constant, so the two sides
+#: cannot drift -- see that class's ``_checkout``).
+DIRTY_TREE_REFUSAL_PREFIX = "working tree has local changes"
 
 
 def should_repair_dirty_checkout(previous_job: UpdateJob) -> bool:
     """Report whether ``previous_job``'s failure is one the updater may attribute to itself and self-heal.
 
-    True iff ``previous_job`` is ``"failed"`` at ``step`` ``"fetch"`` or
-    ``"checkout"`` -- the only two :class:`~palmimo_portal.ports.Updater.apply`
-    steps that touch the git checkout (``fetch`` for a killed ``git fetch``
-    leaving stale lock files, ``checkout`` for a killed ``git checkout``
-    leaving a half-switched working tree). This includes a job
-    :func:`finalize_after_restart` turned from ``"running"``/``"checking"``
-    into ``"failed"`` after the process itself died mid-step (SIGKILL from
-    a step timeout, or a power cut) -- that function records ``step =
-    job.step or "start"``, which is already ``"fetch"``/``"checkout"``
-    whenever the process died during one of them, since :meth:`UpdateRunner
-    <palmimo_portal.core.update_runner.UpdateRunner>` calls :func:`advance`
-    (setting ``job.step``) *before* the corresponding subprocess runs.
+    True iff ``previous_job`` is ``"failed"`` at step ``"checkout"`` *and*
+    its ``error`` is not the dirty-tree refusal. Both halves matter:
 
-    ``False`` for every other failed step (``"assets"``, ``"sync"``,
-    ``"install-assets"``, ``"restart"``, or no step at all/``"start"``),
-    for a job that never failed (``"idle"``/``"done"``/``"running"``/etc.),
-    and for a mess a human left by hand over SSH -- the caller only ever
+    - **Only ``"checkout"``, not ``"fetch"``.** ``fetch`` never touches the
+      working tree at all -- a killed/failed ``git fetch`` cannot leave it
+      dirty, and the stale lock files it *can* leave are already handled
+      unconditionally by :meth:`GitUvUpdater._sweep_stale_locks
+      <palmimo_portal.adapters.git_uv_updater.GitUvUpdater._sweep_stale_locks>`
+      on every run, repair or not. Including ``"fetch"`` here would add
+      risk for no benefit: "GitHub unreachable at fetch, and the tree
+      happens to be dirty from a human's SSH edit" would then also enable
+      the force-clobber on retry, which is exactly the hole this function
+      exists to close.
+    - **Excluding the refusal itself.** The dirty-tree guard *is* one of
+      the ways ``"checkout"`` can fail -- it raises
+      :class:`~palmimo_portal.ports.UpdateStepError` with a message
+      starting with :data:`DIRTY_TREE_REFUSAL_PREFIX` *before* running
+      ``git checkout`` at all, once ``fetch``/``assets`` have already
+      succeeded. The persisted ``error`` for that (or any) ``"checkout"``
+      failure is ``"checkout: " + <the UpdateStepError's own message>``
+      (:class:`~palmimo_portal.ports.UpdateStepError`'s ``__str__``, as
+      written verbatim by :func:`~palmimo_portal.core.update.mark_failed`),
+      so the check below matches ``"checkout: " + DIRTY_TREE_REFUSAL_PREFIX``
+      -- always ``"checkout: "`` at this point since the step is already
+      pinned above. Treating that failure as repairable would defeat the
+      guard's whole purpose: a USER-dirty tree (an operator's SSH edit)
+      would be refused on the first apply, recorded as ``failed`` at
+      ``"checkout"`` exactly like a killed checkout would be, and then
+      force-clobbered by ``git checkout --force`` on the very next apply --
+      one retry away from silently destroying the operator's changes. Every
+      *other* way ``"checkout"`` can fail -- a subprocess timeout (SIGKILL
+      mid-checkout), a nonzero git exit (e.g. disk full mid-checkout), or
+      :func:`finalize_after_restart`'s "interrupted" resolution of a
+      process that died during this step (a different message entirely,
+      never this prefix) -- still repairs: the dirty-tree guard runs
+      *first* and already proved the tree clean before ``git checkout``
+      itself ran, so any dirt found after one of those failures can only
+      be the updater's own half-finished checkout, never a human's.
+
+    ``False`` for every other failed step (``"fetch"``, ``"assets"``,
+    ``"sync"``, ``"install-assets"``, ``"restart"``, or no step at
+    all/``"start"``) and for a job that never failed
+    (``"idle"``/``"done"``/``"running"``/etc.) -- the caller only ever
     passes the *updater's own* previous job (read from ``update.json``
     immediately before starting the next one), so this can never attribute
     a USER-dirty tree to the updater; see
     :class:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater`'s module
     docstring for why that distinction must stay.
     """
-    return previous_job.state == "failed" and previous_job.step in _TREE_MUTATING_STEPS
+    if previous_job.state != "failed" or previous_job.step != "checkout":
+        return False
+    error = previous_job.error or ""
+    return not error.startswith(f"{previous_job.step}: {DIRTY_TREE_REFUSAL_PREFIX}")
 
 
 def is_update_available(installed: InstalledVersion, latest: Release | None) -> bool:

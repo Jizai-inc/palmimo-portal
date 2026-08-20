@@ -475,10 +475,13 @@ class Updater(Protocol):
                 fed from the previous job persisted in ``update.json``) has
                 determined a dirty working tree at this point can only be
                 debris this same updater left behind at a previous
-                ``"fetch"``/``"checkout"`` attempt -- never a USER-made
-                change. The real adapter skips its dirty-tree refusal and
-                forces the checkout in that case; a USER-dirty tree with
-                ``repair_dirty=False`` (the default) still refuses, per
+                ``"checkout"`` attempt that died for a reason other than
+                the dirty-tree guard's own refusal -- never a USER-made
+                change, and never a merely-failed ``"fetch"`` (which
+                cannot dirty the tree at all). The real adapter skips its
+                dirty-tree refusal and forces the checkout in that case; a
+                USER-dirty tree with ``repair_dirty=False`` (the default)
+                still refuses, per
                 :class:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater`'s
                 module docstring.
 

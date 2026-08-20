@@ -139,9 +139,6 @@ def test_a_session_issued_before_a_password_change_is_rejected_after(
     assert response.status_code == 401
 
 
-# -- F5: auth.json disappearing between classification and verification -----
-
-
 def test_login_is_409_when_auth_json_is_deleted_mid_request(
     client: TestClient, adapters: FakeAdapterBundle, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -166,9 +163,6 @@ def test_login_is_409_when_auth_json_is_deleted_mid_request(
     assert response.json()["error"]["code"] == "auth_not_set"
 
 
-# -- F6: require_full_session fails closed on an unrecognized mode ----------
-
-
 def test_require_full_session_rejects_an_unrecognized_session_mode(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
@@ -185,9 +179,6 @@ def test_require_full_session_rejects_an_unrecognized_session_mode(
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "initial_password_must_be_changed"
-
-
-# -- F2: change-password's current_password check is rate-limited -----------
 
 
 def test_change_password_locks_out_after_five_wrong_current_password_attempts(
@@ -340,9 +331,6 @@ def test_change_password_lock_timeout_does_not_consume_rate_limit_budget(
     )
 
     assert response.status_code == 200
-
-
-# -- Login rate limiter: pending vs. failures ---------------------------------
 
 
 def test_login_after_five_auth_not_set_responses_is_not_rate_limited(

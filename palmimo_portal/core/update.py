@@ -3,28 +3,17 @@
 The whole lifecycle lives in one :class:`~palmimo_portal.ports.UpdateState`,
 persisted via :class:`~palmimo_portal.ports.StateStore`. Every transition
 here is a pure function -- old state in, new state out, or an exception
-when the transition is not allowed -- so ``api/update.py`` and
-:mod:`palmimo_portal.core.update_runner` share one implementation of the
-rules.
+when not allowed -- so ``api/update.py`` and
+:mod:`palmimo_portal.core.update_runner` share one implementation.
 
-State machine, in order:
-
-1. ``idle`` -- nothing going on.
-2. :func:`start_check` / :func:`record_latest` -- ``POST /update/check``
-   fetches and records the latest release synchronously; job returns to
-   ``idle`` immediately.
-3. :func:`start_apply` / :func:`start_rollback` -- begins applying a
-   target tag in the background; job state becomes ``"running"``.
-4. :func:`advance` -- called before each of :class:`~palmimo_portal.ports.Updater`'s
-   ``apply`` steps (``"fetch"``, ``"assets"``, ``"checkout"``, ``"sync"``,
-   ``"install-assets"``).
-5. :func:`mark_restarting` -- ``apply`` succeeded; the Portal is about to
-   restart itself.
-6. :func:`finalize_after_restart` -- run once, at startup: resolves a
-   ``"restarting"`` job into ``"done"`` or ``"failed"``; also fails a
-   ``"running"``/``"checking"`` job left over from a process that died
-   before this boot.
-7. :func:`mark_failed` -- any step failing along the way.
+State machine: ``idle`` -> :func:`start_check`/:func:`record_latest`
+(synchronous, returns to ``idle``) -> :func:`start_apply`/:func:`start_rollback`
+(``"running"``) -> :func:`advance` per :class:`~palmimo_portal.ports.Updater`
+step -> :func:`mark_restarting` (apply succeeded, about to restart) ->
+:func:`finalize_after_restart` (once at startup: resolves ``"restarting"``
+into ``"done"``/``"failed"``, and fails a ``"running"``/``"checking"`` job
+orphaned by a process that died before this boot). :func:`mark_failed`
+covers any step failing along the way.
 """
 
 from __future__ import annotations
@@ -34,27 +23,21 @@ import re
 from palmimo_portal.ports import InstalledVersion, Release, StateStore, UpdateJob, UpdateState
 
 
-#: How long a successful check protects the Portal from another one -- no
-#: reason to hammer GitHub's API or re-check faster than this.
+#: How long a successful check protects the Portal from another one.
 CHECK_RATE_LIMIT_SECONDS = 60.0
 
-#: The single source of truth for the frontend build's GitHub Release asset
-#: name. The release workflow, :class:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater`'s
-#: ``assets`` step, and the Makefile's ``fetch-static`` target all derive
-#: from this pattern rather than duplicating it -- see
-#: ``tests/contracts/test_release_workflow_contract.py``.
+#: Single source of truth for the frontend build's GitHub Release asset name.
+#: The release workflow, ``GitUvUpdater``'s ``assets`` step, and the
+#: Makefile's ``fetch-static`` target all derive from this pattern.
 STATIC_ASSET_NAME_TEMPLATE = "palmimo-portal-static-{tag}.tar.gz"
 
-#: Roughly what ``git check-ref-format`` accepts for a tag name, tightened
-#: to what this feature needs to shell out safely: no leading ``-``, no
-#: path separators, no control characters. The ``.lock``/``..`` checks in
-#: :func:`is_valid_release_tag` catch two git-specific traps this pattern
-#: alone would not.
+#: Roughly what ``git check-ref-format`` accepts, tightened to what this
+#: feature needs to shell out safely. The ``.lock``/``..`` checks in
+#: :func:`is_valid_release_tag` catch two git-specific traps this pattern alone would not.
 _VALID_RELEASE_TAG_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 #: The only :class:`~palmimo_portal.ports.UpdateJobState` values a new
-#: check/apply/rollback may start from -- anything else means a job is
-#: already in flight.
+#: check/apply/rollback may start from -- anything else means a job is already in flight.
 _ALLOWS_NEW_JOB_STATES = frozenset({"idle", "done", "failed"})
 
 IDLE_UPDATE_JOB = UpdateJob(
@@ -90,23 +73,14 @@ class NoPreviousVersionError(Exception):
 class InvalidReleaseTagError(Exception):
     """Raised by :func:`record_latest`/:func:`start_apply`/:func:`start_rollback` for a malformed tag.
 
-    Defense in depth with :func:`is_valid_release_tag`: ``record_latest``
-    guards a tag from the GitHub API response, and
-    ``start_apply``/``start_rollback`` guard the same shape again at the
-    point a tag becomes an update job's ``target``.
+    Defense in depth with :func:`is_valid_release_tag`: guarded once from
+    the GitHub API response, and again when a tag becomes an update job's
+    ``target``.
     """
 
 
 def is_valid_release_tag(tag: str) -> bool:
-    """Report whether ``tag`` is safe to pass to ``git``/``uv`` as a ref/argument.
-
-    Conservative rather than a full port of ``git check-ref-format``:
-    alphanumeric, ``.``/``_``/``-``, starting with an alphanumeric
-    character, at most 128 characters, plus two git-specific traps the
-    character class alone would not catch: a ref ending in ``.lock``
-    collides with git's own lockfile naming, and ``..`` is a
-    revision-range separator rather than part of a single ref name.
-    """
+    """Report whether ``tag`` is safe to pass to ``git``/``uv`` as a ref/argument. See :data:`_VALID_RELEASE_TAG_PATTERN`."""
     if not _VALID_RELEASE_TAG_PATTERN.fullmatch(tag):
         return False
     if tag.endswith(".lock"):
@@ -117,9 +91,8 @@ def is_valid_release_tag(tag: str) -> bool:
 def is_update_available(installed: InstalledVersion, latest: Release | None) -> bool:
     """Report whether ``latest`` names a release the installed checkout is not already on.
 
-    ``installed.tag is None`` (``HEAD`` is not exactly on a tag) is
-    treated as "always behind" whenever a latest release is known: there
-    is no tag to compare against.
+    ``installed.tag is None`` (``HEAD`` not exactly on a tag) is treated
+    as "always behind" whenever a latest release is known.
     """
     if latest is None:
         return False
@@ -159,9 +132,7 @@ def record_latest(state: UpdateState, latest: Release, now: float) -> UpdateStat
     """Record a freshly fetched release and return the job to idle.
 
     Raises:
-        InvalidReleaseTagError: ``latest.tag`` is not
-            :func:`is_valid_release_tag` -- refuses to store a tag that
-            would not be safe to later pass to ``git``/``uv``.
+        InvalidReleaseTagError: ``latest.tag`` is not :func:`is_valid_release_tag`.
     """
     if not is_valid_release_tag(latest.tag):
         raise InvalidReleaseTagError()
@@ -182,16 +153,14 @@ def is_retry_available(job: UpdateJob, latest: Release | None) -> bool:
 def start_apply(state: UpdateState, installed: InstalledVersion, target: str, now: float) -> UpdateState:
     """Begin applying ``target``, or raise if it cannot start right now.
 
-    ``previous_tag`` is set to ``installed.tag`` only when not ``None``
-    and different from ``target``; otherwise the existing ``previous_tag``
-    is kept, so a non-tagged checkout or a retry after a failed ``apply``
-    does not clobber the "go back to" tag.
+    ``previous_tag`` is set to ``installed.tag`` only when not ``None`` and different from
+    ``target``; otherwise kept, so a non-tagged checkout or a retry after a failed apply does
+    not clobber the "go back to" tag.
 
     Raises:
         UpdateInProgressError: a job is already running/restarting/checking.
         InvalidReleaseTagError: ``target`` is not :func:`is_valid_release_tag`.
-        NoReleaseCheckedError: no release has ever been checked
-            (``state.latest is None``).
+        NoReleaseCheckedError: ``state.latest is None``.
         UpdateTargetMismatch: ``target`` is not ``state.latest.tag``.
     """
     if state.job.state not in _ALLOWS_NEW_JOB_STATES:
@@ -225,10 +194,8 @@ def start_rollback(state: UpdateState, installed: InstalledVersion, now: float) 
     Raises:
         UpdateInProgressError: a job is already running/restarting/checking.
         NoPreviousVersionError: ``state.previous_tag`` is ``None``.
-        InvalidReleaseTagError: ``state.previous_tag`` is not
-            :func:`is_valid_release_tag` -- defense in depth, should not
-            happen since ``previous_tag`` is only ever set from an
-            already-validated tag.
+        InvalidReleaseTagError: ``state.previous_tag`` is not :func:`is_valid_release_tag`
+            (defense in depth; should not happen since it is only ever set from an already-validated tag).
     """
     if state.job.state not in _ALLOWS_NEW_JOB_STATES:
         raise UpdateInProgressError()
@@ -276,10 +243,9 @@ def advance(state: UpdateState, step: str) -> UpdateState:
 def mark_restarting(state: UpdateState, now: float) -> UpdateState:
     """Record that ``apply`` succeeded and the Portal is about to restart itself.
 
-    ``now`` is stamped onto ``restarting_at`` -- the moment the restart
-    was requested, not ``job.started_at`` -- so
-    :func:`expire_stale_restart`'s timeout does not eat into a slow but
-    healthy ``apply``'s time budget.
+    ``now`` is stamped onto ``restarting_at`` (the restart-request moment,
+    not ``job.started_at``) so :func:`expire_stale_restart`'s timeout does
+    not eat into a slow but healthy ``apply``'s budget.
     """
     job = state.job
     return UpdateState(
@@ -327,23 +293,19 @@ def expire_stale_restart(
 ) -> UpdateState:
     """Fail a ``"restarting"`` job that has sat for longer than ``max_age_seconds``.
 
-    :func:`finalize_after_restart` only runs once, at process startup, and
-    has nothing to say about a restart that never actually happens (e.g.
-    systemd never brings the process back up), which would otherwise sit
-    ``"restarting"`` forever and block any new check/apply/rollback
-    (:data:`_ALLOWS_NEW_JOB_STATES`). The caller is expected to call this
-    at the top of every ``GET /update/status`` (not only at startup) so
-    staleness is caught on the next poll, not only after a reboot.
+    :func:`finalize_after_restart` runs once, at startup, and says nothing
+    about a restart that never happens (systemd never brings the process
+    back up), which would otherwise sit ``"restarting"`` forever and block
+    any new check/apply/rollback (:data:`_ALLOWS_NEW_JOB_STATES`). Callers
+    are expected to call this at the top of every ``GET /update/status``,
+    not only at startup, so staleness is caught on the next poll.
 
-    Returns ``state`` unchanged (identity-comparable, so callers know
-    whether a write is needed) unless the job is ``"restarting"`` and
-    ``now - reference >= max_age_seconds``, where ``reference`` is
-    ``job.restarting_at``, falling back to ``job.started_at`` only when
-    ``restarting_at`` is ``None``. Measured from the restart itself, not
-    the whole preceding apply, so a legitimately slow ``apply`` does not
-    get expired the moment it becomes ``"restarting"``. Failed at step
-    ``"restart"`` with a message telling the operator to reboot from the
-    Power screen.
+    Returns ``state`` unchanged (identity-comparable) unless the job is
+    ``"restarting"`` and ``now - reference >= max_age_seconds``, where
+    ``reference`` is ``job.restarting_at`` (falling back to
+    ``job.started_at`` only when ``None``) -- measured from the restart
+    itself, not the whole preceding apply, so a legitimately slow apply is
+    not expired the moment it becomes ``"restarting"``.
     """
     if state.job.state != "restarting":
         return state
@@ -367,26 +329,18 @@ def expire_stale_restart(
 def finalize_after_restart(state: UpdateState, installed: InstalledVersion, now: float) -> UpdateState:
     """Resolve a leftover job at startup, or return ``state`` unchanged if there is none.
 
-    Called once at Portal startup, after a normal boot as much as after an
-    update-triggered restart -- a job in ``"idle"``, ``"done"``, or
-    ``"failed"`` is left untouched. Two states are not, since no thread can
-    be running at process start to resolve them otherwise, and
-    :data:`_ALLOWS_NEW_JOB_STATES` would wedge the job forever:
-
-    - **``"restarting"``** -- compares ``installed.tag`` against the job's
-      own ``target`` (recorded before the restart by
-      :func:`start_apply`/:func:`start_rollback`) and resolves to
-      ``"done"`` or ``"failed"``.
-    - **``"running"``/``"checking"``** -- the process that was running or
-      checking is gone, so the job is marked ``"failed"`` with
-      ``step = job.step or "start"`` and an error naming the restart as
-      the cause.
-
-    A third case is handled alongside ``"restarting"``: a job already
-    ``"failed"`` at ``step == "restart"`` (written by
+    Called once at Portal startup (normal boot or update-triggered
+    restart) -- a job in ``"idle"``/``"done"``/``"failed"`` is left
+    untouched. Two states are not, since no thread survives to resolve
+    them otherwise and :data:`_ALLOWS_NEW_JOB_STATES` would wedge the job
+    forever: ``"restarting"`` compares ``installed.tag`` against the job's
+    own ``target`` (recorded before the restart) and resolves to
+    ``"done"``/``"failed"``; ``"running"``/``"checking"`` is marked
+    ``"failed"`` (the process that was working on it is gone). A third
+    case: a job already ``"failed"`` at ``step == "restart"`` (written by
     :func:`expire_stale_restart` giving up on a slow restart) is promoted
-    to ``"done"`` when ``installed.tag`` matches the job's ``target`` --
-    the restart landed after all, just later than the timeout allowed.
+    to ``"done"`` when ``installed.tag`` matches ``target`` -- the restart
+    landed after all, just later than the timeout allowed.
     """
     if state.job.state in ("running", "checking"):
         job = state.job
@@ -453,24 +407,17 @@ def expire_stale_running(state: UpdateState, now: float, runner_alive: bool) -> 
     """Fail a ``"running"`` job when no runner in this process is actually working on it.
 
     Wall-clock staleness is the wrong test: a legitimately slow ``uv sync``
-    can run far longer than any timeout this module could pick while
-    staying healthy. The only honest signal is liveness: ``runner_alive``
-    is ``True`` for the whole duration
-    :class:`~palmimo_portal.core.update_runner.UpdateRunner` is running a
-    job in this process, ``False`` otherwise. A ``"running"`` job
-    persisted with no live runner behind it can only be a dead thread that
-    failed to persist its own failure, which would otherwise block every
-    future check/apply/rollback with 409 ``update_in_progress`` forever.
-    Mirrors :func:`expire_stale_restart`: the caller is expected to call
-    this at the top of every ``GET /update/status`` (and before
-    ``system/reboot``/``system/shutdown`` refuse -- see
-    :func:`current_update_state`). Being a pure in-process liveness check
-    rather than a wall-clock comparison, it is immune to a clock step.
-
-    Returns ``state`` unchanged (identity-comparable) unless the job is
-    ``"running"`` and ``runner_alive`` is ``False``, in which case it is
-    failed at ``step = job.step or "start"`` with a message telling the
-    operator to retry or reboot.
+    can run far longer than any fixed timeout while staying healthy. The
+    only honest signal is liveness: ``runner_alive`` is ``True`` for the
+    whole duration :class:`~palmimo_portal.core.update_runner.UpdateRunner`
+    is running a job in this process. A ``"running"`` job with no live
+    runner behind it can only be a dead thread that failed to persist its
+    own failure, which would otherwise block every future
+    check/apply/rollback with 409 ``update_in_progress`` forever. Mirrors
+    :func:`expire_stale_restart` (called at the top of every ``GET
+    /update/status`` and before ``system/reboot``/``system/shutdown``
+    refuse -- see :func:`current_update_state`); being a pure in-process
+    liveness check rather than a wall-clock comparison, it is immune to a clock step.
     """
     if state.job.state != "running":
         return state
@@ -496,10 +443,9 @@ def current_update_state(state_store: StateStore, now: float, runner_alive: bool
     """Return the up-to-date, self-healed update state, persisting the result only if it changed.
 
     Applies :func:`expire_stale_restart` then :func:`expire_stale_running`
-    to whatever is currently persisted, so ``system/reboot``/``system/shutdown``
-    (via ``api/system.py``'s ``_refuse_while_updating``) can make the same
-    decision a status poll would. Compares by identity so a write only
-    happens when something actually changed.
+    to whatever is persisted, so ``system/reboot``/``system/shutdown``
+    (``api/system.py``'s ``_refuse_while_updating``) sees the same
+    decision a status poll would.
     """
     state = state_store.read_update_state()
     expired = expire_stale_restart(state, now)

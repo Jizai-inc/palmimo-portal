@@ -20,16 +20,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 /**
- * The login-credentials-reset screen's logic (see routes/reset-login.tsx,
- * which wraps this in `AuthShell`). Free of router hooks like
- * WifiSettingsPanel/SshKeysPanel -- `onBack`/`onDone` are the only reach-out
- * to routing.
- *
- * `POST /auth/reset` is reachable unauthenticated and unprovisioned
- * (palmimo_portal/api/auth.py's `reset` endpoint) -- the escape hatch for a
- * forgotten owner-set password on an identity-carrying device, which would
- * otherwise block Wi-Fi setup itself. Renders the confirmation card or, once
- * the reset succeeds, a terminal {@link CenteredState} pointing back at login.
+ * The login-credentials-reset screen's logic (see routes/reset-login.tsx, which wraps this in
+ * `AuthShell`). `POST /auth/reset` is reachable unauthenticated and unprovisioned -- the escape
+ * hatch for a forgotten owner-set password on an identity-carrying device, which would
+ * otherwise block Wi-Fi setup itself.
  */
 export function ResetLoginPanel({ onBack, onDone }: { onBack: () => void; onDone: () => void }) {
   const { t } = useTranslation();
@@ -43,9 +37,7 @@ export function ResetLoginPanel({ onBack, onDone }: { onBack: () => void; onDone
       onSuccess: () => {
         setDialogOpen(false);
         setSucceeded(true);
-        // No screen reachable after this point may keep rendering the
-        // pre-reset auth state (auth.json is gone; the next login is the
-        // sticker password again) from cache.
+        // No screen after this point may keep rendering pre-reset auth state from cache.
         queryClient.clear();
       },
       onError: () => setDialogOpen(false),

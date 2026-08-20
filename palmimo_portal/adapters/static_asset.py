@@ -1,16 +1,13 @@
 """Shared download/verify/extract/swap machinery for the frontend build's GitHub Release asset.
 
-One implementation, two callers:
-
-- :class:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater` -- the
-  ``assets``/``install-assets`` steps of a real device update.
-- :mod:`palmimo_portal.fetch_static` -- a standalone CLI for a developer or
-  tester who wants the built UI without installing Node.
-
-Every function here is message-only: it raises :class:`StaticAssetError`
-rather than :class:`~palmimo_portal.ports.UpdateStepError` (which needs a
-*step name* neither this module nor the CLI has any business choosing) --
-each caller wraps it into whatever shape fits its own error handling.
+Two callers: :class:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater`
+(``assets``/``install-assets`` steps of a real device update) and
+:mod:`palmimo_portal.fetch_static` (a standalone CLI for a developer who
+wants the built UI without installing Node). Every function here is
+message-only: it raises :class:`StaticAssetError`, not
+:class:`~palmimo_portal.ports.UpdateStepError` (which needs a *step name*
+neither this module nor the CLI has business choosing) -- each caller
+wraps it into its own error shape.
 """
 
 from __future__ import annotations
@@ -58,13 +55,7 @@ Opener = Callable[[urllib.request.Request, float], Any]
 
 
 class StaticAssetError(Exception):
-    """Raised by every function in this module on a download/verify/extract/swap failure.
-
-    Message-only -- callers translate it into their own error shape:
-    :class:`~palmimo_portal.ports.UpdateStepError` in
-    :class:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater`, a CLI exit
-    in :mod:`palmimo_portal.fetch_static`.
-    """
+    """Raised by every function in this module on a download/verify/extract/swap failure. Message-only; see module docstring."""
 
 
 def default_opener(request: urllib.request.Request, timeout: float) -> Any:
@@ -87,15 +78,12 @@ def download(
 ) -> bytes:
     """Download ``url`` through ``opener``, capped at ``max_bytes``.
 
-    Args:
-        not_found_message: used verbatim as the error message on a 404,
-            instead of the generic ``"HTTP 404 fetching <url>"`` -- lets a
-            caller give a more actionable message without this module
-            knowing about releases at all.
+    ``not_found_message``, if given, replaces the generic ``"HTTP 404
+    fetching <url>"`` on a 404 -- lets a caller give a more actionable
+    message without this module knowing about releases at all.
 
     Raises:
-        StaticAssetError: the request failed, or the response exceeded
-            ``max_bytes``.
+        StaticAssetError: the request failed, or the response exceeded ``max_bytes``.
     """
     request = urllib.request.Request(url, headers={"User-Agent": user_agent})
     try:
@@ -130,9 +118,8 @@ def verify_checksum(asset_bytes: bytes, sha_bytes: bytes, asset_name: str) -> No
 def extract_to_staging(asset_bytes: bytes, temp_dir: Path, asset_name: str) -> None:
     """Safely unpack the ``static/...`` members of ``asset_bytes`` (a ``.tar.gz``) into ``temp_dir``.
 
-    ``temp_dir`` is created fresh (any existing directory there is removed
-    first) and removed again on any failure -- a partially-extracted staging
-    directory must never be left for a caller to mistake for a complete one.
+    ``temp_dir`` is created fresh and removed again on any failure -- a
+    partially-extracted staging directory must never look complete.
 
     Raises:
         StaticAssetError: a member is unsafe (symlink, traversal, outside
@@ -158,17 +145,12 @@ def _extract_member(
     """Extract one tar member, refusing anything that is not a plain file/directory under ``static/``.
 
     Defense against a compromised or malformed release asset: only
-    ``member.isfile()``/``member.isdir()`` are accepted (symlinks, hardlinks,
-    device/FIFO entries rejected outright); the member's path must resolve
-    under the ``static/`` prefix with no ``..`` segment or absolute
-    component; the on-disk target is re-checked to resolve inside
-    ``temp_dir``; and a file member's claimed size is checked against
-    :data:`MEMBER_MAX_BYTES`/:data:`TOTAL_MAX_BYTES` *before* it is read, so
-    a gzip bomb never gets to write its inflated bytes to disk.
-
-    Returns:
-        The running total of uncompressed bytes extracted so far
-        (``total_bytes`` plus this member's size, for a file member).
+    ``isfile()``/``isdir()`` accepted (symlinks, hardlinks, device/FIFO
+    entries rejected); path must resolve under ``static/`` with no ``..``
+    or absolute component, re-checked against the on-disk target; size
+    checked against :data:`MEMBER_MAX_BYTES`/:data:`TOTAL_MAX_BYTES`
+    *before* read, so a gzip bomb never writes its inflated bytes to disk.
+    Returns the running total of uncompressed bytes extracted so far.
     """
     if not (member.isfile() or member.isdir()):
         raise StaticAssetError(f"unsafe member in {asset_name}: {member.name!r} is not a file or directory")
@@ -216,11 +198,12 @@ def _extract_member(
 def swap_into_place(temp_dir: Path, static_dir: Path) -> None:
     """Atomically-as-possible swap ``temp_dir`` in as ``static_dir``.
 
-    The previous ``static_dir`` (if any) is renamed aside to
-    ``static_dir.parent / "static.prev"` first, then ``temp_dir`` is renamed
-    into ``static_dir``'s place; the backup is removed only once the swap
-    fully succeeds. On a failed rename, the previous directory is restored
-    best-effort so ``static_dir`` is never left missing.
+    Contract, relied on by :func:`repair_static_dir`: the previous
+    ``static_dir`` (if any) is renamed aside to ``static_dir.parent /
+    "static.prev"`` first, then ``temp_dir`` is renamed into place; the
+    backup is removed only once the swap fully succeeds. On a failed
+    rename, the previous directory is restored best-effort so
+    ``static_dir`` is never left missing.
 
     Raises:
         StaticAssetError: the rename failed.
@@ -248,12 +231,11 @@ def swap_into_place(temp_dir: Path, static_dir: Path) -> None:
 def _is_pid_alive(pid: int) -> bool:
     """Report whether *pid* names a process this machine still considers alive.
 
-    ``os.kill(pid, 0)`` sends no signal, only checks whether the target
-    could be signaled. :class:`ProcessLookupError` means genuinely gone --
-    safe to treat as dead. :class:`PermissionError` means the process exists
-    but is owned by someone else, so it must be treated as *alive*; guessing
-    "dead" here could delete a staging directory a live process (e.g. a
-    manual repair run as root) is still writing to.
+    ``os.kill(pid, 0)`` sends no signal, only checks signalability.
+    :class:`ProcessLookupError` -> genuinely gone, safe as dead.
+    :class:`PermissionError` -> owned by someone else, must be treated as
+    *alive*: guessing "dead" could delete a staging directory a live
+    process (e.g. a manual repair run as root) is still writing to.
     """
     try:
         os.kill(pid, 0)
@@ -267,38 +249,25 @@ def _is_pid_alive(pid: int) -> bool:
 def repair_static_dir(static_dir: Path) -> None:
     """Repair a ``static/`` left missing by a power loss mid-:func:`swap_into_place`, at boot.
 
-    :func:`swap_into_place` renames the previous build aside to
-    ``static.prev`` before renaming the new one into ``static_dir``'s place.
-    A process killed between those two renames leaves ``static_dir`` absent,
-    ``static.prev`` holding the last-known-good build, and possibly a
-    ``static.tmp-<pid>`` sibling holding the build that was mid-swap.
-    Without a repair, ``static_dir`` stays missing forever -- every page
-    request 404s until an operator fixes it over SSH.
+    Relies on :func:`swap_into_place`'s contract (rename old aside to
+    ``static.prev``, then rename new into place): a kill between those two
+    renames leaves ``static_dir`` absent, ``static.prev`` holding the
+    last-known-good build, and possibly a ``static.tmp-<pid>`` sibling
+    mid-swap. Called unconditionally at startup, before ``_mount_frontend``;
+    no-op when ``static_dir`` already exists. Two independent, best-effort,
+    never-raising repairs (a filesystem problem here must not block the
+    rest of the Portal, which does not depend on ``static/``, from starting):
 
-    Called unconditionally at startup, before ``_mount_frontend``; a no-op
-    when ``static_dir`` already exists. Two independent repairs, every time:
-
-    1. If ``static_dir`` is missing and ``static.prev`` exists, rename
-       ``static.prev`` back -- restoring service, but on the **previous**
-       build: by the time this runs, the Portal checkout is already on the
-       *new* tag (``checkout`` runs before ``install-assets`` in
-       :class:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater`'s step
-       order), so the result is old frontend assets under a checkout that
-       reports the new tag -- mismatched but safe. The update job is left
-       showing failed at ``install-assets``, the honest signal that
-       retrying re-downloads and re-swaps the new build, clearing the
-       mismatch.
-    2. Any ``static.tmp-*`` sibling (a staging directory whose owning
-       process died before or during :func:`swap_into_place`) is removed,
-       but only when the pid encoded in its name (``static.tmp-<pid>``) is
-       confirmed dead via :func:`_is_pid_alive` -- a second, hand-started
-       repair run must not delete a directory a live process is still
-       writing to. A name that doesn't parse as ``static.tmp-<int>`` is
-       treated the same as confirmed-dead and cleaned up.
-
-    Every step is best-effort and logged, never raised: a filesystem
-    problem here must not prevent the rest of the Portal (the API, which
-    does not depend on ``static/``) from starting.
+    1. Missing ``static_dir`` + existing ``static.prev`` -> rename it back.
+       Restores service on the **previous** build: the checkout is already
+       on the *new* tag (``checkout`` precedes ``install-assets``), so the
+       result is old assets under a checkout reporting the new tag --
+       mismatched but safe. The update job is left failed at
+       ``install-assets``; retrying re-downloads and re-swaps, clearing it.
+    2. Any ``static.tmp-*`` sibling is removed, but only when its encoded
+       pid is confirmed dead via :func:`_is_pid_alive` -- a second,
+       hand-started repair run must not delete a directory a live process
+       is still writing to. An unparseable name is treated as confirmed-dead.
     """
     prev_dir = static_dir.parent / "static.prev"
     if not static_dir.exists() and prev_dir.is_dir():

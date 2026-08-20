@@ -287,9 +287,6 @@ def test_add_key_rejects_a_multiline_public_key_that_no_line_parses_alone(tmp_pa
     assert not path.exists()
 
 
-# -- _locked() -- bounded flock, mirrors JsonFileStateStore.lock_auth ------
-
-
 def test_locked_blocks_a_concurrent_holder(tmp_path: Path) -> None:
     path = tmp_path / "authorized_keys"
     port_a = AuthorizedKeysSshKeyPort(path)

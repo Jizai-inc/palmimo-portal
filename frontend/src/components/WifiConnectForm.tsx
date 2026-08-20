@@ -9,12 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 /**
- * The password-entry step of `/wifi`'s scan -> pick -> enter password ->
- * submit flow. Split out of `routes/wifi.tsx` so it can be unit-tested
- * without a router context -- it takes the selected network and the
- * previous failed attempt (if any) as plain props and calls `onSubmit`
- * with the entered password; it does not know about `useNavigate` or
- * `Route.useSearch()`.
+ * The password-entry step of `/wifi`'s scan -> pick -> enter password -> submit flow. Split
+ * out of `routes/wifi.tsx` so it can be unit-tested without a router context.
  */
 export function WifiConnectForm({
   network,
@@ -34,10 +30,7 @@ export function WifiConnectForm({
   const { t } = useTranslation();
   const [psk, setPsk] = useState("");
   const lastAttemptFailed = lastAttempt?.result === "failed";
-  // Mirrors the server's WPA2 passphrase length rule (api/wifi.py's
-  // _validate_psk): 1..7 characters is never valid for a secured network.
-  // ssid comes from the scan list, so it never needs a client-side check --
-  // only the server can see the raw bytes a real device would send.
+  // Mirrors the server's WPA2 passphrase length rule (api/wifi.py's _validate_psk).
   const pskTooShort = network.secured && psk.length > 0 && psk.length < 8;
 
   function handleSubmit(event: React.FormEvent) {

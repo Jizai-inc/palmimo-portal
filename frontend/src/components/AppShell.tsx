@@ -14,17 +14,10 @@ import { navLabel } from "@/lib/navLabels";
 import { cn } from "@/lib/utils";
 
 /**
- * Chrome for the dashboard family (`/dashboard`, `/ssh-keys`, `/power`, Wi-Fi
- * settings, update). `src/lib/navigation.ts`'s `NAV_ITEMS` is the single
- * source of truth for the nav both this shell and the dashboard's own
- * quick-actions list render from.
- *
- * - Mobile (< md): {@link AppHeader} on top, then content, then a fixed
- *   bottom tab bar -- one tab per `NAV_ITEMS`.
- * - Desktop (md+): {@link AppHeader} with a logout button, then a row of a
- *   collapsible left sidebar (240px) and the main content column.
- *
- * Owns logout itself rather than each page calling it directly.
+ * Chrome for the dashboard family (`/dashboard`, `/ssh-keys`, `/power`, Wi-Fi settings, update).
+ * `src/lib/navigation.ts`'s `NAV_ITEMS` is the single source of truth for the nav both this
+ * shell and the dashboard's own quick-actions list render from. Owns logout itself rather than
+ * each page calling it directly.
  */
 export function AppShell({
   title,
@@ -53,9 +46,7 @@ export function AppShell({
       onClick={() =>
         logout.mutate(undefined, {
           onSuccess: () => {
-            // No screen reachable after this point may keep rendering the
-            // pre-logout auth state from cache (system/status's auth_state,
-            // a cached dashboard/ssh-keys/update response, ...).
+            // No screen after this point may keep rendering pre-logout auth state from cache.
             queryClient.clear();
             void navigate({ to: "/login" });
           },

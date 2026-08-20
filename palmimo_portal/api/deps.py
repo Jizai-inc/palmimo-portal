@@ -121,18 +121,14 @@ def require_auth(request: Request) -> None:
 def require_full_session(request: Request) -> None:
     """Reject the request unless the current session is full-mode.
 
-    Applies to every authenticated endpoint except
-    ``POST /auth/change-password`` and ``POST /auth/logout``: a session
-    issued while ``auth_state == "initial"`` can do nothing else until the
-    password is changed, so a device is never left running with the
-    sticker password still active. Accepts only ``session_mode == "full"``
-    and rejects any other *present* mode -- allowlisting rather than
+    Applies to every authenticated endpoint except ``POST
+    /auth/change-password`` and ``POST /auth/logout``: a session issued
+    while ``auth_state == "initial"`` can do nothing else until the
+    password is changed. Accepts only ``session_mode == "full"`` and
+    rejects any other *present* mode -- allowlisting rather than
     denylisting just ``"initial"``, so an unrecognized future mode fails
-    closed. An absent mode (``None``, no session verified) still passes
-    through untouched -- left to whichever auth dependency precedes this
-    one (:func:`require_auth` for most routers, :func:`require_wifi_access`
-    for Wi-Fi, which allows anonymous access while a DIY device is
-    unprovisioned).
+    closed. An absent mode (``None``) passes through, left to whichever
+    auth dependency precedes this one.
 
     Raises:
         PortalError: 403 ``initial_password_must_be_changed``.
@@ -170,36 +166,30 @@ def require_provisioned_unless_identity(
 ) -> None:
     """Gate ``auth/login``, ``auth/logout``, and ``auth/change-password`` on provisioning -- with two exceptions.
 
-    On a DIY (open-setup) device that has never set a password, this is
-    identical to :func:`require_provisioned`: login is not needed until
-    after Wi-Fi is configured, since a DIY owner already has physical/SSH
-    access. Two cases skip the provisioning check entirely instead:
+    On a DIY device with no password set, identical to
+    :func:`require_provisioned`. Two cases skip the check entirely instead:
 
     - **An identity file is present.** Login is the *only* way to obtain a
       session on such a device, and the sticker/initial-password flow
-      necessarily happens before Wi-Fi is ever configured (the wifi
-      endpoints become session-gated once an identity file exists -- see
+      necessarily happens before Wi-Fi is configured (Wi-Fi becomes
+      session-gated once an identity file exists -- see
       :func:`require_wifi_access`). Requiring provisioning before login
-      here would make it impossible to provision at all.
+      would make provisioning impossible.
     - **A password is already set** (``auth.json`` is
-      :attr:`~palmimo_portal.ports.AuthFileState.PRESENT`), even without
-      an identity file. A DIY device that completed setup and later
-      re-enters the unprovisioned state (e.g. it forgot its Wi-Fi network)
-      must still be able to log back in: :func:`require_wifi_access`
-      always session-gates such a device, so without this exception it
-      could never obtain the session Wi-Fi requires -- a deadlock.
+      :attr:`~palmimo_portal.ports.AuthFileState.PRESENT`), even without an
+      identity file: a DIY device that completed setup and re-enters
+      unprovisioned (e.g. forgot its Wi-Fi network) must still be able to
+      log back in, since :func:`require_wifi_access` always session-gates
+      it -- otherwise a deadlock.
 
     Raises:
         PortalError: 409 ``not_provisioned`` -- only when neither exception applies.
     """
     # `is not None` is true for both a real Identity and IDENTITY_UNAVAILABLE
-    # (a str, never None) -- an unavailable read is treated the same as
-    # "identity file present" here, not as "no identity file" (which would
-    # fall through to require_provisioned, the DIY path). That's the safe
-    # side to fail on: login itself (api/auth.py) makes its own
-    # compute_auth_state() check and refuses with 503 identity_unavailable
-    # before touching a password, so letting the request past this gate
-    # cannot open anything.
+    # (a str, never None) -- treated as "identity present", the safe side:
+    # login itself (api/auth.py) refuses with 503 identity_unavailable
+    # before touching a password, so letting the request past here can't
+    # open anything.
     if identity_store.read_identity() is not None:
         return
     if state.auth_state() is AuthFileState.PRESENT:

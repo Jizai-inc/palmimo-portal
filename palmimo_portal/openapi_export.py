@@ -1,13 +1,10 @@
 """Write the FastAPI app's OpenAPI schema to a file — the source orval reads.
 
-A build step for exactly one consumer, the frontend's ``make generate``,
-invoked by the repository-root ``Makefile``'s ``openapi`` target.
-
-Always builds the app on fake adapters, regardless of ``PALMIMO_ADAPTERS`` in
-the invoking shell: the schema is the same either way (adapter choice affects
-runtime behavior, not the Pydantic models the routers declare), and pinning
-it here keeps a stray real-adapter environment variable from making this
-step depend on D-Bus or real-device filesystem paths.
+A build step for exactly one consumer, the frontend's ``make generate`` (``Makefile``'s
+``openapi`` target). Always builds on fake adapters regardless of ``PALMIMO_ADAPTERS`` in
+the invoking shell: the schema is identical either way (adapter choice affects runtime
+behavior, not the Pydantic models the routers declare), and pinning it here keeps a stray
+real-adapter environment variable from making this step depend on D-Bus or device paths.
 """
 
 from __future__ import annotations

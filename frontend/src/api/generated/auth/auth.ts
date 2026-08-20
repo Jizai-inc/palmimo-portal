@@ -40,35 +40,32 @@ export const getChangePasswordEndpointApiV1AuthChangePasswordPostUrl = () => {
 /**
  * Change the Portal password, from either an initial or a full session.
  *
- * This and ``POST /logout`` are the only authenticated endpoints
- * reachable while the session's mode is ``"initial"`` --
- * :func:`~palmimo_portal.api.deps.require_full_session`, applied everywhere
- * else, is deliberately not applied here. What "change" means depends on
- * which mode the caller's session carries:
+ * This and ``POST /logout`` are the only authenticated endpoints reachable
+ * while the session's mode is ``"initial"`` --
+ * :func:`~palmimo_portal.api.deps.require_full_session`, applied
+ * everywhere else, is deliberately not applied here.
  *
- * - **From an initial session**: ``current_password`` is checked against
- *   the identity file's sticker hash, and ``auth.json`` is *created* for
- *   the first time (via :func:`~palmimo_portal.core.auth.change_password_from_initial`,
- *   using the same exclusive-create machinery as ``POST /setup`` -- two
- *   concurrent change-password requests from two initial sessions cannot
- *   both win).
- * - **From a full session**: ``current_password`` is checked against the
- *   stored hash, and ``auth.json`` is rotated in place (via
- *   :func:`~palmimo_portal.core.auth.change_password_from_full`).
+ * - **From an initial session**: ``current_password`` checks against the
+ *   identity file's sticker hash; ``auth.json`` is *created* for the
+ *   first time (:func:`~palmimo_portal.core.auth.change_password_from_initial`,
+ *   same exclusive-create machinery as ``POST /setup``, so two concurrent
+ *   requests from two initial sessions cannot both win).
+ * - **From a full session**: ``current_password`` checks against the
+ *   stored hash; ``auth.json`` is rotated in place
+ *   (:func:`~palmimo_portal.core.auth.change_password_from_full`).
  *
- * Either way, a fresh full-mode session is issued in the response so the
- * caller does not need to log in again -- required for the
- * initial-to-full transition, since an identity-carrying device's Wi-Fi
- * endpoints are session-gated even while unprovisioned (see
+ * Either way a fresh full-mode session is issued, so the caller need not
+ * log in again -- required for the initial-to-full transition, since
+ * Wi-Fi endpoints are session-gated even while unprovisioned on an
+ * identity-carrying device (see
  * :func:`~palmimo_portal.api.deps.require_wifi_access`).
  *
- * ``current_password`` verification shares :class:`~palmimo_portal.core.auth.LoginRateLimiter`
- * with ``POST /login`` (same instance, same budget, same lockout) rather
- * than having its own unlimited counter -- a stolen session cookie must
- * not hand an attacker an unlimited online oracle to brute-force the
+ * ``current_password`` verification shares
+ * :class:`~palmimo_portal.core.auth.LoginRateLimiter` with ``POST
+ * /login`` (same instance, budget, lockout) -- a stolen session cookie
+ * must not hand an attacker an unlimited oracle to brute-force the
  * current password. The lockout is checked before either verify path
- * runs, so a locked-out caller never gets an attempt, even with the
- * correct password.
+ * runs.
  *
  * Raises:
  *     PortalError: 409 ``auth_state_corrupt`` if ``auth.json`` is
@@ -155,16 +152,14 @@ export const useChangePasswordEndpointApiV1AuthChangePasswordPost = <TError = HT
 /**
  * Verify the password and, on success, issue a session cookie.
  *
- * Checks against ``auth.json`` (mode ``"full"``) when a password has
- * been set, or against the identity file's sticker hash (mode
- * ``"initial"``) when one hasn't but an identity file is present -- see
- * :func:`~palmimo_portal.core.identity.compute_auth_state`. The response
- * body's ``mode`` lets the frontend route straight to the
- * change-password screen after an initial-mode login.
- *
- * Fixed rate limit: 5 failures in a row locks further attempts out for
- * 60 seconds (see :class:`~palmimo_portal.core.auth.LoginRateLimiter`),
- * regardless of which mode the attempt was checked against.
+ * Checks against ``auth.json`` (mode ``"full"``) when a password has been
+ * set, or the identity file's sticker hash (mode ``"initial"``) when one
+ * hasn't but an identity file is present -- see
+ * :func:`~palmimo_portal.core.identity.compute_auth_state`. Response
+ * ``mode`` lets the frontend route straight to change-password after an
+ * initial-mode login. Fixed rate limit: 5 failures locks attempts out for
+ * 60s (see :class:`~palmimo_portal.core.auth.LoginRateLimiter`), regardless
+ * of which mode was checked.
  *
  * Raises:
  *     PortalError: 409 ``auth_state_corrupt`` if ``auth.json`` exists but
@@ -249,14 +244,13 @@ export const useLoginApiV1AuthLoginPost = <TError = HTTPValidationError,
 /**
  * Clear the session cookie.
  *
- * Cookie deletion only, not server-side revocation -- there is no
- * session table; a session is a signed, timestamped token verified
- * purely from the signing key. A token copied off this browser before
- * logout therefore stays valid until it expires
- * (:data:`SESSION_MAX_AGE_SECONDS`) or the signing key is rotated, which
- * only :func:`change_password` does. Deliberate trade-off: no
- * server-side session store on a single-account device with no database
- * of its own.
+ * Cookie deletion only, not server-side revocation -- there is no session
+ * table; a session is a signed, timestamped token verified purely from the
+ * signing key. A token copied off this browser before logout stays valid
+ * until it expires (:data:`SESSION_MAX_AGE_SECONDS`) or the signing key
+ * rotates (only :func:`change_password` does that). Deliberate trade-off:
+ * no server-side session store on a single-account device with no
+ * database of its own.
  * @summary Logout
  */
 export const logoutApiV1AuthLogoutPost = async ( options?: RequestInit): Promise<StatusResponse> => {
@@ -329,34 +323,29 @@ export const useLogoutApiV1AuthLogoutPost = <TError = unknown,
 /**
  * Reset the Portal's login credentials -- unauthenticated, identity-carrying devices only.
  *
- * Deliberately carries **no** ``require_auth`` and **no**
- * ``require_provisioned_unless_identity`` dependency, unlike every other
- * endpoint in this router: on an identity-carrying device, a forgotten
- * owner-set password blocks the Wi-Fi setup flow itself (Wi-Fi is
- * session-gated the moment an identity file exists -- see
- * :func:`~palmimo_portal.api.deps.require_wifi_access`), so a reset must
- * work before Wi-Fi is configured and without a session to present. The
- * DIY case is refused by :func:`~palmimo_portal.core.auth.decide_reset`
- * itself, so ``require_provisioned_unless_identity`` would add nothing
- * here.
+ * Deliberately carries **no** ``require_auth``/``require_provisioned_unless_identity``,
+ * unlike every other endpoint here: a forgotten owner password otherwise
+ * blocks the Wi-Fi setup flow itself (Wi-Fi is session-gated the moment an
+ * identity file exists -- :func:`~palmimo_portal.api.deps.require_wifi_access`),
+ * so a reset must work before Wi-Fi is configured and without a session.
+ * The DIY case is refused by :func:`~palmimo_portal.core.auth.decide_reset`
+ * itself.
  *
- * Because this is the one unauthenticated state-changing action in the
- * whole API -- anyone on the LAN can trigger it on an identity-carrying
- * device, by design, as a bounded nuisance/DoS (the device lands back in
- * ``initial`` mode, gated to the sticker password, never handed to the
- * caller) -- every accepted reset is logged at WARNING with the caller's
- * address, and throttled process-wide to one per
+ * This is the one unauthenticated state-changing action in the API --
+ * anyone on the LAN can trigger it on an identity-carrying device, by
+ * design, as a bounded nuisance/DoS (device lands back in ``initial``
+ * mode, gated to the sticker password, never handed to the caller).
+ * Every accepted reset is logged at WARNING with the caller's address,
+ * and throttled process-wide to one per
  * :data:`~palmimo_portal.core.auth.RESET_LOCKOUT_SECONDS` via
- * :meth:`~palmimo_portal.core.auth.ResetRateLimiter.try_acquire` (a
- * separate budget from :class:`~palmimo_portal.core.auth.LoginRateLimiter`,
- * engaged only on an *accepted* reset, and released again if
+ * :meth:`~palmimo_portal.core.auth.ResetRateLimiter.try_acquire` (separate
+ * budget from :class:`~palmimo_portal.core.auth.LoginRateLimiter`, engaged
+ * only on an *accepted* reset, released again if
  * :meth:`~palmimo_portal.ports.StateStore.delete_auth` then fails).
  *
- * The identity read feeding :func:`~palmimo_portal.core.auth.decide_reset`
- * is :meth:`~palmimo_portal.ports.IdentityStore.read_identity_uncached`,
- * not the cached :meth:`~palmimo_portal.ports.IdentityStore.read_identity`
- * every other endpoint uses: this decision must never be made from a
- * stale cache of an identity file since removed from disk.
+ * Reads identity via :meth:`~palmimo_portal.ports.IdentityStore.read_identity_uncached`,
+ * not the cached read every other endpoint uses -- this decision must
+ * never be made from a stale cache of an identity file since removed.
  *
  * Raises:
  *     PortalError: 429 ``auth_rate_limited`` while throttled -- checked
@@ -445,8 +434,7 @@ export const useResetApiV1AuthResetPost = <TError = unknown,
 /**
  * Set the Portal password for the first time -- the DIY (open-setup) flow only.
  *
- * Reachable while unprovisioned (it is the bootstrap step) and requires no
- * session of its own.
+ * Reachable while unprovisioned and requires no session of its own.
  *
  * Raises:
  *     PortalError: 409 ``auth_state_corrupt`` if ``auth.json`` exists but

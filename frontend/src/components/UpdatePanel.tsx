@@ -41,42 +41,27 @@ const JOB_POLL_INTERVAL_MS = 2_000;
 const STALE_CHECK_SECONDS = 60 * 60;
 
 /**
- * How long the restarting screen waits for the Portal to come back before
- * showing recovery guidance instead of "Restarting…" forever -- covers a
- * process that crash-loops after `restart_portal()` succeeds (failure-mode
- * audit item 5).
+ * How long the restarting screen waits for the Portal to come back before showing recovery
+ * guidance instead of "Restarting…" forever -- covers a process that crash-loops after
+ * `restart_portal()` succeeds.
  */
 const DEFAULT_RESTART_MAX_WAIT_MS = 10 * 60 * 1000;
 
 /**
- * When this browser first observed the restart currently being waited on
- * (keyed by `job.restarting_at`, the job's identity) -- module-scoped, not
- * component state, so it survives an `UpdatePanel` unmount/remount (e.g.
- * navigating to another screen and back).
- *
- * That persistence matters: the *only* other path to the "Palmimo has not
- * come back yet" guidance is the server's own 600s expiry (core/update.py),
- * and that expiry only ever runs inside `GET /update/status` handling and at
- * boot -- it cannot fire on its own while nothing is polling it. In the one
- * scenario this guidance exists for (a crash-loop after `restart_portal()`
- * succeeds, so the fail-then-succeed poll below never observes a
- * transition), the client-side timeout is the *only* path to that guidance.
- * Arming it fresh on every mount would let a user who bounces between
- * screens postpone it indefinitely.
- *
- * Cleared once a poll shows the job has left `restarting` (done/failed/idle
- * -- see the effect below), so a later, unrelated restart starts its own
- * fresh budget even if `restarting_at` happens to collide (e.g. both null,
- * from a job predating this field).
+ * When this browser first observed the restart currently being waited on (keyed by
+ * `job.restarting_at`) -- module-scoped, not component state, so it survives an `UpdatePanel`
+ * unmount/remount and a user bouncing between screens can't indefinitely postpone the timeout.
+ * The server's own 600s expiry (core/update.py) only runs inside `GET /update/status` handling
+ * and at boot, so in a crash-loop this client-side timeout is the only path to the guidance.
  */
 let restartObservation: { key: number | null; observedAtMs: number } | null = null;
 
-/** Test-only: module state above is otherwise process-lifetime, so tests must reset it between cases. */
+/** Module state above is process-lifetime; tests must reset it between cases. */
 export function __resetRestartObservationForTests() {
   restartObservation = null;
 }
 
-/** Test-only: exposes the current observation so a test can assert it was rekeyed on a new restart, not just infer it from timing. */
+/** Test-only: lets a test assert the observation was rekeyed on a new restart, not just inferred from timing. */
 export function __getRestartObservationForTests() {
   return restartObservation;
 }
@@ -84,12 +69,9 @@ export function __getRestartObservationForTests() {
 type DialogKind = "update" | "rollback" | null;
 
 /**
- * Resolves an `Updater.apply` step name (see palmimo_portal/ports.py's
- * `Updater` protocol) to its translated label via explicit `t("update.step…")`
- * calls -- a table lookup would be invisible to the i18n-parity scan
- * (`test_i18n_parity.py`), which only recognizes literal `t(...)` calls; see
- * `src/lib/navLabels.ts` for the same pattern. Falls back to the raw step
- * name for any value the backend has not yet been taught.
+ * Resolves an `Updater.apply` step name to its translated label via explicit `t("update.step…")`
+ * calls -- a table lookup would be invisible to the i18n-parity scan (`test_i18n_parity.py`),
+ * which only recognizes literal `t(...)` calls; see `src/lib/navLabels.ts` for the same pattern.
  */
 function stepLabel(t: TFunction, step: string | null): string {
   switch (step) {
@@ -112,17 +94,14 @@ function stepLabel(t: TFunction, step: string | null): string {
   }
 }
 
-/** A 429 rate limit is not actionable, so it stays silent (failure-mode audit item 8). */
+/** A 429 rate limit is not actionable, so it stays silent. */
 function isSilentRateLimit(error: unknown): boolean {
   return error instanceof PortalApiError && error.status === 429;
 }
 
 /**
- * The update screen's logic (see routes/update.tsx, which wraps this in
- * `AppShell`). Free of router hooks -- `onRestarted` is the only reach-out to
- * routing/reloading, so it can be rendered directly with
- * `renderWithProviders(<UpdatePanel onRestarted={...} />)`; the restart-poll
- * interval and `onRestarted` are both injectable for tests.
+ * The update screen's logic (see routes/update.tsx, which wraps this in `AppShell`). Free of
+ * router hooks -- `onRestarted` is the only reach-out to routing/reloading.
  */
 export function UpdatePanel({
   onRestarted = () => window.location.reload(),
@@ -142,14 +121,10 @@ export function UpdatePanel({
   const queryClient = useQueryClient();
   const statusQueryKey = getGetStatusApiV1UpdateStatusGetQueryKey();
 
-  // Every check/apply/rollback response is a fresh UpdateStatusResponse --
-  // write it straight into the status query's cache instead of waiting for
-  // the next poll, so a job that just moved to "running"/"restarting"
-  // is visible immediately and the conditional `refetchInterval` below can
-  // kick in. `invalidateQueries` with `refetchType: "none"` then marks the
-  // entry stale for the next natural refetch, without forcing an immediate
-  // one -- an eager refetch could race this write with a GET that has not
-  // caught up yet and clobber it with a stale read.
+  // Write each check/apply/rollback response straight into the status query's cache so a job
+  // that just moved to "running"/"restarting" is visible immediately; `refetchType: "none"`
+  // only marks the entry stale rather than forcing an immediate refetch that could race this
+  // write and clobber it with a stale read.
   function adoptStatus(data: UpdateStatusResponse) {
     queryClient.setQueryData(statusQueryKey, data);
     void queryClient.invalidateQueries({ queryKey: statusQueryKey, refetchType: "none" });
@@ -204,18 +179,14 @@ export function UpdatePanel({
 
   const job = status?.job;
 
-  // Poll system/status once the job is restarting, like PowerPanel's reboot
-  // detection: a poll only counts once it has failed (Portal actually went
-  // down) and then succeeded again. See PowerPanel.tsx for the rationale.
+  // Poll system/status once the job is restarting, like PowerPanel's reboot detection
+  // (fail-then-succeed); see PowerPanel.tsx for the rationale.
   const onRestartedRef = useRef(onRestarted);
   onRestartedRef.current = onRestarted;
   const hasFailedRef = useRef(false);
 
-  // A restart faster than one `restartPollIntervalMs` tick could settle
-  // (`job.state === "done"` with `installed.tag === job.target`) before the
-  // poll below ever observes a failed-then-succeeded transition. Tracks
-  // whether the *previous* `status` was still `"restarting"`, so this fires
-  // once, right at that transition, not on every later "done" render.
+  // Tracks whether the *previous* `status` was still `"restarting"`, so a restart faster than
+  // one poll tick still fires once, right at the transition, not on every later "done" render.
   const wasRestartingRef = useRef(false);
   useEffect(() => {
     if (job?.state === "restarting") {
@@ -265,31 +236,14 @@ export function UpdatePanel({
     };
   }, [job?.state, restartPollIntervalMs]);
 
-  // The restart-wait timeout: covers a crash-loop after restart_portal()
-  // succeeds, where the poll above never observes a fail-then-succeed
-  // transition. Starts counting when the job becomes "restarting" and
-  // resets when it stops.
-  //
-  // Anchored to *this browser's* clock, via the module-level
-  // `restartObservation` above, rather than to `job.restarting_at` (a
-  // server/device epoch *seconds* timestamp set by `mark_restarting`, see
-  // core/update.py). The Pi has no RTC: right after boot, before NTP
-  // settles, its clock can be minutes off from the browser's, and mixing
-  // the two meant a device clock behind the browser fired this guidance
-  // immediately on a healthy restart, while a device clock ahead silently
-  // extended the wait. The server's own 600s expiry (core/update.py) that
-  // flips the job to `failed` is unaffected by this bug or this fix -- it
-  // is purely a client-side UI budget, and a server-reported `failed` still
-  // wins the moment a poll observes it, since that changes `job.state` and
-  // the branch below clears the observation and tears the timer down.
-  //
-  // The budget -- via `restartObservation`'s key -- only resets when
-  // `job.restarting_at` changes (a genuinely new restart superseding the
-  // one being waited on), not on every poll that merely re-confirms the
-  // same restart, and not on an unmount/remount of this component: while
-  // `job === undefined` (status not yet loaded, e.g. right after a
-  // remount), this effect deliberately leaves `restartObservation`
-  // untouched rather than treating "unknown" as "not restarting".
+  // Restart-wait timeout, covering a crash-loop where the poll above never observes a
+  // fail-then-succeed transition. Anchored to *this browser's* clock (`restartObservation`),
+  // not `job.restarting_at` (a device epoch timestamp): the Pi has no RTC, so right after boot,
+  // before NTP settles, its clock can be minutes off from the browser's -- a device clock
+  // behind the browser would fire this guidance immediately on a healthy restart, one ahead
+  // would silently extend the wait. The budget only resets when `job.restarting_at` changes
+  // (a genuinely new restart), and leaves `restartObservation` untouched while `job` is
+  // undefined rather than treating "unknown" as "not restarting".
   useEffect(() => {
     if (job === undefined) {
       return undefined;
@@ -302,14 +256,8 @@ export function UpdatePanel({
     const key = job.restarting_at ?? null;
     if (restartObservation === null || restartObservation.key !== key) {
       restartObservation = { key, observedAtMs: Date.now() };
-      // A stale `restartTimedOut` from a *previous* restart must not bleed
-      // into this new one -- e.g. two restarting polls back to back with no
-      // intermediate non-restarting state in between (a missed transition)
-      // would otherwise re-arm the timer below while still rendering the
-      // old restart's power-cycle guidance for however long the old
-      // `restartTimedOut === true` render lingers. `restartTimedOut` is
-      // therefore reset in lockstep with rekeying `restartObservation`
-      // above, not just when leaving "restarting" entirely.
+      // Reset in lockstep with rekeying, not just when leaving "restarting": two restarting
+      // polls with no intermediate state would otherwise re-arm while showing stale guidance.
       setRestartTimedOut(false);
     }
     const remainingMs = restartObservation.observedAtMs + restartMaxWaitMs - Date.now();
@@ -319,10 +267,8 @@ export function UpdatePanel({
     }
     const timeoutId = setTimeout(() => setRestartTimedOut(true), remainingMs);
     return () => clearTimeout(timeoutId);
-    // `job` itself is deliberately not a dep below: it is a fresh object on
-    // every poll even when `state`/`restarting_at` (the only fields this
-    // effect reads) are unchanged, and re-running on every poll would
-    // needlessly re-arm the timer each time.
+    // `job` is deliberately not a dep: it's a fresh object on every poll even when
+    // `state`/`restarting_at` are unchanged, which would needlessly re-arm the timer.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.state, job?.restarting_at, restartMaxWaitMs]);
 
@@ -347,10 +293,7 @@ export function UpdatePanel({
           applyError={apply.error}
           restartTimedOut={restartTimedOut}
         />
-        {/* previous_tag can coincide with installed.tag after a retry
-            (core/update.py's start_apply()/start_rollback() keep the
-            existing previous_tag unchanged); hide the card rather than
-            show a no-op rollback. */}
+        {/* previous_tag can coincide with installed.tag after a retry; hide rather than show a no-op rollback. */}
         {status.previous_tag && status.previous_tag !== status.installed.tag ? (
           <RollbackCard
             previousTag={status.previous_tag}
@@ -464,8 +407,7 @@ function UpdateCard({
       ) : null}
 
       <p className="text-xs text-muted-foreground">{t("update.notes")}</p>
-      {/* A manual "Check now" failure must be visible (failure-mode audit
-          item 8); 429 stays silent, matching the auto-check-on-mount path. */}
+      {/* A manual "Check now" failure must be visible; 429 stays silent, matching auto-check. */}
       <ApiErrorAlert error={isSilentRateLimit(checkError) ? undefined : checkError} />
       <ApiErrorAlert error={applyError} />
 

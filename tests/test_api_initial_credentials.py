@@ -30,9 +30,6 @@ def _initial_login(client: TestClient) -> None:
     assert response.json()["mode"] == "initial"
 
 
-# -- open_setup (DIY) is unchanged -------------------------------------------
-
-
 def test_open_setup_setup_works_once_then_409(client: TestClient) -> None:
     first = client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
     second = client.post("/api/v1/auth/setup", json={"password": "other"}, headers=CSRF_HEADERS)
@@ -40,9 +37,6 @@ def test_open_setup_setup_works_once_then_409(client: TestClient) -> None:
     assert first.status_code == 200
     assert second.status_code == 409
     assert second.json()["error"]["code"] == "auth_already_set"
-
-
-# -- identity present: setup is always 409 -----------------------------------
 
 
 def test_setup_is_409_when_identity_present_even_though_no_password_is_set(
@@ -66,9 +60,6 @@ def test_setup_is_409_when_identity_present_regardless_of_provisioning(
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "initial_credentials_required"
-
-
-# -- identity present: login with the initial password ----------------------
 
 
 def test_login_with_the_initial_password_succeeds_with_mode_initial(
@@ -116,9 +107,6 @@ def test_login_with_the_wrong_initial_password_rate_limits(client: TestClient, a
 
     assert locked.status_code == 429
     assert locked.json()["error"]["code"] == "auth_rate_limited"
-
-
-# -- initial-mode gate: everything except change-password/logout is 403 -----
 
 
 def test_ssh_keys_is_403_with_an_initial_session(client: TestClient, adapters: FakeAdapterBundle) -> None:
@@ -201,9 +189,6 @@ def test_logout_is_reachable_with_an_initial_session(client: TestClient, adapter
     response = client.post("/api/v1/auth/logout", headers=CSRF_HEADERS)
 
     assert response.status_code == 200
-
-
-# -- change-password from initial mode ---------------------------------------
 
 
 def test_change_password_from_initial_rejects_the_wrong_current_password(
@@ -354,9 +339,6 @@ def test_change_password_from_initial_concurrent_race_loser_gets_409(
     assert response.json()["error"]["code"] == "auth_change_conflict"
 
 
-# -- change-password in full mode --------------------------------------------
-
-
 def test_change_password_from_full_requires_the_correct_current_password(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
@@ -397,9 +379,6 @@ def test_change_password_from_full_rotates_the_key_invalidating_the_old_session(
     assert response.status_code == 401
 
 
-# -- corrupt auth.json still locks login/change; identity does not bypass it --
-
-
 def test_login_is_409_when_auth_corrupt_even_with_identity_present(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
@@ -431,9 +410,6 @@ def test_change_password_is_401_once_auth_corrupts_after_an_initial_session_was_
 
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "not_authenticated"
-
-
-# -- F1: identity read is unavailable (transient error, not clean absence) --
 
 
 def test_setup_is_503_when_identity_is_unavailable(client: TestClient, adapters: FakeAdapterBundle) -> None:
@@ -577,7 +553,6 @@ def test_identity_becoming_available_again_re_reads_correctly(client: TestClient
     assert response.json()["auth_state"] == "open_setup"
 
 
-# -- malformed identity file: treated as open_setup, logged at ERROR --------
 #
 # The malformed-file -> None + "log ERROR once" contract is unit-tested
 # directly against the real adapter in test_identity_adapter.py

@@ -33,10 +33,9 @@ def is_provisioned(network: NetworkPort) -> bool:
 def require_provisioned(network: NetworkPort) -> None:
     """Raise :class:`NotProvisionedError` unless the device is provisioned.
 
-    Call from the endpoints the technical design lists as gated: SSH keys,
-    system reboot/shutdown, and auth login/logout. Wi-Fi endpoints, auth
-    setup, and system status must never call this — they stay reachable
-    while unprovisioned.
+    Call from gated endpoints: SSH keys, system reboot/shutdown, auth
+    login/logout. Wi-Fi endpoints, auth setup, and system status must
+    never call this — they stay reachable while unprovisioned.
     """
     if not is_provisioned(network):
         raise NotProvisionedError()

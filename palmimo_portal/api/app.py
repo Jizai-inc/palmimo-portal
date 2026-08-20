@@ -77,23 +77,17 @@ _SIOCGIFADDR = 0x8915
 def _interface_ipv4_addresses() -> frozenset[str]:
     """Enumerate this machine's own bound interface IPv4 addresses (Linux only).
 
-    ``socket.gethostbyname_ex(hostname)`` -- ``_machine_hosts``'s other
-    source of addresses -- resolves the hostname through the resolver, not
-    the network stack, so it does not enumerate interface addresses at
-    all. On a Raspberry Pi it typically resolves only the ``/etc/hosts``
-    loopback alias, missing the AP-mode gateway IP a setup client's Host
-    header would carry when connecting by numeric IP, which HostGuard
-    would then reject with 421.
-
-    ``SIOCGIFADDR`` reads the address the kernel actually has bound to
-    each interface, closing that gap. Linux-specific (and not always
-    available even there), so any failure is swallowed and treated as
-    "nothing found here": non-Linux dev machines and CI fall back to
-    ``_machine_hosts``'s other sources.
+    ``gethostbyname_ex`` -- the other source in ``_machine_hosts`` -- resolves
+    through the resolver, not the network stack, so on a Pi it typically only
+    finds the ``/etc/hosts`` loopback alias, missing the AP-mode gateway IP a
+    setup client would connect to by numeric IP (which HostGuard would then
+    reject with 421). ``SIOCGIFADDR`` reads what the kernel actually has bound
+    to each interface, closing that gap. Linux-specific; any failure is
+    swallowed as "nothing found here", falling back to the other sources.
     """
     addresses: set[str] = set()
     try:
-        import fcntl  # POSIX-only; imported lazily so this module still loads on platforms without it
+        import fcntl  # POSIX-only; lazy import so this module still loads elsewhere
 
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
             for _, name in socket.if_nameindex():
@@ -104,7 +98,7 @@ def _interface_ipv4_addresses() -> frozenset[str]:
                         struct.pack("256s", name[:15].encode("ascii")),
                     )
                 except OSError:
-                    continue  # this interface has no IPv4 address bound (e.g. down, or IPv6-only)
+                    continue  # no IPv4 bound (down, or IPv6-only)
                 addresses.add(socket.inet_ntoa(packed[20:24]))
     except (ImportError, AttributeError, OSError):
         return frozenset()
@@ -119,7 +113,7 @@ def _machine_hosts() -> frozenset[str]:
         _, _, addresses = socket.gethostbyname_ex(hostname)
         hosts.update(addresses)
     except OSError:
-        pass  # no resolvable network address yet (e.g. AP mode with no DHCP lease) -- hostname/localhost still work
+        pass  # no resolvable address yet (e.g. AP mode, no DHCP lease)
     hosts.update(_interface_ipv4_addresses())
     return frozenset(hosts)
 
@@ -135,16 +129,14 @@ def _normalize_host(host_header: str) -> str:
 class HostGuardMiddleware(BaseHTTPMiddleware):
     """Rejects any request whose ``Host`` header does not name this machine.
 
-    A DNS-rebinding defense: a browser tab on an attacker's page can be
-    made to issue a request that resolves to this device's LAN IP, and
-    without this check that request would carry the visitor's cookies.
-
-    ``always_allowed_hosts`` (localhost plus ``settings.allowed_hosts``) is
-    fixed at construction. This machine's own hostname/IPs are re-resolved
-    lazily, at most once per :data:`_HOST_CACHE_TTL_SECONDS`, rather than
-    once at :func:`create_app` time -- resolving them before the network
-    is up would otherwise permanently exclude an address that only
-    becomes valid after boot.
+    A DNS-rebinding defense: a browser tab on an attacker's page can be made
+    to issue a request that resolves to this device's LAN IP, carrying the
+    visitor's cookies, without this check. ``always_allowed_hosts``
+    (localhost + ``settings.allowed_hosts``) is fixed at construction; this
+    machine's own hostname/IPs re-resolve lazily, at most once per
+    :data:`_HOST_CACHE_TTL_SECONDS`, rather than once at :func:`create_app`
+    time -- resolving before the network is up would otherwise permanently
+    exclude an address that only becomes valid after boot.
     """
 
     def __init__(
@@ -180,22 +172,20 @@ class HostGuardMiddleware(BaseHTTPMiddleware):
 class SessionMiddleware(BaseHTTPMiddleware):
     """Reads the session cookie and records whether it verifies, without enforcing anything.
 
-    Two signing keys are tried, depending on ``auth.json``'s state --
-    never both, and never when it is CORRUPT:
+    Two signing keys are tried depending on ``auth.json``'s state -- never
+    both, never when CORRUPT:
 
-    - **``auth.json`` PRESENT** (full mode): verified against
-      ``AuthState.signing_key``. A password change rotates this key,
-      invalidating every full-mode session at once.
-    - **``auth.json`` ABSENT** (initial mode, only reachable with an
-      identity file): verified against
+    - **PRESENT** (full mode): verified against ``AuthState.signing_key``.
+      A password change rotates this key, invalidating every full-mode
+      session at once.
+    - **ABSENT** (initial mode, only reachable with an identity file):
+      verified against
       :meth:`~palmimo_portal.ports.StateStore.read_or_create_initial_signing_key`.
-      Changing the password from initial mode creates ``auth.json`` under
-      a freshly generated full-mode key, so an initial-mode token this
-      middleware would otherwise still verify stops matching either key
-      the moment that happens -- no separate revocation step needed.
-    - **``auth.json`` CORRUPT**: neither key is consulted. A cookie issued
-      before the file became corrupt must not keep authenticating a
-      request against state that can no longer be trusted.
+      Changing the password from initial mode creates ``auth.json`` under a
+      fresh full-mode key, so an initial-mode token stops matching either
+      key the moment that happens -- no separate revocation step needed.
+    - **CORRUPT**: neither key is consulted -- a cookie issued before
+      corruption must not keep authenticating against untrustworthy state.
 
     ``request.state.session_mode`` records which kind of session (if any)
     verified -- ``"full"``, ``"initial"``, or ``None`` -- for
@@ -262,14 +252,10 @@ async def _handle_unexpected_error(request: Request, exc: Exception) -> JSONResp
 async def _handle_adapter_unavailable(request: Request, exc: Exception) -> JSONResponse:
     """Translate :class:`~palmimo_portal.ports.AdapterUnavailableError` into a 503 error envelope.
 
-    Registered app-wide (not caught per-endpoint) because a real adapter's
-    D-Bus failure does not only surface from inside an ``api/`` handler
-    body -- :func:`~palmimo_portal.api.deps.require_wifi_access`,
-    :func:`~palmimo_portal.api.deps.require_provisioned`, and
-    :func:`~palmimo_portal.api.deps.require_provisioned_unless_identity`
-    all call :meth:`~palmimo_portal.ports.NetworkPort.get_status`
-    themselves as a dependency, before a gated endpoint's own body runs. A
-    single handler here covers every call site at once.
+    Registered app-wide, not per-endpoint: a D-Bus failure can surface from
+    a dependency (``require_wifi_access``, ``require_provisioned``, etc.
+    all call :meth:`~palmimo_portal.ports.NetworkPort.get_status`) before a
+    gated endpoint's own body ever runs, so one handler covers every site.
     """
     assert isinstance(exc, AdapterUnavailableError)
     logger.error("adapter unavailable: %s", exc)
@@ -280,14 +266,12 @@ async def _handle_adapter_unavailable(request: Request, exc: Exception) -> JSONR
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Resolve a ``"restarting"`` update job left over from before this process started.
 
-    Runs on every startup, an update-triggered restart included: a
-    ``"restarting"`` job persisted just before ``restart_portal()`` was
-    called (see :class:`~palmimo_portal.core.update_runner.UpdateRunner`)
-    is only observed once the *new* process comes up and asks
-    :meth:`~palmimo_portal.ports.Updater.installed` what tag it landed on
-    -- see :func:`~palmimo_portal.core.update.finalize_after_restart` for
-    the done/failed decision. A no-op on every other boot, safe to run
-    unconditionally.
+    Runs on every startup: a ``"restarting"`` job persisted just before
+    ``restart_portal()`` (:class:`~palmimo_portal.core.update_runner.UpdateRunner`)
+    is only observed once the *new* process asks
+    :meth:`~palmimo_portal.ports.Updater.installed` what tag it landed on --
+    see :func:`~palmimo_portal.core.update.finalize_after_restart` for the
+    done/failed decision. A no-op, safe unconditionally, on every other boot.
     """
     adapters: AdapterBundle = app.state.adapters
     try:
@@ -377,16 +361,13 @@ def _mount_frontend(app: FastAPI, static_dir: Path) -> None:
     """Serve the frontend's build output, with an SPA fallback to ``index.html``.
 
     Registered after every ``api/`` router, so an ``/api/...`` path always
-    hits a router (404ing as the usual JSON error envelope if none
-    matches) before this catch-all route ever runs. A no-op when
-    ``static_dir`` does not exist -- a source checkout that has not run
-    ``make build`` has nothing to serve, and should 404 rather than raise
-    at startup.
+    hits a router (404ing as JSON) before this catch-all ever runs. A no-op
+    when ``static_dir`` does not exist -- a checkout without ``make build``
+    has nothing to serve, and should 404 rather than raise at startup.
 
-    Logged at WARNING, not INFO: the frontend build output ships as a
-    GitHub Release asset the Updater fetches (see doc/releasing.md),
-    so an absent ``static/`` on a real deployment is a gap an operator
-    needs to notice in ``journalctl``.
+    Logged at WARNING, not INFO: the build ships as a GitHub Release asset
+    the Updater fetches (doc/releasing.md), so an absent ``static/`` on a
+    real deployment is a gap an operator needs to notice in ``journalctl``.
     """
     assets_dir = static_dir / "assets"
     if (
@@ -395,14 +376,12 @@ def _mount_frontend(app: FastAPI, static_dir: Path) -> None:
         or not assets_dir.is_dir()
         or not any(assets_dir.iterdir())
     ):
-        # The `assets` check matters on its own: an interrupted build or a
-        # half-extracted release asset can leave `index.html` present with
-        # `assets/` missing (or vice versa) -- StaticFiles would raise at
-        # mount time in that case, crashing create_app() instead of
-        # degrading to "API only". Treat any incomplete combination the
-        # same as a missing build; `any(assets_dir.iterdir())` also
-        # catches an empty `assets/` dir, which StaticFiles would
-        # otherwise mount without raising.
+        # sync contract: an interrupted build or half-extracted release
+        # asset can leave index.html present with assets/ missing (or vice
+        # versa) -- StaticFiles would raise at mount time, crashing
+        # create_app() instead of degrading to "API only". Treat any
+        # incomplete combination as a missing build; `any(assets_dir.iterdir())`
+        # also catches an empty assets/ dir, which StaticFiles mounts without raising.
         logger.warning(
             "frontend build not found (or incomplete) at %s -- run 'make build' in the repository root, or "
             "let the updater fetch the release asset; the API works, the UI will 404",
@@ -423,23 +402,18 @@ def _mount_frontend(app: FastAPI, static_dir: Path) -> None:
     def _serve_spa(full_path: str) -> FileResponse:
         """Serve a static file at ``full_path`` if one exists, else fall back to ``index.html``.
 
-        The fallback is what makes client-side routes (``/login``,
-        ``/setup``, ...) work on a hard refresh or a direct link: there is
-        no server-side route for them, only a TanStack Router route the
-        bundle registers once it loads.
+        The fallback makes client-side routes (``/login``, ``/setup``, ...)
+        work on a hard refresh: there is no server-side route for them,
+        only a TanStack Router route the bundle registers once it loads.
         """
-        # `full_path == "api"` (no trailing slash) does not match the
-        # `"api/"` prefix check below but is still an API path -- without
-        # this, GET /api falls through to the static-file lookup, misses,
-        # and returns index.html with a 200 instead of 404ing as JSON.
+        # `full_path == "api"` (no trailing slash) misses the "api/" prefix
+        # check but is still an API path -- else GET /api 200s with index.html.
         if full_path.startswith(API_PATH_PREFIX) or full_path == API_PATH_PREFIX.rstrip("/"):
             raise HTTPException(status_code=404, detail={"code": "not_found", "params": {}})
         candidate = static_dir / full_path
         if full_path and candidate.is_file():
-            # Stops a `full_path` containing `..` segments from resolving
-            # outside static_dir: `is_file()` above happily follows `..`,
-            # but `resolve().relative_to(...)` rejects the result before
-            # FileResponse ever opens it.
+            # is_file() above follows `..`; resolve().relative_to() rejects
+            # a result outside static_dir before FileResponse opens it.
             try:
                 candidate.resolve().relative_to(static_dir.resolve())
             except ValueError as error:
@@ -451,9 +425,8 @@ def _mount_frontend(app: FastAPI, static_dir: Path) -> None:
 def _log_startup_banner(settings: Settings) -> None:
     """Log a one-line startup summary, at WARNING when running on fake adapters.
 
-    Fake adapters are the right default for local development and CI, but
-    silently wrong on a shipped device -- WARNING (not INFO) makes that
-    visible in ``journalctl`` without anyone having to think to look.
+    Fake adapters are correct for local dev/CI but silently wrong on a
+    shipped device -- WARNING makes that visible in ``journalctl`` unprompted.
     """
     banner = (
         f"palmimo-portal {portal_version()} starting: "

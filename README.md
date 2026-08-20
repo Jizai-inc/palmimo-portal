@@ -40,20 +40,15 @@ uv run pytest        # backend unit + integration tests
 ## Adapters: fake vs. real
 
 Every port (network, system, SSH keys, state, identity, releases, updater)
-has two implementations. `"fake"` wires in-memory fakes for every port —
-what the whole test suite and local development run against. `"real"` wires
-the OS-backed adapters — comitup and logind over D-Bus for network and
-system control, the filesystem for the rest — and is what the device image
-actually runs. See [`palmimo_portal/wiring.py`](palmimo_portal/wiring.py).
+has two implementations, selected by `PALMIMO_ADAPTERS` (see above). See
+[`palmimo_portal/wiring.py`](palmimo_portal/wiring.py).
 
 ## How updates reach devices
 
 A tagged GitHub Release here (`vX.Y.Z`) carries a `palmimo-portal-static-<tag>.tar.gz`
-frontend build as an asset, built by CI and attached automatically. A
-device's Updater fetches the tag, checks it out, resyncs dependencies with
-`uv sync --frozen`, downloads and verifies that frontend asset, and restarts
-the Portal's own systemd unit. See [doc/releasing.md](doc/releasing.md) for
-the full release procedure.
+frontend build as an asset, built by CI and attached automatically. See
+[How Palmimo Portal works](doc/palmimo-portal.md#update-model) for the
+update flow and [doc/releasing.md](doc/releasing.md) for the release procedure.
 
 ## Repository layout
 

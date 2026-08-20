@@ -50,9 +50,6 @@ def _running_state(*, kind: Literal["update", "rollback"] = "update", target: st
     )
 
 
-# -- is_update_available ------------------------------------------------------------
-
-
 def test_is_update_available_is_false_without_a_latest_release() -> None:
     assert is_update_available(InstalledVersion(tag="v1.0.0", commit="abc"), None) is False
 
@@ -67,9 +64,6 @@ def test_is_update_available_is_true_when_tags_differ() -> None:
 
 def test_is_update_available_is_false_when_tags_match() -> None:
     assert is_update_available(InstalledVersion(tag="v2.0.0", commit="abc"), RELEASE_V2) is False
-
-
-# -- start_check ----------------------------------------------------------------------
 
 
 def test_start_check_succeeds_from_idle() -> None:
@@ -123,9 +117,6 @@ def test_start_check_succeeds_when_the_wall_clock_stepped_backwards() -> None:
     assert result.job.state == "checking"
 
 
-# -- record_latest ----------------------------------------------------------------------
-
-
 def test_record_latest_stores_the_release_and_returns_the_job_to_idle() -> None:
     state = start_check(IDLE_UPDATE_STATE, now=1000.0)
 
@@ -134,9 +125,6 @@ def test_record_latest_stores_the_release_and_returns_the_job_to_idle() -> None:
     assert result.latest == RELEASE_V2
     assert result.checked_at == 1000.5
     assert result.job.state == "idle"
-
-
-# -- start_apply ----------------------------------------------------------------------
 
 
 def test_start_apply_succeeds_and_sets_previous_tag_from_installed() -> None:
@@ -189,9 +177,6 @@ def test_start_apply_raises_update_in_progress_when_a_job_is_running() -> None:
         start_apply(state, InstalledVersion(tag="v1.0.0", commit="abc"), "v2.0.0", now=1001.0)
 
 
-# -- start_rollback ----------------------------------------------------------------------
-
-
 def test_start_rollback_succeeds() -> None:
     state = UpdateState(latest=RELEASE_V2, checked_at=1000.0, previous_tag="v1.0.0", job=IDLE_UPDATE_STATE.job)
 
@@ -242,9 +227,6 @@ def test_start_rollback_raises_update_in_progress_when_a_job_is_running() -> Non
         start_rollback(_running_state(), InstalledVersion(tag="v2.0.0", commit="abc"), now=2000.0)
 
 
-# -- advance / mark_restarting / mark_failed ----------------------------------------------
-
-
 def test_advance_records_the_step() -> None:
     state = start_apply(
         UpdateState(latest=RELEASE_V2, checked_at=1000.0, previous_tag=None, job=IDLE_UPDATE_STATE.job),
@@ -278,9 +260,6 @@ def test_mark_failed_records_step_and_error_and_keeps_previous_tag() -> None:
     assert result.job.error == "uv sync failed"
     assert result.job.finished_at == 2000.0
     assert result.previous_tag == "v1.0.0"
-
-
-# -- finalize_after_restart ----------------------------------------------------------------
 
 
 def test_finalize_after_restart_is_a_no_op_when_done() -> None:
@@ -383,9 +362,6 @@ def test_finalize_after_restart_fails_a_checking_job_left_over_from_before_boot(
     assert result.job.error == "interrupted: the Portal restarted before this job finished"
 
 
-# -- is_valid_release_tag ------------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     "tag",
     ["v2.0.0", "v1", "release-2026.01.01", "a", "A1_2.3-4"],
@@ -410,9 +386,6 @@ def test_is_valid_release_tag_rejects_unsafe_tags(tag: str) -> None:
     assert is_valid_release_tag(tag) is False
 
 
-# -- record_latest rejects an invalid tag ---------------------------------------------------
-
-
 def test_record_latest_raises_invalid_release_tag_for_an_unsafe_tag() -> None:
     bad_release = Release(
         tag="-v2.0.0", name="bad", published_at="2026-01-01T00:00:00Z", html_url="https://example.test"
@@ -420,9 +393,6 @@ def test_record_latest_raises_invalid_release_tag_for_an_unsafe_tag() -> None:
 
     with pytest.raises(InvalidReleaseTagError):
         record_latest(IDLE_UPDATE_STATE, bad_release, now=1000.0)
-
-
-# -- start_apply / start_rollback reject an invalid target -----------------------------------
 
 
 def test_start_apply_raises_invalid_release_tag_for_an_unsafe_target() -> None:
@@ -440,9 +410,6 @@ def test_start_rollback_raises_invalid_release_tag_for_an_unsafe_previous_tag() 
 
     with pytest.raises(InvalidReleaseTagError):
         start_rollback(state, InstalledVersion(tag="v2.0.0", commit="abc"), now=2000.0)
-
-
-# -- expire_stale_restart -------------------------------------------------------------------
 
 
 def test_expire_stale_restart_is_a_no_op_when_not_restarting() -> None:
@@ -592,9 +559,6 @@ def test_finalize_after_restart_leaves_an_expired_restart_failed_when_installed_
     assert result is state
 
 
-# -- expire_stale_running -------------------------------------------------------------------
-
-
 def test_expire_stale_running_is_a_no_op_when_not_running() -> None:
     state = mark_restarting(_running_state(), now=200.0)  # job.state == "restarting", not "running"
 
@@ -657,9 +621,6 @@ def test_expire_stale_running_uses_start_as_the_step_when_none_was_reached_yet()
     assert result.job.step == "start"
 
 
-# -- current_update_state --------------------------------------------------------------------
-
-
 def test_current_update_state_persists_and_returns_the_expired_result_when_something_changed() -> None:
     store = FakeStateStore()
     store.write_update_state(_running_state())  # started_at = 100.0, step = "fetch"
@@ -697,9 +658,6 @@ def test_current_update_state_applies_expire_stale_restart_before_expire_stale_r
 
     assert result.job.state == "failed"
     assert result.job.step == "restart"
-
-
-# -- is_retry_available ------------------------------------------------------------------
 
 
 def test_is_retry_available_is_true_when_the_failed_job_target_matches_latest() -> None:

@@ -7,20 +7,10 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 /**
- * The dashboard's status card (routes/dashboard.tsx): a connection row (dot +
- * "Connected"/"Not connected" + SSID + an IP badge), then a divider, then
- * key/value rows for hostname / device ID / Portal / SDK versions. Fetches
- * its own data so it can be rendered and tested standalone, like
- * SshKeysPanel/PowerPanel.
- *
- * Renders both the mobile stacked key/value list and the desktop
- * hostname/device-ID grid in the same tree, toggled with responsive classes.
- *
- * `portalBadge` is an optional slot rendered next to the mobile Portal
- * version row -- routes/dashboard.tsx passes the "update available" badge
- * through it rather than this component building the link itself, since
- * `<Link>` requires a TanStack Router context this component's standalone
- * test harness does not provide.
+ * The dashboard's status card (routes/dashboard.tsx). Fetches its own data so it can be
+ * rendered and tested standalone, like SshKeysPanel/PowerPanel. `portalBadge` is an optional
+ * slot for the "update available" badge -- passed in rather than built here, since `<Link>`
+ * requires a TanStack Router context this component's standalone test harness does not provide.
  */
 export function DashboardStatusCard({ portalBadge }: { portalBadge?: React.ReactNode } = {}) {
   const { t } = useTranslation();

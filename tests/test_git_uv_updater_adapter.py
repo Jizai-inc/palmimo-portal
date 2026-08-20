@@ -1,18 +1,11 @@
 """Tests for :mod:`palmimo_portal.adapters.git_uv_updater`.
 
-A fake ``runner`` stands in for subprocess.run (the ``fetch``/``checkout``/
-``sync`` steps); a fake ``opener`` stands in for ``urllib.request.urlopen``
-(the ``assets`` step) -- see ``tests/test_github_releases_adapter.py`` for
-the sibling adapter this opener-injection shape is borrowed from.
-
-``apply``'s step order is ``fetch -> assets -> checkout -> sync ->
-install-assets`` -- see the adapter module's docstring for the rationale
-(the frontend asset is downloaded, verified, and staged *before* the tree is
-touched, and only swapped into ``static/`` once ``checkout``/``sync`` have
-both succeeded). Tests below that need an asset download to succeed even
-though they are only exercising ``checkout``/``sync`` behavior always supply
-an opener -- with the new order, ``assets`` runs unconditionally before
-either.
+A fake ``runner`` stands in for subprocess.run (``fetch``/``checkout``/
+``sync``); a fake ``opener`` stands in for ``urllib.request.urlopen``
+(``assets``). ``apply``'s step order is ``fetch -> assets -> checkout ->
+sync -> install-assets`` -- see the adapter module's docstring. Tests below
+exercising only ``checkout``/``sync`` still supply an opener, since
+``assets`` runs unconditionally before either.
 """
 
 from __future__ import annotations
@@ -416,9 +409,6 @@ def test_checkout_ignores_untracked_files_when_checking_dirtiness(tmp_path: Path
     assert status_call["argv"] == ["git", "status", "--porcelain", "--untracked-files=no"]
 
 
-# --- checkout-attestation marker: force/refuse decisions, lifecycle ---
-
-
 def test_checkout_refusal_message_starts_with_the_shared_dirty_tree_prefix(tmp_path: Path) -> None:
     # The refusal message must be BUILT FROM DIRTY_TREE_REFUSAL_PREFIX, not
     # merely happen to start with the same text -- pins that contract so a
@@ -685,9 +675,6 @@ def test_apply_leaves_an_attested_marker_alone_at_start_when_the_tree_is_still_d
     assert marker.exists()
 
 
-# --- stale git lock sweep: gated, not unconditional ---
-
-
 def test_sweep_leaves_a_lock_alone_the_first_time_it_is_seen(tmp_path: Path) -> None:
     # The monotonic first-seen gate cannot possibly consider a lock
     # eligible the very first time this process observes it.
@@ -902,7 +889,6 @@ def test_stderr_tail_is_truncated_to_the_last_20_lines(tmp_path: Path) -> None:
     assert "line 29" not in message
 
 
-# --- real-git integration tests: the marker mechanism against actual git semantics ---
 #
 # The rest of this file scripts `git` itself -- fast, but it can only prove
 # the adapter behaves correctly against whatever the *script* says a git
@@ -1015,9 +1001,6 @@ def test_real_git_fresh_lock_with_no_marker_makes_checkout_fail_visibly_and_the_
     assert excinfo.value.step == "checkout"
     assert "File exists" in str(excinfo.value)
     assert lock.exists()  # never attributed to this updater -- left for the operator's own command
-
-
-# --- the "assets" step: download, verify, and safely stage the frontend build ---
 
 
 def test_assets_downloads_verifies_and_stages_without_touching_static(tmp_path: Path) -> None:
@@ -1223,9 +1206,6 @@ def test_assets_uses_the_configured_update_repo_in_the_download_url(tmp_path: Pa
     expected = f"https://github.com/acme/example/releases/download/v3.0.0/{asset_name}"
     assert expected in seen_urls
     assert f"{expected}.sha256" in seen_urls
-
-
-# --- the "install-assets" step: atomically swap the staged build into static/ ---
 
 
 def test_install_assets_swaps_the_staged_dir_into_static(tmp_path: Path) -> None:

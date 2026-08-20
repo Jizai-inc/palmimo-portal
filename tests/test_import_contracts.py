@@ -71,9 +71,6 @@ def _iter_py_files(*, exclude: frozenset[str] = frozenset()) -> list[Path]:
     )
 
 
-# -- relative-import resolution ----------------------------------------------------
-
-
 def _module_dotted_name(path: Path) -> str:
     """Return *path*'s own dotted module name (``palmimo_portal/core/auth.py`` -> ``"palmimo_portal.core.auth"``)."""
     relative = path.relative_to(PACKAGE_ROOT.parent).with_suffix("")
@@ -110,9 +107,6 @@ def _resolve_relative_import(path: Path, node: ast.ImportFrom) -> str | None:
     if node.module:
         base_parts = base_parts + node.module.split(".")
     return ".".join(base_parts) if base_parts else None
-
-
-# -- dynamic-import detection -------------------------------------------------------
 
 
 def _dynamic_import_literal_targets(path: Path) -> set[str]:
@@ -155,9 +149,6 @@ def _dynamic_palmimo_portal_submodules(path: Path) -> set[str]:
             parts = target.split(".")
             modules.add(".".join(parts[:2]) if len(parts) > 1 else parts[0])
     return modules
-
-
-# -- static-import resolution --------------------------------------------------------
 
 
 def _imported_top_level_modules(path: Path) -> set[str]:
@@ -314,9 +305,6 @@ def test_comitup_adapter_never_imports_subprocess() -> None:
         "Banning the import itself (not just the literal string 'nmcli') closes the "
         "'assemble the command from parts' evasion of the nmcli text check above."
     )
-
-
-# -- planted-violation tests: prove each detection actually detects -----------------
 
 
 def test_relative_import_of_adapters_from_core_is_detected(tmp_path: Path) -> None:

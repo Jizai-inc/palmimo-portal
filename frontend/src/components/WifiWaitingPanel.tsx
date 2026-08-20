@@ -23,26 +23,20 @@ const DEFAULT_MAX_WAIT_MS = 5 * 60 * 1000;
 type PollOutcome = { kind: "waiting" } | { kind: "connected"; status: SystemStatus } | { kind: "failed"; status: SystemStatus };
 
 /**
- * The wifi-waiting screen's logic (routes/wifi.waiting.tsx wraps it in a
- * `<div>`). No router hooks: `onConnected`/`onFailed` are the only reach-out
- * to routing; poll interval and `assign` are injectable for tests.
+ * The wifi-waiting screen's logic (routes/wifi.waiting.tsx wraps it in a `<div>`). No router
+ * hooks: `onConnected`/`onFailed` are the only reach-out to routing.
  *
- * Two independent recovery paths race each other:
+ * Two independent recovery paths race each other, both tearing down on unmount and stopping
+ * as soon as one resolves the screen:
  *
- * 1. **Same-origin polling** of `system/status` (bypassing TanStack Query),
- *    swallowing failures since the AP being down is expected mid-wait.
- *    Resolves "failed" on `last_wifi_attempt.result === "failed"`, and
- *    "connected" on `state === "connected"` AND `last_wifi_attempt` absent
- *    or itself `"connected"`. The attempt check guards the reconfigure race
- *    (core/wifi_attempt.py): right after connecting the backend can still
- *    briefly observe `CONNECTED` to the *old* network. `"attempting"` means
- *    keep waiting.
- * 2. **The portal probe** (src/lib/portalProbe.ts): an opaque `no-cors`
- *    fetch to `http://<hostname>.local/` every few seconds, for the case
- *    where the visitor's device rejoined its home Wi-Fi. First success
- *    triggers `assign` to navigate there.
- *
- * Both stop as soon as one resolves the screen, and both tear down on unmount.
+ * 1. **Same-origin polling** of `system/status`, swallowing failures since the AP being down
+ *    is expected mid-wait. Resolves "failed" on `last_wifi_attempt.result === "failed"`, and
+ *    "connected" on `state === "connected"` AND `last_wifi_attempt` absent or itself
+ *    `"connected"` -- the attempt check guards the reconfigure race (core/wifi_attempt.py),
+ *    where the backend can briefly still observe `CONNECTED` to the *old* network.
+ * 2. **The portal probe** (src/lib/portalProbe.ts): an opaque `no-cors` fetch to
+ *    `http://<hostname>.local/` every few seconds, for a visitor device that rejoined its
+ *    home Wi-Fi. First success triggers `assign`.
  */
 export function WifiWaitingPanel({
   ssid,
@@ -58,39 +52,30 @@ export function WifiWaitingPanel({
   ssid: string;
   /** Called once the same-origin poll observes `state === "connected"`. */
   onConnected: () => void;
-  /** Called once the same-origin poll observes a failed attempt, or from the timed-out/pre-attempt-error recovery screens' Back/Try-again actions. */
+  /** Called on a failed attempt, or from the timed-out/pre-attempt-error screens' Back/Try-again actions. */
   onFailed: () => void;
   /**
-   * The `last_wifi_attempt.timestamp` already on record (from cached
-   * `system/status`) when the connect form was submitted (see
-   * routes/wifi.tsx, passed through the `/wifi/waiting` route's `since`
-   * search param). A polled `last_wifi_attempt` is only trusted as
-   * describing *this* attempt once its `ssid` matches and its `timestamp`
-   * exceeds this value -- both are server-side, so no clock-skew risk.
-   * Defaults to `0` so an untouched status never looks "in the future".
+   * The `last_wifi_attempt.timestamp` on record at submit (routes/wifi.tsx's `since` search
+   * param). A polled `last_wifi_attempt` is trusted as describing *this* attempt only once its
+   * `ssid` matches and its `timestamp` exceeds this value (both server-side, no clock-skew
+   * risk). Defaults to `0` so an untouched status never looks "in the future".
    */
   previousAttemptTimestamp?: number;
   /** Injectable so tests do not have to wait out the real interval. */
   pollIntervalMs?: number;
-  /** Injectable probe interval, passed through to {@link startPortalProbe}; defaults to its own 3s default. */
   probeIntervalMs?: number;
   /** Injectable so tests do not trigger a real jsdom navigation. */
   assign?: (url: string) => void;
   /** Injectable so tests do not have to wait out the real 5-minute default. */
   maxWaitMs?: number;
   /**
-   * The error from the `connect` mutation that led to this screen, if the
-   * POST itself failed (e.g. a 503 from comitup being down at the
-   * pre-connect read) before any attempt was recorded for the same-origin
-   * poll to find. Without this, that case would spin as "waiting" until
-   * `maxWaitMs` instead of showing the real error immediately. See
-   * routes/wifi.waiting.tsx for how this is read from the mutation cache.
+   * The error from the `connect` mutation, if the POST itself failed before any attempt was
+   * recorded for the same-origin poll to find -- without this, spins as "waiting" until
+   * `maxWaitMs` instead of showing the real error.
    */
   connectError?: unknown;
 }) {
   const { t } = useTranslation();
-  // Best-effort read for the hostname shown in the reconnect instructions
-  // and used as the probe target -- distinct from the polling loop below.
   const { data: status } = useGetStatusApiV1SystemStatusGet();
   const [outcome, setOutcome] = useState<PollOutcome>({ kind: "waiting" });
   const outcomeRef = useRef(outcome);
@@ -105,8 +90,7 @@ export function WifiWaitingPanel({
   const onFailedRef = useRef(onFailed);
   onFailedRef.current = onFailed;
 
-  // `assign` is read through a ref (same as PowerPanel.tsx's `onRebootedRef`)
-  // so the probe effect below does not restart on every fresh default
+  // Read through a ref so the probe effect below does not restart on every fresh default
   // arrow-function identity.
   const assignRef = useRef(assign);
   assignRef.current = assign;
@@ -114,8 +98,7 @@ export function WifiWaitingPanel({
   const hostname = status?.hostname;
   const urlHostname = hostname ?? "palmimo";
 
-  // Fires once, `maxWaitMs` after mount, unless already resolved. The poll
-  // and probe below both check `timedOutRef` and stop once this fires.
+  // Fires once, `maxWaitMs` after mount, unless already resolved.
   useEffect(() => {
     if (outcomeRef.current.kind !== "waiting") return undefined;
     const timeoutId = setTimeout(() => {
@@ -136,10 +119,8 @@ export function WifiWaitingPanel({
         const polledStatus = await getStatusApiV1SystemStatusGet();
         if (cancelled) return;
         const attempt = polledStatus.last_wifi_attempt;
-        // A present `last_wifi_attempt` is authoritative for *this* attempt
-        // only once it names this ssid and postdates the cached record from
-        // submit time (see `previousAttemptTimestamp` docstring) -- otherwise
-        // it's a stale record from a previous attempt. A missing attempt is
+        // Authoritative for *this* attempt only once it names this ssid and postdates
+        // `previousAttemptTimestamp` -- otherwise a stale record. A missing attempt is
         // vacuously trusted.
         const isThisAttempt = attempt == null || (attempt.ssid === ssid && attempt.timestamp > previousAttemptTimestamp);
         if (!isThisAttempt) {
@@ -149,15 +130,11 @@ export function WifiWaitingPanel({
         } else if (attempt?.result === "failed") {
           setOutcome({ kind: "failed", status: polledStatus });
         }
-        // Anything else -- including `state === "connected"` with an
-        // attempt still `"attempting"` (the reconfigure race) -- stays
-        // "waiting".
+        // Anything else stays "waiting", including `state === "connected"`
+        // with an attempt still `"attempting"` (the reconfigure race).
       } catch {
-        // A rejected call here is ordinarily a fetch-level TypeError thrown
-        // while the AP is mid-teardown for the hotspot-to-station handoff --
-        // the expected symptom of the connect succeeding (see
-        // `selectConnectError`'s docstring), not a real failure. Try again
-        // next tick.
+        // Ordinarily a fetch-level TypeError while the AP is mid-teardown -- the expected
+        // symptom of the connect succeeding, not a real failure. Try again next tick.
       }
     }
 
@@ -167,15 +144,11 @@ export function WifiWaitingPanel({
       cancelled = true;
       clearInterval(interval);
     };
-    // `timedOut` is included so the interval is actually torn down (not
-    // just made a no-op by the guard above) the moment the max-wait fires.
+    // `timedOut` is included so the interval is actually torn down the moment max-wait fires.
   }, [pollIntervalMs, ssid, previousAttemptTimestamp, timedOut]);
 
-  // The probe needs a hostname, and must never call `assign` after the poll
-  // has resolved the screen (it would yank the browser out from under a
-  // navigation in progress): the effect depends on `outcome.kind` so a
-  // transition tears it down, and `onFound` re-checks `outcomeRef` in case a
-  // probe was already in flight.
+  // The probe must never call `assign` after the poll has resolved the screen (it would yank
+  // the browser out from under a navigation in progress): `onFound` re-checks `outcomeRef`.
   const isWaiting = outcome.kind === "waiting" && !timedOut;
   useEffect(() => {
     if (!hostname || !isWaiting) return undefined;
@@ -204,11 +177,8 @@ export function WifiWaitingPanel({
 
   if (outcome.kind === "failed") {
     const observed = outcome.status.last_wifi_attempt?.observed_connection_name;
-    // comitup settled on a *different* known network: name what Palmimo
-    // actually joined instead of the generic password guidance. Requires
-    // `state === "connected"` (a HOTSPOT-fallback failure isn't connected to
-    // anything; resolve_attempt already nulls observed_connection_name there,
-    // this is defense in depth).
+    // comitup settled on a *different* known network: name it instead of the generic guidance.
+    // Requires `state === "connected"`; resolve_attempt already nulls this otherwise -- defense in depth.
     const joinedDifferentNetwork = outcome.status.state === "connected" && observed != null && observed !== ssid;
     return (
       <AuthShell title={t("wifi.waitingFailedTitle")}>
@@ -225,8 +195,7 @@ export function WifiWaitingPanel({
   }
 
   if (connectError && outcome.kind === "waiting") {
-    // The connect POST itself failed before any attempt was recorded, so
-    // surface the real error immediately instead of spinning until maxWaitMs.
+    // Surface the real error immediately instead of spinning until maxWaitMs.
     return (
       <AuthShell title={t("wifi.waitingFailedTitle")}>
         <ApiErrorAlert error={connectError} />
@@ -284,13 +253,8 @@ export function WifiWaitingPanel({
         <p className="text-xs text-muted-foreground">
           {t("wifi.waitingFailureNote", { hostname: hostname ?? t("wifi.hostnameUnknown") })}
         </p>
-        {/* A Back action exists on every other outcome this component
-          renders; this base "still waiting" view was the one place missing
-          it. Reuses onFailedRef.current (navigates to /wifi, see
-          routes/wifi.waiting.tsx). Labeled distinctly (wifi.waitingBackToScan,
-          not common.back) because navigating away here does NOT cancel the
-          connect attempt already in flight on the device, unlike the other
-          Back buttons which only appear once the attempt has settled. */}
+        {/* Labeled distinctly (wifi.waitingBackToScan, not common.back): navigating away here
+          does NOT cancel the connect attempt already in flight on the device. */}
         <Button variant="outline" className="w-full" onClick={onFailedRef.current}>
           {t("wifi.waitingBackToScan")}
         </Button>

@@ -1,12 +1,9 @@
 """CLI: download, verify, and install one release's frontend build into ``static/``.
 
-For a developer or tester who wants the Portal's built UI without installing
-Node -- what the repository-root ``Makefile``'s ``fetch-static`` target
-shells out to. Calls the same download/verify/extract/swap functions as
-:class:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater`'s
-``assets``/``install-assets`` steps (see
-:mod:`palmimo_portal.adapters.static_asset`) -- one implementation of "fetch
-a release's frontend asset safely", not two.
+For a developer/tester who wants the built UI without installing Node -- what the repository's
+``Makefile`` ``fetch-static`` target shells out to. Calls the same functions as
+:class:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater`'s ``assets``/``install-assets``
+steps (:mod:`palmimo_portal.adapters.static_asset`) -- one implementation, not two.
 
 Usage::
 
@@ -49,11 +46,8 @@ def build_parser() -> argparse.ArgumentParser:
 def fetch_static(tag: str, repo: str, dest: Path) -> None:
     """Download, verify, and install ``tag``'s frontend build into ``dest``, replacing it.
 
-    Stages into a sibling ``static.tmp-<pid>`` directory first (via
-    :func:`~palmimo_portal.adapters.static_asset.fetch_and_stage`) and only
-    swaps it into ``dest`` once the download and safety checks have fully
-    succeeded (via :func:`~palmimo_portal.adapters.static_asset.swap_into_place`)
-    -- the same two-phase shape as a device update, so a failed fetch never
+    Stages into a sibling ``static.tmp-<pid>`` directory first and only swaps it into ``dest``
+    once fully verified -- the same two-phase shape as a device update, so a failed fetch never
     leaves ``dest`` half replaced.
 
     Raises:

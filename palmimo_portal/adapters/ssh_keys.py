@@ -87,10 +87,7 @@ class AuthorizedKeysSshKeyPort(SshKeyPort):
         A dedicated ``.lock`` file, not ``self._path`` itself, is locked --
         locking the target directly would interact awkwardly with
         :func:`~palmimo_portal.adapters.atomic_write.atomic_write_text`'s
-        rename-a-new-inode-into-place write path. Retries a non-blocking
-        ``flock`` every :data:`_SSH_KEYS_LOCK_POLL_INTERVAL_SECONDS` up to
-        :data:`SSH_KEYS_LOCK_TIMEOUT_SECONDS`, logging a WARNING the moment
-        it starts waiting.
+        rename-into-place write path.
 
         Raises:
             SshKeysLockTimeoutError: the lock could not be acquired within
@@ -141,11 +138,11 @@ class AuthorizedKeysSshKeyPort(SshKeyPort):
 
     @staticmethod
     def _parsed_entries_from(lines: list[str]) -> list[tuple[str, str, str]]:
-        """Return ``(line, key_type, comment)`` for every line this adapter can parse, out of an already-read ``lines``.
+        """Return ``(line, key_type, comment)`` for every parseable line in an already-read ``lines``.
 
-        Takes ``lines`` rather than re-reading the file so a caller holding
-        :meth:`_locked` derives both "how many keys" and "which line matches
-        this fingerprint" from one consistent snapshot.
+        Takes ``lines`` rather than re-reading, so a caller holding
+        :meth:`_locked` derives "how many keys" and "which line matches"
+        from one consistent snapshot.
         """
         entries = []
         for line in lines:

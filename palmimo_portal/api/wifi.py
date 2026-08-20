@@ -38,21 +38,19 @@ from palmimo_portal.ports import (
 
 logger = logging.getLogger("palmimo_portal")
 
-#: 802.11 bounds the RAW wire SSID to 1..32 bytes -- but the string this
-#: handler sees is NetworkManager/comitup's *decoded* name, not the raw
-#: bytes. A legal 32-raw-byte SSID from an old Latin-1/SJIS router that
-#: isn't valid UTF-8 gets lossily decoded, each bad byte expanded to one
-#: U+FFFD (3 UTF-8 bytes) -- up to 96 encoded bytes for a network that
-#: works fine and is already listed by ``GET /wifi/networks``. See
-#: _SSID_LOSSY_DECODE_MAX_BYTES for the relaxed cap that applies only when
-#: U+FFFD's presence marks that lossy-decode case.
+#: 802.11 bounds the raw wire SSID to 1..32 bytes, but this handler sees
+#: NetworkManager/comitup's *decoded* name, not the raw bytes: a legal
+#: 32-raw-byte SSID from an old Latin-1/SJIS router that isn't valid UTF-8
+#: gets lossily decoded, each bad byte expanded to one U+FFFD (3 UTF-8
+#: bytes) -- up to 96 encoded bytes for a network that works fine and is
+#: already listed by ``GET /wifi/networks``. See
+#: _SSID_LOSSY_DECODE_MAX_BYTES for the relaxed cap that exempts this case.
 _SSID_MAX_BYTES = 32
 
-#: Sanity ceiling for an ssid containing U+FFFD (see _SSID_MAX_BYTES): the
+#: Relaxed cap when the ssid contains U+FFFD (see _SSID_MAX_BYTES): the
 #: connect target is matched against comitup's own scan names, so passing
-#: the sanitized string through verbatim is exactly what makes connecting
-#: to one of these routers work -- this is just a hard upper bound against
-#: garbage, not a real protocol limit.
+#: the sanitized string through verbatim is what makes connecting to one of
+#: these routers work -- a sanity ceiling against garbage, not a protocol limit.
 _SSID_LOSSY_DECODE_MAX_BYTES = 128
 
 #: The signature NetworkManager's lossy UTF-8 decode leaves behind: every
@@ -60,9 +58,8 @@ _SSID_LOSSY_DECODE_MAX_BYTES = 128
 _REPLACEMENT_CHAR = "�"
 
 #: wpa_supplicant bounds a WPA2-PSK passphrase to 8..63 *bytes*, not
-#: characters -- JP consumer routers commonly allow (and their owners set)
-#: a UTF-8 passphrase, so a characters-based or ASCII-only rule would
-#: wrongly reject a passphrase that works fine on the device.
+#: characters -- JP consumer routers commonly allow a UTF-8 passphrase, so
+#: an ASCII-only rule would wrongly reject one that works fine on the device.
 _PSK_MIN_BYTES = 8
 _PSK_MAX_BYTES = 63
 
@@ -70,15 +67,14 @@ _PSK_MAX_BYTES = 63
 def _validate_ssid(ssid: str) -> None:
     """Reject an ``ssid`` that cannot survive comitup's D-Bus call or NetworkManager's own limits.
 
-    A lone surrogate (e.g. produced by a hand-crafted ``\\ud800`` escape --
-    stdlib ``json`` parses it into a ``str`` happily) cannot encode to UTF-8;
-    left unchecked it gets past this handler, is persisted as the last Wi-Fi
-    attempt, and then makes every later ``GET /system/status`` 500 trying to
-    serialize it back out. The C0-control / DEL check catches the other
-    reachable-pre-auth variant: an embedded NUL breaks the D-Bus message.
-    The byte cap is normally 32 (see :data:`_SSID_MAX_BYTES`), relaxed to
-    :data:`_SSID_LOSSY_DECODE_MAX_BYTES` when the string contains
-    :data:`_REPLACEMENT_CHAR` -- see that constant's docstring.
+    A lone surrogate (e.g. a hand-crafted ``\\ud800`` escape -- stdlib
+    ``json`` parses it into a ``str`` happily) cannot encode to UTF-8; left
+    unchecked it would get persisted as the last Wi-Fi attempt and make
+    every later ``GET /system/status`` 500 trying to serialize it back out.
+    The C0-control/DEL check catches an embedded NUL, which breaks the
+    D-Bus message. Byte cap is normally 32 (:data:`_SSID_MAX_BYTES`),
+    relaxed to :data:`_SSID_LOSSY_DECODE_MAX_BYTES` when the string
+    contains :data:`_REPLACEMENT_CHAR`.
     """
     try:
         encoded = ssid.encode("utf-8")
@@ -94,12 +90,10 @@ def _validate_ssid(ssid: str) -> None:
 def _validate_psk(psk: str) -> None:
     """Reject a ``psk`` that isn't a valid WPA2 passphrase (or the empty string for an open network).
 
-    WPA2-PSK accepts either an 8..63 *byte* passphrase (see
-    :data:`_PSK_MIN_BYTES` / :data:`_PSK_MAX_BYTES` -- arbitrary UTF-8, not
-    ASCII-only: wpa_supplicant treats the passphrase as bytes) or a
-    64-character hex-encoded raw key. Anything else would only be rejected
-    by NetworkManager *after* the reconfigure path above has already run
-    ``forget`` on the device's current network for a doomed request.
+    Accepts an 8..63 *byte* passphrase (arbitrary UTF-8, not ASCII-only) or
+    a 64-char hex raw key. Anything else would otherwise only be rejected
+    by NetworkManager after the reconfigure path has already run ``forget``
+    on the device's current network for a doomed request.
     """
     if psk == "":
         return
@@ -195,12 +189,18 @@ def connect(
     ``GET /api/v1/system/status``.
 
     The attempt is recorded *before* :meth:`~palmimo_portal.ports.NetworkPort.connect`
-    is called: if ``connect`` raises or the process dies right after, a
-    record written afterward would vanish. If ``connect`` raises, the
-    attempt is corrected to a durable "failed" result rather than left
-    claiming "attempting" forever. This does *not* transition "attempting"
-    to "success" asynchronously -- that belongs to the real network
-    adapter, which observes the actual connection outcome.
+    is called, so a process death right after the call would not lose the
+    record; if ``connect`` raises, the attempt is corrected to a durable
+    "failed" result rather than left claiming "attempting" forever. Does
+    *not* transition "attempting" to "success" asynchronously -- that
+    belongs to the real network adapter, which observes the outcome.
+
+    If the device is currently ``CONNECTED``, the real adapter forgets that
+    network before connecting to the new one (see
+    :meth:`~palmimo_portal.adapters.comitup.ComitupNetworkPort.connect`) --
+    comitup would otherwise short-circuit back to the old network. This
+    handler reads :meth:`~palmimo_portal.ports.NetworkPort.get_status` first
+    purely for operator visibility, logging a WARNING naming both networks.
 
     Raises:
         PortalError: 400 ``wifi_invalid_ssid`` / ``wifi_invalid_psk`` if
@@ -208,14 +208,6 @@ def connect(
             checked first, before anything below touches state or the
             network adapter. 502 ``wifi_connect_failed`` if
             ``network.connect`` itself raises (e.g. the radio is busy).
-
-    Note: if the device is currently ``CONNECTED``, the real adapter
-    forgets that network before connecting to the new one (see
-    :meth:`~palmimo_portal.adapters.comitup.ComitupNetworkPort.connect`) --
-    comitup would otherwise short-circuit back to the old network. This
-    handler reads :meth:`~palmimo_portal.ports.NetworkPort.get_status`
-    first purely for operator visibility: a WARNING is logged naming both
-    the network about to be forgotten and the one being connected to.
     """
     _validate_ssid(body.ssid)
     _validate_psk(body.psk)
@@ -243,14 +235,12 @@ def connect(
 def forget(network: NetworkPort = Depends(get_network_port)) -> ForgetResponse:
     """Forget the currently connected network and drop the connection.
 
-    Forgetting must never be reachable anonymously -- unlike the rest of
-    this router, a device with no network yet has nothing to forget, so
+    Must never be reachable anonymously -- unlike the rest of this router,
     this route adds :func:`~palmimo_portal.api.deps.require_provisioned`
     and :func:`~palmimo_portal.api.deps.require_auth` explicitly on top of
     the router's own ``require_wifi_access`` + ``require_full_session``.
-
-    Unlike ``POST /wifi/connect``, this does *not* write a
-    ``last_wifi_attempt`` record -- forgetting is not a connect attempt.
+    Unlike ``POST /wifi/connect``, does *not* write a ``last_wifi_attempt``
+    record -- forgetting is not a connect attempt.
 
     Raises:
         PortalError: 503 ``network_backend_unavailable`` if

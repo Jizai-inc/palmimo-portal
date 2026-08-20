@@ -4,16 +4,10 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PortalApiError } from "@/api/client";
 
 /**
- * Resolves a {@link PortalApiError}'s machine-readable `code` through
- * `errors.<code>` in the active locale -- the backend returns only the code,
- * never a sentence (palmimo_portal/errors.py), so every error surface in
- * this app renders through here.
- *
- * `error` is not always a {@link PortalApiError}: a request that never
- * reaches the backend (AP torn down mid-request, DNS failing mid-reassociation)
- * surfaces as a plain `TypeError` from `fetch`. Any other truthy `error`
- * gets a generic network-error message instead, kept deliberately outside
- * the `errors.*` table since no backend code maps to it.
+ * Resolves a {@link PortalApiError}'s machine-readable `code` through `errors.<code>` in the
+ * active locale -- the backend returns only the code, never a sentence. `error` is not always a
+ * {@link PortalApiError}: a request that never reaches the backend (AP torn down mid-request)
+ * surfaces as a plain `TypeError` from `fetch` and gets a generic network-error message instead.
  */
 export function ApiErrorAlert({ error }: { error: unknown }) {
   const { t } = useTranslation();

@@ -6,9 +6,8 @@ import { queryClient } from "@/lib/queryClient";
 import { NAV_ITEMS } from "@/lib/navigation";
 
 /**
- * The screen the route guard (routes/__root.tsx's `beforeLoad`) sends the
- * browser to, derived from `GET /api/v1/system/status` plus a lightweight
- * session probe. See palmimo-portal-technical.md's P1 API spec (auth_state table).
+ * The screen the route guard (routes/__root.tsx's `beforeLoad`) sends the browser to, derived
+ * from `GET /api/v1/system/status` plus a lightweight session probe.
  */
 export type AuthGate =
   | { screen: "status-error"; reason: "unavailable" | "corrupt"; hasIdentity: boolean }
@@ -28,36 +27,23 @@ export const GATE_PATHS: Record<AuthGate["screen"], string> = {
 };
 
 /**
- * Every authenticated route reachable once the gate has resolved to
- * `"dashboard"` -- the dashboard itself plus its sub-pages (SSH keys, power
- * controls). Derived from `NAV_ITEMS` (lib/navigation.ts) so a route added
- * there is automatically reachable here too, without the two drifting apart.
+ * Every authenticated route reachable once the gate has resolved to `"dashboard"`. Derived
+ * from `NAV_ITEMS` (lib/navigation.ts) so a route added there is automatically reachable here.
  */
 export const DASHBOARD_FAMILY_PATHS: readonly string[] = NAV_ITEMS.map((item) => item.to);
 
 /**
- * Whether `pathname` is reachable while the guard (routes/__root.tsx's
- * `beforeLoad`) has resolved to `gate`, beyond the canonical
- * `GATE_PATHS[gate.screen]` target. Carve-outs, all deliberately narrow:
+ * Whether `pathname` is reachable while the guard has resolved to `gate`, beyond the canonical
+ * `GATE_PATHS[gate.screen]` target. Narrow carve-outs:
  *
- * - `"dashboard"` also allows every {@link DASHBOARD_FAMILY_PATHS} entry
- *   (same full-session-plus-connected-Wi-Fi precondition as `/dashboard`),
- *   plus `/wifi` and `/wifi/waiting`, which the Wi-Fi settings screen's
- *   "connect to another network" reconfigure flow reuses.
- * - `"wifi"` also allows `/wifi/waiting`, which the connect form navigates
- *   to (routes/wifi.tsx) and which must not be bounced away on arrival.
- * - `"status-error"` with `reason === "unavailable"` also allows
- *   `/wifi/waiting`: connecting tears the AP down and `system/status` can
- *   transiently fail in that window (see palmimo-portal-technical.md's
- *   AP-disconnection-asymmetry section), so the waiting screen's own polling
- *   must be allowed to run. Not granted for `"corrupt"`, a durable problem.
- * - `/reset-login` is reachable only from `"login"` with `variant ===
- *   "normal"` or `"status-error"` with `reason === "corrupt"`, and only when
- *   `gate.hasIdentity` is true (see {@link resolveAuthGate}). Under the
- *   sticker variant there is nothing to reset (`POST /auth/reset` answers
- *   409 `auth_not_set`); under `"setup"` or without identity the server
- *   refuses with 403 `reset_not_available` (`core/auth.py`'s `decide_reset`),
- *   so the link would be a dead end.
+ * - `"dashboard"` also allows every {@link DASHBOARD_FAMILY_PATHS} entry, plus `/wifi` and
+ *   `/wifi/waiting` (the reconfigure flow reuses them).
+ * - `"wifi"` also allows `/wifi/waiting`.
+ * - `"status-error"` with `reason === "unavailable"` also allows `/wifi/waiting`: connecting
+ *   tears the AP down and `system/status` can transiently fail in that window, so the waiting
+ *   screen's own polling must keep running. Not granted for `"corrupt"`, a durable problem.
+ * - `/reset-login` is reachable only from `"login"` (normal variant) or `"status-error"`
+ *   (corrupt), and only with `gate.hasIdentity` -- otherwise the server refuses with 409/403.
  */
 export function isPathAllowedForGate(gate: AuthGate, pathname: string): boolean {
   if (pathname === GATE_PATHS[gate.screen]) {
@@ -87,18 +73,9 @@ export function isPathAllowedForGate(gate: AuthGate, pathname: string): boolean 
 }
 
 /**
- * Probe whether the browser already holds a valid session, using
- * `GET /api/v1/wifi/status` -- gated by `require_wifi_access` +
- * `require_full_session` (palmimo_portal/deps.py) on every device once
- * `auth_state` has left `open_setup`, so its outcome doubles as a session
- * check without a dedicated "whoami" endpoint:
- *
- * - 200 -> a full session is present.
- * - 403 `initial_password_must_be_changed` -> a valid *initial*-mode
- *   session (logged in with the sticker password, not yet changed).
- * - 401 `not_authenticated` -> no valid session at all.
- *
- * Lets a reload survive login without the guard remembering anything client-side.
+ * Probe session state via `GET /api/v1/wifi/status`, doubling as a session check without a
+ * dedicated "whoami" endpoint: 200 -> full session; 403 `initial_password_must_be_changed` ->
+ * valid initial-mode session; 401 `not_authenticated` -> none.
  */
 async function probeSession(): Promise<"full" | "initial" | "none"> {
   try {
@@ -141,12 +118,9 @@ export async function resolveAuthGate(status: SystemStatus): Promise<AuthGate> {
 }
 
 /**
- * The guard's entry point (routes/__root.tsx's `beforeLoad`): fetches
- * `system/status` and resolves the gate, never letting a failure of either
- * probe escape as a thrown error. Otherwise a failed `system/status` fetch
- * (AP torn down mid-navigation, device still booting) would reject
- * `beforeLoad` and land on TanStack Router's default error boundary (an
- * unstyled, non-i18n'd stack trace) instead of a screen this app owns.
+ * The guard's entry point: fetches `system/status` and resolves the gate, never letting a
+ * failure of either probe escape as a thrown error -- otherwise a failed fetch would reject
+ * `beforeLoad` and land on the router's default error boundary instead of a screen this app owns.
  */
 export async function resolveAuthGateSafely(): Promise<AuthGate> {
   try {

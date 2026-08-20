@@ -1,10 +1,9 @@
 """CI-safe tests for :mod:`palmimo_portal.adapters.comitup`.
 
-None of this touches a real D-Bus connection: the mapping/parsing functions
-are pure, and :meth:`ComitupNetworkPort._call` -- the seam between the sync
-Port methods and the D-Bus transport -- is stubbed by subclassing. Tests that
-need a real comitup service live in ``test_comitup_live.py``, gated behind
-``--live``.
+No real D-Bus connection: the mapping/parsing functions are pure, and
+:meth:`ComitupNetworkPort._call` -- the seam between sync Port methods and
+the D-Bus transport -- is stubbed by subclassing. Tests needing a real
+comitup service live in ``test_comitup_live.py``, gated behind ``--live``.
 """
 
 from __future__ import annotations
@@ -27,9 +26,6 @@ from palmimo_portal.adapters.comitup import (
 )
 from palmimo_portal.ports import AdapterUnavailableError, ConnectionState, NotConnectedError, WifiAttempt, WifiNetwork
 from palmimo_portal.testing.fakes import FakeStateStore
-
-
-# -- pure mapping/parsing functions ------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -81,9 +77,6 @@ def test_parse_access_points_drops_entries_with_no_ssid() -> None:
     result = parse_access_points(records)
 
     assert [n.ssid for n in result] == ["Real"]
-
-
-# -- ComitupNetworkPort, with a stubbed `_call` seam -------------------------------
 
 
 class _StubbedNetworkPort(ComitupNetworkPort):
@@ -147,9 +140,6 @@ def test_connect_calls_comitup_with_ssid_and_psk() -> None:
     port.connect("HomeNet", "hunter2")
 
     assert port.calls[-1] == ("connect", ("HomeNet", "hunter2"))
-
-
-# -- forget_current / connect-while-connected --------------------------------
 
 
 def test_forget_current_calls_delete_connection() -> None:
@@ -293,9 +283,6 @@ def test_connect_polls_state_first_when_nothing_observed_yet_before_deciding_to_
     assert port.calls == [("state", ()), ("connect", ("HomeNet", "hunter2"))]
 
 
-# -- forget_current / connect clear the known-network marker -----------------------
-
-
 def test_forget_current_clears_the_known_marker_and_in_memory_flag(tmp_path: Path) -> None:
     marker = tmp_path / "known"
     port = _StubbedNetworkPort(
@@ -366,9 +353,6 @@ def test_connect_while_connected_remarks_known_after_a_successful_reconnect(tmp_
     assert marker.is_file()
 
 
-# -- has_known_networks / marker persistence --------------------------------------
-
-
 def test_has_known_networks_is_false_with_no_marker_and_nothing_observed(tmp_path: Path) -> None:
     port = _StubbedNetworkPort({}, known_network_marker=tmp_path / "known")
 
@@ -428,9 +412,6 @@ def test_has_known_networks_does_not_mark_the_hotspot_state_as_known(tmp_path: P
     assert not marker.is_file()
 
 
-# -- transition logging -------------------------------------------------------------
-
-
 def test_get_status_does_not_log_a_transition_on_the_first_poll(caplog: pytest.LogCaptureFixture) -> None:
     port = _StubbedNetworkPort({"state": ["HOTSPOT", "jizaiten-ap"]})
 
@@ -486,9 +467,6 @@ def test_get_status_does_not_log_when_the_state_is_unchanged(caplog: pytest.LogC
     assert "network state:" not in caplog.text
 
 
-# -- error mapping: a stuck `_call` becomes AdapterUnavailableError ---------------
-
-
 def test_get_status_raises_adapter_unavailable_when_the_dbus_call_fails_twice() -> None:
     port = _StubbedNetworkPort({"state": TimeoutError("no reply")})
 
@@ -501,9 +479,6 @@ def test_list_networks_raises_adapter_unavailable_on_persistent_failure() -> Non
 
     with pytest.raises(AdapterUnavailableError):
         port.list_networks()
-
-
-# -- reconnect-after-drop: _call_resilient retries once via _call -----------------
 
 
 class _FlakyOnceNetworkPort(ComitupNetworkPort):
@@ -555,9 +530,6 @@ def test_call_resilient_gives_up_after_one_retry() -> None:
         port.get_status()
 
     assert port.attempts == 2  # the original attempt, plus exactly one retry
-
-
-# -- last_wifi_attempt lifecycle: a transition resolves a pending "attempting" record --
 
 
 def test_transition_to_hotspot_marks_a_pending_attempt_failed() -> None:
@@ -639,9 +611,6 @@ def test_repeated_identical_transitions_update_last_attempt_only_once() -> None:
     second = state.read_last_wifi_attempt()
     assert second is not None
     assert second.timestamp == first_timestamp.timestamp  # untouched the second time
-
-
-# -- resolve_attempt integration: first-observation, round-trip, grace period, name mismatch --
 
 
 def test_first_observation_resolves_a_pending_attempt_after_a_restart() -> None:
@@ -768,9 +737,6 @@ def test_no_state_store_is_a_no_op() -> None:
     port.script["state"] = ["CONNECTED", "HomeNet"]
 
     port.get_status()  # must not raise
-
-
-# -- D-Bus adapter concurrency: real _connect/_disconnect/_lock, fake transport ----
 
 
 class _FakeBus:

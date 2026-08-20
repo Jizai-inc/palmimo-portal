@@ -1,73 +1,45 @@
 """Real :class:`~palmimo_portal.ports.NetworkPort`: comitup 1.43's D-Bus service.
 
-Talks to comitup over the system bus (verified against a real comitup 1.43
-install):
+Bus name/path/interface: ``com.github.davesteele.comitup`` (verified against
+a real comitup 1.43 install). Methods used: ``state() -> ss`` (comitup's own
+``HOTSPOT``/``CONNECTING``/``CONNECTED`` state plus the connection/AP name);
+``access_points() -> aa{ss}`` (a live scan, can take several seconds);
+``connect(ssid, psk)`` (async, result only observable later via
+:meth:`get_status`); ``delete_connection()`` (deletes the active SSID's
+NetworkManager profile; comitup falls back to HOTSPOT or another known
+network). ``nuke()`` is unused. comitup emits **no D-Bus signals** -- every
+call here is polled -- and keeps no journal of its own transitions, so this
+adapter logs every one it observes (:meth:`_log_transition`), or a fallback
+to the hotspot would be invisible in ``journalctl``.
 
-- bus name ``com.github.davesteele.comitup``
-- object path ``/com/github/davesteele/comitup``
-- interface ``com.github.davesteele.comitup``
-- ``state() -> ss`` -- e.g. ``("CONNECTED", "jizaiten_EXT")``; the second
-  value is the current connection/AP name, comitup's own three-state
-  machine (``HOTSPOT``/``CONNECTING``/``CONNECTED``) is the first.
-- ``get_info() -> a{ss}`` -- ``version``, ``apname``, ``hostnames``, ``imode``.
-- ``access_points() -> aa{ss}`` -- a list of ``{ssid, strength, security}``
-  string-dicts. Triggers a live scan; can take several seconds.
-- ``connect(ssid, psk)`` -- fires an async connection attempt; the result is
-  only observable later, by polling :meth:`get_status`. If the last observed
-  state was ``CONNECTED``, this adapter calls ``delete_connection()`` first
-  -- see "Connect-while-connected" below.
-- ``delete_connection()`` -- deletes the NetworkManager profile of the
-  currently active SSID and drops the connection; comitup falls back to
-  HOTSPOT (or another known network). Used by
-  :meth:`ComitupNetworkPort.forget_current` and, internally, by
-  :meth:`ComitupNetworkPort.connect`.
-- ``nuke()`` -- not used by this adapter.
-
-comitup emits **no D-Bus signals** -- every call here is polled, never
-pushed. It also keeps no journal record of its own state transitions, so
-this adapter logs every one it observes itself (see :meth:`_log_transition`),
-or a state change (e.g. falling back to the hotspot) would be invisible in
-``journalctl``.
-
-**Known-networks tracking.** comitup's D-Bus surface has no method to list
-previously-configured connections (``access_points()`` is a live nearby-SSID
-scan, not a saved-connections list), so
-:meth:`ComitupNetworkPort.has_known_networks` keeps its own record instead:
-it marks "a network is known" the moment it either observes comitup in
-``CONNECTING``/``CONNECTED`` state or successfully calls :meth:`connect`
-(mirroring :class:`~palmimo_portal.testing.fakes.FakeNetworkPort`). The
-record is a marker file under the state directory so it survives a process
-restart -- otherwise "rebooted while out of range of its home network"
-would be misread as never-provisioned by
+**Known-networks tracking.** comitup has no "list saved connections" call,
+so :meth:`has_known_networks` keeps its own record: marks "known" on
+``CONNECTING``/``CONNECTED`` or a successful :meth:`connect` (mirroring
+:class:`~palmimo_portal.testing.fakes.FakeNetworkPort`), persisted as a
+marker file so it survives a restart -- otherwise "rebooted out of range of
+its home network" would misread as never-provisioned by
 :func:`~palmimo_portal.core.provisioning.is_provisioned`. A factory reset
-(wiping the state directory) clears it too, alongside ``auth.json``.
+clears it alongside ``auth.json``.
 
-**Connect-while-connected: forget first.** comitup's ``connecting_start``
-first checks whether the currently active SSID is itself a candidate for
-the new ``connect()`` call, and short-circuits back to the *old* network if
-so -- so while ``CONNECTED`` to ``Home-5G``, a plain ``connect("Cafe", ...)``
-does nothing useful. :meth:`ComitupNetworkPort.connect` therefore reads
-comitup's state fresh immediately before deciding: if ``CONNECTED``, it
-deletes the old profile itself (the same call :meth:`forget_current` makes)
-before calling comitup's own ``connect()``, so there is nothing left to
-short-circuit back to. This is a deliberate trade-off: the device drops off
-the old LAN even if the new connection then fails, falling back to
-comitup's own hotspot. :class:`~palmimo_portal.testing.fakes.FakeNetworkPort`
-mirrors this rule.
+**Why forget precedes connect.** comitup's ``connecting_start`` short-circuits
+back to the *currently active* SSID if it is itself a candidate for the new
+``connect()`` call, so a plain ``connect("Cafe", ...)`` while ``CONNECTED``
+to ``Home-5G`` does nothing. :meth:`connect` therefore reads comitup's state
+fresh immediately before deciding, and if ``CONNECTED``, deletes the old
+profile itself (the same call :meth:`forget_current` makes) before calling
+comitup's ``connect()``, leaving nothing to short-circuit back to.
+Deliberate trade-off: the device drops the old LAN even if the new
+connection then fails, falling back to comitup's own hotspot.
+:class:`~palmimo_portal.testing.fakes.FakeNetworkPort` mirrors this rule.
 
-**Never decide from a cached state.** Both :meth:`ComitupNetworkPort.connect`
-and :meth:`ComitupNetworkPort.forget_current` poll comitup's ``state()``
-fresh, right before the decision that consumes it, rather than reusing
-whatever :meth:`_log_transition` last cached for :meth:`get_status`. A stale
-``CONNECTED`` reading would make this adapter call ``delete_connection()``
-while comitup is actually in ``HOTSPOT`` -- deleting **comitup's own
-hotspot profile**, not an old home-network one. A stale ``HOTSPOT`` reading,
-symmetrically, would make :meth:`forget_current` skip deleting an
-actually-active connection, letting comitup silently short-circuit back to
-it on the next connect instead of raising
-:class:`~palmimo_portal.ports.NotConnectedError`. The fresh read is still
-logged through :meth:`_log_transition` (via :meth:`_observe_fresh_state`) so
-the state log stays a faithful record regardless of caller.
+**Never decide from a cached state.** :meth:`connect` and
+:meth:`forget_current` poll ``state()`` fresh right before deciding, never
+reusing what :meth:`_log_transition` last cached for :meth:`get_status`. A
+stale ``CONNECTED`` reading would make this adapter ``delete_connection()``
+while comitup is actually ``HOTSPOT`` -- deleting comitup's own hotspot
+profile. A stale ``HOTSPOT`` reading would make :meth:`forget_current` skip
+an actually-active connection instead of raising
+:class:`~palmimo_portal.ports.NotConnectedError`.
 """
 
 from __future__ import annotations
@@ -205,29 +177,22 @@ def _read_wlan_ipv4(interface: str) -> str | None:
 class ComitupNetworkPort(NetworkPort):
     """Talks to comitup over D-Bus. See the module docstring for the full contract.
 
-    ``_call`` is the seam: it does one attempt, lazily connecting the bus if
-    needed. ``_call_resilient`` wraps it with the reconnect-and-retry-once
-    policy, and is itself what tests stub to exercise that policy without a
-    real bus. Every public method funnels through :meth:`_call_sync`, which
-    bridges onto :mod:`dbus_fast`'s asyncio API via the shared background
-    event loop (see :mod:`palmimo_portal.adapters.dbus_support`).
+    ``_call`` does one attempt; ``_call_resilient`` wraps it with a
+    reconnect-and-retry-once policy (the seam tests stub). Every public
+    method funnels through :meth:`_call_sync`, bridging onto
+    :mod:`dbus_fast`'s asyncio API via the shared background event loop
+    (:mod:`palmimo_portal.adapters.dbus_support`).
 
     **Concurrency.** FastAPI's threadpool can run several requests through
-    this same adapter instance at once. ``self._bus``/``self._interface`` is
-    mutable, shared, cross-coroutine state, so :attr:`_lock` (an
-    ``asyncio.Lock`` native to the shared loop) serializes every
-    read-or-open of it in :meth:`_connect` and read-or-clear in
-    :meth:`_disconnect`. It deliberately does *not* wrap the RPC call itself
-    -- dbus_fast supports concurrent in-flight calls, and
-    ``access_points()`` alone can take up to :data:`SCAN_CALL_TIMEOUT_SECONDS`,
-    so serializing every call would make an unrelated ``state()`` poll wait
-    behind a live scan for no reason. Result: two concurrent calls racing a
-    dropped connection cause at most one actual reconnect, and a failing
-    call's cleanup only disconnects the *specific* bus object it used --
-    :meth:`_disconnect` re-checks under the lock that ``self._bus`` is still
-    that object before touching it, so a call failing against an
-    already-superseded bus cannot tear down a concurrent call's successful
-    reconnect.
+    this instance at once. ``self._bus``/``self._interface`` is mutable
+    shared state, so :attr:`_lock` serializes read-or-open in
+    :meth:`_connect` and read-or-clear in :meth:`_disconnect` -- but not the
+    RPC call itself (``access_points()`` can take up to
+    :data:`SCAN_CALL_TIMEOUT_SECONDS`; serializing every call would block an
+    unrelated ``state()`` poll behind a live scan). :meth:`_disconnect`
+    re-checks under the lock that ``self._bus`` is still the object it was
+    called with, so a call failing against an already-superseded bus cannot
+    tear down a concurrent call's successful reconnect.
     """
 
     def __init__(
@@ -252,16 +217,8 @@ class ComitupNetworkPort(NetworkPort):
         # instance's coroutines only run on the shared background loop.
         self._lock = asyncio.Lock()
 
-    # -- connection management ------------------------------------------------
-
     async def _open_bus(self) -> tuple[MessageBus, ProxyInterface]:
-        """Open a brand-new bus connection and resolve the comitup interface on it.
-
-        The actual :mod:`dbus_fast` transport call -- a lower-level seam
-        than :meth:`_call` that a concurrency test stubs, running
-        :meth:`_connect`'s locking and :meth:`_disconnect`'s identity guard
-        for real against a fake bus/interface pair.
-        """
+        """Open a brand-new bus connection and resolve the comitup interface on it. Concurrency-test seam."""
         bus = await MessageBus(bus_type=BusType.SYSTEM).connect()
         try:
             introspection = await bus.introspect(COMITUP_BUS_NAME, COMITUP_OBJECT_PATH)
@@ -281,13 +238,7 @@ class ComitupNetworkPort(NetworkPort):
         return bus, interface
 
     async def _connect(self) -> tuple[ProxyInterface, MessageBus]:
-        """Return the cached ``(interface, bus)`` pair, connecting lazily on first use.
-
-        Bounded by :data:`CONNECT_TIMEOUT_SECONDS` via ``asyncio.wait_for``,
-        independent of the eventual RPC call's own timeout -- relying only
-        on :meth:`_call_sync`'s outer cancellation would let a hang in
-        :meth:`_open_bus` run past it.
-        """
+        """Return the cached ``(interface, bus)`` pair, connecting lazily. Bounded by :data:`CONNECT_TIMEOUT_SECONDS`, independent of the RPC call's own timeout."""
         async with self._lock:
             if self._interface is not None and self._bus is not None:
                 return self._interface, self._bus
@@ -296,14 +247,7 @@ class ComitupNetworkPort(NetworkPort):
             return interface, bus
 
     async def _disconnect(self, bus: MessageBus) -> None:
-        """Drop the cached bus/interface so the next call reconnects from scratch -- but only if *bus* is still current.
-
-        Re-checks ``self._bus is bus`` under :attr:`_lock` before touching
-        anything: a concurrent call may have already disconnected and
-        reconnected to a *different* bus by the time this cleanup runs.
-        Disconnecting unconditionally would tear down that other call's
-        working connection -- see the class docstring's Concurrency note.
-        """
+        """Drop the cached bus/interface, but only if *bus* is still current. See class docstring's Concurrency note."""
         async with self._lock:
             if self._bus is not bus:
                 return
@@ -315,15 +259,7 @@ class ComitupNetworkPort(NetworkPort):
             logger.debug("comitup: error disconnecting a stale bus connection (ignored)", exc_info=True)
 
     async def _call(self, member: str, args: tuple[Any, ...], timeout: float) -> Any:
-        """Invoke one comitup D-Bus method by name, applying *timeout*.
-
-        The seam CI-safe tests stub out (by subclassing and overriding this
-        method) to exercise the mapping/parsing logic without a real bus. On
-        an RPC failure (never on a timeout -- see :meth:`_call_resilient`),
-        disconnects the *specific* bus this call used via the
-        identity-guarded :meth:`_disconnect`, then re-raises, so
-        :meth:`_call_resilient`'s retry reconnects from scratch.
-        """
+        """Invoke one comitup D-Bus method by name. On an RPC failure (never a timeout), disconnects the bus this call used, then re-raises, so the retry reconnects from scratch."""
         interface, bus = await self._connect()
         method = getattr(interface, f"call_{member}")
         try:
@@ -377,8 +313,6 @@ class ComitupNetworkPort(NetworkPort):
             # classified -- still adapter-unavailable from api/'s view.
             raise AdapterUnavailableError(_ADAPTER_ERROR_CODE, f"comitup {member}() failed: {error}") from error
 
-    # -- NetworkPort ------------------------------------------------------------
-
     def get_status(self) -> WifiStatus:
         state_str, name = self._call_sync("state", timeout=STATUS_CALL_TIMEOUT_SECONDS)
         is_first_observation = self._log_transition(state_str, name)
@@ -426,18 +360,8 @@ class ComitupNetworkPort(NetworkPort):
         self._call_sync("delete_connection", timeout=STATUS_CALL_TIMEOUT_SECONDS)
         self._clear_known()
 
-    # -- internals ----------------------------------------------------------
-
     def _observe_fresh_state(self) -> tuple[str, str]:
-        """Poll comitup's ``state()`` fresh and log any transition -- never a cached value.
-
-        Backs both :meth:`connect` and :meth:`forget_current` -- see the
-        module docstring's "Never decide from a cached state" section.
-        Always makes a fresh ``state()`` D-Bus call, even when
-        :meth:`get_status` was just called moments ago, and still routes
-        the observation through :meth:`_log_transition` so the journal
-        stays a faithful record regardless of caller.
-        """
+        """Poll comitup's ``state()`` fresh and log any transition -- never a cached value. See module docstring."""
         state_str, name = self._call_sync("state", timeout=STATUS_CALL_TIMEOUT_SECONDS)
         self._log_transition(state_str, name)
         return state_str, name
@@ -445,18 +369,10 @@ class ComitupNetworkPort(NetworkPort):
     def _log_transition(self, state: str, name: str) -> bool:
         """Log every state comitup is observed in: the first poll, and every change after it.
 
-        comitup keeps no journal record of its own state, so this is the
-        only record of it. The first observation gets its own
-        ``network state observed: ...`` line rather than being silently
-        skipped, or the boot-time state would be invisible in
-        ``journalctl``.
-
-        Returns:
-            ``True`` if this is the first observation this instance has
-            ever made, else ``False``. Passed to
-            :meth:`_resolve_pending_attempt`, which resolves a pending
-            attempt identically either way -- see
-            :mod:`palmimo_portal.core.wifi_attempt` for why.
+        comitup keeps no journal of its own state, so this is the only record of it.
+        Returns ``True`` for the first observation this instance has ever made (else
+        ``False``), passed to :meth:`_resolve_pending_attempt` -- see
+        :mod:`palmimo_portal.core.wifi_attempt` for why.
         """
         with self._state_lock:
             current = (state, name)
@@ -472,25 +388,14 @@ class ComitupNetworkPort(NetworkPort):
     def _resolve_pending_attempt(self, state: str, name: str, *, is_first_observation: bool) -> None:
         """Resolve a pending ``last_wifi_attempt`` record once its outcome is observable.
 
-        ``POST /wifi/connect`` records an attempt as ``"attempting"`` and
-        returns immediately -- comitup's own connection attempt happens
-        asynchronously (connecting to the home network tears down the setup
-        AP the client was talking through, so the result is never
-        observable on that response). Without this, a client reconnecting
-        to the setup AP after a failed attempt would see ``"attempting"``
-        forever.
-
-        Called on *every* observation, not only a detected change --
-        delegates to :func:`~palmimo_portal.core.wifi_attempt.resolve_attempt`,
-        the pure rule shared with
-        :class:`~palmimo_portal.testing.fakes.FakeNetworkPort`; see that
-        module's docstring for why unconditional calling matters. A no-op
-        with no :attr:`_state_store` configured or nothing to resolve.
-
-        An :class:`OSError` from
-        :meth:`~palmimo_portal.ports.StateStore.write_last_wifi_attempt` is
-        caught and logged at ERROR: a bookkeeping write failure must never
-        turn a successful status read into a failed request.
+        ``POST /wifi/connect`` records an attempt as ``"attempting"`` and returns
+        immediately -- comitup's own attempt happens asynchronously, so without this a
+        client reconnecting to the setup AP after a failure would see ``"attempting"``
+        forever. Called on every observation, not only a detected change; delegates to
+        :func:`~palmimo_portal.core.wifi_attempt.resolve_attempt` (see that module's
+        docstring for why unconditional calling matters). No-op with no
+        :attr:`_state_store` or nothing to resolve. A write failure is caught and
+        logged at ERROR -- must never turn a successful status read into a failed one.
         """
         if self._state_store is None:
             return
@@ -537,15 +442,13 @@ class ComitupNetworkPort(NetworkPort):
                 logger.error("failed to persist known-network marker %s: %s", self._known_network_marker, error)
 
     def _clear_known(self) -> None:
-        """Clear the known-network marker after :meth:`forget_current` (or the forget-before-connect path) succeeds.
+        """Clear the known-network marker after :meth:`forget_current` (or forget-before-connect) succeeds.
 
-        After the only network is forgotten, the device is back in the
-        out-of-box state and :func:`~palmimo_portal.core.provisioning.is_provisioned`
-        must report it as unprovisioned, not stuck reporting "known". If
-        comitup reconnects to another known profile on its own, the next
-        ``CONNECTED`` observation re-creates the marker via
-        :meth:`_mark_known` -- clearing here can under-report "known" for at
-        most one poll interval, never over-report it.
+        The device is back in the out-of-box state, so
+        :func:`~palmimo_portal.core.provisioning.is_provisioned` must report
+        unprovisioned. If comitup reconnects to another known profile on its own, the
+        next ``CONNECTED`` observation re-creates the marker via :meth:`_mark_known` --
+        this can under-report "known" for at most one poll interval, never over-report.
         """
         with self._state_lock:
             self._known_in_memory = False

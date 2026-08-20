@@ -5,9 +5,7 @@ Extends the ABSENT/PRESENT/CORRUPT of ``auth.json`` (see
 file adds. A device with no owner yet is either ``open_setup`` (a DIY,
 self-flashed image with no identity file -- the legacy unauthenticated
 first-time-setup flow) or ``initial`` (an identity file is present -- login
-only with the device's sticker password, gated until it is changed). See
-palmimo-portal.md's cross-cutting decision 1 and the technical doc's
-Authentication section.
+only with the device's sticker password, gated until it is changed).
 """
 
 from __future__ import annotations

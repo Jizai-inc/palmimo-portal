@@ -82,18 +82,14 @@ export function PowerPanel({
   // survives the effect being torn down and re-run by an unrelated re-render.
   const hasFailedRef = useRef(false);
 
-  // Polls `system/status` directly (bypassing TanStack Query, same reasoning
-  // as routes/wifi.waiting.tsx), swallowing failures -- the device being
-  // down is expected for part of a reboot. A reboot counts as complete only
-  // once a poll has failed and then succeeded again, so early polls that
-  // still succeed before the process actually goes down are not mistaken
-  // for completion.
-  //
-  // Polls run sequentially via `setTimeout` rather than `setInterval`, so a
-  // slow poll never overlaps the next tick. Each poll also carries its own
-  // `AbortSignal.timeout(pollIntervalMs)`: without a per-request timeout, a
-  // hung TCP handshake against a rebooting host would never resolve, never
-  // register as a failure, and auto-recovery would never fire.
+  // Polls `system/status` directly (bypassing TanStack Query, same as
+  // routes/wifi.waiting.tsx), swallowing failures since the device being
+  // down is expected mid-reboot. Complete only once a poll has failed and
+  // then succeeded again, so an early still-succeeding poll is not
+  // mistaken for completion. Sequential via `setTimeout`, not
+  // `setInterval`, so a slow poll never overlaps the next tick; each poll
+  // carries its own `AbortSignal.timeout` so a hung TCP handshake against a
+  // rebooting host still registers as a failure instead of never resolving.
   useEffect(() => {
     if (state !== "rebooting") return;
 

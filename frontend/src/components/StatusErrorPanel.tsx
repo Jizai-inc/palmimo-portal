@@ -7,18 +7,11 @@ import { CenteredState } from "@/components/CenteredState";
 import { Button } from "@/components/ui/button";
 
 /**
- * routes/status-error.tsx's logic, router-free like the other `*Panel`
- * components: `onRetry`/`onReset` are the only reach-out to routing.
- *
- * - **`"unavailable"`** -- transient, worth a retry: shows `onRetry`'s
- *   button, disabled while in flight.
- * - **`"corrupt"`** -- permanent from the browser's side, but only on an
- *   identity-carrying device is there anything to do about it: the reset
- *   button renders only once `system/status` reports a `device_id` (a UX
- *   affordance -- `core/auth.py`'s `decide_reset` refuses reset server-side
- *   on a DIY device regardless). A DIY device with a corrupt `auth.json`
- *   has no `device_id` and sees `errors.auth_state_corrupt` instead, since
- *   recovery there is SSH-only.
+ * routes/status-error.tsx's logic, router-free like the other `*Panel` components.
+ * `"unavailable"` is transient (retry button). `"corrupt"` shows a reset button only once
+ * `system/status` reports a `device_id` -- a UX affordance, since `core/auth.py`'s
+ * `decide_reset` refuses server-side on a DIY device regardless; a DIY device with a corrupt
+ * `auth.json` sees `errors.auth_state_corrupt` instead, since recovery there is SSH-only.
  */
 export function StatusErrorPanel({
   reason,

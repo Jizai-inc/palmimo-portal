@@ -72,9 +72,6 @@ def _log_in(client: TestClient, adapters: FakeAdapterBundle) -> None:
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
 
 
-# -- status -----------------------------------------------------------------------------------
-
-
 def test_status_requires_auth(client: TestClient, adapters: FakeAdapterBundle) -> None:
     adapters.network.known_networks.add("home")  # provisioned, but not logged in
 
@@ -249,9 +246,6 @@ def test_status_leaves_a_running_job_alone_while_the_runner_is_alive(
     assert response.json()["job"]["state"] == "running"
 
 
-# -- check ------------------------------------------------------------------------------------
-
-
 def test_check_happy_path_records_the_release(client: TestClient, adapters: FakeAdapterBundle) -> None:
     _log_in(client, adapters)
     adapters.releases.latest = RELEASE_V2
@@ -323,9 +317,6 @@ def test_check_conflicts_with_an_in_progress_job(client: TestClient, adapters: F
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "update_in_progress"
-
-
-# -- apply ------------------------------------------------------------------------------------
 
 
 def _check_v2(client: TestClient, adapters: FakeAdapterBundle) -> None:
@@ -450,9 +441,6 @@ def test_apply_restart_failure_marks_the_job_failed_with_a_manual_reboot_hint(
     assert "Power screen" in body["job"]["error"]
 
 
-# -- rollback -----------------------------------------------------------------------------------
-
-
 def test_rollback_requires_a_previous_tag(client: TestClient, adapters: FakeAdapterBundle) -> None:
     _log_in(client, adapters)
 
@@ -542,9 +530,6 @@ def test_rollback_conflicts_with_an_in_progress_job(client: TestClient, adapters
     assert response.json()["error"]["code"] == "update_in_progress"
 
 
-# -- initial-mode session gate ------------------------------------------------------------------
-
-
 def test_status_rejects_an_initial_mode_session(client: TestClient, adapters: FakeAdapterBundle) -> None:
     adapters.identity.identity = Identity(device_id="palmimo-042", initial_password_hash=hash_password("sticker"))
     adapters.network.known_networks.add("home")
@@ -554,9 +539,6 @@ def test_status_rejects_an_initial_mode_session(client: TestClient, adapters: Fa
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "initial_password_must_be_changed"
-
-
-# -- finalize_after_restart at startup (lifespan) ------------------------------------------------
 
 
 def test_lifespan_finalizes_a_restarting_job_as_done_on_startup(tmp_path: Path) -> None:
@@ -622,9 +604,6 @@ def test_lifespan_finalizes_a_restarting_job_as_failed_when_the_tag_does_not_mat
     assert finalized.job.step == "restart"
 
 
-# -- invalid release tags ------------------------------------------------------------------------
-
-
 def test_check_rejects_an_invalid_tag_from_the_release_source(client: TestClient, adapters: FakeAdapterBundle) -> None:
     _log_in(client, adapters)
     adapters.releases.latest = Release(
@@ -648,9 +627,6 @@ def test_apply_rejects_an_invalid_tag(client: TestClient, adapters: FakeAdapterB
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "invalid_release_tag"
     assert adapters.updater.apply_calls == []
-
-
-# -- retry_available -----------------------------------------------------------------------------
 
 
 def test_retry_available_is_true_after_a_failure_at_sync(client: TestClient, adapters: FakeAdapterBundle) -> None:

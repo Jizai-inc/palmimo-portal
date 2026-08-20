@@ -147,7 +147,6 @@ def test_connect_records_attempting_before_calling_the_network_port(
     assert "connect" in order
 
 
-# -- connect: ssid/psk validation at the API boundary ------------------------
 #
 # A malformed ssid or psk must be rejected before any state write or adapter
 # call -- see the module docstring's "verified" scenario: a lone-surrogate
@@ -353,9 +352,6 @@ def test_status_survives_and_heals_a_poisoned_attempt_file_through_the_real_stat
     assert not attempt_path.exists()
 
 
-# -- reconfigure-while-connected: operator visibility ------------------------
-
-
 def test_connect_while_connected_logs_a_warning_naming_the_old_and_new_network(
     client: TestClient, adapters: FakeAdapterBundle, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -401,9 +397,6 @@ def test_connect_while_connected_records_a_failed_attempt_when_connect_raises_af
     assert attempt is not None
     assert attempt.ssid == "NewNet"
     assert attempt.result == "failed"
-
-
-# -- last_wifi_attempt lifecycle end-to-end: a later transition resolves it --
 
 
 def test_last_wifi_attempt_resolves_to_connected_after_the_network_transitions(
@@ -472,10 +465,6 @@ def test_wifi_endpoints_are_open_again_with_a_valid_session(client: TestClient, 
     assert response.status_code == 200
 
 
-# -- F4: a DIY device that already set a password must not reopen wifi ------
-# -- just because it is (again) unprovisioned --------------------------------
-
-
 def test_wifi_requires_a_session_when_password_already_set_even_while_unprovisioned(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
@@ -516,9 +505,6 @@ def test_wifi_reachable_after_logging_in_while_unprovisioned_with_a_password_alr
     response = client.get("/api/v1/wifi/status")
 
     assert response.status_code == 200
-
-
-# -- DELETE /api/v1/wifi/connection (forget the current network) ------------
 
 
 def _setup_and_login(client: TestClient) -> None:

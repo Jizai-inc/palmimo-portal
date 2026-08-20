@@ -1,45 +1,34 @@
 """Real :class:`~palmimo_portal.ports.StateStore`: JSON files under the state directory.
 
-Schema, from the technical design's state-directory layout::
+Schema::
 
     <state_dir>/
-      auth.json               -> password hash + session signing key (0600)
-      last_attempt.json       -> most recent Wi-Fi connect attempt
+      auth.json                -> password hash + session signing key (0600)
+      last_attempt.json        -> most recent Wi-Fi connect attempt
       initial_session_key.json -> signing key for initial-mode sessions,
                                    created lazily on first login while
                                    auth.json is absent and an identity file
                                    is present (0600)
 
 Directory creation is left to the caller (systemd's ``StateDirectory=`` on
-the real device; a test's ``tmp_path`` fixture here) — this adapter only
-writes files inside a directory it is given, other than the explicit
-:func:`preflight_state_dir` startup check.
+the real device; a test fixture here); this adapter only writes inside a
+directory it is given, other than :func:`preflight_state_dir`'s startup check.
 
 ``last_attempt.json`` is not security-bearing: every read tolerates a
-missing, corrupt, or wrong-shaped file by treating it as absent, and a
-write simply replaces it. Reads that hit a decode or shape error log it at
-ERROR, naming the path.
+missing, corrupt, or wrong-shaped file as absent, and a write simply
+replaces it; decode/shape errors log at ERROR.
 
-``auth.json`` is different, because "no password set" and "the file exists
-but cannot be read" must never be confused: the former is the legitimate
-out-of-box state where ``/setup`` is meant to run, and the latter is a
-device that already has an owner whose file happens to be unreadable (a
-crash mid-write, disk corruption, tampering). Collapsing that distinction
-would let anyone on the LAN claim an already-owned device after a crash
-corrupts its auth file. :meth:`JsonFileStateStore.read_auth` still returns
-``None`` for both cases, but :meth:`JsonFileStateStore.auth_state` reports
+``auth.json`` is different: "no password set" and "the file exists but
+cannot be read" must never be confused, or a crash corrupting an
+already-owned device's auth file would let anyone on the LAN claim it.
+:meth:`read_auth` returns ``None`` for both, but :meth:`auth_state` reports
 :class:`~palmimo_portal.ports.AuthFileState.CORRUPT` distinctly, and
-``api/auth.py`` checks it before touching ``read_auth``/``create_auth`` — a
-corrupt file makes both ``/setup`` and ``/login`` answer 409
-``auth_state_corrupt`` instead of running as if unprovisioned.
-
-**Recovery is manual and out-of-band**: the only way out of ``CORRUPT`` is
-an operator deleting ``auth.json`` over SSH (using a registered key --
-``ssh-keys`` endpoints do not require Wi-Fi provisioning to have ever
-succeeded), returning the file to ``ABSENT`` and letting ``/setup`` run
-again. This module never auto-deletes a corrupt file itself: doing so from
-inside a read path would reintroduce the same fail-open bug, just with one
-extra step.
+``api/auth.py`` checks it before touching ``read_auth``/``create_auth`` --
+a corrupt file makes ``/setup`` and ``/login`` answer 409
+``auth_state_corrupt`` instead of running as if unprovisioned. Recovery is
+manual and out-of-band: an operator deletes ``auth.json`` over SSH,
+returning it to ``ABSENT``. This module never auto-deletes a corrupt file
+itself -- doing so from a read path would reintroduce the fail-open bug.
 """
 
 from __future__ import annotations
@@ -79,17 +68,13 @@ INITIAL_SESSION_KEY_FILENAME = "initial_session_key.json"
 AUTH_LOCK_FILENAME = ".auth.json.lock"
 UPDATE_STATE_FILENAME = "update.json"
 
-#: How often :meth:`JsonFileStateStore.lock_auth` retries a non-blocking
-#: ``flock`` while waiting -- short enough to honor
-#: :data:`~palmimo_portal.core.auth.AUTH_LOCK_TIMEOUT_SECONDS` to within a
-#: small margin, not so short it busy-spins.
+#: Poll interval for :meth:`lock_auth`'s non-blocking ``flock`` retries --
+#: short enough to honor AUTH_LOCK_TIMEOUT_SECONDS closely, not so short it busy-spins.
 _AUTH_LOCK_POLL_INTERVAL_SECONDS = 0.05
 
 
-#: The full :class:`~palmimo_portal.ports.UpdateJobState` /
-#: :class:`~palmimo_portal.ports.UpdateJobKind` literal sets, mirrored here
-#: so :meth:`JsonFileStateStore._parse_update_state` can validate with a
-#: plain ``in`` check.
+#: Mirrors the UpdateJobState/UpdateJobKind literal sets so
+#: :meth:`_parse_update_state` can validate with a plain ``in`` check.
 _VALID_UPDATE_JOB_STATES = frozenset({"idle", "checking", "running", "restarting", "done", "failed"})
 _VALID_UPDATE_JOB_KINDS = frozenset({"update", "rollback"})
 
@@ -109,29 +94,23 @@ def _require_optional_type(value: Any, expected: type | tuple[type, ...], field_
 
 _ORPHAN_TEMP_GLOB = ".*.tmp"
 
-#: A temp file must be at least this old before the startup sweep considers
-#: it orphaned. Applied defensively: an overlapping restart (the old
-#: process's write-temp-then-rename still mid-flight while a new one starts
-#: up) must not let the new sweep unlink a temp file the old process hasn't
-#: renamed away yet, silently losing that write.
+#: Minimum age before the startup sweep treats a temp file as orphaned --
+#: protects an overlapping restart's still-in-flight write-temp-then-rename
+#: from being unlinked by the new process's sweep.
 _ORPHAN_TEMP_MIN_AGE_SECONDS = 60.0
 
 
 def _sweep_orphan_temp_files(state_dir: Path, *, min_age_seconds: float = _ORPHAN_TEMP_MIN_AGE_SECONDS) -> None:
-    """Remove leftover ``atomic_write_text``/``create_exclusive_text`` temp files older than *min_age_seconds*, logging each one.
+    """Remove leftover ``atomic_write_text``/``create_exclusive_text`` temp files older than *min_age_seconds*.
 
-    Both write helpers create their temp file as ``.<name>.<random>.tmp`` in
-    this same directory, then rename it onto the final path. A crash
-    between those two steps leaves the temp file behind forever, so without
-    this sweep it would accumulate, invisible, across restarts. Only run at
-    startup, and only ever removes files matching the exact orphan shape --
-    a real state file does not start with ``.`` or end with ``.tmp``.
+    Both write helpers use ``.<name>.<random>.tmp``, then rename onto the
+    final path; a crash between those steps leaves the temp file behind
+    forever without this sweep. Startup-only; matches only the exact orphan
+    shape (a real state file never starts with ``.`` or ends with ``.tmp``).
 
-    **Single-instance assumption**: this adapter assumes exactly one process
-    holds ``state_dir`` at a time (one systemd unit, one
-    ``StateDirectory=``). The age threshold is this function's only
-    protection against a *second*, unexpected process racing an in-flight
-    write -- not a substitute for actually supporting two instances.
+    Single-instance assumption: exactly one process holds ``state_dir`` at
+    a time. The age threshold guards only against an unexpected second
+    process racing an in-flight write, not a substitute for supporting two.
     """
     now = time.time()
     for orphan in sorted(state_dir.glob(_ORPHAN_TEMP_GLOB)):
@@ -153,17 +132,15 @@ def _sweep_orphan_temp_files(state_dir: Path, *, min_age_seconds: float = _ORPHA
 def preflight_state_dir(state_dir: Path) -> None:
     """Create ``state_dir`` (mode ``0700``), probe-write it, and sweep orphan temp files -- before anything else starts.
 
-    Called at startup, only when ``PALMIMO_ADAPTERS=real``, so an
-    unwritable or root-owned state directory surfaces as a clear error
-    before uvicorn binds, rather than an opaque request-time 500. The
-    orphan-temp-file sweep (:func:`_sweep_orphan_temp_files`) runs here too
-    -- startup is the one moment this process can safely assume no write in
-    this directory is in flight.
+    Called at startup (``PALMIMO_ADAPTERS=real``), so an unwritable or
+    root-owned state directory surfaces as a clear error before uvicorn
+    binds rather than an opaque request-time 500. Startup is also the one
+    moment this process can safely assume no write in this directory is in
+    flight, so :func:`_sweep_orphan_temp_files` runs here too.
 
     Raises:
-        RuntimeError: the directory could not be created or is not
-            writable. The original :class:`OSError` (with its ``errno``)
-            is chained as the cause.
+        RuntimeError: the directory could not be created or is not writable
+            (the original :class:`OSError` is chained as the cause).
     """
     probe_path = state_dir / f".preflight-{os.getpid()}"
     try:
@@ -181,9 +158,8 @@ class JsonFileStateStore(StateStore):
     """Persists :class:`AuthState` and :class:`WifiAttempt` as JSON files.
 
     Every write goes through :func:`~palmimo_portal.adapters.atomic_write.atomic_write_text`:
-    a temp file in the state directory, permissioned ``0600`` from creation,
-    then renamed onto the target -- a crash mid-write never leaves a
-    truncated file, and the file is never briefly group/other-readable.
+    a ``0600`` temp file, renamed onto the target -- a crash mid-write
+    never leaves a truncated or briefly world-readable file.
     """
 
     def __init__(self, state_dir: Path) -> None:
@@ -215,10 +191,6 @@ class JsonFileStateStore(StateStore):
 
         Same lockfile-next-to-``auth.json`` pattern as
         :meth:`~palmimo_portal.adapters.ssh_keys.AuthorizedKeysSshKeyPort._locked`.
-        Retries a non-blocking ``flock`` every
-        :data:`_AUTH_LOCK_POLL_INTERVAL_SECONDS` up to
-        :data:`~palmimo_portal.core.auth.AUTH_LOCK_TIMEOUT_SECONDS`, logging
-        a WARNING the moment it starts waiting.
 
         Raises:
             AuthLockTimeoutError: the lock could not be acquired within
@@ -306,18 +278,13 @@ class JsonFileStateStore(StateStore):
     def delete_auth(self) -> None:
         """Remove ``auth.json`` under :meth:`lock_auth`, and rotate an existing initial-mode key.
 
-        See :meth:`~palmimo_portal.ports.StateStore.delete_auth`'s docstring
-        for why the initial-mode key is rotated in place, and only when a
-        key file already exists (not eagerly created here, preserving
-        :meth:`read_or_create_initial_signing_key`'s lazy-creation
-        contract).
-
-        The key rotation happens **before** the ``auth.json`` unlink,
-        deliberately: if this method raises partway through, the caller
-        (``api/auth.py``'s ``reset``) must be left at worst with "nothing
-        changed yet", never "credentials gone, but a stale initial-mode
-        cookie still verifies" -- unlinking first would leave exactly that
-        window if the rotation write then failed.
+        See :meth:`~palmimo_portal.ports.StateStore.delete_auth` for why the
+        key is rotated in place only when it already exists (preserving
+        :meth:`read_or_create_initial_signing_key`'s lazy-creation contract).
+        Rotation happens **before** the unlink: if this raises partway
+        through, the caller must be left at worst with "nothing changed
+        yet", never "credentials gone, but a stale initial-mode cookie
+        still verifies" -- unlinking first would open exactly that window.
         """
         with self.lock_auth():
             if self._initial_session_key_path.is_file():
@@ -332,9 +299,9 @@ class JsonFileStateStore(StateStore):
     def _parse_wifi_attempt(text: str) -> WifiAttempt:
         """Parse ``last_attempt.json`` text, raising on any decode, shape, or type problem.
 
-        Not security-bearing, but still validated the same way ``auth.json``
-        is: a wrong-shaped payload must be treated as absent, not raise past
-        this adapter's tolerant-read contract into a 500.
+        Not security-bearing, but still validated the same way as ``auth.json``:
+        a wrong-shaped payload must be treated as absent, not raise past this
+        adapter's tolerant-read contract into a 500.
         """
         data: Any = json.loads(text)
         if not isinstance(data, dict):
@@ -345,17 +312,11 @@ class JsonFileStateStore(StateStore):
         observed_connection_name = data.get("observed_connection_name")
         if observed_connection_name is not None and not isinstance(observed_connection_name, str):
             raise TypeError("last_attempt.json observed_connection_name must be a string or absent/null")
-        # `api/wifi.py`'s connect handler validates a fresh ssid before ever
-        # reaching this file, but an already-poisoned record written before
-        # that validation existed (or the equally-untrusted
-        # observed_connection_name, sourced from the adapter's own read of
-        # the system) can still contain a lone surrogate -- valid JSON to
-        # the stdlib decoder, not valid UTF-8. Left unchecked, that value
-        # would make every later serialization of this attempt (e.g.
-        # `GET /system/status`) raise. Encode-checking here, rather than
-        # trusting the writer, lets :meth:`read_last_wifi_attempt` catch
-        # this case and delete the poisoned file outright -- the read heals
-        # by removing the file, not merely by masking it on every call.
+        # A pre-existing record (written before ssid validation existed, or with an
+        # untrusted observed_connection_name) can hold a lone surrogate: valid JSON,
+        # not valid UTF-8 -- which would make every later serialization of this
+        # attempt raise. Encode-check here so read_last_wifi_attempt can delete the
+        # poisoned file outright, healing by removal rather than masking on every call.
         for value in (ssid, observed_connection_name):
             if value is not None:
                 value.encode("utf-8")
@@ -369,16 +330,9 @@ class JsonFileStateStore(StateStore):
         try:
             return self._parse_wifi_attempt(self._last_attempt_path.read_text(encoding="utf-8"))
         except UnicodeEncodeError as error:
-            # Masking without deleting would re-warn on every ~10s status
-            # poll forever -- thousands of journal lines a day for a device
-            # that never recovers on its own. Delete outright instead, so
-            # this is the last time this particular poisoned file is ever
-            # seen. No lock: `write_last_wifi_attempt` writes this file
-            # lock-free too (atomic_write_text's temp-then-rename is the
-            # only atomicity this file gets), so `missing_ok=True` alone is
-            # enough to make a concurrent deleter (another read racing the
-            # same file, or an operator over SSH) a silent no-op here
-            # rather than a crash.
+            # Masking without deleting would re-warn on every ~10s status poll forever.
+            # No lock needed: writes here are lock-free too, so missing_ok=True alone
+            # makes a concurrent deleter a silent no-op rather than a crash.
             self._last_attempt_path.unlink(missing_ok=True)
             logger.warning(
                 "state file contained an ssid/observed name that cannot encode to UTF-8, deleted it: %s (%s)",
@@ -438,10 +392,9 @@ class JsonFileStateStore(StateStore):
     def discard_initial_signing_key(self) -> None:
         """Delete the initial-mode signing key file, fsyncing the parent directory afterward.
 
-        Without the directory fsync, a power loss right after this call
-        returns could lose the unlink itself, resurrecting a key this
-        method's caller
-        (:func:`~palmimo_portal.core.auth.change_password_from_initial`)
+        Without the fsync, a power loss right after this call returns could
+        lose the unlink itself, resurrecting a key
+        :func:`~palmimo_portal.core.auth.change_password_from_initial`
         already told the rest of the system is gone.
         """
         existed = self._initial_session_key_path.exists()
@@ -476,23 +429,18 @@ class JsonFileStateStore(StateStore):
 
         Not security-bearing -- unlike ``auth.json``, a parse failure here
         is treated as absent by :meth:`read_update_state`, not a distinct
-        "corrupt" state. Still validated as strictly, though: a malformed
-        ``latest.tag`` would later be handed to ``git``/``uv`` as an update
-        target, and a non-numeric ``started_at`` would make
+        "corrupt" state. Still validated strictly: a malformed ``latest.tag``
+        would later be handed to ``git``/``uv`` as an update target, and a
+        non-numeric ``started_at`` would make
         :func:`~palmimo_portal.core.update.expire_stale_restart` raise on
-        every ``GET /update/status`` call. Every field-level problem
-        (including an unrecognized ``job.state``/``job.kind``) is treated as
-        corrupt -> idle by :meth:`read_update_state` when it propagates.
+        every status call.
 
         An unrecognized ``job.state``/``job.kind`` is the one exception to
         "raise and fall back to idle": handled here directly, salvaging
-        ``latest``/``checked_at``/``previous_tag`` (when they validate) and
-        resetting only ``job`` to
-        :data:`~palmimo_portal.core.update.IDLE_UPDATE_JOB`, logged at
-        WARNING. This is what a *downgrade* to an older Portal build looks
-        like reading an ``update.json`` a newer build already advanced into
-        a state the older build has never heard of -- no reason to also
-        throw away a good ``latest`` release record over that.
+        ``latest``/``checked_at``/``previous_tag`` and resetting only
+        ``job`` to :data:`~palmimo_portal.core.update.IDLE_UPDATE_JOB`
+        (logged at WARNING) -- what a *downgrade* to an older Portal build
+        sees reading a state a newer build already advanced past.
         """
         data: Any = json.loads(text)
         if not isinstance(data, dict):

@@ -338,9 +338,6 @@ def test_preflight_state_dir_raises_a_clear_error_when_unwritable(tmp_path: Path
         blocked.chmod(0o700)
 
 
-# -- auth_state(): ABSENT / PRESENT / CORRUPT classification --------------
-
-
 def test_auth_state_is_absent_before_first_write(tmp_path: Path) -> None:
     store = JsonFileStateStore(tmp_path)
 
@@ -398,9 +395,6 @@ def test_auth_state_returns_to_absent_after_the_corrupt_file_is_deleted(tmp_path
     auth_path.unlink()
 
     assert store.auth_state() is AuthFileState.ABSENT
-
-
-# -- delete_auth(): the login-credentials-reset path ------------------------
 
 
 def test_delete_auth_removes_a_present_auth_file(tmp_path: Path) -> None:
@@ -497,9 +491,6 @@ def test_delete_auth_leaves_auth_json_intact_when_the_key_rotation_write_fails(
     assert store.read_or_create_initial_signing_key() == old_initial_key
 
 
-# -- create_auth(): exclusive, race-safe first-time creation ---------------
-
-
 def test_create_auth_creates_the_file(tmp_path: Path) -> None:
     store = JsonFileStateStore(tmp_path)
     state = AuthState(password_hash="hash", signing_key="key")
@@ -555,17 +546,11 @@ def test_setup_password_race_the_loser_gets_password_already_set_error(tmp_path:
     assert store.read_auth() == AuthState(password_hash="other", signing_key="other-key")
 
 
-# -- last_attempt.json: broadened tolerant-read coverage --------------------
-
-
 def test_read_last_wifi_attempt_treats_valid_json_of_the_wrong_type_as_absent(tmp_path: Path) -> None:
     (tmp_path / LAST_ATTEMPT_FILENAME).write_text("[]", encoding="utf-8")
     store = JsonFileStateStore(tmp_path)
 
     assert store.read_last_wifi_attempt() is None
-
-
-# -- read_or_create_initial_signing_key(): the initial-mode session key ----
 
 
 def test_read_or_create_initial_signing_key_creates_a_key_on_first_call(tmp_path: Path) -> None:
@@ -616,9 +601,6 @@ def test_read_or_create_initial_signing_key_race_loser_reads_back_the_winner(tmp
     key_b = store_b.read_or_create_initial_signing_key()
 
     assert key_a == key_b
-
-
-# -- F3: discard_initial_signing_key() -- promotion invalidates the initial key --
 
 
 def test_discard_initial_signing_key_removes_the_file(tmp_path: Path) -> None:
@@ -701,10 +683,6 @@ def test_read_or_create_initial_signing_key_does_not_resurrect_a_key_deleted_out
     assert second_key != first_key
 
 
-# -- F6: a corrupt initial session key file is repaired in place, not left --
-# -- to mint a divergent, unpersisted key every restart ---------------------
-
-
 def test_read_or_create_initial_signing_key_repairs_a_corrupt_file(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
@@ -762,9 +740,6 @@ def test_read_or_create_initial_signing_key_true_race_loser_adopts_the_winners_k
     winner_key = JsonFileStateStore(tmp_path).read_or_create_initial_signing_key()
 
     assert loser_key == winner_key
-
-
-# -- lock_auth() -- serializes change_password_from_full's read-verify-write --
 
 
 def test_lock_auth_is_reentrant_across_sequential_uses(tmp_path: Path) -> None:
@@ -864,9 +839,6 @@ def test_lock_auth_logs_a_warning_once_contention_starts(
 
     assert "auth lock contended" in caplog.text
     assert not thread.is_alive()
-
-
-# -- update state ---------------------------------------------------------------------------
 
 
 def test_read_update_state_is_idle_before_first_write(tmp_path: Path) -> None:
@@ -1141,9 +1113,6 @@ def test_write_update_state_leaves_no_temp_file_behind(tmp_path: Path) -> None:
     store.write_update_state(IDLE_UPDATE_STATE)
 
     assert {p.name for p in tmp_path.iterdir()} == {UPDATE_STATE_FILENAME}
-
-
-# -- update state: latest field validation and unknown job.state/kind salvage ---------------
 
 
 def test_read_update_state_treats_an_invalid_latest_tag_as_idle(tmp_path: Path) -> None:

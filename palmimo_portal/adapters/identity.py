@@ -1,32 +1,15 @@
 """Real :class:`~palmimo_portal.ports.IdentityStore`: the manufacturing-written identity file.
 
-Schema, per palmimo-portal-technical.md's Authentication section::
+Schema::
 
     {"device_id": "<string>", "initial_password_hash": "<argon2id hash string>"}
 
 Written once, at manufacturing time, to a path outside ``/var/lib/palmimo/``
--- by default the boot partition, so a factory reset (which only clears
-``/var/lib/palmimo/``) does not erase it. The Portal only ever reads it.
-
-Absence is a supported state, not an error: it means this SD card was
-hand-flashed from the public image (the DIY path), and the device falls
-back to the legacy open first-time-setup flow. A malformed (but present)
-file is treated exactly the same as absent (logged at ERROR once) rather
-than as a distinct locked state -- the identity file is not itself
-security-bearing (see :class:`~palmimo_portal.ports.IdentityStore`'s
-docstring), so failing open here does not weaken anything, and failing
-closed would risk bricking a device over a corrupted boot-partition file.
-
-A transient read failure (:class:`OSError`) is different and is never
-conflated with either of those: ``/boot/firmware`` mounts separately from
-the Portal's own filesystem, so if the Portal starts before that mount is
-ready, "file absent" would otherwise get cached forever and a sticker/OEM
-device would permanently become
-:attr:`~palmimo_portal.core.identity.PortalAuthState.OPEN_SETUP` (claimable
-by anyone) even after the real identity file appears. An :class:`OSError`
-therefore reports :data:`~palmimo_portal.ports.IDENTITY_UNAVAILABLE`, is
-never cached, and is logged at WARNING (rate-limited to once per instance --
-see :attr:`FileIdentityStore._warned_unavailable`).
+(by default the boot partition, so a factory reset does not erase it); the
+Portal only ever reads it. Absence, malformed content, and a transient
+:class:`OSError` are three distinct outcomes with different caching/security
+semantics -- see :class:`~palmimo_portal.ports.IdentityStore` for the
+contract this module implements.
 """
 
 from __future__ import annotations
@@ -45,14 +28,12 @@ logger = logging.getLogger("palmimo_portal")
 class FileIdentityStore(IdentityStore):
     """Reads the identity file at a fixed path, caching only a successful parse.
 
-    A successful read is cached: the file never changes for the life of the
-    device, so re-reading it on every request (a hot path --
-    ``SessionMiddleware`` consults it while ``auth_state == "initial"``)
-    would be pure waste.
-
-    Clean absence and a transient read failure (:class:`OSError`) are both
-    re-read on every call instead -- see the module docstring for why
-    caching either would be a security bug, not just a missed optimization.
+    A successful read is cached: the file never changes for the device's
+    life, and re-reading on every request (``SessionMiddleware`` consults
+    it while ``auth_state == "initial"``) would be pure waste. Clean
+    absence and a transient :class:`OSError` are re-read every call instead
+    -- see :class:`~palmimo_portal.ports.IdentityStore` for why caching
+    either would be a security bug, not just a missed optimization.
     """
 
     def __init__(self, path: Path) -> None:
@@ -72,19 +53,12 @@ class FileIdentityStore(IdentityStore):
     def read_identity_uncached(self) -> Identity | IdentityUnavailable | None:
         """Fresh disk read, bypassing :attr:`_cached` -- see :meth:`IdentityStore.read_identity_uncached`.
 
-        Always reconciles :attr:`_cached` with what this fresh read found,
-        since the identity file can change out from under a long-lived
-        cache (an operator removing it, most notably):
-
-        - A successful parse replaces :attr:`_cached` with the freshly read
-          :class:`Identity`.
-        - ``None`` (clean absence or a malformed file -- treated the same,
-          see the module docstring) drops :attr:`_cached` back to ``None``:
-          an operator who removed the file must see that reflected.
-        - :data:`~palmimo_portal.ports.IDENTITY_UNAVAILABLE` (a transient
-          :class:`OSError`) leaves :attr:`_cached` untouched -- must never
-          overwrite a known-good cached identity with "gone"; see the
-          module docstring's transient-read paragraph.
+        Reconciles :attr:`_cached` with the fresh result: a successful parse
+        replaces it, clean absence/malformed drops it to ``None`` (an
+        operator removing the file must see that reflected), and a
+        transient :data:`~palmimo_portal.ports.IDENTITY_UNAVAILABLE` leaves
+        it untouched -- must never overwrite a known-good cached identity
+        with "gone".
         """
         identity = self._read_from_disk()
         if isinstance(identity, Identity):

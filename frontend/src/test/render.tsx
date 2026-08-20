@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createMemoryHistory, createRootRoute, createRouter, RouterProvider } from "@tanstack/react-router";
 import { render } from "@testing-library/react";
 import type { ReactElement } from "react";
 
@@ -27,4 +28,28 @@ export function renderWithProviders(ui: ReactElement) {
     queryClient,
     rerender: (nextUi: ReactElement) => result.rerender(<QueryClientProvider client={queryClient}>{nextUi}</QueryClientProvider>),
   };
+}
+
+/**
+ * Like {@link renderWithProviders}, plus an in-memory router so a tree that
+ * reaches `AppHeader`'s wordmark `Link` (e.g. via `AuthShell`/`AppShell`)
+ * resolves instead of throwing. The router's initial load is async, so
+ * callers must query with `findBy*`, not the synchronous `getBy*`.
+ */
+export function renderWithRouter(ui: ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
+
+  const rootRoute = createRootRoute({
+    component: () => <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>,
+  });
+  const router = createRouter({ routeTree: rootRoute, history: createMemoryHistory({ initialEntries: ["/"] }) });
+
+  const result = render(<RouterProvider router={router} />);
+
+  return { ...result, queryClient, router };
 }

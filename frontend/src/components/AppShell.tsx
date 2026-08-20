@@ -60,7 +60,11 @@ export function AppShell({
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <AppHeader onToggleSidebar={() => setSidebarCollapsed((collapsed) => !collapsed)} logoutSlot={logoutButton} />
+      <AppHeader
+        onToggleSidebar={() => setSidebarCollapsed((collapsed) => !collapsed)}
+        logoutSlot={logoutButton}
+        wordmarkLinksHome
+      />
       <div className="flex flex-1 md:flex-row">
         {sidebarCollapsed ? null : (
           <aside className="hidden w-60 shrink-0 flex-col gap-4 border-r border-border bg-muted/40 p-4 md:flex">

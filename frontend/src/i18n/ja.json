@@ -91,6 +91,7 @@
     "connectTitle": "「{{ssid}}」に接続",
     "connectBody": "このネットワークのパスワードを入力してください。",
     "passwordLabel": "Wi-Fi パスワード",
+    "passwordTooShort": "パスワードは 8〜63 文字で入力してください。",
     "connect": "接続",
     "lastAttemptFailedTitle": "前回の接続に失敗しました",
     "waitingTitle": "接続しています…",
@@ -267,6 +268,8 @@
     "validation_error": "入力内容の一部が正しくありません。",
     "wifi_connect_failed": "Palmimo はそのネットワークへの接続を開始できませんでした。",
     "wifi_forget_failed": "Palmimo はそのネットワークを忘れられませんでした。",
+    "wifi_invalid_psk": "このパスワードは使用できません。8〜63 文字で入力してください。",
+    "wifi_invalid_ssid": "このネットワーク名は使用できません。",
     "wifi_not_connected": "Palmimo は現在 Wi-Fi ネットワークに接続していません。"
   }
 }

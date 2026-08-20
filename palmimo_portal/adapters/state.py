@@ -345,6 +345,19 @@ class JsonFileStateStore(StateStore):
         observed_connection_name = data.get("observed_connection_name")
         if observed_connection_name is not None and not isinstance(observed_connection_name, str):
             raise TypeError("last_attempt.json observed_connection_name must be a string or absent/null")
+        # `api/wifi.py`'s connect handler validates a fresh ssid before ever
+        # reaching this file, but an already-poisoned record written before
+        # that validation existed (or the equally-untrusted
+        # observed_connection_name, sourced from the adapter's own read of
+        # the system) can still contain a lone surrogate -- valid JSON to
+        # the stdlib decoder, not valid UTF-8. Left unchecked, that value
+        # would make every later serialization of this attempt (e.g.
+        # `GET /system/status`) raise. Encode-checking here, rather than
+        # trusting the writer, is what makes an already-poisoned file
+        # self-heal on the very next read.
+        for value in (ssid, observed_connection_name):
+            if value is not None:
+                value.encode("utf-8")
         return WifiAttempt(
             ssid=ssid, result=result, timestamp=float(timestamp), observed_connection_name=observed_connection_name
         )
@@ -354,6 +367,13 @@ class JsonFileStateStore(StateStore):
             return None
         try:
             return self._parse_wifi_attempt(self._last_attempt_path.read_text(encoding="utf-8"))
+        except UnicodeEncodeError as error:
+            logger.warning(
+                "state file contains an ssid/observed name that cannot encode to UTF-8, treating as absent: %s (%s)",
+                self._last_attempt_path,
+                error,
+            )
+            return None
         except (json.JSONDecodeError, KeyError, OSError, TypeError, ValueError) as error:
             logger.error(
                 "state file is corrupt or unreadable, treating as absent: %s (%s)", self._last_attempt_path, error

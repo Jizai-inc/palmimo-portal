@@ -78,8 +78,11 @@ export const getConnectApiV1WifiConnectPostUrl = () => {
  * adapter, which observes the actual connection outcome.
  *
  * Raises:
- *     PortalError: 502 ``wifi_connect_failed`` if ``network.connect``
- *         itself raises (e.g. the radio is busy).
+ *     PortalError: 400 ``wifi_invalid_ssid`` / ``wifi_invalid_psk`` if
+ *         ``body`` fails :func:`_validate_ssid` / :func:`_validate_psk` --
+ *         checked first, before anything below touches state or the
+ *         network adapter. 502 ``wifi_connect_failed`` if
+ *         ``network.connect`` itself raises (e.g. the radio is busy).
  *
  * Note: if the device is currently ``CONNECTED``, the real adapter
  * forgets that network before connecting to the new one (see

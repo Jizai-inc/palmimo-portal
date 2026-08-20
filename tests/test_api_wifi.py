@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 
@@ -138,6 +139,109 @@ def test_connect_records_attempting_before_calling_the_network_port(
     assert response.status_code == 200
     assert order[0] == "write"
     assert "connect" in order
+
+
+# -- connect: ssid/psk validation at the API boundary ------------------------
+#
+# A malformed ssid or psk must be rejected before any state write or adapter
+# call -- see the module docstring's "verified" scenario: a lone-surrogate
+# ssid (valid JSON to the stdlib decoder, not valid UTF-8) used to be
+# persisted as the last attempt, and every later `GET /system/status` 500'd
+# trying to serialize it back out. These tests exercise the boundary check
+# directly, not the self-heal (that's test_state_adapter.py's).
+
+
+def test_connect_rejects_a_lone_surrogate_ssid(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    # httpx's own `json=` param round-trips through `ensure_ascii=False`,
+    # which refuses to encode a lone surrogate client-side before the
+    # request ever reaches this server -- the same UnicodeEncodeError this
+    # fix guards against, just raised a layer too early to exercise the
+    # server's validation. `ensure_ascii=True` (stdlib json's default)
+    # escapes it to the ASCII-safe `"\ud800"`, matching how the real
+    # attacker-controlled request body (crafted directly, not through
+    # httpx) reaches the server: valid JSON the stdlib decoder happily
+    # parses back into a `str` containing the lone surrogate.
+    body = json.dumps({"ssid": "\ud800", "psk": "secret123"}, ensure_ascii=True).encode("ascii")
+    response = client.post(
+        "/api/v1/wifi/connect",
+        content=body,
+        headers={**CSRF_HEADERS, "Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "wifi_invalid_ssid"
+    assert adapters.state.read_last_wifi_attempt() is None
+    assert adapters.network.connect_calls == []
+
+    status_response = client.get("/api/v1/system/status")
+    assert status_response.status_code == 200
+
+
+def test_connect_rejects_a_nul_byte_in_ssid(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    response = client.post(
+        "/api/v1/wifi/connect", json={"ssid": "home\x00net", "psk": "secret123"}, headers=CSRF_HEADERS
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "wifi_invalid_ssid"
+    assert adapters.state.read_last_wifi_attempt() is None
+
+
+def test_connect_rejects_a_33_byte_ssid(client: TestClient) -> None:
+    response = client.post("/api/v1/wifi/connect", json={"ssid": "a" * 33, "psk": "secret123"}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "wifi_invalid_ssid"
+
+
+def test_connect_accepts_a_32_byte_multibyte_ssid(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    # Ten copies of a 3-byte-in-UTF-8 character plus "ab" = 32 bytes exactly,
+    # well under 32 *characters* -- the limit is bytes, not code points.
+    ssid = "あ" * 10 + "ab"
+    assert len(ssid.encode("utf-8")) == 32
+
+    response = client.post("/api/v1/wifi/connect", json={"ssid": ssid, "psk": "secret123"}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 200
+    assert adapters.network.connect_calls == [(ssid, "secret123")]
+
+
+def test_connect_rejects_a_too_short_psk(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    response = client.post("/api/v1/wifi/connect", json={"ssid": "home", "psk": "1234567"}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "wifi_invalid_psk"
+    assert adapters.state.read_last_wifi_attempt() is None
+    assert adapters.network.connect_calls == []
+
+
+def test_connect_accepts_a_64_hex_char_psk(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    psk = "ab" * 32
+    response = client.post("/api/v1/wifi/connect", json={"ssid": "home", "psk": psk}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 200
+    assert adapters.network.connect_calls == [("home", psk)]
+
+
+def test_connect_rejects_a_65_char_psk(client: TestClient) -> None:
+    response = client.post("/api/v1/wifi/connect", json={"ssid": "home", "psk": "a" * 65}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "wifi_invalid_psk"
+
+
+def test_connect_accepts_an_empty_psk_for_an_open_network(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    response = client.post("/api/v1/wifi/connect", json={"ssid": "home", "psk": ""}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 200
+    assert adapters.network.connect_calls == [("home", "")]
+
+
+def test_connect_rejects_a_psk_with_a_non_printable_char(client: TestClient) -> None:
+    response = client.post("/api/v1/wifi/connect", json={"ssid": "home", "psk": "secret\x01x"}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "wifi_invalid_psk"
 
 
 # -- reconfigure-while-connected: operator visibility ------------------------

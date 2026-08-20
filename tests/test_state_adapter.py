@@ -170,6 +170,27 @@ def test_read_last_wifi_attempt_treats_a_corrupt_file_as_absent(
     assert str(attempt_path) in caplog.text
 
 
+def test_read_last_wifi_attempt_treats_a_lone_surrogate_ssid_as_absent(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A lone surrogate (e.g. "\ud800") is valid JSON to the stdlib decoder
+    # but cannot encode to UTF-8 -- this is the poisoned-record scenario
+    # from a pre-validation `POST /wifi/connect` that let one through: the
+    # file must self-heal to "absent" on read rather than raising past this
+    # adapter's tolerant-read contract (which would otherwise 500 every
+    # `GET /system/status` forever). Written as raw bytes since no Python
+    # str containing a lone surrogate can be json.dumps'd.
+    attempt_path = tmp_path / LAST_ATTEMPT_FILENAME
+    attempt_path.write_bytes(b'{"ssid": "\\ud800", "result": "attempting", "timestamp": 1.0}')
+    store = JsonFileStateStore(tmp_path)
+
+    with caplog.at_level(logging.WARNING):
+        result = store.read_last_wifi_attempt()
+
+    assert result is None
+    assert str(attempt_path) in caplog.text
+
+
 def test_preflight_state_dir_creates_a_private_directory(tmp_path: Path) -> None:
     from palmimo_portal.adapters.state import preflight_state_dir
 

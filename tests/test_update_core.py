@@ -66,10 +66,30 @@ def test_is_update_available_is_false_when_tags_match() -> None:
     assert is_update_available(InstalledVersion(tag="v2.0.0", commit="abc"), RELEASE_V2) is False
 
 
-def test_start_check_succeeds_from_idle() -> None:
+def test_start_check_succeeds_from_idle_and_leaves_job_untouched() -> None:
     result = start_check(IDLE_UPDATE_STATE, now=1000.0)
 
-    assert result.job.state == "checking"
+    assert result.job == IDLE_UPDATE_STATE.job
+
+
+@pytest.mark.parametrize("job_state", ["failed", "done"])
+def test_start_check_succeeds_from_a_finished_job_and_leaves_it_untouched(
+    job_state: Literal["failed", "done"],
+) -> None:
+    job = UpdateJob(
+        state=job_state,
+        kind="update",
+        target="v2.0.0",
+        step="sync",
+        error="uv sync failed" if job_state == "failed" else None,
+        started_at=1.0,
+        finished_at=2.0,
+    )
+    state = UpdateState(latest=RELEASE_V2, checked_at=100.0, previous_tag="v1.0.0", job=job)
+
+    result = start_check(state, now=1000.0)
+
+    assert result.job == job
 
 
 @pytest.mark.parametrize("job_state", ["running", "restarting", "checking"])
@@ -103,7 +123,7 @@ def test_start_check_succeeds_once_the_rate_limit_window_has_passed() -> None:
 
     result = start_check(state, now=1061.0)
 
-    assert result.job.state == "checking"
+    assert result.job == IDLE_UPDATE_STATE.job
 
 
 def test_start_check_succeeds_when_the_wall_clock_stepped_backwards() -> None:
@@ -114,10 +134,10 @@ def test_start_check_succeeds_when_the_wall_clock_stepped_backwards() -> None:
 
     result = start_check(state, now=500.0)
 
-    assert result.job.state == "checking"
+    assert result.job == IDLE_UPDATE_STATE.job
 
 
-def test_record_latest_stores_the_release_and_returns_the_job_to_idle() -> None:
+def test_record_latest_stores_the_release_and_leaves_the_job_untouched() -> None:
     state = start_check(IDLE_UPDATE_STATE, now=1000.0)
 
     result = record_latest(state, RELEASE_V2, now=1000.5)
@@ -125,6 +145,24 @@ def test_record_latest_stores_the_release_and_returns_the_job_to_idle() -> None:
     assert result.latest == RELEASE_V2
     assert result.checked_at == 1000.5
     assert result.job.state == "idle"
+
+
+def test_record_latest_preserves_a_failed_job() -> None:
+    failed_job = UpdateJob(
+        state="failed",
+        kind="update",
+        target="v2.0.0",
+        step="sync",
+        error="uv sync failed: dependency conflict",
+        started_at=1.0,
+        finished_at=2.0,
+    )
+    state = UpdateState(latest=RELEASE_V2, checked_at=100.0, previous_tag="v1.0.0", job=failed_job)
+
+    result = record_latest(state, RELEASE_V2, now=1000.5)
+
+    assert result.job == failed_job
+    assert is_retry_available(result.job, result.latest) is True
 
 
 def test_start_apply_succeeds_and_sets_previous_tag_from_installed() -> None:

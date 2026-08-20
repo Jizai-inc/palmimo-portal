@@ -6,8 +6,11 @@ here is a pure function -- old state in, new state out, or an exception
 when not allowed -- so ``api/update.py`` and
 :mod:`palmimo_portal.core.update_runner` share one implementation.
 
-State machine: ``idle`` -> :func:`start_check`/:func:`record_latest`
-(synchronous, returns to ``idle``) -> :func:`start_apply`/:func:`start_rollback`
+State machine: a check (:func:`start_check` then :func:`record_latest`,
+synchronous) never touches ``job`` -- it only ever updates ``latest``/
+``checked_at``, so a ``done``/``failed`` job stays exactly as it was
+across a check. Job transitions instead run ``idle`` ->
+:func:`start_apply`/:func:`start_rollback`
 (``"running"``) -> :func:`advance` per :class:`~palmimo_portal.ports.Updater`
 step -> :func:`mark_restarting` (apply succeeded, about to restart) ->
 :func:`finalize_after_restart` (once at startup: resolves ``"restarting"``
@@ -102,7 +105,11 @@ def is_update_available(installed: InstalledVersion, latest: Release | None) -> 
 
 
 def start_check(state: UpdateState, now: float) -> UpdateState:
-    """Begin a release check, or raise if one cannot start right now.
+    """Report whether a check may start right now, or raise if it may not.
+
+    A check is a read-only query against GitHub: it never mutates ``job``,
+    so ``state`` is returned unchanged when it does not raise -- a
+    ``done``/``failed`` job stays exactly as it was.
 
     Raises:
         UpdateInProgressError: a job is already running/restarting/checking.
@@ -118,25 +125,18 @@ def start_check(state: UpdateState, now: float) -> UpdateState:
         # rate limit, the same rule resolve_attempt uses (core/wifi_attempt.py).
         if 0 <= elapsed < CHECK_RATE_LIMIT_SECONDS:
             raise UpdateCheckRateLimitedError(CHECK_RATE_LIMIT_SECONDS - elapsed)
-    return UpdateState(
-        latest=state.latest,
-        checked_at=state.checked_at,
-        previous_tag=state.previous_tag,
-        job=UpdateJob(
-            state="checking", kind=state.job.kind, target=None, step=None, error=None, started_at=now, finished_at=None
-        ),
-    )
+    return state
 
 
 def record_latest(state: UpdateState, latest: Release, now: float) -> UpdateState:
-    """Record a freshly fetched release and return the job to idle.
+    """Record a freshly fetched release, leaving ``job`` untouched (a check never mutates it).
 
     Raises:
         InvalidReleaseTagError: ``latest.tag`` is not :func:`is_valid_release_tag`.
     """
     if not is_valid_release_tag(latest.tag):
         raise InvalidReleaseTagError()
-    return UpdateState(latest=latest, checked_at=now, previous_tag=state.previous_tag, job=IDLE_UPDATE_JOB)
+    return UpdateState(latest=latest, checked_at=now, previous_tag=state.previous_tag, job=state.job)
 
 
 def is_retry_available(job: UpdateJob, latest: Release | None) -> bool:

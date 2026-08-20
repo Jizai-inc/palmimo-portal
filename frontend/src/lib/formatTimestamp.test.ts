@@ -29,4 +29,10 @@ describe("formatUtcTimestamp", () => {
 
     expect(formatUtcTimestamp(timestamp)).toBe("2026-01-01 23:30 UTC");
   });
+
+  it("renders a placeholder for a non-finite timestamp instead of an Invalid Date string", () => {
+    expect(formatUtcTimestamp(NaN)).toBe("--");
+    expect(formatUtcTimestamp(Infinity)).toBe("--");
+    expect(formatUtcTimestamp(-Infinity)).toBe("--");
+  });
 });

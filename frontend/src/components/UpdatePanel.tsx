@@ -130,21 +130,6 @@ export function UpdatePanel({
     void queryClient.invalidateQueries({ queryKey: statusQueryKey, refetchType: "none" });
   }
 
-  // A check is a pure query: `start_check` (core/update.py) always resets a
-  // finished job -- including a "failed" one -- to idle as a side effect of
-  // starting the check, so the response's own `job` field cannot be trusted
-  // to reflect what the operator was looking at. Keep whatever job the cache
-  // already held and adopt every other field; only apply/rollback (via
-  // `adoptStatus`) or the next poll's independently-observed state may
-  // replace a visible job.
-  function adoptCheckStatus(data: UpdateStatusResponse) {
-    queryClient.setQueryData(statusQueryKey, (previous: UpdateStatusResponse | undefined) => ({
-      ...data,
-      job: previous?.job ?? data.job,
-    }));
-    void queryClient.invalidateQueries({ queryKey: statusQueryKey, refetchType: "none" });
-  }
-
   const { data: status, error: statusError } = useGetStatusApiV1UpdateStatusGet({
     query: {
       refetchInterval: (query) => {
@@ -156,7 +141,7 @@ export function UpdatePanel({
 
   const check = useCheckApiV1UpdateCheckPost({
     mutation: {
-      onSuccess: adoptCheckStatus,
+      onSuccess: adoptStatus,
     },
   });
   const apply = useApplyApiV1UpdateApplyPost({

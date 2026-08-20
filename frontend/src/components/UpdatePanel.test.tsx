@@ -449,35 +449,39 @@ describe("UpdatePanel", () => {
     expect(await screen.findByText("Up to date")).toBeInTheDocument();
   });
 
-  it("keeps the failed job card visible after Check now succeeds (a check must not clear a failed job from view)", async () => {
+  it("keeps the failed job card and its Retry button visible after Check now succeeds", async () => {
     const user = userEvent.setup();
     const failedStatus: UpdateStatusResponse = {
       ...UPDATE_AVAILABLE_STATUS,
       installed: { tag: "v2.0.0", commit: "def5678" },
       previous_tag: "v1.0.0",
+      retry_available: true,
       job: { kind: "update", state: "failed", target: "v2.0.0", step: "sync", error: "uv sync failed", started_at: 1, finished_at: 2, restarting_at: null },
     };
     useStatus(failedStatus);
     server.use(
-      // The real backend resets the job to idle as a side effect of a
-      // successful check (core/update.py's start_check/record_latest) --
-      // this mock reproduces that so the test exercises the actual bug.
+      // The real backend (core/update.py's start_check/record_latest) never
+      // mutates `job` on a check -- this mock reproduces that honest
+      // response so the test exercises the real contract, not the old bug.
       http.post("*/api/v1/update/check", () =>
-        HttpResponse.json({ ...failedStatus, job: IDLE_JOB, checked_at: Math.floor(Date.now() / 1000) }),
+        HttpResponse.json({ ...failedStatus, checked_at: Math.floor(Date.now() / 1000) }),
       ),
     );
     renderWithProviders(<UpdatePanel />);
 
     expect(await screen.findByText(/uv sync failed/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Check now" }));
 
     // Give the mutation a moment to resolve and re-render.
     await waitFor(() => expect(screen.getByText(/uv sync failed/)).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Go back to v1.0.0" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
 
     // A second Check now press must not clear it either.
     await user.click(screen.getByRole("button", { name: "Check now" }));
     await waitFor(() => expect(screen.getByText(/uv sync failed/)).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
   });
 
   it("shows restart-timed-out guidance with a reopen action after restartMaxWaitMs elapses", async () => {

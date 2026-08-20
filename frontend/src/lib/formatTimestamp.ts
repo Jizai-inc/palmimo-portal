@@ -18,6 +18,9 @@ export interface FormatUtcTimestampOptions {
  * (`withYear`/`withTime`); the UTC rendering and suffix are not optional.
  */
 export function formatUtcTimestamp(timestampSeconds: number, { withYear = true, withTime = true }: FormatUtcTimestampOptions = {}): string {
+  if (!Number.isFinite(timestampSeconds)) {
+    return "--";
+  }
   const date = new Date(timestampSeconds * 1000);
   const month = pad2(date.getUTCMonth() + 1);
   const day = pad2(date.getUTCDate());

@@ -14,10 +14,8 @@ import { getGetStatusApiV1SystemStatusGetQueryKey, useGetStatusApiV1SystemStatus
 import type { WifiNetworkResponse } from "@/api/generated/models";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { AuthShell } from "@/components/AuthShell";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { WifiConnectForm } from "@/components/WifiConnectForm";
 import { signalIcon } from "@/lib/wifiSignal";
 
 interface WifiSearch {
@@ -62,15 +60,12 @@ function WifiScreen() {
     isFetching,
   } = useListNetworksApiV1WifiNetworksGet();
   const [selected, setSelected] = useState<WifiNetworkResponse | null>(null);
-  const [psk, setPsk] = useState("");
   const connect = useConnectApiV1WifiConnectPost();
 
   const lastAttempt = status?.last_wifi_attempt;
-  const lastAttemptFailed = lastAttempt?.result === "failed";
   const goToWifiSettings = () => void navigate({ to: "/wifi-settings" });
 
-  function handleConnectSubmit(event: React.FormEvent) {
-    event.preventDefault();
+  function handleConnectSubmit(psk: string) {
     if (!selected) return;
     const ssid = selected.ssid;
     // `since` (pre-submit `last_wifi_attempt.timestamp`) must be read here so
@@ -95,39 +90,14 @@ function WifiScreen() {
   if (selected) {
     return (
       <AuthShell title={t("wifi.connectTitle", { ssid: selected.ssid })} description={t("wifi.connectBody")}>
-        <form className="flex flex-col gap-4" onSubmit={handleConnectSubmit}>
-          {lastAttemptFailed && lastAttempt ? (
-            <Alert variant="destructive">
-              <AlertTitle>{t("wifi.lastAttemptFailedTitle")}</AlertTitle>
-              <AlertDescription>{t("wifi.lastAttemptFailed", { ssid: lastAttempt.ssid })}</AlertDescription>
-            </Alert>
-          ) : null}
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="psk">{t("wifi.passwordLabel")}</Label>
-            <Input
-              id="psk"
-              type="password"
-              autoComplete="off"
-              required={selected.secured}
-              value={psk}
-              onChange={(event) => setPsk(event.target.value)}
-            />
-          </div>
-          <ApiErrorAlert error={connect.error} />
-          <div className="flex gap-3">
-            <Button
-              type="button"
-              variant="outline"
-              className="flex-1"
-              onClick={() => (reconfigure ? goToWifiSettings() : setSelected(null))}
-            >
-              {t("common.back")}
-            </Button>
-            <Button type="submit" disabled={connect.isPending} className="flex-1">
-              {t("wifi.connect")}
-            </Button>
-          </div>
-        </form>
+        <WifiConnectForm
+          network={selected}
+          lastAttempt={lastAttempt}
+          connectError={connect.error}
+          isSubmitting={connect.isPending}
+          onSubmit={handleConnectSubmit}
+          onBack={() => (reconfigure ? goToWifiSettings() : setSelected(null))}
+        />
       </AuthShell>
     );
   }

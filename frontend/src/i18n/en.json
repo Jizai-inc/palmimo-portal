@@ -91,6 +91,7 @@
     "connectTitle": "Connect to {{ssid}}",
     "connectBody": "Enter this network's password.",
     "passwordLabel": "Wi-Fi password",
+    "passwordTooShort": "Password must be 8-63 characters.",
     "connect": "Connect",
     "lastAttemptFailedTitle": "Previous attempt failed",
     "waitingTitle": "Connecting…",
@@ -267,6 +268,8 @@
     "validation_error": "Some of the information provided was not valid.",
     "wifi_connect_failed": "Palmimo could not start connecting to that network.",
     "wifi_forget_failed": "Palmimo could not forget that network.",
+    "wifi_invalid_psk": "That password is not valid. It must be 8-63 characters.",
+    "wifi_invalid_ssid": "That network name is not valid.",
     "wifi_not_connected": "Palmimo is not currently connected to a Wi-Fi network."
   }
 }

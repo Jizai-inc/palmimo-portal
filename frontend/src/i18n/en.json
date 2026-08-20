@@ -91,6 +91,7 @@
     "connectTitle": "Connect to {{ssid}}",
     "connectBody": "Enter this network's password.",
     "passwordLabel": "Wi-Fi password",
+    "togglePasswordVisibility": "Show or hide password",
     "passwordTooShort": "Password must be 8-63 characters.",
     "connect": "Connect",
     "lastAttemptFailedTitle": "Previous attempt failed",

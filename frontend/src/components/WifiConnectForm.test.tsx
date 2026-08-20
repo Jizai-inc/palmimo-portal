@@ -88,6 +88,62 @@ describe("WifiConnectForm", () => {
     expect(screen.getByText("That network name is not valid.")).toBeInTheDocument();
   });
 
+  it("toggles the password input between hidden and visible", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <WifiConnectForm
+        network={SECURED_NETWORK}
+        lastAttempt={undefined}
+        connectError={undefined}
+        isSubmitting={false}
+        onSubmit={vi.fn()}
+        onBack={vi.fn()}
+      />,
+    );
+
+    const passwordInput = screen.getByLabelText("Wi-Fi password");
+    expect(passwordInput).toHaveAttribute("type", "password");
+
+    const toggle = screen.getByRole("button", { name: "Show or hide password" });
+    await user.click(toggle);
+    expect(passwordInput).toHaveAttribute("type", "text");
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(toggle);
+    expect(passwordInput).toHaveAttribute("type", "password");
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("hides the password again once the target network changes", async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderWithProviders(
+      <WifiConnectForm
+        network={SECURED_NETWORK}
+        lastAttempt={undefined}
+        connectError={undefined}
+        isSubmitting={false}
+        onSubmit={vi.fn()}
+        onBack={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Show or hide password" }));
+    expect(screen.getByLabelText("Wi-Fi password")).toHaveAttribute("type", "text");
+
+    rerender(
+      <WifiConnectForm
+        network={OPEN_NETWORK}
+        lastAttempt={undefined}
+        connectError={undefined}
+        isSubmitting={false}
+        onSubmit={vi.fn()}
+        onBack={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("Wi-Fi password")).toHaveAttribute("type", "password");
+  });
+
   it("renders the wifi_invalid_psk error message", () => {
     renderWithProviders(
       <WifiConnectForm

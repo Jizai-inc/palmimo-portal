@@ -120,9 +120,6 @@ def test_reboot_reconnects_and_retries_once_after_a_dropped_connection() -> None
     assert port.attempts["reboot"] == 2
 
 
-# -- D-Bus adapter concurrency: real _connect/_disconnect/_lock, fake transport ----
-
-
 class _FakeBus:
     def __init__(self, label: str) -> None:
         self.label = label

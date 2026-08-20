@@ -25,20 +25,14 @@ def decide_wifi_access(portal_state: PortalAuthState, *, authenticated: bool, pr
 
     Unauthenticated access while unprovisioned -- the bootstrap step for a
     fresh DIY device with no password yet -- is allowed *only* in
-    :attr:`~palmimo_portal.core.identity.PortalAuthState.OPEN_SETUP`: no
-    identity file, and no password has ever been set
-    (:attr:`~palmimo_portal.ports.AuthFileState.ABSENT`). Every other state
-    always denies an unauthenticated caller, regardless of ``provisioned``:
-
-    - **Identity-carrying device** (``initial`` or, once promoted, ``set``):
-      the buyer must sticker-login (or log in normally) before Wi-Fi can be
-      touched at all.
-    - **DIY device with a password already set**: re-entering the
-      unprovisioned state (e.g. it forgot its Wi-Fi network) must not
-      reopen Wi-Fi to anyone on the LAN -- the bootstrap exception exists
-      only for a device that has never had a password.
-    - **``corrupt``/``unavailable``**: deny for the same reason -- neither
-      is a legitimate bootstrap state.
+    :attr:`~palmimo_portal.core.identity.PortalAuthState.OPEN_SETUP` (no
+    identity file, no password ever set). Every other state always denies
+    an unauthenticated caller regardless of ``provisioned``: an
+    identity-carrying device must sticker-login first; a DIY device that
+    already set a password must not have Wi-Fi reopened to the LAN just
+    by re-entering the unprovisioned state (e.g. forgetting its network)
+    -- the bootstrap exception is only for a device that never had a
+    password; ``corrupt``/``unavailable`` deny for the same reason.
     """
     if portal_state is PortalAuthState.OPEN_SETUP:
         if provisioned and not authenticated:

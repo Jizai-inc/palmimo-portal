@@ -1,17 +1,12 @@
 """Drives one :class:`~palmimo_portal.ports.Updater` job (apply then restart) to completion.
 
-:class:`UpdateRunner` is the glue between the pure transitions in
-:mod:`palmimo_portal.core.update` and the two side-effecting ports this
-feature needs: :class:`~palmimo_portal.ports.Updater` (``git fetch`` ->
-``git checkout`` -> ``uv sync``) and :class:`~palmimo_portal.ports.SystemPort`
-(``restart_portal``). Kept in ``core/`` (not ``api/``) since none of this
-needs FastAPI -- ``api/update.py`` only constructs one and calls
-:meth:`UpdateRunner.start`.
-
-Persists :class:`~palmimo_portal.ports.UpdateJob` progress at every step
-through :class:`~palmimo_portal.ports.StateStore`, so ``GET /update/status``
-always reflects the runner's current step even though the runner does the
-work off the request/response cycle.
+Glue between the pure transitions in :mod:`palmimo_portal.core.update` and
+the two side-effecting ports this feature needs: ``Updater`` and
+``SystemPort.restart_portal``. Kept in ``core/``, not ``api/``, since none
+of this needs FastAPI. Persists :class:`~palmimo_portal.ports.UpdateJob`
+progress at every step via :class:`~palmimo_portal.ports.StateStore`, so
+``GET /update/status`` reflects the runner's current step even though the
+work happens off the request/response cycle.
 """
 
 from __future__ import annotations
@@ -31,33 +26,23 @@ logger = logging.getLogger("palmimo_portal")
 class UpdateRunner:
     """Runs one update/rollback job: :meth:`Updater.apply` then :meth:`SystemPort.restart_portal`.
 
-    The caller (``api/update.py``) is responsible for the one-job-at-a-time
-    guarantee at the :class:`~palmimo_portal.ports.UpdateState` level,
-    transitioning the persisted job from idle/done/failed to running under
-    its own lock *before* constructing or starting a runner (see
-    :func:`~palmimo_portal.core.update.start_apply`'s 409 rule). This
-    class's own :attr:`_busy_lock` is a second, narrower guard against the
+    ``api/update.py`` owns the one-job-at-a-time guarantee at the
+    :class:`~palmimo_portal.ports.UpdateState` level (transitioning
+    idle/done/failed to running under its own lock before constructing a
+    runner). :attr:`_busy_lock` is a second, narrower guard against the
     *same instance* running two jobs concurrently if :meth:`start` is
     somehow called twice.
 
     ``run_in_thread`` (default ``True``) spawns a daemon thread so
-    ``POST /update/apply``/``POST /update/rollback`` can return 202
-    immediately; ``False`` runs the whole job inline, letting a test drive
-    the fake updater synchronously.
-
-    ``restart_delay_seconds`` (default ``1.0``) is slept between
-    persisting ``"restarting"`` and calling
-    :meth:`SystemPort.restart_portal`, so a fast apply cannot have systemd
-    tear this process down before the triggering request's 202 response
-    finishes writing to the socket. Tests pass ``0`` to skip the delay.
-
-    ``alive`` (default ``None``), when given, is set for the whole
-    duration of :meth:`_run_locked` and cleared otherwise -- the liveness
-    signal :func:`~palmimo_portal.core.update.expire_stale_running` uses
-    instead of a wall-clock timeout, since a ``"running"`` job with this
-    flag clear can only be a dead thread. ``api/app.py`` constructs one
-    :class:`~threading.Event` per app alongside the one
-    :class:`UpdateRunner`, both stored on ``app.state``.
+    ``POST /update/apply``/``rollback`` can return 202 immediately;
+    ``False`` runs inline for tests. ``restart_delay_seconds`` (default
+    ``1.0``) is slept between persisting ``"restarting"`` and calling
+    ``restart_portal``, so a fast apply cannot have systemd tear this
+    process down before the triggering 202 response finishes writing to
+    the socket (tests pass ``0``). ``alive``, when given, is set for the
+    whole duration of :meth:`_run_locked` and cleared otherwise -- the
+    liveness signal :func:`~palmimo_portal.core.update.expire_stale_running`
+    uses instead of a wall-clock timeout.
     """
 
     def __init__(
@@ -105,20 +90,16 @@ class UpdateRunner:
         try:
             self._run_steps(target, on_step)
         except Exception as error:
-            # Anything not already handled by the narrower except clauses
-            # below must never leave the job wedged in "running". `job.step
-            # or "start"` mirrors finalize_after_restart's own fallback.
+            # Must never leave the job wedged in "running". `job.step or
+            # "start"` mirrors finalize_after_restart's own fallback.
             logger.error("update: unexpected error while applying %s: %s", target, error, exc_info=True)
             try:
                 state = self._state.read_update_state()
                 step = state.job.step or "start"
                 self._state.write_update_state(mark_failed(state, step, f"unexpected error: {error!r}", time.time()))
             except Exception:
-                # Persisting the failure also failed (e.g. a full disk) --
-                # log with a traceback so an operator reading journalctl can
-                # see the job is stuck in "running" and why. See
-                # GET /update/status's expire_stale_running for how it
-                # eventually gets unstuck without a reboot.
+                # Persisting the failure also failed (full disk?) -- log with
+                # a traceback; expire_stale_running eventually unsticks it.
                 logger.exception("update: failed to persist the failure state for %s after the error above", target)
         finally:
             if self._alive is not None:
@@ -135,9 +116,7 @@ class UpdateRunner:
             return
 
         self._state.write_update_state(mark_restarting(self._state.read_update_state(), time.time()))
-        # Give the 202 response that triggered this job time to flush to
-        # the client's socket before asking systemd to kill and restart
-        # this process (see the class docstring's `restart_delay_seconds`).
+        # Let the triggering 202 response flush before systemd kills this process.
         time.sleep(self._restart_delay_seconds)
         try:
             self._system.restart_portal()
@@ -148,11 +127,9 @@ class UpdateRunner:
                 mark_failed(self._state.read_update_state(), "restart", message, time.time())
             )
         except Exception as error:
-            # Anything other than AdapterUnavailableError must still be
-            # attributed to the "restart" step, not fall through to
-            # _run_locked's generic handler, which has no idea a restart
-            # was attempted and would misattribute the failure to whatever
-            # step `job.step` last held.
+            # Must still be attributed to the "restart" step, not fall through
+            # to _run_locked's generic handler, which would misattribute it
+            # to whatever step `job.step` last held.
             logger.error(
                 "update: unexpected error from restart_portal after applying %s: %s", target, error, exc_info=True
             )

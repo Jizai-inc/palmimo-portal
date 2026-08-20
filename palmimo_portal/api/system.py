@@ -88,10 +88,8 @@ def get_status(
     is diagnosable from a client request.
     """
     wifi_status = network.get_status()
-    # Uncached: an operator watches this endpoint while diagnosing a
-    # device, and the read is cheap (a manufacturing-written file). A
-    # removed or fixed identity file must be reflected here without
-    # restarting the Portal.
+    # Uncached: an operator watches this endpoint while diagnosing a device;
+    # a removed/fixed identity file must reflect here without a restart.
     identity = identity_store.read_identity_uncached()
     auth_state = compute_auth_state(state.auth_state(), identity)
     last_attempt = state.read_last_wifi_attempt()
@@ -121,21 +119,14 @@ def _refuse_while_updating(state: StateStore, runner_alive: bool) -> None:
     """Raise 409 ``update_in_progress`` while an update/rollback job is ``"running"``.
 
     Goes through :func:`~palmimo_portal.core.update.current_update_state`
-    (the same self-healing sequence ``GET /update/status`` runs) rather
-    than a raw :meth:`~palmimo_portal.ports.StateStore.read_update_state`
-    check -- a ``"running"`` job left over from a dead runner (see
-    :func:`~palmimo_portal.core.update.expire_stale_running`) must not
-    block reboot/shutdown forever. ``runner_alive`` is read by the caller
-    from ``request.app.state.update_runner_alive``, set by the app's one
-    :class:`~palmimo_portal.core.update_runner.UpdateRunner` instance for
-    the duration of any job it runs.
-
-    Not gated behind the update job lock -- so a reboot/shutdown
-    mid-``uv sync`` cannot turn a half-synced venv into a crash loop.
-    Narrower than "any job in flight": ``"checking"`` is a synchronous,
-    sub-10s HTTP call with nothing left running by the time this executes,
-    and ``"restarting"`` means the update already fully applied, so
-    rebooting then does not corrupt anything.
+    (the same self-healing sequence ``GET /update/status`` runs), not a raw
+    read -- a ``"running"`` job left over from a dead runner (see
+    :func:`~palmimo_portal.core.update.expire_stale_running`) must not block
+    reboot/shutdown forever. Not gated behind the update job lock, so a
+    reboot/shutdown mid-``uv sync`` cannot turn a half-synced venv into a
+    crash loop. Narrower than "any job in flight": ``"checking"`` is a
+    synchronous sub-10s call with nothing left running by the time this
+    executes, and ``"restarting"`` means the update already fully applied.
     """
     if update_core.current_update_state(state, now=time.time(), runner_alive=runner_alive).job.state == "running":
         raise PortalError(409, "update_in_progress")

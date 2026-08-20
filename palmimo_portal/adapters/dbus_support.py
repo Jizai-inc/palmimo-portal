@@ -1,28 +1,18 @@
 """Shared plumbing that lets a synchronous Port method drive dbus-fast's asyncio API.
 
-:class:`~palmimo_portal.ports.NetworkPort` and
-:class:`~palmimo_portal.ports.SystemPort` are synchronous ``Protocol``\\ s --
-FastAPI runs their methods in its sync threadpool. dbus-fast
+:class:`~palmimo_portal.ports.NetworkPort`/:class:`~palmimo_portal.ports.SystemPort`
+are synchronous (FastAPI's sync threadpool); dbus-fast
 (:mod:`dbus_fast.aio`) is asyncio-only. A per-call ``asyncio.run()`` would
-work but would tear down and reconnect the D-Bus connection on every
-request, defeating the "lazy-connect once, reuse, reconnect only on drop"
-design the adapters want (comitup's ``access_points()`` alone can take
-several seconds).
-
-:class:`SharedEventLoopThread` runs one dedicated ``asyncio`` event loop
-forever in a background thread for the process's lifetime. Adapters submit
-coroutines to it with :meth:`SharedEventLoopThread.run`, which blocks the
-calling thread for the result -- the coroutine, and whatever
-``dbus_fast.aio.MessageBus`` it holds between calls, always runs on that one
-loop, so the connection can be cached the way a synchronous client would
-cache a socket.
-
-One loop is shared by every real adapter in a process
-(:func:`get_shared_loop_thread` is a lazily-created singleton) rather than
-one per adapter -- a background thread per adapter would be pure overhead
-for what is, at most, two real adapters
-(:class:`~palmimo_portal.adapters.comitup.ComitupNetworkPort`,
-:class:`~palmimo_portal.adapters.systemd.SystemdSystemPort`) per process.
+tear down and reconnect the D-Bus connection on every request, defeating the
+"lazy-connect once, reuse, reconnect only on drop" design the adapters want
+(comitup's ``access_points()`` alone can take several seconds). Instead,
+:class:`SharedEventLoopThread` runs one dedicated event loop forever in a
+background thread; adapters submit coroutines via
+:meth:`SharedEventLoopThread.run`, which blocks for the result, so the
+``dbus_fast.aio.MessageBus`` they hold between calls stays on that one loop
+and can be cached like a socket. One loop is shared per process
+(:func:`get_shared_loop_thread` is a lazy singleton), since at most two
+real adapters run per process.
 """
 
 from __future__ import annotations

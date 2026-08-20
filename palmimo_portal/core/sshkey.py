@@ -29,15 +29,14 @@ _KEY_TYPES = (
 def _wire_format_type(decoded: bytes) -> str:
     """Return the key-type string encoded in an SSH wire-format public-key blob.
 
-    The wire format (RFC 4253 §6.6) begins with a 4-byte big-endian length
-    prefix followed by an ASCII type string, which must match the
-    plaintext type field of the ``authorized_keys`` line -- otherwise
-    base64 garbage or a truncated key could register as an unusable key.
+    Wire format (RFC 4253 §6.6): 4-byte big-endian length prefix, then an
+    ASCII type string, which must match the plaintext type field of the
+    ``authorized_keys`` line -- otherwise base64 garbage or a truncated
+    key could register as an unusable key.
 
     Raises:
-        InvalidKeyFormatError: ``decoded`` is too short to hold a length
-            prefix, the declared length overruns the buffer, or the type
-            bytes are not valid ASCII.
+        InvalidKeyFormatError: too short for a length prefix, the declared
+            length overruns the buffer, or the type bytes are not ASCII.
     """
     if len(decoded) < 4:
         raise InvalidKeyFormatError("wire format blob too short for a length prefix")

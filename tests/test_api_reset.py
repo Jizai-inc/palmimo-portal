@@ -54,9 +54,6 @@ def _promote_to_full(client: TestClient) -> None:
     assert response.status_code == 200
 
 
-# -- ALLOW: identity-carrying device, set or corrupt -------------------------
-
-
 def test_reset_on_an_identity_device_with_a_set_password_succeeds(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
@@ -151,9 +148,6 @@ def test_reset_works_while_unprovisioned(client: TestClient, adapters: FakeAdapt
     assert response.status_code == 200
 
 
-# -- DENY_NOT_AVAILABLE: DIY devices -----------------------------------------
-
-
 def test_reset_is_403_on_a_diy_device_with_no_password_set(client: TestClient, adapters: FakeAdapterBundle) -> None:
     response = client.post("/api/v1/auth/reset", headers=CSRF_HEADERS)
 
@@ -191,9 +185,6 @@ def test_reset_does_not_touch_auth_json_on_a_diy_device(client: TestClient, adap
     assert adapters.state.read_auth() == before
 
 
-# -- DENY_ALREADY_INITIAL -----------------------------------------------------
-
-
 def test_reset_is_409_when_already_initial(client: TestClient, adapters: FakeAdapterBundle) -> None:
     _carry_identity(adapters)
 
@@ -201,9 +192,6 @@ def test_reset_is_409_when_already_initial(client: TestClient, adapters: FakeAda
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "auth_not_set"
-
-
-# -- DENY_UNAVAILABLE ---------------------------------------------------------
 
 
 def test_reset_is_503_when_identity_is_unavailable_and_no_password_is_set(
@@ -230,9 +218,6 @@ def test_reset_is_503_when_identity_is_unavailable_even_with_a_password_set(
 
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "identity_unavailable"
-
-
-# -- the identity read must be uncached ---------------------------------------
 
 
 def test_reset_refuses_when_a_cached_identity_has_since_been_removed_from_disk(
@@ -272,9 +257,6 @@ def test_reset_refuses_when_a_cached_identity_has_since_been_removed_from_disk(
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "reset_not_available"
     assert adapters.state.read_auth() == before
-
-
-# -- a failing delete must not burn the rate-limit budget ---------------------
 
 
 def test_a_failing_delete_auth_does_not_burn_the_rate_limit_budget(
@@ -323,9 +305,6 @@ def test_reset_maps_a_lock_timeout_to_409(client: TestClient, adapters: FakeAdap
     assert second.status_code == 200  # budget was released, not burned
 
 
-# -- rate limiting: one accepted reset per 60s, process-wide -----------------
-
-
 def test_a_second_reset_within_60_seconds_is_rate_limited(client: TestClient, adapters: FakeAdapterBundle) -> None:
     _carry_identity(adapters)
     _promote_to_full(client)
@@ -359,9 +338,6 @@ def test_a_denied_reset_attempt_does_not_burn_the_rate_limit_budget(
     allowed = client.post("/api/v1/auth/reset", headers=CSRF_HEADERS)
 
     assert allowed.status_code == 200
-
-
-# -- no auth/provisioning dependency: reachable unauthenticated & unprovisioned --
 
 
 def test_reset_requires_no_csrf_bypass_but_no_session_either(client: TestClient, adapters: FakeAdapterBundle) -> None:

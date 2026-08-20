@@ -141,8 +141,6 @@ def test_decode_session_is_none_for_a_tampered_token() -> None:
     assert decode_session(signing_key, token + "x") is None
 
 
-# -- change_password_from_initial(): the initial-mode half of /change-password --
-
 IDENTITY = Identity(device_id="palmimo-042", initial_password_hash=hash_password("sticker-password"))
 
 
@@ -177,9 +175,6 @@ def test_change_password_from_initial_race_the_loser_gets_auth_already_exists() 
     winner_auth = store.read_auth()
     assert winner_auth is not None
     assert verify_password("winner-password", winner_auth.password_hash)
-
-
-# -- change_password_from_full(): the full-mode half of /change-password ---
 
 
 def test_change_password_from_full_rotates_the_hash_and_signing_key() -> None:
@@ -555,9 +550,6 @@ def test_sequential_four_wrong_then_one_correct_login_never_logs_the_lockout_war
     assert limiter.is_locked() is False
 
 
-# -- ResetRateLimiter: flat throttle, one accepted reset per window --------
-
-
 def test_reset_rate_limiter_is_not_locked_before_any_reset() -> None:
     limiter = ResetRateLimiter(clock=_FakeClock())
 
@@ -638,8 +630,6 @@ def test_reset_rate_limiter_release_reopens_the_window() -> None:
     assert limiter.try_acquire() is True
 
 
-# -- decide_reset(): pure rule table -----------------------------------------
-
 STICKER_IDENTITY = Identity(device_id="palmimo-042", initial_password_hash=hash_password("sticker"))
 
 
@@ -666,9 +656,6 @@ STICKER_IDENTITY = Identity(device_id="palmimo-042", initial_password_hash=hash_
 )
 def test_decide_reset_table(auth_state: PortalAuthState, identity: Identity | None, expected: ResetDecision) -> None:
     assert decide_reset(auth_state, identity) == expected
-
-
-# -- FakeStateStore.delete_auth() --------------------------------------------
 
 
 def test_fake_state_store_delete_auth_returns_to_absent() -> None:

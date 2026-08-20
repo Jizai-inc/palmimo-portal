@@ -42,9 +42,6 @@ def _dead_pid() -> int:
     return process.pid
 
 
-# -- swap_into_place: best-effort restore on the second rename failing ------------------------
-
-
 def test_swap_into_place_restores_static_prev_when_the_second_rename_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -74,9 +71,6 @@ def test_swap_into_place_restores_static_prev_when_the_second_rename_fails(
     # static/ was never left missing -- the old build was restored.
     assert static_dir.is_dir()
     assert (static_dir / "index.html").read_text(encoding="utf-8") == "old build"
-
-
-# -- repair_static_dir: boot-time repair of a static/ left missing by a killed process ---------
 
 
 def test_repair_static_dir_restores_static_from_static_prev_when_static_is_missing(

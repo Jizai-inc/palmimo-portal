@@ -35,9 +35,8 @@ interface DeleteDialogState {
 }
 
 /**
- * The SSH-keys screen's logic (see routes/ssh-keys.tsx, which is just this
- * inside `AppShell`). Deliberately free of router hooks so it can be
- * rendered directly in tests with `renderWithProviders(<SshKeysPanel />)`.
+ * The SSH-keys screen's logic (see routes/ssh-keys.tsx, which is just this inside `AppShell`).
+ * Free of router hooks so it can be rendered directly in tests.
  */
 export function SshKeysPanel() {
   const { t } = useTranslation();
@@ -70,10 +69,8 @@ export function SshKeysPanel() {
         void queryClient.invalidateQueries({ queryKey: getListKeysApiV1SshKeysGetQueryKey() });
       },
       onError: (error) => {
-        // A race: another session deleted the other keys since our last list
-        // refresh, so the server now also sees this as the last key and
-        // refuses without confirmation. Re-open the dialog in last-key mode
-        // so the user can confirm in place.
+        // A race: another session deleted the other keys since our last list refresh, so the
+        // server now also sees this as the last key. Re-open the dialog in last-key mode.
         setDialog((current) => {
           if (current && error instanceof PortalApiError && error.code === "last_key_deletion_requires_confirmation") {
             return { key: current.key, lastKeyMode: true };
@@ -103,17 +100,13 @@ export function SshKeysPanel() {
     });
   }
 
-  // The 409 race case reopens the dialog instead of surfacing an inline
-  // error, so only render the inline alert once the dialog is closed --
-  // otherwise the reopened dialog's lockout copy and a stale error banner
-  // would say the same thing twice.
+  // The 409 race case reopens the dialog instead of surfacing an inline error, so only render
+  // the inline alert once the dialog is closed.
   const showDeleteError = !dialog && deleteKey.isError;
 
   function closeDialog() {
     setDialog(null);
-    // Clears a stale 409 error left in `deleteKey` after backing out via
-    // Cancel/Escape, so `showDeleteError` doesn't surface it later.
-    deleteKey.reset();
+    deleteKey.reset(); // clears a stale 409 error so showDeleteError doesn't surface it later
   }
 
   return (
@@ -122,15 +115,14 @@ export function SshKeysPanel() {
       <ApiErrorAlert error={listError} />
       {showDeleteError ? <ApiErrorAlert error={deleteKey.error} /> : null}
 
-      {/* A list error means we don't actually know the real key list, so the
-        empty-state text and add-key form would be misleading -- render neither. */}
+      {/* A list error means we don't know the real key list -- render neither empty state nor form. */}
       {listError ? null : isLoading ? (
         <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
       ) : (keys ?? []).length === 0 ? (
         <p className="text-sm text-muted-foreground">{t("sshKeys.emptyState")}</p>
       ) : (
         <div className="overflow-hidden rounded-md border border-input">
-          {/* Column header -- desktop only; the key/value stack below reads fine without one on mobile. */}
+          {/* Desktop-only column header. */}
           <div className="hidden grid-cols-[1fr_120px_1fr_44px] gap-2 bg-muted px-3 py-2 text-xs font-medium text-muted-foreground md:grid">
             <span>{t("sshKeys.columnComment")}</span>
             <span>{t("sshKeys.columnType")}</span>
@@ -219,11 +211,8 @@ export function SshKeysPanel() {
           ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleteKey.isPending}>{t("common.cancel")}</AlertDialogCancel>
-            {/* A plain Button, not `AlertDialogAction`: that closes the
-              dialog synchronously on click via Radix's `Dialog.Close`,
-              which would race the 409 last-key confirmation flow's
-              `onError` reopen. Keeps `dialog` entirely under this
-              component's own state. */}
+            {/* A plain Button, not `AlertDialogAction`: that closes synchronously via Radix's
+              `Dialog.Close`, which would race the 409 last-key confirmation's `onError` reopen. */}
             <Button variant="destructive" onClick={confirmDelete} disabled={deleteKey.isPending}>
               {dialog?.lastKeyMode ? t("sshKeys.lastKeyDialogConfirm") : t("sshKeys.deleteDialogConfirm")}
             </Button>

@@ -18,9 +18,7 @@ from typing import Literal, Protocol
 
 
 class ConnectionState(StrEnum):
-    """The Wi-Fi state machine, mirroring comitup's: no known network yet
-    (``UNPROVISIONED``), mid-attempt (``CONNECTING``), or on the home LAN
-    (``CONNECTED``)."""
+    """Wi-Fi state machine, mirroring comitup's: no known network yet, mid-attempt, or on the home LAN."""
 
     UNPROVISIONED = "unprovisioned"
     CONNECTING = "connecting"
@@ -59,19 +57,14 @@ class WifiAttempt:
     result: str
     timestamp: float
     observed_connection_name: str | None = None
-    """The connection/AP name comitup was actually observed on when this
-    attempt resolved, from :mod:`palmimo_portal.core.wifi_attempt`. ``None``
-    while the attempt is still ``"attempting"``, or when the real adapter
-    reported no name. Distinct from ``ssid`` (the network the client *asked*
-    to connect to) because comitup can settle onto a different network than
-    the one just attempted -- carrying both lets the UI tell them apart."""
+    """The connection/AP name comitup was actually observed on when this attempt resolved.
+    ``None`` while still ``"attempting"``, or when the real adapter reported no name. Distinct
+    from ``ssid`` (what the client *asked* to connect to) because comitup can settle onto a
+    different network than the one just attempted."""
 
 
 class NetworkPort(Protocol):
-    """Wi-Fi state and control, backed by comitup in the real adapter.
-
-    See :class:`~palmimo_portal.adapters.comitup.ComitupNetworkPort`.
-    """
+    """Wi-Fi state and control. See :class:`~palmimo_portal.adapters.comitup.ComitupNetworkPort`."""
 
     def get_status(self) -> WifiStatus:
         """Return the current connection state."""
@@ -84,18 +77,16 @@ class NetworkPort(Protocol):
     def has_known_networks(self) -> bool:
         """Report whether any network has ever been configured.
 
-        Used by :mod:`palmimo_portal.core.provisioning` alongside
-        :meth:`get_status`: a device that is currently disconnected but has
-        a known network on file is provisioned, not out-of-box.
+        Used with :meth:`get_status`: a device currently disconnected but with a known
+        network on file is provisioned, not out-of-box.
         """
         ...
 
     def connect(self, ssid: str, psk: str) -> None:
         """Start a connection attempt.
 
-        Returns immediately — the attempt happens asynchronously and its
-        result is read back later via :class:`StateStore`, never through
-        this call's return value (see :class:`WifiAttempt`).
+        Returns immediately -- the result is read back later via :class:`StateStore`
+        (see :class:`WifiAttempt`), never through this call's return value.
         """
         ...
 
@@ -105,8 +96,8 @@ class NetworkPort(Protocol):
         comitup falls back to HOTSPOT (or another known network, if any). Returns immediately.
 
         Raises:
-            AdapterUnavailableError: like the other calls, when the backend cannot be reached.
-            NotConnectedError: the current state is not CONNECTED, checked with a fresh read
+            AdapterUnavailableError: the backend cannot be reached.
+            NotConnectedError: current state is not CONNECTED, checked with a fresh read
                 immediately before deciding -- never a cached value. While in HOTSPOT,
                 ``delete_connection()`` deletes the NetworkManager profile of the *active*
                 SSID on the link device, i.e. comitup's own hotspot profile, not a
@@ -116,10 +107,7 @@ class NetworkPort(Protocol):
 
 
 class SystemPort(Protocol):
-    """Power operations, backed by systemd/logind in the real adapter.
-
-    See :class:`~palmimo_portal.adapters.systemd.SystemdSystemPort`.
-    """
+    """Power operations. See :class:`~palmimo_portal.adapters.systemd.SystemdSystemPort`."""
 
     def reboot(self) -> None:
         """Reboot the machine."""
@@ -130,15 +118,13 @@ class SystemPort(Protocol):
         ...
 
     def restart_portal(self) -> None:
-        """Restart the Portal's own systemd unit (``systemd1`` ``Manager.RestartUnit``).
+        """Restart the Portal's own systemd unit, so freshly ``uv sync``'d code starts running.
 
-        Called by :class:`~palmimo_portal.core.update_runner.UpdateRunner`
-        once :class:`Updater.apply` succeeds, so the freshly ``uv sync``'d
-        code actually starts running.
+        Called by :class:`~palmimo_portal.core.update_runner.UpdateRunner` once
+        :class:`Updater.apply` succeeds.
 
         Raises:
-            AdapterUnavailableError: the real adapter's D-Bus call to
-                systemd timed out or failed.
+            AdapterUnavailableError: the D-Bus call to systemd timed out or failed.
         """
         ...
 
@@ -146,17 +132,11 @@ class SystemPort(Protocol):
 class AdapterUnavailableError(Exception):
     """Raised by a real :class:`NetworkPort`/:class:`SystemPort` when its OS backend cannot be reached.
 
-    Covers a D-Bus call that times out or fails even after the adapter's own
-    reconnect-and-retry (see :mod:`palmimo_portal.adapters.dbus_support`) --
-    comitup or logind is not running, the system bus itself is unreachable,
-    or a call simply took too long.
-
-    Distinct from a bare :class:`Exception` so ``api/`` can translate it
-    into a 503 ``*_backend_unavailable`` error envelope instead of the
-    generic 500 ``internal_error``. ``code`` is the same snake_case i18n
-    key the error envelope carries (e.g. ``"network_backend_unavailable"``),
-    so ``api/`` does not have to hardcode a mapping from adapter identity to
-    error code.
+    Covers a D-Bus call that times out or fails even after the adapter's own reconnect-and-retry
+    (see :mod:`palmimo_portal.adapters.dbus_support`). Distinct from a bare :class:`Exception` so
+    ``api/`` can translate it into a 503 ``*_backend_unavailable`` envelope instead of a generic
+    500; ``code`` is the same snake_case i18n key the envelope carries (e.g.
+    ``"network_backend_unavailable"``), so ``api/`` need not hardcode adapter-to-code mapping.
     """
 
     def __init__(self, code: str, message: str) -> None:
@@ -167,15 +147,10 @@ class AdapterUnavailableError(Exception):
 class NotConnectedError(Exception):
     """Raised by :meth:`NetworkPort.forget_current` when the device is not currently CONNECTED.
 
-    ``api/wifi.py``'s ``DELETE /wifi/connection`` translates this to 409
-    ``wifi_not_connected`` rather than letting the adapter call
-    ``delete_connection()`` on a device not actually connected to anything --
-    while in HOTSPOT, that call deletes the NetworkManager profile of the
-    *active* SSID on the link device, which in that state is comitup's own
-    hotspot profile, not a home-network one. Both the real adapter and
-    :class:`~palmimo_portal.testing.fakes.FakeNetworkPort` check a freshly
-    read state immediately before deciding whether to raise this -- never a
-    cached value.
+    ``api/wifi.py``'s ``DELETE /wifi/connection`` translates this to 409 ``wifi_not_connected``,
+    rather than letting the adapter delete the HOTSPOT's own profile (see :meth:`NetworkPort.forget_current`).
+    Both the real adapter and :class:`~palmimo_portal.testing.fakes.FakeNetworkPort` check a
+    freshly read state immediately before deciding whether to raise this -- never a cached value.
     """
 
 
@@ -211,12 +186,10 @@ class LastKeyError(Exception):
 
 
 class SshKeysLockTimeoutError(Exception):
-    """Raised by :class:`~palmimo_portal.adapters.ssh_keys.AuthorizedKeysSshKeyPort` when its lock cannot be acquired in time.
+    """Raised when the ``authorized_keys`` lock cannot be acquired in time.
 
-    Mirrors :class:`AuthLockTimeoutError`: a bounded wait on the
-    ``authorized_keys`` lockfile means a stuck contender cannot hang every
-    other key-management request indefinitely -- ``api/`` translates this
-    into 409 ``ssh_keys_busy``.
+    Mirrors :class:`AuthLockTimeoutError`: bounded, so one stuck contender cannot hang every
+    other key-management request indefinitely -- ``api/`` translates this into 409 ``ssh_keys_busy``.
     """
 
 
@@ -240,11 +213,7 @@ class SshKeyPort(Protocol):
         ...
 
     def delete_key(self, fingerprint: str, *, allow_last: bool = False) -> None:
-        """Remove the key with the given fingerprint.
-
-        Args:
-            fingerprint: The fingerprint of the key to remove.
-            allow_last: Must be ``True`` to remove the last remaining key.
+        """Remove the key with the given fingerprint. ``allow_last`` must be ``True`` to remove the last one.
 
         Raises:
             KeyNotFoundError: no key has that fingerprint.
@@ -309,11 +278,9 @@ class AuthLockTimeoutError(Exception):
 class Identity:
     """The manufacturing-written identity of this physical device.
 
-    Present only on a device Jizai provisioned before shipping (see
-    palmimo-portal.md's cross-cutting decision 1): the individual number
-    printed on the sticker (``device_id``) and an argon2id hash of the
-    random password printed alongside it. Absent on a DIY, self-flashed
-    image, which falls back to the legacy open first-time-setup flow (see
+    Present only on a device Jizai provisioned before shipping: the sticker's ``device_id`` and
+    an argon2id hash of the sticker's random password. Absent on a DIY, self-flashed image, which
+    falls back to the legacy open first-time-setup flow (see
     :class:`~palmimo_portal.core.identity.PortalAuthState`).
     """
 
@@ -341,45 +308,28 @@ IDENTITY_UNAVAILABLE = IdentityUnavailable.UNAVAILABLE
 
 
 class IdentityStore(Protocol):
-    """Reads the manufacturing-written identity file. The Portal never writes it.
-
-    Backed by :class:`~palmimo_portal.adapters.identity.FileIdentityStore`
-    in the real adapter, which reads ``PALMIMO_IDENTITY_FILE``
-    (default ``/boot/firmware/palmimo-identity.json``).
-    """
+    """Reads the manufacturing-written identity file (``PALMIMO_IDENTITY_FILE``). The Portal never writes it."""
 
     def read_identity(self) -> Identity | IdentityUnavailable | None:
         """Return the device identity, ``None`` for clean absence, or :data:`IDENTITY_UNAVAILABLE`.
 
-        A malformed (but present) identity file is treated the same as an
-        absent one (unlike ``auth.json``, which distinguishes
-        :attr:`AuthFileState.CORRUPT` from :attr:`AuthFileState.ABSENT`):
-        the identity file is not itself security-bearing -- it only lets
-        ``/auth/login`` check a submitted password against it -- so failing
-        closed here would risk bricking a device over a corrupted
-        boot-partition file for no benefit. The real adapter logs this at
+        A malformed (but present) file is treated the same as absent (unlike ``auth.json``, which
+        distinguishes :attr:`AuthFileState.CORRUPT` from :attr:`AuthFileState.ABSENT`): the
+        identity file is not itself security-bearing, so failing closed here would risk bricking a
+        device over a corrupted boot-partition file for no benefit. The real adapter logs this at
         ERROR once.
 
-        A transient read failure (:class:`OSError` -- permission denied,
-        mount not ready, any other I/O error) says nothing about whether an
-        identity file exists at all, so it must not be conflated with clean
-        absence. Callers see :data:`IDENTITY_UNAVAILABLE` and must refuse
-        both the DIY open-setup and initial-credentials flows rather than
-        guessing -- see :func:`~palmimo_portal.core.identity.compute_auth_state`.
+        A transient read failure (:class:`OSError`) says nothing about whether an identity file
+        exists at all, so it must not be conflated with clean absence -- callers see
+        :data:`IDENTITY_UNAVAILABLE` and must refuse both the DIY open-setup and
+        initial-credentials flows rather than guessing.
         """
         ...
 
     def read_identity_uncached(self) -> Identity | IdentityUnavailable | None:
-        """Return the device identity from a fresh disk read, bypassing any cache.
-
-        Same three-way return type and parsing semantics as
-        :meth:`read_identity`, but never serves a cached positive read.
-        Callers where a stale cached :class:`Identity` would be dangerous
-        (currently only :func:`~palmimo_portal.core.auth.decide_reset`, via
-        the unauthenticated ``POST /auth/reset``) must know whether an
-        identity file exists on disk *right now*. Implementations should
-        still refresh their cache with whatever this call finds, so a
-        subsequent :meth:`read_identity` reflects it too.
+        """Same as :meth:`read_identity` but bypasses any cache, for callers where a stale cached
+        :class:`Identity` would be dangerous (currently only the unauthenticated
+        ``POST /auth/reset``). Implementations should still refresh their cache with what this finds.
         """
         ...
 
@@ -410,9 +360,8 @@ class InstalledVersion:
 class ReleaseSourceError(Exception):
     """Raised by a real :class:`ReleaseSource` when it cannot report the latest release.
 
-    ``code`` is the same snake_case i18n key style as
-    :class:`AdapterUnavailableError` -- ``api/update.py`` maps it 1:1 onto a
-    ``PortalError`` code.
+    ``code`` is the same snake_case i18n key style as :class:`AdapterUnavailableError` --
+    ``api/update.py`` maps it 1:1 onto a ``PortalError`` code.
     """
 
     def __init__(self, code: str, message: str) -> None:
@@ -421,10 +370,7 @@ class ReleaseSourceError(Exception):
 
 
 class ReleaseSource(Protocol):
-    """Discovers the latest published release, backed by GitHub's Releases API in the real adapter.
-
-    See :class:`~palmimo_portal.adapters.github_releases.GitHubReleaseSource`.
-    """
+    """Discovers the latest published release. See :class:`~palmimo_portal.adapters.github_releases.GitHubReleaseSource`."""
 
     def fetch_latest(self) -> Release:
         """Return the latest published (non-prerelease, non-draft) release.
@@ -452,10 +398,7 @@ class UpdateStepError(Exception):
 
 
 class Updater(Protocol):
-    """Reads the installed Portal version and applies an update to it.
-
-    See :class:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater`.
-    """
+    """Reads the installed Portal version and applies an update. See :class:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater`."""
 
     def installed(self) -> InstalledVersion:
         """Return the Portal checkout's currently installed version."""
@@ -464,10 +407,8 @@ class Updater(Protocol):
     def apply(self, tag: str, on_step: Callable[[str], None]) -> None:
         """Check out *tag*, fetch its frontend asset, and sync dependencies, calling ``on_step`` before each step.
 
-        Steps, in order: ``"fetch"``, ``"assets"``, ``"checkout"``,
-        ``"sync"``, ``"install-assets"``. See
-        :class:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater`'s
-        module docstring for the staging order.
+        Steps, in order: ``"fetch"``, ``"assets"``, ``"checkout"``, ``"sync"``, ``"install-assets"``
+        -- see :class:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater`'s module docstring.
 
         Raises:
             UpdateStepError: a step failed -- ``error.step`` names which one.
@@ -475,15 +416,13 @@ class Updater(Protocol):
         ...
 
 
-#: The set of states :class:`UpdateJob` can be in over the lifetime of one
-#: check/apply/rollback -- see :mod:`palmimo_portal.core.update` for the
-#: transition rules between them.
+#: States :class:`UpdateJob` can be in over one check/apply/rollback -- see
+#: :mod:`palmimo_portal.core.update` for the transition rules.
 UpdateJobState = Literal["idle", "checking", "running", "restarting", "done", "failed"]
 
-#: Whether an in-flight :class:`UpdateJob` is applying the latest release or
-#: rolling back to the previous one -- the same state machine serves both,
-#: distinguished only by this field and by which tag :meth:`Updater.apply`
-#: was given.
+#: Whether an in-flight :class:`UpdateJob` is applying the latest release or rolling back --
+#: the same state machine serves both, distinguished by this field and by the tag passed to
+#: :meth:`Updater.apply`.
 UpdateJobKind = Literal["update", "rollback"]
 
 
@@ -518,16 +457,14 @@ class UpdateState:
 class StateStore(Protocol):
     """Persists the small pieces of state the Portal must survive a restart.
 
-    Backed by JSON files under ``PALMIMO_STATE_DIR`` in the real adapter
-    (:mod:`palmimo_portal.adapters.state`).
+    Backed by JSON files under ``PALMIMO_STATE_DIR`` (:mod:`palmimo_portal.adapters.state`).
     """
 
     def read_auth(self) -> AuthState | None:
         """Return the stored auth material, or ``None`` if absent or corrupt.
 
-        Callers that must distinguish "no password set yet" from "the file
-        is corrupt" -- both of which return ``None`` here -- should check
-        :meth:`auth_state` first.
+        Callers that must distinguish "no password set yet" from "the file is corrupt" --
+        both of which return ``None`` here -- should check :meth:`auth_state` first.
         """
         ...
 
@@ -538,45 +475,40 @@ class StateStore(Protocol):
     def create_auth(self, state: AuthState) -> None:
         """Create the auth material for the first time, atomically.
 
-        Unlike :meth:`write_auth`, this must fail rather than overwrite if
-        auth material already exists -- it is the exclusive-create half of
-        first-time setup, used so two concurrent ``/setup`` requests cannot
-        both "succeed" with the second silently overwriting the first.
+        Unlike :meth:`write_auth`, must fail rather than overwrite if auth material already
+        exists -- the exclusive-create half of first-time setup, so two concurrent ``/setup``
+        requests cannot both "succeed" with the second silently overwriting the first.
 
         Raises:
-            AuthAlreadyExistsError: auth material already exists (including
-                a corrupt file -- this call never overwrites either case).
+            AuthAlreadyExistsError: auth material already exists (including a corrupt file --
+                this call never overwrites either case).
         """
         ...
 
     def write_auth(self, state: AuthState) -> None:
         """Persist auth material, replacing whatever was stored before.
 
-        For rotating existing auth material (password change, key
-        rotation) -- not for first-time creation, which must go through
-        :meth:`create_auth` instead so it can enforce exclusivity.
+        For rotating existing material (password change, key rotation) -- not for first-time
+        creation, which must go through :meth:`create_auth` to enforce exclusivity.
         """
         ...
 
     def delete_auth(self) -> None:
         """Atomically remove ``auth.json``, returning the device to :attr:`AuthFileState.ABSENT`.
 
-        Backs the unauthenticated login-credentials-reset path
-        (``POST /api/v1/auth/reset``, gated to identity-carrying devices
-        only -- see :func:`~palmimo_portal.core.auth.decide_reset`): after
-        this call, only the manufacturing sticker's initial password can log
-        in. Runs inside :meth:`lock_auth`, the same lock
-        :func:`~palmimo_portal.core.auth.change_password_from_full` holds,
-        so a reset cannot interleave with a password change in flight. A
-        no-op, not an error, when ``auth.json`` is already absent; removes
-        it just the same when :attr:`AuthFileState.CORRUPT`.
+        Backs the unauthenticated login-credentials-reset path (``POST /api/v1/auth/reset``,
+        gated to identity-carrying devices only -- see
+        :func:`~palmimo_portal.core.auth.decide_reset`): after this call, only the
+        manufacturing sticker's initial password can log in. Runs inside :meth:`lock_auth`, the
+        same lock :func:`~palmimo_portal.core.auth.change_password_from_full` holds, so a reset
+        cannot interleave with a password change in flight. A no-op, not an error, when
+        ``auth.json`` is already absent; removes it just the same when
+        :attr:`AuthFileState.CORRUPT`.
 
-        Deliberately does **not** call :meth:`discard_initial_signing_key`
-        -- that key signs *new* initial-mode sessions once the device is
-        back in ``auth_state == "initial"``, so discarding it here would
-        force a wasteful re-creation on the next login. Implementations
-        should instead rotate it in place when one already exists on disk,
-        defense in depth against a stale session token surviving the reset.
+        Deliberately does **not** call :meth:`discard_initial_signing_key` -- that key signs
+        *new* initial-mode sessions, so discarding it here would force a wasteful re-creation on
+        the next login. Implementations should instead rotate it in place when one already exists
+        on disk, defense in depth against a stale session token surviving the reset.
         """
         ...
 
@@ -591,57 +523,47 @@ class StateStore(Protocol):
     def read_or_create_initial_signing_key(self) -> str:
         """Return the signing key for initial-mode session tokens, creating it on first use.
 
-        Distinct from :attr:`AuthState.signing_key`, which does not exist
-        yet while ``auth.json`` is :attr:`AuthFileState.ABSENT`. Signs
-        sessions issued by ``/auth/login`` while ``auth_state == "initial"``
-        (identity file present, no owner yet), between the sticker login and
-        the forced password change that creates ``auth.json``. Once that
-        change succeeds, the new session is re-issued under
-        ``AuthState.signing_key`` instead and this key is no longer
-        consulted -- see :func:`~palmimo_portal.core.auth.change_password_from_initial`.
+        Distinct from :attr:`AuthState.signing_key`, which doesn't exist yet while ``auth.json``
+        is :attr:`AuthFileState.ABSENT`. Signs sessions issued by ``/auth/login`` while
+        ``auth_state == "initial"``, between the sticker login and the forced password change
+        that creates ``auth.json``; once that succeeds this key is no longer consulted -- see
+        :func:`~palmimo_portal.core.auth.change_password_from_initial`.
 
-        Not a hot path, so implementations re-read from disk on every call
-        rather than caching in memory -- a cache could keep serving a key
-        that no longer matches what :meth:`discard_initial_signing_key` left
-        on disk.
+        Not a hot path, so implementations re-read from disk on every call rather than caching --
+        a cache could keep serving a key that no longer matches what
+        :meth:`discard_initial_signing_key` left on disk.
         """
         ...
 
     def discard_initial_signing_key(self) -> None:
-        """Delete the initial-mode session-signing key material, if any.
+        """Delete the initial-mode session-signing key material, if any. A no-op if none exists.
 
         Called once :meth:`change_password_from_initial
-        <palmimo_portal.core.auth.change_password_from_initial>` has
-        successfully created ``auth.json``: leaving the key on disk would
-        let a session token minted before promotion keep verifying against
-        it if the device ever returns to :attr:`AuthFileState.ABSENT`
-        again. A no-op if no such key exists.
+        <palmimo_portal.core.auth.change_password_from_initial>` has created ``auth.json``:
+        leaving the key on disk would let a session token minted before promotion keep verifying
+        against it if the device ever returns to :attr:`AuthFileState.ABSENT`.
         """
         ...
 
     def lock_auth(self) -> AbstractContextManager[None]:
         """Hold an exclusive lock across a read-verify-write sequence on the auth material.
 
-        Used by :func:`~palmimo_portal.core.auth.change_password_from_full`
-        to serialize two concurrent full-mode password changes -- without
-        it, the second writer could silently clobber a decision the first
-        never saw. Bounded: a contending caller waits up to a fixed timeout
-        (:data:`~palmimo_portal.core.auth.AUTH_LOCK_TIMEOUT_SECONDS`) rather
-        than forever, so one stuck caller cannot hang every other
-        password-change request indefinitely.
+        Used by :func:`~palmimo_portal.core.auth.change_password_from_full` to serialize two
+        concurrent full-mode password changes -- without it, the second writer could silently
+        clobber a decision the first never saw. Bounded
+        (:data:`~palmimo_portal.core.auth.AUTH_LOCK_TIMEOUT_SECONDS`), so one stuck caller
+        cannot hang every other password-change request indefinitely.
 
         Raises:
-            AuthLockTimeoutError: the lock could not be acquired within the
-                timeout.
+            AuthLockTimeoutError: the lock could not be acquired within the timeout.
         """
         ...
 
     def read_update_state(self) -> UpdateState:
         """Return the persisted update state, defaulting to idle when absent or corrupt.
 
-        Unlike ``auth.json``, this is not security-bearing: a missing or
-        unparseable ``update.json`` is logged at WARNING and treated as a
-        device that has never checked for an update.
+        Unlike ``auth.json``, not security-bearing: a missing or unparseable ``update.json`` is
+        logged at WARNING and treated as a device that has never checked for an update.
         """
         ...
 

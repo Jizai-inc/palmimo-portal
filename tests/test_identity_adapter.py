@@ -82,9 +82,6 @@ def test_read_identity_is_cached_across_calls(tmp_path: Path) -> None:
     assert store.read_identity() == first
 
 
-# -- F1: clean absence is re-read, never cached ------------------------------
-
-
 def test_read_identity_re_reads_when_the_file_appears_after_a_clean_absence(tmp_path: Path) -> None:
     # /boot/firmware mounts separately from the Portal's own filesystem: if
     # the Portal starts before that mount is ready, the file looks
@@ -106,9 +103,6 @@ def test_read_identity_re_reads_repeatedly_while_the_file_stays_absent(tmp_path:
     assert store.read_identity() is None
     assert store.read_identity() is None
     assert store.read_identity() is None
-
-
-# -- F1: a transient read failure (OSError) is "unavailable", not absent ----
 
 
 def test_read_identity_reports_unavailable_on_a_transient_os_error(
@@ -170,9 +164,6 @@ def test_read_identity_logs_a_warning_on_a_transient_os_error_rate_limited_to_on
     assert str(path) in warning_records[0].message
 
 
-# -- F1: only a successful parse is cached -----------------------------------
-
-
 def test_read_identity_caches_a_successful_read_and_does_not_re_read_the_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -194,9 +185,6 @@ def test_read_identity_caches_a_successful_read_and_does_not_re_read_the_file(
 
     assert first == Identity(device_id="palmimo-042", initial_password_hash="hash")
     assert calls["n"] == 1
-
-
-# -- read_identity_uncached(): bypasses the cache, but refreshes it ----------
 
 
 def test_read_identity_uncached_bypasses_a_stale_cache(tmp_path: Path) -> None:

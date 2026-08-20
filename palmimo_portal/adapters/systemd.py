@@ -1,20 +1,12 @@
-"""Real :class:`~palmimo_portal.ports.SystemPort`: power operations via ``logind``.
+"""Real :class:`~palmimo_portal.ports.SystemPort`: power operations via ``logind`` D-Bus.
 
-Talks to ``systemd-logind`` over the system bus:
-
-- bus name ``org.freedesktop.login1``
-- object path ``/org/freedesktop/login1``
-- interface ``org.freedesktop.login1.Manager``
-- ``Reboot(interactive: bool)`` / ``PowerOff(interactive: bool)`` -- both
-  called with ``interactive=False``: the Portal is a headless web backend
-  with no polkit authentication agent to prompt, so an interactive request
-  would just fail rather than pop a dialog nobody can see.
-
-Shares its D-Bus call plumbing (lazy-connect, reconnect-and-retry-once,
-sync-over-async bridging via a background event loop) with
+``Reboot(interactive=False)`` / ``PowerOff(interactive=False)``: the Portal
+is a headless web backend with no polkit authentication agent to prompt, so
+an interactive request would just fail rather than pop a dialog nobody can
+see. Shares D-Bus call plumbing (lazy-connect, reconnect-and-retry-once,
+sync-over-async bridging) with
 :class:`~palmimo_portal.adapters.comitup.ComitupNetworkPort` -- see
-:mod:`palmimo_portal.adapters.dbus_support` for why this bridge is needed at
-all to drive dbus-fast's asyncio API from a synchronous Port method.
+:mod:`palmimo_portal.adapters.dbus_support`.
 """
 
 from __future__ import annotations
@@ -60,9 +52,8 @@ class SystemdSystemPort(SystemPort):
     """Reboots/shuts down the machine via ``logind``'s D-Bus ``Manager`` interface.
 
     Mirrors :class:`~palmimo_portal.adapters.comitup.ComitupNetworkPort`'s
-    ``_call`` / ``_call_resilient`` / ``_call_sync`` structure and concurrency
-    guarantees -- see that class's docstring for what each layer does and how
-    tests stub ``_call``/``_open_bus`` without a real bus.
+    ``_call``/``_call_resilient``/``_call_sync`` structure and concurrency
+    guarantees.
     """
 
     def __init__(self, *, loop_thread: SharedEventLoopThread | None = None, unit: str = DEFAULT_PORTAL_UNIT) -> None:

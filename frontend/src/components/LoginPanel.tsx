@@ -11,16 +11,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 /**
- * routes/login.tsx's logic, router-free like the other `*Panel` components:
- * `onLoggedIn`/`onForgotPassword` are the only reach-out to routing. Renders
- * one of two copy variants depending on `auth_state`: the device's sticker
- * password ("initial") or a normal login ("set") -- see
- * palmimo-portal-technical.md's cross-cutting decision 1.
- *
- * The "Forgot your password?" link is shown only on the normal ("set")
- * variant and only when `device_id` is present in `system/status` -- never
- * for the sticker variant, and never on a DIY device, since `POST
- * /auth/reset` refuses those server-side (core/auth.py's `decide_reset`).
+ * routes/login.tsx's logic, router-free like the other `*Panel` components. Renders one of two
+ * copy variants depending on `auth_state`: the device's sticker password ("initial") or a
+ * normal login ("set") -- see palmimo-portal-technical.md's cross-cutting decision 1.
+ * "Forgot your password?" is shown only on the "set" variant with a `device_id` present --
+ * `POST /auth/reset` refuses both other cases server-side (core/auth.py's `decide_reset`).
  */
 export function LoginPanel({
   onLoggedIn,
@@ -44,9 +39,7 @@ export function LoginPanel({
       { data: { password } },
       {
         onSuccess: (response) => {
-          // The screen this navigates to (dashboard, or the forced
-          // change-password step) must not render the pre-login
-          // auth_state from cache.
+          // The next screen must not render the pre-login auth_state from cache.
           void queryClient.invalidateQueries({ queryKey: getGetStatusApiV1SystemStatusGetQueryKey() });
           const mode = response.mode === "initial" ? "initial" : "full";
           onLoggedIn(mode, status?.state === "connected");

@@ -17,17 +17,13 @@ from typing import Literal
 DEFAULT_STATE_DIR = Path("/var/lib/palmimo/portal")
 DEFAULT_PORT = 8080
 DEFAULT_IDENTITY_FILE = Path("/boot/firmware/palmimo-identity.json")
-# The frontend's build output (frontend/ -> `make
-# build` -> here), committed as a build artifact -- see app.py's
-# `_mount_frontend`. Resolved from this module's own location, not an
-# environment variable: not an operator-configurable deployment path, only
-# a test seam (see the `static_dir` field below).
+# The frontend's build output (frontend/ -> `make build` -> here), committed as a build
+# artifact -- see app.py's `_mount_frontend`. Resolved from this module's own location, not
+# an environment variable: not operator-configurable, only a test seam (`static_dir` field).
 DEFAULT_STATIC_DIR = Path(__file__).resolve().parent / "static"
 
-# The Portal repository checkout this process is itself running out of:
-# climbs from this file past the `palmimo_portal` package dir to the
-# repository root. See Settings.portal_dir's docstring for why this is what
-# GitUvUpdater updates.
+# Climbs from this file past the `palmimo_portal` package dir to the repository root --
+# the Portal checkout this process is itself running out of, and what GitUvUpdater updates.
 DEFAULT_PORTAL_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_UPDATE_REPO = "Jizai-inc/palmimo-portal"
 DEFAULT_PORTAL_UNIT = "palmimo-portal.service"
@@ -38,80 +34,43 @@ AdapterMode = Literal["fake", "real"]
 
 @dataclass(frozen=True)
 class Settings:
-    """Resolved Portal configuration.
+    """Resolved Portal configuration."""
 
-    Attributes:
-        state_dir: Where :class:`~palmimo_portal.adapters.state.JsonFileStateStore`
-            persists ``auth.json`` and ``last_attempt.json``.
-        port: The port :mod:`palmimo_portal.__main__` binds uvicorn to.
-        identity_file: Where :class:`~palmimo_portal.adapters.identity.FileIdentityStore`
-            reads the manufacturing-written identity file. Read-only for
-            the Portal; absence is a supported state (a DIY, self-flashed
-            image) -- see :mod:`palmimo_portal.ports`'s ``IdentityStore``.
-        allowed_hosts: Extra ``Host`` header values HostGuard accepts, beyond
-            the machine's own hostname, ``<hostname>.local``, its IP
-            addresses, and ``localhost``.
-        adapters: Which adapter set :func:`palmimo_portal.api.app.create_app`
-            wires up. ``"fake"`` (the default) uses the in-memory adapters in
-            :mod:`palmimo_portal.testing.fakes` for every port. ``"real"``
-            uses the OS-backed adapters for every port -- comitup and logind
-            over D-Bus for the network and system ports, the filesystem for
-            the rest. See :func:`palmimo_portal.wiring.build_adapters`.
-        enable_docs: Whether to serve FastAPI's ``/docs``, ``/redoc``, and
-            ``/openapi.json``. ``False`` by default -- those routes are
-            unauthenticated and would expose the whole admin API schema to
-            anyone on the LAN. Set ``PALMIMO_ENABLE_DOCS`` truthy for local
-            development.
-        static_dir: Where :func:`palmimo_portal.api.app._mount_frontend` looks
-            for the frontend's build output. Not read from the environment
-            (see :data:`DEFAULT_STATIC_DIR`); this field is a test seam so
-            tests can point it at an empty or nonexistent directory.
-        portal_dir: The Portal repository checkout
-            :class:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater`
-            applies an update to -- ``git fetch``/``checkout``/``uv sync``
-            all run against this directory. Defaults to the checkout this
-            process runs out of (:data:`DEFAULT_PORTAL_DIR`); overridable
-            via ``PALMIMO_PORTAL_DIR`` mainly for tests.
-        update_repo: The ``owner/repo`` GitHub queries for releases --
-            :class:`~palmimo_portal.adapters.github_releases.GitHubReleaseSource`.
-            Env ``PALMIMO_UPDATE_REPO``.
-        portal_unit: The systemd unit
-            :class:`~palmimo_portal.adapters.systemd.SystemdSystemPort.restart_portal`
-            restarts once an update finishes applying. Env
-            ``PALMIMO_PORTAL_UNIT``.
-        uv_bin: The ``uv`` executable :class:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater`
-            runs ``sync`` with. Not necessarily resolvable via a bare
-            ``"uv"`` on ``PATH`` under systemd -- see
-            :meth:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater._resolve_uv_bin`
-            for the ``shutil.which``/``~/.local/bin/uv`` fallback. Env
-            ``PALMIMO_UV_BIN``.
-        update_run_in_thread: Whether
-            :class:`~palmimo_portal.core.update_runner.UpdateRunner` runs an
-            apply/rollback job on a background thread (the real default) or
-            inline before ``POST /update/apply``/``POST /update/rollback``
-            returns. A test seam, not read from the environment, so tests
-            can drive the fake updater synchronously.
-        update_restart_delay_seconds: How long
-            :class:`~palmimo_portal.core.update_runner.UpdateRunner` sleeps
-            after persisting ``"restarting"`` and before calling
-            :meth:`~palmimo_portal.ports.SystemPort.restart_portal` -- long
-            enough for the HTTP response that triggered the restart to
-            finish flushing before systemd kills this process. A test seam
-            like ``update_run_in_thread``: tests set this to ``0``.
-    """
-
-    state_dir: Path = DEFAULT_STATE_DIR
-    port: int = DEFAULT_PORT
+    state_dir: Path = DEFAULT_STATE_DIR  #: JsonFileStateStore's auth.json / last_attempt.json dir
+    port: int = DEFAULT_PORT  #: uvicorn bind port (__main__)
+    #: FileIdentityStore's manufacturing-identity file. Read-only for the Portal; absence is
+    #: a supported state (a DIY, self-flashed image) -- see ports.IdentityStore.
     identity_file: Path = DEFAULT_IDENTITY_FILE
+    #: Extra Host header values HostGuard accepts, beyond hostname/<hostname>.local/IPs/localhost.
     allowed_hosts: frozenset[str] = field(default_factory=frozenset)
+    #: Which adapter set create_app wires up: "fake" (default) uses the in-memory
+    #: testing.fakes adapters; "real" uses the OS-backed ones (comitup/logind over D-Bus,
+    #: filesystem for the rest). See wiring.build_adapters.
     adapters: AdapterMode = "fake"
+    #: Serve FastAPI's /docs, /redoc, /openapi.json. False by default -- those routes are
+    #: unauthenticated and would expose the whole admin API schema to anyone on the LAN.
+    #: Env PALMIMO_ENABLE_DOCS.
     enable_docs: bool = False
+    #: Frontend build output dir (app.py's _mount_frontend). Not read from the environment
+    #: (see DEFAULT_STATIC_DIR) -- a test seam so tests can point it at an empty/missing dir.
     static_dir: Path = DEFAULT_STATIC_DIR
+    #: Portal checkout GitUvUpdater applies fetch/checkout/uv sync to. Defaults to the checkout
+    #: this process runs out of; overridable via PALMIMO_PORTAL_DIR mainly for tests.
     portal_dir: Path = DEFAULT_PORTAL_DIR
-    update_repo: str = DEFAULT_UPDATE_REPO
+    update_repo: str = DEFAULT_UPDATE_REPO  #: owner/repo GitHubReleaseSource queries. Env PALMIMO_UPDATE_REPO
+    #: systemd unit SystemdSystemPort.restart_portal restarts after an update applies.
+    #: Env PALMIMO_PORTAL_UNIT.
     portal_unit: str = DEFAULT_PORTAL_UNIT
+    #: uv executable GitUvUpdater runs sync with. Not necessarily resolvable via a bare "uv" on
+    #: PATH under systemd -- see GitUvUpdater._resolve_uv_bin's fallback. Env PALMIMO_UV_BIN.
     uv_bin: str = DEFAULT_UV_BIN
+    #: Whether UpdateRunner runs an apply/rollback job on a background thread (the real
+    #: default) or inline before POST /update/apply|rollback returns. A test seam, not read
+    #: from the environment, so tests can drive the fake updater synchronously.
     update_run_in_thread: bool = True
+    #: How long UpdateRunner sleeps after persisting "restarting" and before calling
+    #: SystemPort.restart_portal -- long enough for the HTTP response that triggered the
+    #: restart to finish flushing before systemd kills this process. Tests set this to 0.
     update_restart_delay_seconds: float = 1.0
 
 

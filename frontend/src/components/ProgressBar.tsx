@@ -1,13 +1,7 @@
 /**
- * An indeterminate progress bar -- a thin `bg-muted` track with an animated
- * `bg-primary` segment sliding across it. Pure CSS (no animation library):
- * a `@keyframes` in src/index.css drives the segment's position. Used by
- * the wifi-waiting screen (routes/wifi.waiting.tsx) and the power screen's
- * rebooting state (via CenteredState.tsx).
- *
- * `label` is required rather than defaulted so no caller can ship a
- * hard-coded English `aria-label` by omission -- every call site passes
- * `t("common.inProgress")` (or another translated string) itself.
+ * An indeterminate progress bar. Pure CSS (no animation library): a `@keyframes` in
+ * src/index.css drives the segment's position. `label` is required, not defaulted, so no
+ * caller can ship a hard-coded English `aria-label` by omission.
  */
 export function ProgressBar({ label }: { label: string }) {
   return (

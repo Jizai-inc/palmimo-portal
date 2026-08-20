@@ -28,15 +28,8 @@ import { formatLastWifiAttempt } from "@/lib/wifiAttemptFormat";
 type DialogKind = "reconnect" | "forget" | null;
 
 /**
- * The Wi-Fi settings screen's logic (see routes/wifi-settings.tsx, which
- * wraps this in `AppShell`). Free of router hooks -- `onReconnect` is the
- * only reach-out to routing (navigates to `/wifi?reconfigure=1`).
- *
- * Renders one of two things: the settings card (current connection + the
- * "connect to another network" / "forget this network" actions, plus a note
- * card explaining what forgetting does) or, once a forget succeeds (or is
- * presumed to -- see `forgotten`'s docstring), a terminal
- * {@link CenteredState} telling the visitor to rejoin Palmimo's own Wi-Fi.
+ * The Wi-Fi settings screen's logic (see routes/wifi-settings.tsx, which wraps this in
+ * `AppShell`). Free of router hooks -- `onReconnect` is the only reach-out to routing.
  */
 export function WifiSettingsPanel({ onReconnect }: { onReconnect: () => void }) {
   const { t } = useTranslation();
@@ -45,14 +38,11 @@ export function WifiSettingsPanel({ onReconnect }: { onReconnect: () => void }) 
   const { data: systemStatus } = useGetStatusApiV1SystemStatusGet();
   const [dialogKind, setDialogKind] = useState<DialogKind>(null);
   /**
-   * `false` while the settings card is showing; otherwise which terminal
-   * state to render. `"network-drop"` is distinct from `"success"`: a
-   * forget's DELETE can fail at the network level (a plain `TypeError` from
-   * `fetch`, not a parsed {@link PortalApiError}) because the device dropped
-   * the LAN mid-response -- the expected outcome of a successful forget, not
-   * a real failure. Both land on the same terminal screen; only
-   * `"network-drop"` adds the extra note. A genuine {@link PortalApiError}
-   * stays an inline error via `ApiErrorAlert` below instead.
+   * `false` while the settings card is showing; otherwise which terminal state to render.
+   * `"network-drop"` is distinct from `"success"`: a forget's DELETE can fail at the network
+   * level (a plain `TypeError`, not a parsed {@link PortalApiError}) because the device
+   * dropped the LAN mid-response -- expected, not a real failure. Both land on the same
+   * terminal screen; only `"network-drop"` adds the extra note.
    */
   const [forgotten, setForgotten] = useState<false | "success" | "network-drop">(false);
 
@@ -61,8 +51,7 @@ export function WifiSettingsPanel({ onReconnect }: { onReconnect: () => void }) 
       onSuccess: () => {
         setDialogKind(null);
         setForgotten("success");
-        // No screen after this point may keep rendering the pre-forget
-        // status (still "connected", still the old ssid) from cache.
+        // No screen after this point may keep rendering the pre-forget status from cache.
         void queryClient.invalidateQueries({ queryKey: getGetStatusApiV1SystemStatusGetQueryKey() });
         void queryClient.invalidateQueries({ queryKey: getGetStatusApiV1WifiStatusGetQueryKey() });
       },

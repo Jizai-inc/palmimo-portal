@@ -128,12 +128,11 @@ def get_status(
 ) -> UpdateStatusResponse:
     """Report the installed version, the last-checked release, and any in-progress job.
 
-    Self-heals the persisted state first, via
+    Self-heals the persisted state first via
     :func:`~palmimo_portal.core.update.current_update_state`: expires a
-    stale ``"restarting"`` job (a restart that never came back up would
-    otherwise poll as "restarting" forever) and expires a ``"running"``
-    job with no live runner in this process (a write failure can kill the
-    runner thread, leaving the job stuck with nothing left to advance it).
+    stale ``"restarting"`` job (else it polls as "restarting" forever) and
+    a ``"running"`` job with no live runner in this process (a write
+    failure can kill the runner thread, stranding the job).
     """
     with lock:
         runner_alive = request.app.state.update_runner_alive.is_set()

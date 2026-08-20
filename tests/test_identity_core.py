@@ -38,9 +38,6 @@ def test_corrupt_takes_priority_over_identity() -> None:
     assert compute_auth_state(AuthFileState.CORRUPT, IDENTITY) is PortalAuthState.CORRUPT
 
 
-# -- F1: identity read failures (transient, not clean absence) -------------
-
-
 def test_unavailable_when_identity_read_fails_and_auth_absent() -> None:
     # The identity file could not be read at all (e.g. /boot/firmware not
     # mounted yet) -- this must not be treated as "no identity file", which

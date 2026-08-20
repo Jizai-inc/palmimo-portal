@@ -67,31 +67,21 @@ class FakeNetworkPort(NetworkPort):
     scanned_networks: list[WifiNetwork] = field(default_factory=list)
     known_networks: set[str] = field(default_factory=set)
     connect_calls: list[tuple[str, str]] = field(default_factory=list)
+    #: SSIDs `forget_current` was asked to forget, including one recorded automatically by
+    #: `connect` when already CONNECTED (mirrors ComitupNetworkPort's connect-while-connected rule).
     forget_calls: list[str | None] = field(default_factory=list)
-    """SSIDs :meth:`forget_current` was asked to forget, including one recorded
-    automatically by :meth:`connect` when already CONNECTED (mirrors
-    :class:`~palmimo_portal.adapters.comitup.ComitupNetworkPort`'s connect-while-connected rule)."""
     next_connect_result: WifiStatus | None = None
-    raise_on_connect: Exception | None = None
-    """When set, :meth:`connect` raises this instead of succeeding."""
-    raise_on_forget: Exception | None = None
-    """When set, :meth:`forget_current` raises this instead of succeeding."""
-    raise_on_get_status: Exception | None = None
-    """When set, :meth:`get_status` raises this instead of returning ``status``."""
-    raise_on_list_networks: Exception | None = None
-    """Like :attr:`raise_on_get_status`, for ``GET /wifi/networks``."""
+    raise_on_connect: Exception | None = None  #: makes `connect` raise instead of succeeding
+    raise_on_forget: Exception | None = None  #: makes `forget_current` raise instead of succeeding
+    raise_on_get_status: Exception | None = None  #: makes `get_status` raise instead of returning `status`
+    raise_on_list_networks: Exception | None = None  #: like raise_on_get_status, for GET /wifi/networks
+    #: When set, every `get_status` call resolves a pending `last_wifi_attempt` against this
+    #: store, mirroring ComitupNetworkPort's real behavior.
     state_store: StateStore | None = None
-    """When set, every :meth:`get_status` call resolves a pending
-    ``last_wifi_attempt`` against this store, mirroring
-    :class:`~palmimo_portal.adapters.comitup.ComitupNetworkPort`'s real behavior."""
-    clock: Callable[[], float] = field(default=time.time)
-    """Injectable clock for the ``last_wifi_attempt`` resolution logic
-    (:func:`~palmimo_portal.core.wifi_attempt.resolve_attempt`)."""
+    clock: Callable[[], float] = field(default=time.time)  #: injectable clock for resolve_attempt
+    #: Tracks whether `get_status` has ever been called -- mirrors ComitupNetworkPort's
+    #: `_last_logged is None` check, so the *first* call resolves a pending attempt too.
     _observed_before: bool = field(default=False, init=False, repr=False)
-    """Tracks whether :meth:`get_status` has ever been called -- mirrors
-    :class:`~palmimo_portal.adapters.comitup.ComitupNetworkPort`'s
-    ``_last_logged is None`` check, so the *first* call resolves a pending
-    attempt too."""
 
     def get_status(self) -> WifiStatus:
         if self.raise_on_get_status is not None:
@@ -111,9 +101,8 @@ class FakeNetworkPort(NetworkPort):
 
     def connect(self, ssid: str, psk: str) -> None:
         if self.status.state is ConnectionState.CONNECTED:
-            # Mirrors ComitupNetworkPort.connect's connect-while-connected
-            # rule: forget the current SSID first, or comitup would
-            # short-circuit back to it.
+            # Mirrors ComitupNetworkPort.connect: forget the current SSID first, or
+            # comitup would short-circuit back to it.
             self.forget_current()
         self.connect_calls.append((ssid, psk))
         if self.raise_on_connect is not None:
@@ -125,10 +114,9 @@ class FakeNetworkPort(NetworkPort):
             self.status = WifiStatus(state=ConnectionState.CONNECTING, ssid=ssid, ip_address=None)
 
     def forget_current(self) -> None:
-        # Mirrors ComitupNetworkPort.forget_current's fresh-read rule: must
-        # raise rather than pretend to forget when nothing is connected --
-        # the real adapter would otherwise delete comitup's own hotspot
-        # profile instead.
+        # Mirrors ComitupNetworkPort's fresh-read rule: raise rather than pretend to forget
+        # when nothing is connected -- the real adapter would otherwise delete comitup's
+        # own hotspot profile instead.
         if self.status.state is not ConnectionState.CONNECTED:
             raise NotConnectedError(f"fake network port is not CONNECTED (state={self.status.state!r})")
         current_ssid = self.status.ssid
@@ -145,11 +133,8 @@ class FakeNetworkPort(NetworkPort):
     ) -> None:
         """Test-only hook: simulate the adapter observing a new connection state.
 
-        Only updates :attr:`status`, exactly as a real comitup transition
-        would. The *next* :meth:`get_status` call is what actually resolves
-        a pending ``last_wifi_attempt`` -- both this fake and the real
-        adapter funnel that decision through
-        :func:`~palmimo_portal.core.wifi_attempt.resolve_attempt`.
+        Only updates :attr:`status`, as a real comitup transition would. The *next*
+        `get_status` call resolves any pending `last_wifi_attempt`.
         """
         self.status = WifiStatus(state=state, ssid=ssid, ip_address=ip_address)
 
@@ -184,12 +169,9 @@ class FakeSystemPort(SystemPort):
     reboot_calls: int = 0
     shutdown_calls: int = 0
     restart_calls: int = 0
-    raise_on_reboot: Exception | None = None
-    """When set, :meth:`reboot` raises this instead of succeeding."""
-    raise_on_shutdown: Exception | None = None
-    """Like :attr:`raise_on_reboot`, for ``POST /system/shutdown``."""
-    raise_on_restart_portal: Exception | None = None
-    """When set, :meth:`restart_portal` raises this instead of succeeding."""
+    raise_on_reboot: Exception | None = None  #: makes `reboot` raise instead of succeeding
+    raise_on_shutdown: Exception | None = None  #: like raise_on_reboot, for POST /system/shutdown
+    raise_on_restart_portal: Exception | None = None  #: makes `restart_portal` raise instead of succeeding
 
     def reboot(self) -> None:
         if self.raise_on_reboot is not None:
@@ -250,17 +232,15 @@ class FakeStateStore(StateStore):
     _auth: AuthState | None = None
     _last_attempt: WifiAttempt | None = None
     auth_corrupt: bool = False
+    #: Exercises POST /auth/reset's failure path (the reset rate-limit budget must not be
+    #: spent when the delete itself fails).
     raise_on_delete_auth: Exception | None = None
-    """When set, :meth:`delete_auth` raises this instead of succeeding --
-    exercises ``POST /auth/reset``'s failure path (the reset rate-limit
-    budget must not be spent when the delete itself fails)."""
     _initial_signing_key: str | None = field(default=None, init=False, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _update_state: UpdateState = field(default_factory=lambda: IDLE_UPDATE_STATE)
+    #: Exercises a disk-full write failure (e.g. POST /update/apply returning 500 and
+    #: persisting nothing).
     raise_on_write_update_state: Exception | None = None
-    """When set, :meth:`write_update_state` raises this instead of
-    succeeding -- exercises a disk-full write failure (e.g.
-    ``POST /update/apply`` returning 500 and persisting nothing)."""
 
     def read_auth(self) -> AuthState | None:
         if self.auth_corrupt:
@@ -306,14 +286,10 @@ class FakeStateStore(StateStore):
 
     @contextlib.contextmanager
     def lock_auth(self) -> Iterator[None]:
-        """In-memory stand-in for the real adapter's bounded ``flock`` -- a bounded :class:`threading.Lock`.
+        """Bounded `threading.Lock` stand-in for the real adapter's bounded `flock`.
 
-        Mirrors :class:`~palmimo_portal.adapters.state.JsonFileStateStore.lock_auth`'s
-        bounded-wait semantics (same timeout, same exception on timeout).
-
-        Raises:
-            AuthLockTimeoutError: the lock could not be acquired within
-                :data:`~palmimo_portal.core.auth.AUTH_LOCK_TIMEOUT_SECONDS`.
+        Mirrors JsonFileStateStore.lock_auth's bounded-wait semantics (same timeout, same
+        exception on timeout).
         """
         acquired = self._lock.acquire(timeout=AUTH_LOCK_TIMEOUT_SECONDS)
         if not acquired:
@@ -336,15 +312,9 @@ class FakeStateStore(StateStore):
 class FakeIdentityStore(IdentityStore):
     """Scriptable :class:`IdentityStore`. No identity (DIY/open-setup) by default.
 
-    A test that wants an identity-carrying device sets ``identity``
-    directly, e.g. ``adapters.identity.identity = Identity(device_id=...,
-    initial_password_hash=hash_password("sticker-password"))``.
-
-    ``unavailable`` is a test-only scripting hook that simulates a transient
-    read failure (e.g. ``/boot/firmware`` not mounted yet) without a real,
-    unreadable file on disk. The real adapter
-    (:class:`~palmimo_portal.adapters.identity.FileIdentityStore`) derives
-    the same state from an actual :class:`OSError`.
+    A test wanting an identity-carrying device sets ``identity`` directly. ``unavailable``
+    simulates a transient read failure (e.g. `/boot/firmware` not mounted yet) without a real
+    unreadable file on disk -- the real adapter derives the same state from an actual `OSError`.
     """
 
     identity: Identity | None = None
@@ -358,10 +328,8 @@ class FakeIdentityStore(IdentityStore):
     def read_identity_uncached(self) -> Identity | IdentityUnavailable | None:
         """Mirrors :meth:`read_identity` -- this fake holds no cache to bypass.
 
-        Exists only so this fake satisfies the full :class:`IdentityStore`
-        protocol; the real distinction is exercised against
-        :class:`~palmimo_portal.adapters.identity.FileIdentityStore` in
-        ``tests/test_identity_adapter.py``.
+        Exists only to satisfy the full :class:`IdentityStore` protocol; the real cache
+        distinction is exercised against `FileIdentityStore` in `tests/test_identity_adapter.py`.
         """
         return self.read_identity()
 
@@ -371,10 +339,8 @@ class FakeReleaseSource(ReleaseSource):
     """Scriptable :class:`ReleaseSource`. Reports no release by default (mirrors ``no_release``)."""
 
     latest: Release | None = None
+    #: Exercises POST /update/check's ReleaseSourceError mapping.
     raise_on_fetch: Exception | None = None
-    """When set, :meth:`fetch_latest` raises this instead of returning
-    :attr:`latest` -- exercises ``POST /update/check``'s
-    :class:`~palmimo_portal.ports.ReleaseSourceError` mapping."""
     fetch_calls: int = field(default=0, init=False, repr=False)
 
     def fetch_latest(self) -> Release:
@@ -392,12 +358,9 @@ class FakeUpdater(Updater):
 
     installed_version: InstalledVersion = field(default_factory=lambda: InstalledVersion(tag=None, commit="abc123"))
     steps: tuple[str, ...] = ("fetch", "assets", "checkout", "sync", "install-assets")
-    fail_at_step: str | None = None
-    """When set to one of :attr:`steps`, :meth:`apply` raises
-    :class:`~palmimo_portal.ports.UpdateStepError` at that step."""
+    fail_at_step: str | None = None  #: when set to one of `steps`, `apply` raises UpdateStepError there
     fail_message: str = "boom"
-    apply_calls: list[str] = field(default_factory=list)
-    """Every ``tag`` :meth:`apply` was called with, in order."""
+    apply_calls: list[str] = field(default_factory=list)  #: every tag `apply` was called with, in order
 
     def installed(self) -> InstalledVersion:
         return self.installed_version
@@ -420,15 +383,10 @@ def make_wifi_attempt(ssid: str, result: str) -> WifiAttempt:
 class FakeAdapterBundle:
     """The same seven ports as :class:`~palmimo_portal.wiring.AdapterBundle`, typed to the concrete fakes.
 
-    ``AdapterBundle``'s own fields are typed to the port *protocols*
-    (``NetworkPort``, ``SystemPort``, ...), so code holding one statically
-    sees only the protocol's members -- correct for production code, which
-    must not depend on which adapter is wired in, but too narrow for a test
-    that pokes fake-only attributes and controls (``adapters.network.known_networks``,
-    ``adapters.updater.fail_at_step``, and so on). Tests build a Portal with
-    ``settings.adapters == "fake"`` (the suite's default -- see
-    ``tests/conftest.py``), so the objects behind ``request.app.state.adapters``
-    really are these concrete fakes; this type lets the test suite say so.
+    `AdapterBundle`'s own fields are typed to the port *protocols*, correct for production code
+    but too narrow for a test that pokes fake-only attributes (`adapters.network.known_networks`,
+    `adapters.updater.fail_at_step`). Tests build a Portal with `settings.adapters == "fake"`
+    (the suite's default), so this type lets the test suite say the concrete fakes are there.
     """
 
     network: FakeNetworkPort

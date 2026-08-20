@@ -19,23 +19,14 @@ import { WifiConnectForm } from "@/components/WifiConnectForm";
 import { signalIcon } from "@/lib/wifiSignal";
 
 interface WifiSearch {
-  /**
-   * `?reconfigure=1`: entered from `/wifi-settings`'s "connect to another
-   * network" action rather than the unprovisioned setup flow. Changes the
-   * copy shown and where "back" navigates. Optional so plain-setup-flow
-   * callers of `/wifi` and `/wifi/waiting` don't have to pass it.
-   */
+  /** `?reconfigure=1`: entered from `/wifi-settings`'s "connect to another network" action, not the unprovisioned setup flow. Changes the copy shown and where "back" navigates. */
   reconfigure?: boolean;
 }
 
 /**
- * Wi-Fi scan/connect flow: scan -> pick a network -> enter password ->
- * submit. Submitting navigates straight to `/wifi/waiting` without awaiting
- * a result, since the connect attempt tears down the AP the browser is
- * talking through (see palmimo-portal-technical.md, AP-disconnection-asymmetry).
- *
- * Reused by the unprovisioned setup flow and the dashboard's "connect to
- * another network" flow (`?reconfigure=1`, see `WifiSearch.reconfigure`).
+ * Wi-Fi scan/connect flow: scan -> pick a network -> enter password -> submit. Submitting
+ * navigates straight to `/wifi/waiting` without awaiting a result, since the connect attempt
+ * tears down the AP the browser is talking through (AP-disconnection-asymmetry).
  */
 export const Route = createFileRoute("/wifi")({
   validateSearch: (search: Record<string, unknown>): WifiSearch => ({
@@ -68,18 +59,14 @@ function WifiScreen() {
   function handleConnectSubmit(psk: string) {
     if (!selected) return;
     const ssid = selected.ssid;
-    // `since` (pre-submit `last_wifi_attempt.timestamp`) must be read here so
-    // WifiWaitingPanel's poll can tell this attempt apart from a still-cached
-    // one -- see its `previousAttemptTimestamp` prop docstring.
+    // Read here (pre-submit) so WifiWaitingPanel's poll can tell this attempt apart from a
+    // still-cached one -- see its `previousAttemptTimestamp` prop.
     const since = status?.last_wifi_attempt?.timestamp ?? 0;
-    // Captured before `.mutate()`, so it precedes the mutation's own
-    // `submittedAt` -- see `/wifi/waiting`'s `submitted` search param and
-    // `selectConnectError` docstrings.
+    // Captured before `.mutate()`, so it precedes the mutation's own `submittedAt`.
     const submitted = Date.now();
-    // Fired, not awaited: the connect attempt tears down this AP, so the
-    // request can fail with a network-level error even on success -- that
-    // failure is expected (see palmimo-portal-technical.md,
-    // AP-disconnection-asymmetry; routes/wifi.waiting.tsx handles it).
+    // Fired, not awaited: the connect attempt tears down this AP, so the request can fail with
+    // a network-level error even on success -- that failure is expected (AP-disconnection-
+    // asymmetry; routes/wifi.waiting.tsx handles it).
     connect.mutate({ data: { ssid, psk } });
     // Cache hygiene only -- WifiWaitingPanel's poll detects the outcome.
     void queryClient.invalidateQueries({ queryKey: getGetStatusApiV1SystemStatusGetQueryKey() });

@@ -171,9 +171,6 @@ def test_run_sleeps_before_restart_even_when_restart_fails(monkeypatch: pytest.M
     assert state_store.read_update_state().job.state == "failed"
 
 
-# -- alive liveness flag ------------------------------------------------------------------
-
-
 def test_run_sets_alive_for_the_whole_duration_of_a_synchronous_run(monkeypatch: pytest.MonkeyPatch) -> None:
     state_store = FakeStateStore()
     state_store.write_update_state(_running_state())

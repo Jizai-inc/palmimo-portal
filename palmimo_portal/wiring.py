@@ -55,20 +55,14 @@ class AdapterBundle:
 def build_adapters(settings: Settings) -> AdapterBundle:
     """Build the adapter bundle :func:`~palmimo_portal.api.app.create_app` wires into the app.
 
-    ``settings.adapters == "fake"`` (the default) wires every port to an
-    in-memory fake from :mod:`palmimo_portal.testing.fakes` -- for local
-    development and CI on a machine with no D-Bus or ``authorized_keys``
-    file. ``"real"`` wires every port to its OS-backed adapter: comitup and
-    logind over D-Bus, and the filesystem for the rest.
+    ``settings.adapters == "fake"`` (default) wires every port to an in-memory fake; ``"real"``
+    wires every port to its OS-backed adapter (comitup/logind over D-Bus, filesystem for the rest).
 
-    When ``settings.adapters == "real"``, runs
-    :func:`~palmimo_portal.adapters.state.preflight_state_dir` first -- an
-    unwritable or root-owned state directory fails loudly here, before
-    uvicorn ever binds, instead of surfacing as an opaque 500 on ``/setup``.
-
-    Also runs :func:`~palmimo_portal.adapters.static_asset.repair_static_dir`
-    on ``settings.static_dir`` unconditionally, before ``api/app.py``'s
-    ``_mount_frontend`` looks at it -- pure filesystem repair (undoing a
+    When ``"real"``, runs :func:`~palmimo_portal.adapters.state.preflight_state_dir` first -- an
+    unwritable or root-owned state directory fails loudly here, before uvicorn ever binds,
+    instead of surfacing as an opaque 500 on ``/setup``. Also runs
+    :func:`~palmimo_portal.adapters.static_asset.repair_static_dir` unconditionally, before
+    ``_mount_frontend`` looks at ``settings.static_dir`` -- pure filesystem repair (undoing a
     power loss mid-swap) regardless of ``settings.adapters``.
     """
     repair_static_dir(settings.static_dir)

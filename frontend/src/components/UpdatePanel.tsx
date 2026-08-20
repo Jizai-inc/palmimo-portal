@@ -48,6 +48,39 @@ const STALE_CHECK_SECONDS = 60 * 60;
  */
 const DEFAULT_RESTART_MAX_WAIT_MS = 10 * 60 * 1000;
 
+/**
+ * When this browser first observed the restart currently being waited on
+ * (keyed by `job.restarting_at`, the job's identity) -- module-scoped, not
+ * component state, so it survives an `UpdatePanel` unmount/remount (e.g.
+ * navigating to another screen and back).
+ *
+ * That persistence matters: the *only* other path to the "Palmimo has not
+ * come back yet" guidance is the server's own 600s expiry (core/update.py),
+ * and that expiry only ever runs inside `GET /update/status` handling and at
+ * boot -- it cannot fire on its own while nothing is polling it. In the one
+ * scenario this guidance exists for (a crash-loop after `restart_portal()`
+ * succeeds, so the fail-then-succeed poll below never observes a
+ * transition), the client-side timeout is the *only* path to that guidance.
+ * Arming it fresh on every mount would let a user who bounces between
+ * screens postpone it indefinitely.
+ *
+ * Cleared once a poll shows the job has left `restarting` (done/failed/idle
+ * -- see the effect below), so a later, unrelated restart starts its own
+ * fresh budget even if `restarting_at` happens to collide (e.g. both null,
+ * from a job predating this field).
+ */
+let restartObservation: { key: number | null; observedAtMs: number } | null = null;
+
+/** Test-only: module state above is otherwise process-lifetime, so tests must reset it between cases. */
+export function __resetRestartObservationForTests() {
+  restartObservation = null;
+}
+
+/** Test-only: exposes the current observation so a test can assert it was rekeyed on a new restart, not just infer it from timing. */
+export function __getRestartObservationForTests() {
+  return restartObservation;
+}
+
 type DialogKind = "update" | "rollback" | null;
 
 /**
@@ -237,21 +270,60 @@ export function UpdatePanel({
   // transition. Starts counting when the job becomes "restarting" and
   // resets when it stops.
   //
-  // The deadline is derived from `job.restarting_at` (a server-side epoch
-  // *seconds* timestamp set by `mark_restarting`, see core/update.py) rather
-  // than a fresh `Date.now()`, so a remount (navigating away and back) does
-  // not silently reset the wait budget and let a stuck restart spin past
-  // `restartMaxWaitMs` repeatedly. `restarting_at` is nullable (state written
-  // before this field existed), so a missing value falls back to a fresh
-  // `Date.now()`-derived deadline.
+  // Anchored to *this browser's* clock, via the module-level
+  // `restartObservation` above, rather than to `job.restarting_at` (a
+  // server/device epoch *seconds* timestamp set by `mark_restarting`, see
+  // core/update.py). The Pi has no RTC: right after boot, before NTP
+  // settles, its clock can be minutes off from the browser's, and mixing
+  // the two meant a device clock behind the browser fired this guidance
+  // immediately on a healthy restart, while a device clock ahead silently
+  // extended the wait. The server's own 600s expiry (core/update.py) that
+  // flips the job to `failed` is unaffected by this bug or this fix -- it
+  // is purely a client-side UI budget, and a server-reported `failed` still
+  // wins the moment a poll observes it, since that changes `job.state` and
+  // the branch below clears the observation and tears the timer down.
+  //
+  // The budget -- via `restartObservation`'s key -- only resets when
+  // `job.restarting_at` changes (a genuinely new restart superseding the
+  // one being waited on), not on every poll that merely re-confirms the
+  // same restart, and not on an unmount/remount of this component: while
+  // `job === undefined` (status not yet loaded, e.g. right after a
+  // remount), this effect deliberately leaves `restartObservation`
+  // untouched rather than treating "unknown" as "not restarting".
   useEffect(() => {
-    if (job?.state !== "restarting") {
+    if (job === undefined) {
+      return undefined;
+    }
+    if (job.state !== "restarting") {
+      restartObservation = null;
       setRestartTimedOut(false);
       return undefined;
     }
-    const deadlineMs = job.restarting_at != null ? job.restarting_at * 1000 + restartMaxWaitMs : Date.now() + restartMaxWaitMs;
-    const timeoutId = setTimeout(() => setRestartTimedOut(true), Math.max(0, deadlineMs - Date.now()));
+    const key = job.restarting_at ?? null;
+    if (restartObservation === null || restartObservation.key !== key) {
+      restartObservation = { key, observedAtMs: Date.now() };
+      // A stale `restartTimedOut` from a *previous* restart must not bleed
+      // into this new one -- e.g. two restarting polls back to back with no
+      // intermediate non-restarting state in between (a missed transition)
+      // would otherwise re-arm the timer below while still rendering the
+      // old restart's power-cycle guidance for however long the old
+      // `restartTimedOut === true` render lingers. `restartTimedOut` is
+      // therefore reset in lockstep with rekeying `restartObservation`
+      // above, not just when leaving "restarting" entirely.
+      setRestartTimedOut(false);
+    }
+    const remainingMs = restartObservation.observedAtMs + restartMaxWaitMs - Date.now();
+    if (remainingMs <= 0) {
+      setRestartTimedOut(true);
+      return undefined;
+    }
+    const timeoutId = setTimeout(() => setRestartTimedOut(true), remainingMs);
     return () => clearTimeout(timeoutId);
+    // `job` itself is deliberately not a dep below: it is a fresh object on
+    // every poll even when `state`/`restarting_at` (the only fields this
+    // effect reads) are unchanged, and re-running on every poll would
+    // needlessly re-arm the timer each time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.state, job?.restarting_at, restartMaxWaitMs]);
 
   if (!status) {

@@ -26,7 +26,8 @@
     "power": "Power",
     "powerDescription": "Restart or shut down",
     "update": "Update",
-    "updateDescription": "Update Portal and SDK"
+    "updateDescription": "Update Portal and SDK",
+    "updateAvailable": "Update available"
   },
   "status": {
     "unavailable": {
@@ -224,7 +225,7 @@
     "stepStart": "Starting",
     "doneMessage": "Updated to {{target}}",
     "failedTitle": "The update failed",
-  "retryButton": "Retry",
+    "retryButton": "Retry",
     "restartingTitle": "Restarting…",
     "restartingBody": "This page will reload once Palmimo is back.",
     "restartTimedOut": "Palmimo has not come back yet. Power-cycle the device; if the Portal still does not start, roll back over SSH.",

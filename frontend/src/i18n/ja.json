@@ -26,7 +26,8 @@
     "power": "電源",
     "powerDescription": "再起動・シャットダウン",
     "update": "更新",
-    "updateDescription": "Portal / SDK の更新"
+    "updateDescription": "Portal / SDK の更新",
+    "updateAvailable": "更新があります"
   },
   "status": {
     "unavailable": {

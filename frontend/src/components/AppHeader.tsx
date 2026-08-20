@@ -9,14 +9,14 @@ import { Button } from "@/components/ui/button";
  * Chrome shared by every screen: a 56px header with the wordmark on the
  * left and the {@link LanguageToggle} on the right. Used directly by
  * {@link import("./AuthShell").AuthShell} and by
- * {@link import("./AppShell").AppShell}, which layers on the sidebar-collapse
- * toggle and the logout button below.
+ * {@link import("./AppShell").AppShell}, which layers on the nav toggle
+ * (desktop sidebar collapse / mobile drawer) and the logout button below.
  */
 export function AppHeader({
   onToggleSidebar,
   logoutSlot,
 }: {
-  /** Renders the desktop-only `panel-left` sidebar-collapse toggle when set. Only `AppShell` passes this. */
+  /** Renders the `panel-left` nav toggle when set -- collapses the sidebar on desktop, opens the drawer on mobile. Only `AppShell` passes this. */
   onToggleSidebar?: () => void;
   /** Renders in the header's right side, desktop only (e.g. the logout button). Only `AppShell` passes this. */
   logoutSlot?: React.ReactNode;
@@ -29,7 +29,6 @@ export function AppHeader({
           type="button"
           variant="ghost"
           size="icon"
-          className="hidden md:inline-flex"
           aria-label={t("app.toggleSidebar")}
           onClick={onToggleSidebar}
         >

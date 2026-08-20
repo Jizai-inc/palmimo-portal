@@ -8,11 +8,20 @@ tests confirm stays unchanged.
 
 from __future__ import annotations
 
+import dataclasses
+import json
+from pathlib import Path
+from typing import cast
+
+import httpx
+from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-from palmimo_portal.core.auth import SESSION_COOKIE_NAME, change_password_from_initial, hash_password
+from palmimo_portal.adapters.identity import FileIdentityStore
+from palmimo_portal.core.auth import SESSION_COOKIE_NAME, change_password_from_initial
 from palmimo_portal.ports import AuthState, Identity
 from palmimo_portal.testing.fakes import FakeAdapterBundle
+from palmimo_portal.wiring import AdapterBundle
 
 
 CSRF_HEADERS = {"X-Requested-With": "PalmimoPortal"}
@@ -21,13 +30,23 @@ DEVICE_ID = "palmimo-042"
 
 
 def _carry_identity(adapters: FakeAdapterBundle, password: str = STICKER_PASSWORD) -> None:
-    adapters.identity.identity = Identity(device_id=DEVICE_ID, initial_password_hash=hash_password(password))
+    adapters.identity.identity = Identity(device_id=DEVICE_ID, initial_password=password)
 
 
 def _initial_login(client: TestClient) -> None:
     response = client.post("/api/v1/auth/login", json={"password": STICKER_PASSWORD}, headers=CSRF_HEADERS)
     assert response.status_code == 200
     assert response.json()["mode"] == "initial"
+
+
+def _post_json_with_lone_surrogate(client: TestClient, url: str, payload: dict[str, str]) -> httpx.Response:
+    # See test_api_auth.py's twin helper: httpx's own json= encoding would
+    # fail before the request is even sent, so this sends the literal
+    # `\uXXXX` escape (ASCII on the wire) instead, letting the server-side
+    # json.loads() decode it back into an in-memory surrogate.
+    body = json.dumps(payload).encode("ascii")
+    headers = {**CSRF_HEADERS, "Content-Type": "application/json"}
+    return client.post(url, content=body, headers=headers)
 
 
 def test_open_setup_setup_works_once_then_409(client: TestClient) -> None:
@@ -107,6 +126,49 @@ def test_login_with_the_wrong_initial_password_rate_limits(client: TestClient, a
 
     assert locked.status_code == 429
     assert locked.json()["error"]["code"] == "auth_rate_limited"
+
+
+def test_login_with_an_unencodable_initial_password_is_rejected_not_500(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    # A lone UTF-16 surrogate is valid JSON (json.loads accepts it) but
+    # cannot be UTF-8 encoded -- must be treated as simply the wrong
+    # sticker password, not surface .encode()'s UnicodeEncodeError as a 500.
+    _carry_identity(adapters)
+
+    response = _post_json_with_lone_surrogate(client, "/api/v1/auth/login", {"password": "\ud800"})
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "invalid_credentials"
+
+
+def test_login_with_an_unencodable_initial_password_rate_limits(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    _carry_identity(adapters)
+
+    for _ in range(5):
+        failed = _post_json_with_lone_surrogate(client, "/api/v1/auth/login", {"password": "\ud800"})
+        assert failed.status_code == 401
+
+    locked = client.post("/api/v1/auth/login", json={"password": STICKER_PASSWORD}, headers=CSRF_HEADERS)
+
+    assert locked.status_code == 429
+    assert locked.json()["error"]["code"] == "auth_rate_limited"
+
+
+def test_change_password_from_initial_with_an_unencodable_current_password_is_401(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    _carry_identity(adapters)
+    _initial_login(client)
+
+    response = _post_json_with_lone_surrogate(
+        client, "/api/v1/auth/change-password", {"current_password": "\ud800", "new_password": "new-owner-password"}
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "invalid_current_password"
 
 
 def test_ssh_keys_is_403_with_an_initial_session(client: TestClient, adapters: FakeAdapterBundle) -> None:
@@ -564,3 +626,29 @@ def test_identity_becoming_available_again_re_reads_correctly(client: TestClient
 # test_open_setup_setup_works_once_then_409 and
 # test_status_reports_auth_state_open_setup_before_setup, both of which
 # exercise the default (no identity) FakeIdentityStore.
+
+
+def test_a_v1_format_identity_file_is_treated_as_open_setup(
+    tmp_path: Path, app: FastAPI, adapters: FakeAdapterBundle, client: TestClient
+) -> None:
+    # A spec-v1 identity file (initial_password_hash, not v2's
+    # initial_password) is malformed under the current contract, so a
+    # device migrated to v2 firmware but still carrying a v1 identity file
+    # must fall back to open_setup -- exactly like a genuinely absent file --
+    # rather than being bricked or silently accepting the old hash as a
+    # plaintext password.
+    identity_path = tmp_path / "identity.json"
+    identity_path.write_text(json.dumps({"device_id": DEVICE_ID, "initial_password_hash": "argon2id$..."}))
+    identity_store = FileIdentityStore(identity_path)
+    app.state.adapters = dataclasses.replace(cast(AdapterBundle, adapters), identity=identity_store)
+
+    status = client.get("/api/v1/system/status")
+    assert status.json()["auth_state"] == "open_setup"
+    assert status.json()["device_id"] is None
+
+    setup = client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
+    assert setup.status_code == 200
+
+    login = client.post("/api/v1/auth/login", json={"password": STICKER_PASSWORD}, headers=CSRF_HEADERS)
+    assert login.status_code == 401
+    assert login.json()["error"]["code"] == "invalid_credentials"

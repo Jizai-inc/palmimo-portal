@@ -6,7 +6,14 @@ from palmimo_portal.core.identity import PortalAuthState, compute_auth_state
 from palmimo_portal.ports import IDENTITY_UNAVAILABLE, AuthFileState, Identity
 
 
-IDENTITY = Identity(device_id="palmimo-042", initial_password_hash="hash")
+IDENTITY = Identity(device_id="palmimo-042", initial_password="sticker-password")
+
+
+def test_identity_repr_does_not_leak_the_plaintext_password() -> None:
+    # A future log line, traceback, or assert-diff that prints an Identity
+    # must not print the sticker password along with it.
+    assert "sticker-password" not in repr(IDENTITY)
+    assert "palmimo-042" in repr(IDENTITY)
 
 
 def test_open_setup_when_no_identity_and_auth_absent() -> None:

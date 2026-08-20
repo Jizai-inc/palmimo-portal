@@ -14,7 +14,6 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from palmimo_portal.adapters.state import LAST_ATTEMPT_FILENAME, JsonFileStateStore
-from palmimo_portal.core.auth import hash_password
 from palmimo_portal.core.wifi_attempt import GRACE_PERIOD_SECONDS
 from palmimo_portal.ports import (
     AdapterUnavailableError,
@@ -545,7 +544,7 @@ def test_forget_requires_authentication(client: TestClient, adapters: FakeAdapte
 
 
 def test_forget_rejects_an_initial_mode_session(client: TestClient, adapters: FakeAdapterBundle) -> None:
-    adapters.identity.identity = Identity(device_id="0001", initial_password_hash=hash_password("sticker-pw"))
+    adapters.identity.identity = Identity(device_id="0001", initial_password="sticker-pw")
     adapters.network.status = WifiStatus(state=ConnectionState.CONNECTED, ssid="home", ip_address="198.51.100.42")
     adapters.network.known_networks.add("home")
     client.post("/api/v1/auth/login", json={"password": "sticker-pw"}, headers=CSRF_HEADERS)

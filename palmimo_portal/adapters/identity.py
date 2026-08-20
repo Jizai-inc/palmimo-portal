@@ -1,8 +1,15 @@
 """Real :class:`~palmimo_portal.ports.IdentityStore`: the manufacturing-written identity file.
 
-Schema::
+Schema (spec v2)::
 
-    {"device_id": "<string>", "initial_password_hash": "<argon2id hash string>"}
+    {"device_id": "<string>", "initial_password": "<plaintext string>"}
+
+A v1 file (``initial_password_hash`` instead) is treated as malformed -- see
+:meth:`FileIdentityStore.read_identity`. Manufactured ``initial_password``
+values match ``^[A-Za-z0-9]{8,63}$`` (the monorepo's infra/image tooling's
+"O10" sticker alphabet) -- a generation-side contract only, not enforced
+here: this module accepts and compares any string, failing closed on a
+mismatch rather than rejecting an out-of-alphabet value outright.
 
 Written once, at manufacturing time, to a path outside ``/var/lib/palmimo/``
 (by default the boot partition, so a factory reset does not erase it); the
@@ -91,9 +98,9 @@ class FileIdentityStore(IdentityStore):
             data: Any = json.loads(text)
             if not isinstance(data, dict):
                 raise TypeError(f"identity file top-level value is a {type(data).__name__}, expected an object")
-            device_id, password_hash = data["device_id"], data["initial_password_hash"]
-            if not isinstance(device_id, str) or not isinstance(password_hash, str):
-                raise TypeError("identity file device_id/initial_password_hash must be strings")
+            device_id, initial_password = data["device_id"], data["initial_password"]
+            if not isinstance(device_id, str) or not isinstance(initial_password, str):
+                raise TypeError("identity file device_id/initial_password must be strings")
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
             if not self._warned_malformed:
                 logger.error(
@@ -104,7 +111,7 @@ class FileIdentityStore(IdentityStore):
                 self._warned_malformed = True
             return None  # malformed -- also never cached, but the ERROR log is rate-limited
 
-        return Identity(device_id=device_id, initial_password_hash=password_hash)
+        return Identity(device_id=device_id, initial_password=initial_password)
 
     def _report_unavailable(self, error: OSError) -> IdentityUnavailable:
         if not self._warned_unavailable:

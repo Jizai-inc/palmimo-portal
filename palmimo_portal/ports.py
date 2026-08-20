@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Literal, Protocol
 
@@ -279,13 +279,14 @@ class Identity:
     """The manufacturing-written identity of this physical device.
 
     Present only on a device Jizai provisioned before shipping: the sticker's ``device_id`` and
-    an argon2id hash of the sticker's random password. Absent on a DIY, self-flashed image, which
-    falls back to the legacy open first-time-setup flow (see
+    the sticker's random password, in plaintext (spec v2 -- the boot partition already holds it
+    physically, so hashing bought no confidentiality, only a hash/print mismatch risk). Absent on
+    a DIY, self-flashed image, which falls back to the legacy open first-time-setup flow (see
     :class:`~palmimo_portal.core.identity.PortalAuthState`).
     """
 
     device_id: str
-    initial_password_hash: str
+    initial_password: str = field(repr=False)
 
 
 class IdentityUnavailable(StrEnum):

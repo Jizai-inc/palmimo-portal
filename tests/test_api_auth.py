@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import contextlib
+import json
 from collections.abc import Iterator
 
+import httpx
 import pytest
 from starlette.testclient import TestClient
 
@@ -18,6 +20,19 @@ CSRF_HEADERS = {"X-Requested-With": "PalmimoPortal"}
 
 def _provision(adapters: FakeAdapterBundle) -> None:
     adapters.network.known_networks.add("home")
+
+
+def _post_json_with_lone_surrogate(client: TestClient, url: str, payload: dict[str, str]) -> httpx.Response:
+    # httpx's own json= encoding (ensure_ascii=False) would try to UTF-8
+    # encode the raw surrogate character while building the request body,
+    # failing before the request is even sent -- json.dumps's ensure_ascii
+    # default instead emits the literal `\ud800` escape sequence (pure
+    # ASCII on the wire), letting the server-side json.loads() decode it
+    # back into an in-memory surrogate, reproducing what a real attacker's
+    # raw HTTP request body would contain.
+    body = json.dumps(payload).encode("ascii")
+    headers = {**CSRF_HEADERS, "Content-Type": "application/json"}
+    return client.post(url, content=body, headers=headers)
 
 
 def test_setup_then_setup_again_is_rejected(client: TestClient) -> None:
@@ -69,6 +84,37 @@ def test_protected_endpoint_requires_a_session(client: TestClient, adapters: Fak
 
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "not_authenticated"
+
+
+def test_login_with_an_unencodable_password_is_rejected_not_500(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    # A lone UTF-16 surrogate is valid JSON (json.loads accepts it) but
+    # cannot be UTF-8 encoded -- must be treated as simply the wrong
+    # password, not surface argon2-cffi's UnicodeEncodeError as a 500.
+    client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
+    _provision(adapters)
+
+    response = _post_json_with_lone_surrogate(client, "/api/v1/auth/login", {"password": "\ud800"})
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "invalid_credentials"
+
+
+def test_login_with_an_unencodable_password_burns_rate_limit_budget(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
+    _provision(adapters)
+
+    for _ in range(5):
+        failed = _post_json_with_lone_surrogate(client, "/api/v1/auth/login", {"password": "\ud800"})
+        assert failed.status_code == 401
+
+    locked = client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
+
+    assert locked.status_code == 429
+    assert locked.json()["error"]["code"] == "auth_rate_limited"
 
 
 def test_login_locks_out_after_five_failures(client: TestClient, adapters: FakeAdapterBundle) -> None:

@@ -46,7 +46,7 @@ export const getChangePasswordEndpointApiV1AuthChangePasswordPostUrl = () => {
  * everywhere else, is deliberately not applied here.
  *
  * - **From an initial session**: ``current_password`` checks against the
- *   identity file's sticker hash; ``auth.json`` is *created* for the
+ *   identity file's sticker password; ``auth.json`` is *created* for the
  *   first time (:func:`~palmimo_portal.core.auth.change_password_from_initial`,
  *   same exclusive-create machinery as ``POST /setup``, so two concurrent
  *   requests from two initial sessions cannot both win).
@@ -153,7 +153,7 @@ export const useChangePasswordEndpointApiV1AuthChangePasswordPost = <TError = HT
  * Verify the password and, on success, issue a session cookie.
  *
  * Checks against ``auth.json`` (mode ``"full"``) when a password has been
- * set, or the identity file's sticker hash (mode ``"initial"``) when one
+ * set, or the identity file's sticker password (mode ``"initial"``) when one
  * hasn't but an identity file is present -- see
  * :func:`~palmimo_portal.core.identity.compute_auth_state`. Response
  * ``mode`` lets the frontend route straight to change-password after an

@@ -10,7 +10,6 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-from palmimo_portal.core.auth import hash_password
 from palmimo_portal.ports import (
     AdapterUnavailableError,
     Identity,
@@ -531,7 +530,7 @@ def test_rollback_conflicts_with_an_in_progress_job(client: TestClient, adapters
 
 
 def test_status_rejects_an_initial_mode_session(client: TestClient, adapters: FakeAdapterBundle) -> None:
-    adapters.identity.identity = Identity(device_id="palmimo-042", initial_password_hash=hash_password("sticker"))
+    adapters.identity.identity = Identity(device_id="palmimo-042", initial_password="sticker")
     adapters.network.known_networks.add("home")
     client.post("/api/v1/auth/login", json={"password": "sticker"}, headers=CSRF_HEADERS)
 

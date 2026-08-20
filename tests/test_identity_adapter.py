@@ -20,10 +20,10 @@ def test_read_identity_is_none_when_the_file_is_missing(tmp_path: Path) -> None:
 
 def test_read_identity_parses_a_well_formed_file(tmp_path: Path) -> None:
     path = tmp_path / "identity.json"
-    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password_hash": "argon2id$..."}))
+    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password": "sticker-correct-horse"}))
     store = FileIdentityStore(path)
 
-    assert store.read_identity() == Identity(device_id="palmimo-042", initial_password_hash="argon2id$...")
+    assert store.read_identity() == Identity(device_id="palmimo-042", initial_password="sticker-correct-horse")
 
 
 def test_read_identity_treats_malformed_json_as_absent(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
@@ -54,6 +54,28 @@ def test_read_identity_treats_valid_json_of_the_wrong_top_level_type_as_absent(t
     assert store.read_identity() is None
 
 
+def test_read_identity_treats_a_v1_format_file_as_malformed(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    # A spec-v1 file carries initial_password_hash, not v2's initial_password;
+    # such a file must never be silently accepted as v2's plaintext field.
+    path = tmp_path / "identity.json"
+    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password_hash": "argon2id$..."}))
+    store = FileIdentityStore(path)
+
+    with caplog.at_level(logging.ERROR):
+        result = store.read_identity()
+
+    assert result is None
+    assert str(path) in caplog.text
+
+
+def test_read_identity_treats_a_non_string_initial_password_as_malformed(tmp_path: Path) -> None:
+    path = tmp_path / "identity.json"
+    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password": 12345}))
+    store = FileIdentityStore(path)
+
+    assert store.read_identity() is None
+
+
 def test_read_identity_logs_the_error_exactly_once(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     path = tmp_path / "identity.json"
     path.write_text("garbage")
@@ -70,14 +92,14 @@ def test_read_identity_logs_the_error_exactly_once(tmp_path: Path, caplog: pytes
 
 def test_read_identity_is_cached_across_calls(tmp_path: Path) -> None:
     path = tmp_path / "identity.json"
-    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password_hash": "hash"}))
+    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password": "sticker-password"}))
     store = FileIdentityStore(path)
     first = store.read_identity()
 
     # Mutating the file after the first read must not change what a
     # manufacturing-written, read-once file reports for the rest of the
     # process's life.
-    path.write_text(json.dumps({"device_id": "palmimo-999", "initial_password_hash": "other"}))
+    path.write_text(json.dumps({"device_id": "palmimo-999", "initial_password": "other-sticker-password"}))
 
     assert store.read_identity() == first
 
@@ -92,9 +114,9 @@ def test_read_identity_re_reads_when_the_file_appears_after_a_clean_absence(tmp_
     store = FileIdentityStore(path)
     assert store.read_identity() is None
 
-    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password_hash": "hash"}))
+    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password": "sticker-password"}))
 
-    assert store.read_identity() == Identity(device_id="palmimo-042", initial_password_hash="hash")
+    assert store.read_identity() == Identity(device_id="palmimo-042", initial_password="sticker-password")
 
 
 def test_read_identity_re_reads_repeatedly_while_the_file_stays_absent(tmp_path: Path) -> None:
@@ -109,7 +131,7 @@ def test_read_identity_reports_unavailable_on_a_transient_os_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = tmp_path / "identity.json"
-    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password_hash": "hash"}))
+    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password": "sticker-password"}))
     store = FileIdentityStore(path)
 
     def broken_read_text(self: Path, encoding: str | None = None, errors: str | None = None) -> str:
@@ -124,7 +146,7 @@ def test_read_identity_unavailable_is_not_cached_and_re_reads_once_fixed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = tmp_path / "identity.json"
-    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password_hash": "hash"}))
+    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password": "sticker-password"}))
     store = FileIdentityStore(path)
     real_read_text = Path.read_text
     broken = {"on": True}
@@ -139,14 +161,14 @@ def test_read_identity_unavailable_is_not_cached_and_re_reads_once_fixed(
     assert store.read_identity() is IDENTITY_UNAVAILABLE
     broken["on"] = False
 
-    assert store.read_identity() == Identity(device_id="palmimo-042", initial_password_hash="hash")
+    assert store.read_identity() == Identity(device_id="palmimo-042", initial_password="sticker-password")
 
 
 def test_read_identity_logs_a_warning_on_a_transient_os_error_rate_limited_to_once(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     path = tmp_path / "identity.json"
-    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password_hash": "hash"}))
+    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password": "sticker-password"}))
     store = FileIdentityStore(path)
 
     def broken_read_text(self: Path, encoding: str | None = None, errors: str | None = None) -> str:
@@ -168,7 +190,7 @@ def test_read_identity_caches_a_successful_read_and_does_not_re_read_the_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = tmp_path / "identity.json"
-    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password_hash": "hash"}))
+    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password": "sticker-password"}))
     store = FileIdentityStore(path)
     real_read_text = Path.read_text
     calls = {"n": 0}
@@ -183,13 +205,13 @@ def test_read_identity_caches_a_successful_read_and_does_not_re_read_the_file(
     store.read_identity()
     store.read_identity()
 
-    assert first == Identity(device_id="palmimo-042", initial_password_hash="hash")
+    assert first == Identity(device_id="palmimo-042", initial_password="sticker-password")
     assert calls["n"] == 1
 
 
 def test_read_identity_uncached_bypasses_a_stale_cache(tmp_path: Path) -> None:
     path = tmp_path / "identity.json"
-    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password_hash": "hash"}))
+    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password": "sticker-password"}))
     store = FileIdentityStore(path)
     store.read_identity()  # prime the cache with a real Identity
     path.unlink()  # the file is gone, but the cache still holds the old Identity
@@ -203,7 +225,7 @@ def test_read_identity_uncached_bypasses_a_stale_cache(tmp_path: Path) -> None:
 
 def test_read_identity_uncached_drops_the_cache_when_the_file_becomes_malformed(tmp_path: Path) -> None:
     path = tmp_path / "identity.json"
-    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password_hash": "hash"}))
+    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password": "sticker-password"}))
     store = FileIdentityStore(path)
     store.read_identity()  # prime the cache with a real Identity
     path.write_text("not valid json {{{")
@@ -214,14 +236,14 @@ def test_read_identity_uncached_drops_the_cache_when_the_file_becomes_malformed(
 
 def test_read_identity_uncached_refreshes_the_cache(tmp_path: Path) -> None:
     path = tmp_path / "identity.json"
-    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password_hash": "hash"}))
+    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password": "sticker-password"}))
     store = FileIdentityStore(path)
     store.read_identity()  # prime the cache with the first identity
-    path.write_text(json.dumps({"device_id": "palmimo-999", "initial_password_hash": "other"}))
+    path.write_text(json.dumps({"device_id": "palmimo-999", "initial_password": "other-sticker-password"}))
 
     updated = store.read_identity_uncached()
 
-    assert updated == Identity(device_id="palmimo-999", initial_password_hash="other")
+    assert updated == Identity(device_id="palmimo-999", initial_password="other-sticker-password")
     # A later read_identity() call must see the refreshed value, not the
     # identity that was cached before read_identity_uncached() ran.
     assert store.read_identity() == updated
@@ -231,7 +253,7 @@ def test_read_identity_uncached_never_caches_a_transient_unavailable_result(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = tmp_path / "identity.json"
-    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password_hash": "hash"}))
+    path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password": "sticker-password"}))
     store = FileIdentityStore(path)
     store.read_identity()  # prime the cache with a real Identity
     real_read_text = Path.read_text
@@ -246,4 +268,4 @@ def test_read_identity_uncached_never_caches_a_transient_unavailable_result(
 
     # The transient failure above must not have clobbered the previously
     # cached Identity with something un-refreshable.
-    assert store.read_identity() == Identity(device_id="palmimo-042", initial_password_hash="hash")
+    assert store.read_identity() == Identity(device_id="palmimo-042", initial_password="sticker-password")

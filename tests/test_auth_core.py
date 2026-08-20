@@ -22,6 +22,7 @@ from palmimo_portal.core.auth import (
     hash_password,
     issue_session,
     setup_password,
+    verify_identity_password,
     verify_password,
     verify_password_against_store,
     verify_session,
@@ -36,6 +37,15 @@ def test_hash_and_verify_password_round_trip() -> None:
 
     assert verify_password("correct horse battery staple", password_hash) is True
     assert verify_password("wrong password", password_hash) is False
+
+
+def test_verify_password_returns_false_for_an_unencodable_password() -> None:
+    # A lone UTF-16 surrogate (valid per json.loads, invalid UTF-8) must be
+    # treated as simply the wrong password, not raise past the caller's
+    # rate-limit bookkeeping -- see verify_identity_password's twin test.
+    password_hash = hash_password("correct horse battery staple")
+
+    assert verify_password("\ud800", password_hash) is False
 
 
 def test_setup_password_stores_hash_and_signing_key() -> None:
@@ -141,7 +151,20 @@ def test_decode_session_is_none_for_a_tampered_token() -> None:
     assert decode_session(signing_key, token + "x") is None
 
 
-IDENTITY = Identity(device_id="palmimo-042", initial_password_hash=hash_password("sticker-password"))
+IDENTITY = Identity(device_id="palmimo-042", initial_password="sticker-password")
+
+
+def test_verify_identity_password_round_trip() -> None:
+    assert verify_identity_password("sticker-password", IDENTITY) is True
+    assert verify_identity_password("wrong-sticker-password", IDENTITY) is False
+
+
+def test_verify_identity_password_returns_false_for_an_unencodable_password() -> None:
+    # Same UnicodeEncodeError hazard as verify_password: a lone surrogate
+    # supplied password must fail closed as "wrong", not raise -- an
+    # uncaught raise here would skip the caller's record_failure() and let
+    # the rate limiter's reservation leak back open on every attempt.
+    assert verify_identity_password("\ud800", IDENTITY) is False
 
 
 def test_change_password_from_initial_creates_auth_material() -> None:
@@ -158,6 +181,15 @@ def test_change_password_from_initial_rejects_the_wrong_current_password() -> No
 
     with pytest.raises(InvalidCurrentPasswordError):
         change_password_from_initial(store, IDENTITY, "wrong-sticker-password", "new-password")
+
+    assert store.read_auth() is None
+
+
+def test_change_password_from_initial_rejects_an_unencodable_current_password() -> None:
+    store = FakeStateStore()
+
+    with pytest.raises(InvalidCurrentPasswordError):
+        change_password_from_initial(store, IDENTITY, "\ud800", "new-password")
 
     assert store.read_auth() is None
 
@@ -630,7 +662,7 @@ def test_reset_rate_limiter_release_reopens_the_window() -> None:
     assert limiter.try_acquire() is True
 
 
-STICKER_IDENTITY = Identity(device_id="palmimo-042", initial_password_hash=hash_password("sticker"))
+STICKER_IDENTITY = Identity(device_id="palmimo-042", initial_password="sticker")
 
 
 @pytest.mark.parametrize(

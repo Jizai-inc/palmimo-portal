@@ -23,7 +23,7 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from palmimo_portal.adapters.identity import FileIdentityStore
-from palmimo_portal.core.auth import SESSION_COOKIE_NAME, hash_password
+from palmimo_portal.core.auth import SESSION_COOKIE_NAME
 from palmimo_portal.ports import Identity
 from palmimo_portal.testing.fakes import FakeAdapterBundle
 from palmimo_portal.wiring import AdapterBundle
@@ -35,7 +35,7 @@ DEVICE_ID = "palmimo-042"
 
 
 def _carry_identity(adapters: FakeAdapterBundle, password: str = STICKER_PASSWORD) -> None:
-    adapters.identity.identity = Identity(device_id=DEVICE_ID, initial_password_hash=hash_password(password))
+    adapters.identity.identity = Identity(device_id=DEVICE_ID, initial_password=password)
 
 
 def _initial_login(client: TestClient) -> None:
@@ -232,9 +232,7 @@ def test_reset_refuses_when_a_cached_identity_has_since_been_removed_from_disk(
     # instead see the file is gone and refuse it exactly like a DIY device
     # that completed /auth/setup (see decide_reset's docstring).
     identity_path = tmp_path / "identity.json"
-    identity_path.write_text(
-        json.dumps({"device_id": DEVICE_ID, "initial_password_hash": hash_password(STICKER_PASSWORD)})
-    )
+    identity_path.write_text(json.dumps({"device_id": DEVICE_ID, "initial_password": STICKER_PASSWORD}))
     identity_store = FileIdentityStore(identity_path)
     # A deliberate mixed bundle -- see test_api_system.py's equivalent test.
     app.state.adapters = dataclasses.replace(cast(AdapterBundle, adapters), identity=identity_store)

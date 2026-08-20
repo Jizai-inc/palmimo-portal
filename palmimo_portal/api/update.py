@@ -213,9 +213,6 @@ def apply(
     with lock:
         state = state_store.read_update_state()
         installed = updater.installed()
-        # Computed from the *previous* job, before start_apply below
-        # overwrites it -- see should_repair_dirty_checkout's docstring.
-        repair_dirty = update_core.should_repair_dirty_checkout(state.job)
         try:
             state = update_core.start_apply(state, installed, body.tag, now=time.time())
         except update_core.UpdateInProgressError as error:
@@ -228,7 +225,7 @@ def apply(
             raise PortalError(409, "update_target_mismatch") from error
         state_store.write_update_state(state)
 
-    _start_runner(request, body.tag, repair_dirty=repair_dirty)
+    _start_runner(request, body.tag)
     return _status_response(state_store.read_update_state(), updater.installed())
 
 
@@ -251,9 +248,6 @@ def rollback(
     with lock:
         state = state_store.read_update_state()
         installed = updater.installed()
-        # Computed from the *previous* job, before start_rollback below
-        # overwrites it -- see should_repair_dirty_checkout's docstring.
-        repair_dirty = update_core.should_repair_dirty_checkout(state.job)
         try:
             state = update_core.start_rollback(state, installed, now=time.time())
         except update_core.UpdateInProgressError as error:
@@ -266,15 +260,15 @@ def rollback(
 
     target = state.job.target
     assert target is not None  # start_rollback always sets job.target = previous_tag
-    _start_runner(request, target, repair_dirty=repair_dirty)
+    _start_runner(request, target)
     return _status_response(state_store.read_update_state(), updater.installed())
 
 
-def _start_runner(request: Request, target: str, *, repair_dirty: bool = False) -> None:
+def _start_runner(request: Request, target: str) -> None:
     """Start *target* applying on the app's shared :class:`~palmimo_portal.core.update_runner.UpdateRunner`.
 
     Uses the single instance constructed at app startup (``api/app.py``'s
     ``create_app``) so its ``_busy_lock`` guards across requests and jobs.
     """
     runner = request.app.state.update_runner
-    runner.start(target, repair_dirty=repair_dirty)
+    runner.start(target)

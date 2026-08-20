@@ -78,34 +78,24 @@ class UpdateRunner:
         self._alive = alive
         self._busy_lock = threading.Lock()
 
-    def start(self, target: str, *, repair_dirty: bool = False) -> None:
-        """Start applying *target*, in a background thread unless ``run_in_thread`` is ``False``.
-
-        ``repair_dirty`` is forwarded verbatim to :meth:`Updater.apply
-        <palmimo_portal.ports.Updater.apply>` -- the caller (``api/update.py``)
-        computes it from the previous job in ``update.json`` via
-        :func:`~palmimo_portal.core.update.should_repair_dirty_checkout`
-        before this instance's own :attr:`_busy_lock` and any per-step
-        state get involved.
-        """
+    def start(self, target: str) -> None:
+        """Start applying *target*, in a background thread unless ``run_in_thread`` is ``False``."""
         if self._run_in_thread:
-            thread = threading.Thread(
-                target=self._run, args=(target, repair_dirty), daemon=True, name="palmimo-portal-update"
-            )
+            thread = threading.Thread(target=self._run, args=(target,), daemon=True, name="palmimo-portal-update")
             thread.start()
         else:
-            self._run(target, repair_dirty)
+            self._run(target)
 
-    def _run(self, target: str, repair_dirty: bool) -> None:
+    def _run(self, target: str) -> None:
         if not self._busy_lock.acquire(blocking=False):
             logger.warning("update runner asked to start %r while already busy -- ignoring", target)
             return
         try:
-            self._run_locked(target, repair_dirty)
+            self._run_locked(target)
         finally:
             self._busy_lock.release()
 
-    def _run_locked(self, target: str, repair_dirty: bool) -> None:
+    def _run_locked(self, target: str) -> None:
         def on_step(step: str) -> None:
             logger.info("update: %s %s", step, target)
             self._state.write_update_state(advance(self._state.read_update_state(), step))
@@ -113,7 +103,7 @@ class UpdateRunner:
         if self._alive is not None:
             self._alive.set()
         try:
-            self._run_steps(target, on_step, repair_dirty)
+            self._run_steps(target, on_step)
         except Exception as error:
             # Anything not already handled by the narrower except clauses
             # below must never leave the job wedged in "running". `job.step
@@ -134,9 +124,9 @@ class UpdateRunner:
             if self._alive is not None:
                 self._alive.clear()
 
-    def _run_steps(self, target: str, on_step: Callable[[str], None], repair_dirty: bool) -> None:
+    def _run_steps(self, target: str, on_step: Callable[[str], None]) -> None:
         try:
-            self._updater.apply(target, on_step, repair_dirty=repair_dirty)
+            self._updater.apply(target, on_step)
         except UpdateStepError as error:
             logger.warning("update: %s failed for %s: %s", error.step, target, error)
             self._state.write_update_state(

@@ -461,29 +461,13 @@ class Updater(Protocol):
         """Return the Portal checkout's currently installed version."""
         ...
 
-    def apply(self, tag: str, on_step: Callable[[str], None], *, repair_dirty: bool = False) -> None:
+    def apply(self, tag: str, on_step: Callable[[str], None]) -> None:
         """Check out *tag*, fetch its frontend asset, and sync dependencies, calling ``on_step`` before each step.
 
         Steps, in order: ``"fetch"``, ``"assets"``, ``"checkout"``,
         ``"sync"``, ``"install-assets"``. See
         :class:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater`'s
         module docstring for the staging order.
-
-        Args:
-            repair_dirty: ``True`` when the caller
-                (:func:`~palmimo_portal.core.update.should_repair_dirty_checkout`,
-                fed from the previous job persisted in ``update.json``) has
-                determined a dirty working tree at this point can only be
-                debris this same updater left behind at a previous
-                ``"checkout"`` attempt that died for a reason other than
-                the dirty-tree guard's own refusal -- never a USER-made
-                change, and never a merely-failed ``"fetch"`` (which
-                cannot dirty the tree at all). The real adapter skips its
-                dirty-tree refusal and forces the checkout in that case; a
-                USER-dirty tree with ``repair_dirty=False`` (the default)
-                still refuses, per
-                :class:`~palmimo_portal.adapters.git_uv_updater.GitUvUpdater`'s
-                module docstring.
 
         Raises:
             UpdateStepError: a step failed -- ``error.step`` names which one.

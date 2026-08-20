@@ -27,7 +27,9 @@ Step order is ``fetch -> assets -> checkout -> sync -> install-assets``, not
    has to be undone.
 3. **``checkout``** -- the dirty-tree guard, tag-exists verification, and
    ``git checkout --detach``. Only reached once step 2 has proven a usable
-   frontend build exists for this tag.
+   frontend build exists for this tag. See "Being killed mid-``checkout``"
+   below for how this step tells updater-inflicted dirt apart from a
+   human's.
 4. **``sync``** -- ``uv sync --frozen`` against the now-checked-out tree.
 5. **``install-assets``** -- the atomic swap of the step-2 staging
    directory into ``static/``, done **last**, once ``sync`` has succeeded:
@@ -47,50 +49,141 @@ Rollback goes through the same :meth:`GitUvUpdater.apply` entry point as a
 forward update (``api/update.py`` picks the tag) -- rolling back re-downloads
 that tag's own frontend asset rather than restoring a saved ``static/``.
 
-**Being killed mid-``fetch``/``checkout``.** The step timeouts SIGKILL a
-stuck subprocess, and a power cut does the same without even that much
-grace. Either can leave ``.git/index.lock`` and friends behind (every later
-git call then fails "File exists") and/or a half-checked-out dirty working
-tree. :meth:`apply` sweeps stale git lock files unconditionally at the
-start of every run (:meth:`_sweep_stale_locks`) -- they can only be debris
-from a previous run of this same updater, never a live process, since git
-is always run synchronously one step at a time. That sweep runs for
-``fetch`` too, even though ``fetch`` cannot dirty the tree itself (see
-below) -- a killed ``fetch`` can still leave lock files.
+**Being killed mid-``checkout``: the checkout-attestation marker.** ``fetch``
+and ``checkout`` run as subprocesses under 120s/60s timeouts that SIGKILL
+them on expiry; a power cut can hit either with no warning at all. Either can
+leave stale ``.git`` lock files behind (see "Stale git locks" below); a
+killed ``checkout`` specifically can also leave a half-switched, dirty
+working tree. The dirty-tree guard (``git status --porcelain
+--untracked-files=no``) exists precisely to stop the updater from touching a
+tree a *human* modified over SSH -- that refusal, and the manual-resolution
+burden it puts on an operator, is a deliberate, accepted risk that must never
+be bypassed for a genuinely USER-dirty tree. But naively trusting *any*
+previous failure record to distinguish "the updater's own debris" from "a
+human's edit" does not hold up: the persisted job history is inferred after
+the fact and can be stale, incomplete, or itself ambiguous (a design this
+class went through, and an adversarial review broke with working
+proofs-of-concept -- see "Review history" at the bottom of this docstring).
 
-The dirty-tree guard itself stays in place for a USER-dirty tree (local
-changes an operator made over SSH) -- that remains an accepted risk
-requiring manual resolution, unchanged. What no longer requires SSH is a
-tree the *updater itself* left dirty mid-``checkout``: when the caller
-passes ``repair_dirty=True`` -- because
-``core/update.should_repair_dirty_checkout`` found the previous job in
-``update.json`` failed at ``"checkout"`` for a reason *other than* the
-guard's own refusal (a timeout, a nonzero git exit, or
-``finalize_after_restart``'s "interrupted" resolution of a process that
-died mid-step) -- the guard is skipped and ``checkout`` runs ``--force``,
-clobbering the interrupted half-checkout with the validated tag rather
-than refusing it forever.
+Instead, :meth:`_checkout` uses a **marker file created by this same checkout
+attempt, immediately before the one command that can actually mutate the
+tree**: ``git checkout``. The marker lives outside the worktree, at
+``<portal_dir>/.git/palmimo-checkout-in-progress``, so it survives whatever
+``git checkout`` itself does to tracked files.
 
-Two cases are deliberately *not* repairable, both to keep the guard's
-accepted-risk contract intact:
+1. Run the dirty-tree guard. If the tree is dirty:
 
-- **A failed ``"fetch"``** never repairs, even though it is a git step
-  that can fail: ``fetch`` does not touch the working tree at all, so it
-  cannot be the reason a later ``checkout`` finds the tree dirty. Treating
-  it as repairable would add risk for no benefit -- "GitHub was
-  unreachable at fetch, and the tree happens to be dirty from an
-  operator's SSH edit" would then also enable the force-clobber on the
-  next apply.
-- **The dirty-tree refusal itself** never repairs. It is recorded as a
-  ``"checkout"`` failure (``fetch``/``assets`` already succeeded by the
-  time it raises) with a message built from
-  ``core.update.DIRTY_TREE_REFUSAL_PREFIX`` -- the same constant
-  :func:`~palmimo_portal.core.update.should_repair_dirty_checkout` checks
-  for, so the two sides cannot drift apart. Without this exclusion, a
-  USER-dirty tree would be refused on the first apply attempt, recorded
-  exactly like a killed checkout would be, and then force-clobbered by the
-  very next apply -- one retry away from silently destroying an operator's
-  changes.
+   - **Marker present** -- this dirt is *this process's own* attested debris
+     from a checkout that started and did not confirm its own outcome (killed
+     mid-write, or the process died before recording success/failure). Run
+     ``git checkout --force --detach refs/tags/<tag>``, which clobbers the
+     half-applied state with the already-validated tag.
+   - **No marker** -- refuse, exactly as before (:data:`DIRTY_TREE_REFUSAL_PREFIX`).
+     Nothing here attests that this dirt is the updater's; it is treated as a
+     human's and left alone.
+
+2. If the tree is clean, remove any stale marker (a clean tree needs no
+   repair) and proceed to resolve the tag.
+3. Resolve ``tag`` against ``refs/tags/<tag>^{commit}``. If this fails ("tag
+   not found after fetch"), the tree was **never touched** by this attempt --
+   no marker is created here, so a later retry cannot force through a tree an
+   operator dirties in the meantime (see "Review history" -- this exact
+   ordering closes a proof-of-concept an independent review raised against
+   an earlier draft of this mechanism).
+4. **Only now**, immediately before invoking ``git checkout`` itself, create
+   the marker (a plain "clean" checkout also creates it, since the upcoming
+   ``git checkout`` is the one command that can leave the tree dirty even
+   without ``--force``, e.g. a mid-write kill).
+5. Run the ``git checkout`` (forced or not, per step 1). Once it returns (or
+   raises, including a timeout):
+
+   - **Success** -- remove the marker.
+   - **Failure or timeout** -- re-run the dirty-tree guard.
+
+     - **Still clean** -- ``git`` refused or died before writing anything
+       (e.g. an untracked-file conflict, a bad pathspec, a full disk before
+       any write): nothing was half-applied, so the marker is removed. A
+       retry takes the plain (non-forced) path and hits the same visible
+       error again, until an operator resolves it -- it must never be
+       silently forced away.
+     - **Dirty** -- that dirt is now attested; the marker is kept, and the
+       next attempt force-repairs through it. A process death/power cut
+       between marker-creation and this recheck is the one window that
+       leaves the marker behind without this code ever running that
+       decision -- which is exactly the case ``--force`` exists for.
+     - **The recheck itself cannot be run** -- erring toward *keeping* the
+       marker is the safe choice: a forced checkout of a tree that turns out
+       to already be clean is a no-op-equivalent, while discarding the
+       marker here would risk re-wedging the device the same way the
+       unconditional-refusal bug this class fixes did.
+
+Marker lifecycle, audited in full: created only in step 4 (after tag
+resolution succeeds, immediately before the mutating ``git checkout``
+call); removed in step 2 (stale, tree already clean), on success in step 5,
+and on the step-5 "still clean" recheck. No other code creates or removes
+it. A ``.git`` that is not a plain directory (a gitfile -- submodule or
+worktree layout) makes the marker (and the lock sweep below) a silent no-op;
+this is logged once at WARNING, since the device deploy contract is a plain
+``git clone``.
+
+**Residual accepted risk:** an operator who edits the tree over SSH *after*
+a power cut mid-checkout (marker left behind, tree dirty) but *before* the
+next retry loses those edits to the forced checkout. This is narrow -- it
+requires deliberately editing a tree that already holds updater debris from
+an interrupted run -- and is documented here rather than engineered away,
+since doing so would require the operator to signal "I am about to touch
+this" through some channel the Portal has no way to observe.
+
+**Stale git locks: a gated sweep, not an unconditional one.**
+:meth:`_sweep_stale_locks` runs at the start of every ``apply``/rollback,
+before ``fetch`` -- a killed ``git fetch``/``git checkout`` can leave
+``.git/index.lock`` and friends behind, which makes every later ``git``
+invocation in this checkout fail with "File exists" forever. But locks are
+*not* always safe to delete on sight: an operator's own ``git`` command
+running concurrently over SSH (a commit, a stash) holds a real, live lock,
+and deleting it out from under that command can corrupt the operator's own
+work. A lock is removed only when it is attributable to this updater by one
+of two signals:
+
+- its mtime is older than :data:`_STALE_LOCK_MIN_AGE_SECONDS` (comfortably
+  longer than every step timeout this class uses, and longer than any
+  plausible interactive git command an operator might run by hand), or
+- the checkout-attestation marker above exists, meaning a previous run of
+  *this updater* provably died mid-mutation -- the locks from that same run
+  are its own regardless of age.
+
+A lock that matches neither is left alone; the git call that needs it then
+fails visibly with git's own "File exists" error, and a later retry (once
+the lock is genuinely stale, or the operator's own command has finished)
+succeeds. One WARNING is logged listing what was actually removed.
+
+**Review history.** This mechanism replaces two earlier designs, both of
+which were broken by an adversarial review armed with working
+proofs-of-concept before landing:
+
+1. *Attribute any previous job that failed at ``"fetch"`` or ``"checkout"``.*
+   Broken because the dirty-tree refusal is itself recorded as a failed job
+   at step ``"checkout"``, indistinguishable by step alone from a killed
+   checkout -- a USER-dirty tree refused once would be force-clobbered on
+   the very next apply.
+2. *Same, but exclude jobs whose persisted error is the refusal message
+   (``core.update.DIRTY_TREE_REFUSAL_PREFIX``).* Still broken, three ways:
+   the "last job" record is a single slot that an unrelated later failure
+   (e.g. a transient ``fetch`` network blip) silently overwrites, permanently
+   erasing the evidence a genuinely repairable failure needs and re-wedging
+   the device -- the exact outcome this class exists to prevent; an
+   operator's *untracked* file that a new tag ships as tracked makes ``git
+   checkout`` fail with its own "untracked working tree files would be
+   overwritten" error, which carries no refusal-prefix marker and so was
+   wrongly attributed to the updater, silently overwriting the operator's
+   file on the next apply; and the previous-job step was recorded via
+   ``on_step("checkout")`` *before* the dirty-tree guard itself ran, so a
+   death/timeout during the guard (e.g. a slow SD card) would attribute a
+   genuinely USER-dirty tree to the updater. Inferring attribution from a
+   job-history record proved unable to be made sound. This mechanism instead
+   attests directly, in the filesystem, at the moment the tree is actually
+   about to be mutated -- no history to overwrite, no ambiguity about which
+   failure produced which dirt.
 """
 
 from __future__ import annotations
@@ -99,6 +192,7 @@ import logging
 import os
 import shutil
 import subprocess
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -110,7 +204,7 @@ from palmimo_portal.adapters.static_asset import (
     fetch_and_stage,
     swap_into_place,
 )
-from palmimo_portal.core.update import DIRTY_TREE_REFUSAL_PREFIX, STATIC_ASSET_NAME_TEMPLATE
+from palmimo_portal.core.update import STATIC_ASSET_NAME_TEMPLATE
 from palmimo_portal.ports import InstalledVersion, Updater, UpdateStepError
 from palmimo_portal.version import portal_version
 
@@ -129,8 +223,27 @@ SYNC_TIMEOUT_SECONDS = 600.0
 #: persisted state (``update.json``) or a log line.
 _STDERR_TAIL_LINES = 20
 
-#: Git lock files directly under ``.git/`` that a killed ``git fetch``/
-#: ``git checkout`` can leave behind -- see :meth:`GitUvUpdater._sweep_stale_locks`.
+#: The stable prefix of the dirty-tree guard's refusal message -- kept as a
+#: named constant (rather than an inline literal at each raise site) so a
+#: test can pin the exact wording contract without duplicating it.
+DIRTY_TREE_REFUSAL_PREFIX = "working tree has local changes"
+
+#: Name of the checkout-attestation marker file, created under ``.git/``
+#: (never inside the worktree, so ``git checkout`` itself cannot touch it)
+#: immediately before the one command that can mutate the tree. See the
+#: module docstring's "Being killed mid-``checkout``" section.
+_CHECKOUT_MARKER_NAME = "palmimo-checkout-in-progress"
+
+#: Minimum age, in seconds, before :meth:`GitUvUpdater._sweep_stale_locks`
+#: will remove a git lock file it cannot otherwise attribute to this updater
+#: via the checkout marker. Comfortably longer than every step timeout this
+#: class uses (fetch 120s, checkout 60s) and longer than any plausible
+#: interactive ``git`` command an operator might be running by hand over
+#: SSH.
+_STALE_LOCK_MIN_AGE_SECONDS = 600.0
+
+#: Git lock files directly under ``.git/`` a killed ``git fetch``/``git
+#: checkout`` can leave behind -- see :meth:`GitUvUpdater._sweep_stale_locks`.
 _GIT_DIR_LOCK_NAMES = ("index.lock", "packed-refs.lock", "shallow.lock", "HEAD.lock")
 
 Runner = Callable[..., "subprocess.CompletedProcess[str]"]
@@ -154,6 +267,7 @@ class GitUvUpdater(Updater):
     update_repo: str = "Jizai-inc/palmimo-portal"
     opener: Opener = field(default=default_opener)
     _warned_not_git: bool = field(default=False, init=False, repr=False)
+    _warned_not_plain_clone: bool = field(default=False, init=False, repr=False)
 
     def installed(self) -> InstalledVersion:
         commit = self._run_git_capture(["git", "rev-parse", "--short", "HEAD"])
@@ -178,110 +292,161 @@ class GitUvUpdater(Updater):
         output = result.stdout.strip()
         return output or None
 
-    def apply(self, tag: str, on_step: Callable[[str], None], *, repair_dirty: bool = False) -> None:
+    def apply(self, tag: str, on_step: Callable[[str], None]) -> None:
         self._sweep_stale_locks()
         self._step("fetch", ["git", "fetch", "--tags", "origin"], FETCH_TIMEOUT_SECONDS, on_step)
         temp_dir = self._assets(tag, on_step)
         try:
-            self._checkout(tag, on_step, repair_dirty=repair_dirty)
+            self._checkout(tag, on_step)
             self._sync(on_step)
         except Exception:
             shutil.rmtree(temp_dir, ignore_errors=True)
             raise
         self._install_assets(temp_dir, on_step)
 
-    def _sweep_stale_locks(self) -> None:
-        """Remove stale git lock files under ``.git/`` before every apply/rollback run.
+    # -- checkout-attestation marker ------------------------------------------------------
 
-        A killed ``git fetch``/``git checkout`` (the step timeouts SIGKILL
-        the subprocess; a power cut does the same without even that much
-        grace) can leave ``.git/index.lock`` and friends behind, which
-        makes every later git invocation in this checkout fail with "File
-        exists" forever -- this device could otherwise never update again
-        without an operator clearing it over SSH.
+    def _git_dir(self) -> Path | None:
+        """Return ``.git``, or ``None`` (logging once) when it is not a plain directory.
 
-        Unconditional at the start of every run, not conditioned on
-        ``repair_dirty``: this class runs git synchronously, one
-        subprocess at a time (see the module docstring), so a lock file
-        found here cannot belong to a live git process of this updater's
-        own -- it can only be debris from a previous run of *this same
-        updater* (this method's caller), which is exactly the "messes it
-        can attribute to itself" the module docstring's accepted-risk
-        sentence describes. Logs one WARNING naming what was removed;
-        silent when there is nothing to remove.
+        A gitfile (submodule/worktree layout) makes the marker and the lock
+        sweep silent no-ops -- see the module docstring. The device deploy
+        contract is a plain ``git clone``.
         """
         git_dir = self.portal_dir / ".git"
-        candidates = [git_dir / name for name in _GIT_DIR_LOCK_NAMES]
-        refs_dir = git_dir / "refs"
-        if refs_dir.is_dir():
-            candidates.extend(sorted(refs_dir.rglob("*.lock")))
-        removed: list[str] = []
-        for path in candidates:
-            try:
-                if path.is_file():
-                    path.unlink()
-                    removed.append(str(path.relative_to(self.portal_dir)))
-            except OSError as error:
-                logger.warning("could not remove stale git lock %s: %s", path, error)
-        if removed:
-            logger.warning("removed stale git lock file(s) before update: %s", ", ".join(removed))
+        if git_dir.is_dir():
+            return git_dir
+        if not self._warned_not_plain_clone:
+            logger.warning(
+                "portal_dir=%s .git is not a plain directory (gitfile/worktree layout) -- "
+                "the stale-lock sweep and checkout-attestation marker are no-ops here; "
+                "the device deploy contract is a plain `git clone`",
+                self.portal_dir,
+            )
+            self._warned_not_plain_clone = True
+        return None
 
-    def _checkout(self, tag: str, on_step: Callable[[str], None], *, repair_dirty: bool = False) -> None:
-        """Refuse a dirty checkout, resolve ``tag`` against a fully-qualified ref, then check it out.
+    def _checkout_marker_path(self) -> Path | None:
+        git_dir = self._git_dir()
+        if git_dir is None:
+            return None
+        return git_dir / _CHECKOUT_MARKER_NAME
 
-        Three subprocess calls under one ``on_step("checkout")`` -- a caller
-        watching progress only needs "we are switching versions", not which
-        git invocation is running.
+    def _working_tree_is_dirty(self) -> bool:
+        status = self._run_or_raise(
+            "checkout", ["git", "status", "--porcelain", "--untracked-files=no"], CHECKOUT_TIMEOUT_SECONDS
+        )
+        if status.returncode != 0:
+            raise UpdateStepError(
+                "checkout", _stderr_tail(status.stderr or "") or f"git status exited {status.returncode}"
+            )
+        return bool(status.stdout.strip())
 
-        1. ``git status --porcelain --untracked-files=no`` -- refuses to
-           touch a checkout with local changes; an operator resolves that
-           over SSH first (commit, stash, or reset). Skipped entirely when
-           ``repair_dirty`` is ``True``: the caller (``core/update.py``'s
-           :func:`~palmimo_portal.core.update.should_repair_dirty_checkout`)
-           has already determined the *updater's own previous job* died
-           mid-``"checkout"`` for a reason other than this very refusal
-           (a timeout, a nonzero git exit, or an interrupted-restart
-           resolution), so any dirt here can only be that job's
-           half-finished work, not a human's.
-        2. ``git rev-parse --verify --quiet refs/tags/<tag>^{commit}`` --
-           confirms the tag exists after the fetch above, resolved against
-           the fully-qualified ``refs/tags/`` ref so this can't be tricked
-           into resolving a same-named branch instead.
-        3. ``git checkout --detach refs/tags/<tag>`` -- same fully-qualified
-           ref, same reason. When ``repair_dirty`` is ``True`` this becomes
-           ``git checkout --force --detach refs/tags/<tag>``, which clobbers
-           the interrupted half-checkout rather than refusing it.
+    def _resolve_marker_after_checkout_failure(self, marker: Path) -> None:
+        """Decide, after a ``checkout``-step failure, whether the marker still attests real damage.
+
+        See the module docstring's step 5. Never raises -- this runs from an
+        ``except`` block that is about to re-raise the original failure.
+        """
+        try:
+            still_dirty = self._working_tree_is_dirty()
+        except UpdateStepError:
+            logger.warning(
+                "could not re-check working-tree cleanliness after a checkout failure -- keeping the checkout marker"
+            )
+            return
+        if not still_dirty:
+            marker.unlink(missing_ok=True)
+
+    def _checkout(self, tag: str, on_step: Callable[[str], None]) -> None:
+        """Refuse a dirty checkout unless it is attested updater debris, then check the tag out.
+
+        See the module docstring's "Being killed mid-``checkout``" section
+        for the full marker-based mechanism this implements.
         """
         on_step("checkout")
-        if not repair_dirty:
-            status = self._run_or_raise(
-                "checkout", ["git", "status", "--porcelain", "--untracked-files=no"], CHECKOUT_TIMEOUT_SECONDS
-            )
-            if status.returncode != 0:
-                raise UpdateStepError(
-                    "checkout", _stderr_tail(status.stderr or "") or f"git status exited {status.returncode}"
-                )
-            if status.stdout.strip():
+        marker = self._checkout_marker_path()
+        force = False
+        if self._working_tree_is_dirty():
+            if marker is not None and marker.exists():
+                force = True
+            else:
                 raise UpdateStepError(
                     "checkout",
                     f"{DIRTY_TREE_REFUSAL_PREFIX}; commit, stash, or reset them over SSH before updating",
                 )
+        elif marker is not None:
+            marker.unlink(missing_ok=True)  # a clean tree needs no repair -- clear any stale marker
 
         ref = f"refs/tags/{tag}"
         verify = self._run_or_raise(
             "checkout", ["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], CHECKOUT_TIMEOUT_SECONDS
         )
         if verify.returncode != 0:
+            # The tree was never touched by this attempt -- no marker is
+            # created here, precisely so a later retry cannot force through
+            # a tree an operator dirties between now and then.
             raise UpdateStepError("checkout", "tag not found after fetch")
 
+        # Create the marker only now, as late as possible: immediately
+        # before the one command that can actually mutate the tree.
+        if marker is not None:
+            marker.touch()
+
         checkout_argv = ["git", "checkout", "--detach", ref]
-        if repair_dirty:
+        if force:
             checkout_argv.insert(2, "--force")
-        checkout = self._run_or_raise("checkout", checkout_argv, CHECKOUT_TIMEOUT_SECONDS)
+        try:
+            checkout = self._run_or_raise("checkout", checkout_argv, CHECKOUT_TIMEOUT_SECONDS)
+        except UpdateStepError:
+            if marker is not None:
+                self._resolve_marker_after_checkout_failure(marker)
+            raise
         if checkout.returncode != 0:
+            if marker is not None:
+                self._resolve_marker_after_checkout_failure(marker)
             raise UpdateStepError(
                 "checkout", _stderr_tail(checkout.stderr or "") or f"checkout {ref} exited {checkout.returncode}"
             )
+        if marker is not None:
+            marker.unlink(missing_ok=True)
+
+    # -- stale git lock sweep --------------------------------------------------------------
+
+    def _sweep_stale_locks(self) -> None:
+        """Remove git lock files this updater can attribute to itself, before every apply/rollback run.
+
+        See the module docstring's "Stale git locks" section: a lock is
+        removed only when it is older than :data:`_STALE_LOCK_MIN_AGE_SECONDS`
+        or the checkout marker is present (this updater's own previous run
+        provably died mid-mutation). A fresh, unattributed lock is left
+        alone -- the git call that needs it fails visibly instead of this
+        method silently deleting a live operator lock out from under a
+        concurrent SSH session.
+        """
+        git_dir = self._git_dir()
+        if git_dir is None:
+            return
+        marker_present = (git_dir / _CHECKOUT_MARKER_NAME).exists()
+        candidates = [git_dir / name for name in _GIT_DIR_LOCK_NAMES]
+        refs_dir = git_dir / "refs"
+        if refs_dir.is_dir():
+            candidates.extend(sorted(refs_dir.rglob("*.lock")))
+        now = time.time()
+        removed: list[str] = []
+        for path in candidates:
+            try:
+                if not path.is_file():
+                    continue
+                attributable = marker_present or (now - path.stat().st_mtime) >= _STALE_LOCK_MIN_AGE_SECONDS
+                if not attributable:
+                    continue
+                path.unlink()
+                removed.append(str(path.relative_to(self.portal_dir)))
+            except OSError as error:
+                logger.warning("could not remove stale git lock %s: %s", path, error)
+        if removed:
+            logger.warning("removed stale git lock file(s) before update: %s", ", ".join(removed))
 
     def _static_dir(self) -> Path:
         # Mirrors settings.DEFAULT_STATIC_DIR's path shape, resolved against

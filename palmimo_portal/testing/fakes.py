@@ -398,18 +398,12 @@ class FakeUpdater(Updater):
     fail_message: str = "boom"
     apply_calls: list[str] = field(default_factory=list)
     """Every ``tag`` :meth:`apply` was called with, in order."""
-    apply_repair_dirty_calls: list[bool] = field(default_factory=list)
-    """Every ``repair_dirty`` :meth:`apply` was called with, in order --
-    parallel to :attr:`apply_calls`, so a test can assert the attribution
-    rule (``core/update.should_repair_dirty_checkout``) actually reached
-    the updater for a given call."""
 
     def installed(self) -> InstalledVersion:
         return self.installed_version
 
-    def apply(self, tag: str, on_step: Callable[[str], None], *, repair_dirty: bool = False) -> None:
+    def apply(self, tag: str, on_step: Callable[[str], None]) -> None:
         self.apply_calls.append(tag)
-        self.apply_repair_dirty_calls.append(repair_dirty)
         for step in self.steps:
             on_step(step)
             if step == self.fail_at_step:

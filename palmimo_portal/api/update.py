@@ -149,6 +149,11 @@ def check(
 ) -> UpdateStatusResponse:
     """Fetch the latest GitHub Release synchronously (up to a 10s timeout) and persist it.
 
+    Read-only with respect to ``job``: a check never starts, clears, or
+    otherwise touches the update job, so a ``done``/``failed`` job from an
+    earlier apply/rollback stays visible (with its own ``retry_available``)
+    across any number of checks.
+
     Raises:
         PortalError: 409 ``update_in_progress`` while a job is already
             running/restarting/checking; 429 ``update_check_rate_limited``

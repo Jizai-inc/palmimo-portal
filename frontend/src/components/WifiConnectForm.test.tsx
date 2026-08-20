@@ -88,6 +88,89 @@ describe("WifiConnectForm", () => {
     expect(screen.getByText("That network name is not valid.")).toBeInTheDocument();
   });
 
+  it("toggles the password input between hidden and visible", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <WifiConnectForm
+        network={SECURED_NETWORK}
+        lastAttempt={undefined}
+        connectError={undefined}
+        isSubmitting={false}
+        onSubmit={vi.fn()}
+        onBack={vi.fn()}
+      />,
+    );
+
+    const passwordInput = screen.getByLabelText("Wi-Fi password");
+    expect(passwordInput).toHaveAttribute("type", "password");
+
+    const toggle = screen.getByRole("button", { name: "Show or hide password" });
+    await user.click(toggle);
+    expect(passwordInput).toHaveAttribute("type", "text");
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(toggle);
+    expect(passwordInput).toHaveAttribute("type", "password");
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("never submits the form when the visibility toggle is clicked", async () => {
+    // Uses the open network (no `required` password) so HTML5 constraint
+    // validation can't mask a regression: an empty required field blocks
+    // native submission on its own, which would hide a missing
+    // `type="button"` on the toggle.
+    const user = userEvent.setup();
+    const { container } = renderWithProviders(
+      <WifiConnectForm
+        network={OPEN_NETWORK}
+        lastAttempt={undefined}
+        connectError={undefined}
+        isSubmitting={false}
+        onSubmit={vi.fn()}
+        onBack={vi.fn()}
+      />,
+    );
+
+    const form = container.querySelector("form");
+    if (!form) throw new Error("form not found in rendered output");
+    const onFormSubmit = vi.fn();
+    form.addEventListener("submit", onFormSubmit);
+
+    await user.click(screen.getByRole("button", { name: "Show or hide password" }));
+
+    expect(onFormSubmit).not.toHaveBeenCalled();
+  });
+
+  it("hides the password again once the target network changes", async () => {
+    const user = userEvent.setup();
+    const { rerender } = renderWithProviders(
+      <WifiConnectForm
+        network={SECURED_NETWORK}
+        lastAttempt={undefined}
+        connectError={undefined}
+        isSubmitting={false}
+        onSubmit={vi.fn()}
+        onBack={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Show or hide password" }));
+    expect(screen.getByLabelText("Wi-Fi password")).toHaveAttribute("type", "text");
+
+    rerender(
+      <WifiConnectForm
+        network={OPEN_NETWORK}
+        lastAttempt={undefined}
+        connectError={undefined}
+        isSubmitting={false}
+        onSubmit={vi.fn()}
+        onBack={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByLabelText("Wi-Fi password")).toHaveAttribute("type", "password");
+  });
+
   it("renders the wifi_invalid_psk error message", () => {
     renderWithProviders(
       <WifiConnectForm

@@ -34,6 +34,23 @@ describe("SshKeysPanel", () => {
     expect(screen.getByText("SHA256:cccc3333dddd4444")).toBeInTheDocument();
   });
 
+  it("truncates a long comment instead of pushing the delete button out of the row", async () => {
+    const longComment = "a".repeat(200);
+    server.use(
+      getListKeysApiV1SshKeysGetMockHandler([
+        { fingerprint: "SHA256:aaaa1111bbbb2222", key_type: "ssh-ed25519", comment: longComment },
+      ]),
+    );
+    renderWithProviders(<SshKeysPanel />);
+
+    const comment = await screen.findByText(longComment);
+    const classes = comment.className.split(" ");
+    expect(classes).toContain("min-w-0");
+    // Unprefixed, not `md:truncate` -- the row is `flex-col` (not `md:grid`) below md, so
+    // truncation must apply at mobile widths too, not just once the desktop grid kicks in.
+    expect(classes).toContain("truncate");
+  });
+
   it("shows an empty state when there are no keys", async () => {
     server.use(getListKeysApiV1SshKeysGetMockHandler([]));
     renderWithProviders(<SshKeysPanel />);

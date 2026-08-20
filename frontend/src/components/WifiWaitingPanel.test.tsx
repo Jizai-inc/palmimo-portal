@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { PortalApiError } from "@/api/client";
 import { getGetStatusApiV1SystemStatusGetMockHandler } from "@/api/generated/system/system.msw";
 import { WifiWaitingPanel } from "@/components/WifiWaitingPanel";
-import { renderWithProviders } from "@/test/render";
+import { renderWithRouter } from "@/test/render";
 import { server } from "@/test/server";
 
 const CONNECTING_STATUS = {
@@ -35,7 +35,7 @@ describe("WifiWaitingPanel", () => {
     );
     const assign = vi.fn();
 
-    renderWithProviders(
+    renderWithRouter(
       <WifiWaitingPanel
         ssid="Home Wi-Fi"
         onConnected={vi.fn()}
@@ -63,7 +63,7 @@ describe("WifiWaitingPanel", () => {
     const onFailed = vi.fn();
     const user = userEvent.setup();
 
-    renderWithProviders(
+    renderWithRouter(
       <WifiWaitingPanel
         ssid="Home Wi-Fi"
         onConnected={vi.fn()}
@@ -84,7 +84,7 @@ describe("WifiWaitingPanel", () => {
   it("falls back to the generic hostname phrase in the body before system/status has resolved", async () => {
     server.use(http.get("*/api/v1/system/status", async () => new Promise(() => {})));
 
-    renderWithProviders(
+    renderWithRouter(
       <WifiWaitingPanel ssid="Home Wi-Fi" onConnected={vi.fn()} onFailed={vi.fn()} pollIntervalMs={50_000} probeIntervalMs={50_000} />,
     );
 
@@ -101,7 +101,7 @@ describe("WifiWaitingPanel", () => {
       http.get("*/api/v1/system/status", () => HttpResponse.json({ ...CONNECTING_STATUS, state: "connected" })),
     );
 
-    renderWithProviders(
+    renderWithRouter(
       <WifiWaitingPanel
         ssid="Home Wi-Fi"
         onConnected={onConnected}
@@ -142,7 +142,7 @@ describe("WifiWaitingPanel", () => {
       }),
     );
 
-    renderWithProviders(
+    renderWithRouter(
       <WifiWaitingPanel
         ssid="Home Wi-Fi"
         onConnected={onConnected}
@@ -173,7 +173,7 @@ describe("WifiWaitingPanel", () => {
       ),
     );
 
-    renderWithProviders(
+    renderWithRouter(
       <WifiWaitingPanel
         ssid="Home Wi-Fi"
         onConnected={vi.fn()}
@@ -204,7 +204,7 @@ describe("WifiWaitingPanel", () => {
       }),
     );
 
-    renderWithProviders(
+    renderWithRouter(
       <WifiWaitingPanel
         ssid="Home Wi-Fi"
         onConnected={vi.fn()}
@@ -231,7 +231,7 @@ describe("WifiWaitingPanel", () => {
       }),
     );
 
-    renderWithProviders(
+    renderWithRouter(
       <WifiWaitingPanel
         ssid="Home Wi-Fi"
         onConnected={vi.fn()}
@@ -257,7 +257,7 @@ describe("WifiWaitingPanel", () => {
       }),
     );
 
-    renderWithProviders(
+    renderWithRouter(
       <WifiWaitingPanel
         ssid="Home Wi-Fi"
         onConnected={onConnected}
@@ -290,7 +290,7 @@ describe("WifiWaitingPanel", () => {
       }),
     );
 
-    renderWithProviders(
+    renderWithRouter(
       <WifiWaitingPanel
         ssid="Home Wi-Fi"
         onConnected={vi.fn()}
@@ -319,7 +319,7 @@ describe("WifiWaitingPanel", () => {
       }),
     );
 
-    renderWithProviders(
+    renderWithRouter(
       <WifiWaitingPanel
         ssid="Home Wi-Fi"
         onConnected={vi.fn()}
@@ -352,7 +352,7 @@ describe("WifiWaitingPanel", () => {
     server.use(getGetStatusApiV1SystemStatusGetMockHandler(CONNECTING_STATUS));
     const connectError = new PortalApiError(503, "network_backend_unavailable", {});
 
-    renderWithProviders(
+    renderWithRouter(
       <WifiWaitingPanel
         ssid="Home Wi-Fi"
         onConnected={vi.fn()}
@@ -386,7 +386,7 @@ describe("WifiWaitingPanel", () => {
       }),
     );
 
-    renderWithProviders(
+    renderWithRouter(
       <WifiWaitingPanel ssid="Home Wi-Fi" onConnected={vi.fn()} onFailed={vi.fn()} pollIntervalMs={20} probeIntervalMs={50_000} />,
     );
 
@@ -417,7 +417,7 @@ describe("WifiWaitingPanel", () => {
       }),
     );
 
-    renderWithProviders(
+    renderWithRouter(
       <WifiWaitingPanel ssid="Home Wi-Fi" onConnected={vi.fn()} onFailed={vi.fn()} pollIntervalMs={20} probeIntervalMs={50_000} />,
     );
 

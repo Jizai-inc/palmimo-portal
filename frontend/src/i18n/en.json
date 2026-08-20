@@ -1,6 +1,6 @@
 {
   "app": {
-    "wordmark": "Palmimo Portal",
+    "wordmark": "Palmimo DevKit",
     "toggleSidebar": "Toggle sidebar",
     "languageToggle": "Language",
     "unexpectedErrorTitle": "Something went wrong",
@@ -49,7 +49,7 @@
     "submit": "Set password"
   },
   "login": {
-    "stickerTitle": "Welcome to Palmimo Portal",
+    "stickerTitle": "Welcome to Palmimo DevKit",
     "stickerBody": "Enter the password printed on the sticker under this device.",
     "deviceIdLabel": "Device ID",
     "title": "Log in",
@@ -93,6 +93,7 @@
     "connectTitle": "Connect to {{ssid}}",
     "connectBody": "Enter this network's password.",
     "passwordLabel": "Wi-Fi password",
+    "togglePasswordVisibility": "Show or hide password",
     "passwordTooShort": "Password must be 8-63 characters.",
     "connect": "Connect",
     "lastAttemptFailedTitle": "Previous attempt failed",
@@ -201,6 +202,7 @@
     "newVersionAvailable": "A new version is available",
     "upToDate": "Up to date",
     "checkFailedTitle": "Could not fetch release information",
+    "checkingTitle": "Checking for updates…",
     "installedVersionLabel": "Current version",
     "latestReleaseLabel": "Latest release",
     "lastCheckedLabel": "Last checked",

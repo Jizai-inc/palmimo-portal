@@ -1,7 +1,7 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, delay, http } from "msw";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UpdateStatusResponse } from "@/api/generated/models";
 import { getGetStatusApiV1UpdateStatusGetMockHandler } from "@/api/generated/update/update.msw";
@@ -42,6 +42,25 @@ const UPDATE_AVAILABLE_STATUS: UpdateStatusResponse = {
 
 function useStatus(status: UpdateStatusResponse) {
   server.use(getGetStatusApiV1UpdateStatusGetMockHandler(status));
+}
+
+const RESTART_TIMED_OUT_TEXT =
+  "Palmimo has not come back yet. Power-cycle the device; if the Portal still does not start, roll back over SSH.";
+
+/** A `system/status` response that always succeeds, so the fail-then-succeed restart-poll path (covered elsewhere) never fires -- only the restart-wait deadline under test can resolve the screen. */
+function systemStatusAlwaysOkHandler() {
+  return http.get("*/api/v1/system/status", () =>
+    HttpResponse.json({
+      state: "connected",
+      hostname: "palmimo-1234",
+      auth_state: "set",
+      device_id: "1234",
+      versions: { portal: "0.2.0", sdk: null },
+      last_wifi_attempt: null,
+      adapters: "fake",
+      state_dir: "/tmp",
+    }),
+  );
 }
 
 describe("UpdatePanel", () => {
@@ -424,45 +443,158 @@ describe("UpdatePanel", () => {
     renderWithProviders(<UpdatePanel restartPollIntervalMs={10_000} restartMaxWaitMs={30} />);
 
     expect(await screen.findByText("Restarting…")).toBeInTheDocument();
-    expect(
-      await screen.findByText(
-        "Palmimo has not come back yet. Power-cycle the device; if the Portal still does not start, roll back over SSH.",
-      ),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(RESTART_TIMED_OUT_TEXT)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reopen the Portal" })).toBeInTheDocument();
   });
 
-  it("derives the restart-wait deadline from job.restarting_at, not a fresh mount timestamp, so a remount does not reset the budget", async () => {
-    // 400ms of a 500ms budget has already elapsed by the moment this test's
-    // first render happens.
-    const restartingAtSeconds = Date.now() / 1000 - 0.4;
-    useStatus({
-      ...UPDATE_AVAILABLE_STATUS,
-      job: { ...IDLE_JOB, state: "restarting", target: "v2.0.0", step: null, restarting_at: restartingAtSeconds },
+  // The restart-wait deadline is anchored to *this browser's* clock at the
+  // moment it first observes the restarting job, not to `job.restarting_at`
+  // (a server/device epoch-seconds timestamp). The Pi has no RTC: right
+  // after boot, before NTP settles, its clock can be minutes off from the
+  // browser's. These pin the fix -- a device clock skewed either direction
+  // must not perturb the client-side 10-minute UI budget -- and use fake
+  // timers so the real 10-minute wait is never actually paid.
+  describe("restart-wait deadline anchoring (client clock)", () => {
+    beforeEach(() => {
+      // `shouldAdvanceTime` lets real async work (MSW's fetch interception)
+      // keep resolving via the real clock while `advanceTimersByTimeAsync`
+      // still drives the virtual 10-minute jumps below.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
     });
-    // The restart never actually lands -- only the restart-wait timeout
-    // (the thing under test) can resolve this screen.
-    server.use(http.get("*/api/v1/system/status", () => HttpResponse.error()));
 
-    const first = renderWithProviders(<UpdatePanel restartPollIntervalMs={10_000} restartMaxWaitMs={500} />);
-    await screen.findByText("Restarting…");
-    first.unmount();
+    afterEach(() => {
+      vi.useRealTimers();
+    });
 
-    // Remount: a fresh component instance, a fresh QueryClient (as a real
-    // route remount would also get a fresh component instance), but the
-    // same server-reported `restarting_at`.
-    renderWithProviders(<UpdatePanel restartPollIntervalMs={10_000} restartMaxWaitMs={500} />);
+    it("does not show timed-out guidance immediately when the device clock is far behind, and shows it after 10 minutes of client time", async () => {
+      const twoHoursAgoSeconds = Date.now() / 1000 - 2 * 60 * 60;
+      useStatus({
+        ...UPDATE_AVAILABLE_STATUS,
+        job: { ...IDLE_JOB, state: "restarting", target: "v2.0.0", step: null, restarting_at: twoHoursAgoSeconds },
+      });
+      server.use(systemStatusAlwaysOkHandler());
 
-    // Only ~100ms of the original 500ms budget remained at the moment of
-    // this remount. If the deadline had reset to a fresh `Date.now() +
-    // 500ms` on this second mount (the bug), timeout guidance would not
-    // appear this soon.
-    expect(
-      await screen.findByText(
-        "Palmimo has not come back yet. Power-cycle the device; if the Portal still does not start, roll back over SSH.",
-        {},
-        { timeout: 300 },
-      ),
-    ).toBeInTheDocument();
+      renderWithProviders(<UpdatePanel restartPollIntervalMs={20 * 60 * 1000} />);
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(screen.getByText("Restarting…")).toBeInTheDocument();
+
+      // Under the old `restarting_at * 1000 + 10min` deadline this would
+      // already be ~1h50m in the past -- i.e. due immediately -- so give any
+      // such already-due timer a tick to fire before asserting it did not.
+      await act(() => vi.advanceTimersByTimeAsync(1));
+      expect(screen.queryByText(RESTART_TIMED_OUT_TEXT)).not.toBeInTheDocument();
+
+      // Advancing the client's own clock past the 10-minute budget (plus a
+      // comfortable margin against timer-scheduling jitter) is what
+      // triggers the guidance.
+      await act(() => vi.advanceTimersByTimeAsync(10 * 60 * 1000 + 5_000));
+      expect(screen.getByText(RESTART_TIMED_OUT_TEXT)).toBeInTheDocument();
+    });
+
+    it("shows timed-out guidance after 10 minutes of client time (not 2h10m) when the device clock is far ahead", async () => {
+      const twoHoursFromNowSeconds = Date.now() / 1000 + 2 * 60 * 60;
+      useStatus({
+        ...UPDATE_AVAILABLE_STATUS,
+        job: { ...IDLE_JOB, state: "restarting", target: "v2.0.0", step: null, restarting_at: twoHoursFromNowSeconds },
+      });
+      server.use(systemStatusAlwaysOkHandler());
+
+      renderWithProviders(<UpdatePanel restartPollIntervalMs={20 * 60 * 1000} />);
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(screen.getByText("Restarting…")).toBeInTheDocument();
+
+      // Comfortably short of the 10-minute client budget: still waiting.
+      await act(() => vi.advanceTimersByTimeAsync(9 * 60 * 1000 + 30_000));
+      expect(screen.queryByText(RESTART_TIMED_OUT_TEXT)).not.toBeInTheDocument();
+
+      // Comfortably past the 10-minute client budget -- but nowhere near the
+      // ~2h10m a stale server-epoch deadline would instead require.
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      expect(screen.getByText(RESTART_TIMED_OUT_TEXT)).toBeInTheDocument();
+    });
+
+    it("shows the failure UI immediately once a poll observes a server-side failed job, before the client deadline elapses", async () => {
+      let updateStatusCallCount = 0;
+      server.use(
+        http.get("*/api/v1/update/status", () => {
+          updateStatusCallCount += 1;
+          if (updateStatusCallCount === 1) {
+            return HttpResponse.json({
+              ...UPDATE_AVAILABLE_STATUS,
+              job: { ...IDLE_JOB, state: "restarting", target: "v2.0.0", step: null, restarting_at: Date.now() / 1000 },
+            });
+          }
+          return HttpResponse.json({
+            ...UPDATE_AVAILABLE_STATUS,
+            job: {
+              kind: "update",
+              state: "failed",
+              target: "v2.0.0",
+              step: "restart",
+              error: "service failed to come back",
+              started_at: 1,
+              finished_at: 2,
+              restarting_at: 1.5,
+            },
+          });
+        }),
+        systemStatusAlwaysOkHandler(),
+      );
+
+      renderWithProviders(<UpdatePanel restartPollIntervalMs={20 * 60 * 1000} />);
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(screen.getByText("Restarting…")).toBeInTheDocument();
+
+      // The next `update/status` poll (JOB_POLL_INTERVAL_MS, well inside the
+      // 10-minute deadline) reports `failed` -- the failure UI must win
+      // immediately, without waiting out the client-side timeout.
+      await act(() => vi.advanceTimersByTimeAsync(2_000));
+      expect(await screen.findByText(/The update failed/)).toBeInTheDocument();
+      expect(screen.queryByText(RESTART_TIMED_OUT_TEXT)).not.toBeInTheDocument();
+    });
+
+    it("resets the 10-minute budget when a new restart (a changed restarting_at) supersedes the one being waited on", async () => {
+      const firstRestartingAt = Date.now() / 1000;
+      let updateStatusCallCount = 0;
+      server.use(
+        http.get("*/api/v1/update/status", () => {
+          updateStatusCallCount += 1;
+          // The first restart is superseded by a second one partway through
+          // the wait -- e.g. a retry after the operator power-cycled the
+          // device by hand. From the third poll onward, report the second
+          // restart's (different) `restarting_at` indefinitely.
+          const restartingAt = updateStatusCallCount === 1 ? firstRestartingAt : firstRestartingAt + 5 * 60;
+          return HttpResponse.json({
+            ...UPDATE_AVAILABLE_STATUS,
+            job: { ...IDLE_JOB, state: "restarting", target: "v2.0.0", step: null, restarting_at: restartingAt },
+          });
+        }),
+        systemStatusAlwaysOkHandler(),
+      );
+
+      renderWithProviders(<UpdatePanel restartPollIntervalMs={20 * 60 * 1000} />);
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(screen.getByText("Restarting…")).toBeInTheDocument();
+
+      // One JOB_POLL_INTERVAL_MS tick in: the poll now reports the second
+      // restart's `restarting_at`, which must reset the budget to a fresh
+      // 10 minutes counted from *this* moment (~602s from mount).
+      await act(() => vi.advanceTimersByTimeAsync(2_000));
+      expect(screen.getByText("Restarting…")).toBeInTheDocument();
+
+      // Comfortably short of the reset deadline (~600s from mount, still
+      // ~2s before it): under a reset budget, still waiting. Under the
+      // stale (unreset) first-restart budget this would also still be
+      // waiting, so this assertion alone does not discriminate the fix --
+      // the next one does.
+      await act(() => vi.advanceTimersByTimeAsync(598_000));
+      expect(screen.queryByText(RESTART_TIMED_OUT_TEXT)).not.toBeInTheDocument();
+
+      // Comfortably past the reset deadline (~605s from mount) but nowhere
+      // near the unreset first-restart deadline (~900s from mount) -- only
+      // a budget that actually reset on the second restart fires here.
+      await act(() => vi.advanceTimersByTimeAsync(5_000));
+      expect(screen.getByText(RESTART_TIMED_OUT_TEXT)).toBeInTheDocument();
+    });
   });
 });

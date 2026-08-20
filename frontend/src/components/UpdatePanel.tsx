@@ -237,20 +237,31 @@ export function UpdatePanel({
   // transition. Starts counting when the job becomes "restarting" and
   // resets when it stops.
   //
-  // The deadline is derived from `job.restarting_at` (a server-side epoch
-  // *seconds* timestamp set by `mark_restarting`, see core/update.py) rather
-  // than a fresh `Date.now()`, so a remount (navigating away and back) does
-  // not silently reset the wait budget and let a stuck restart spin past
-  // `restartMaxWaitMs` repeatedly. `restarting_at` is nullable (state written
-  // before this field existed), so a missing value falls back to a fresh
-  // `Date.now()`-derived deadline.
+  // Anchored to *this browser's* clock at the moment this effect first
+  // observes the restarting job -- `setTimeout(cb, restartMaxWaitMs)` below
+  // schedules relative to `Date.now()` as read internally when the timer is
+  // armed -- rather than to `job.restarting_at` (a server/device epoch
+  // *seconds* timestamp set by `mark_restarting`, see core/update.py). The
+  // Pi has no RTC: right after boot, before NTP settles, its clock can be
+  // minutes off from the browser's, and mixing the two meant a device clock
+  // behind the browser fired this guidance immediately on a healthy
+  // restart, while a device clock ahead silently extended the wait. The
+  // server's own 600s expiry (core/update.py) that flips the job to
+  // `failed` is unaffected by this bug or this fix -- it is purely a
+  // client-side UI budget, and a server-reported `failed` still wins the
+  // moment a poll observes it, since that changes `job.state` and this
+  // effect's cleanup below tears the timer down.
+  //
+  // The effect -- and therefore the deadline -- only resets when
+  // `job.state` transitions into `restarting` or `job.restarting_at`
+  // changes (a genuinely new restart superseding the one being waited on),
+  // not on every poll that merely re-confirms the same restart.
   useEffect(() => {
     if (job?.state !== "restarting") {
       setRestartTimedOut(false);
       return undefined;
     }
-    const deadlineMs = job.restarting_at != null ? job.restarting_at * 1000 + restartMaxWaitMs : Date.now() + restartMaxWaitMs;
-    const timeoutId = setTimeout(() => setRestartTimedOut(true), Math.max(0, deadlineMs - Date.now()));
+    const timeoutId = setTimeout(() => setRestartTimedOut(true), restartMaxWaitMs);
     return () => clearTimeout(timeoutId);
   }, [job?.state, job?.restarting_at, restartMaxWaitMs]);
 

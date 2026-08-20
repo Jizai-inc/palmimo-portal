@@ -47,7 +47,7 @@
     "submit": "パスワードを設定"
   },
   "login": {
-    "stickerTitle": "Palmimo Portal へようこそ",
+    "stickerTitle": "Palmimo DevKit へようこそ",
     "stickerBody": "本体底面のシールに記載されたパスワードを入力してください。",
     "deviceIdLabel": "デバイス ID",
     "title": "ログイン",

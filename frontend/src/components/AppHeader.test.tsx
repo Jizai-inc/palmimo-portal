@@ -10,8 +10,8 @@ import { AppHeader } from "@/components/AppHeader";
  * to="/"` has somewhere to navigate from -- the full `routeTree.gen.ts`
  * pulls in every screen and its data fetching, which this test doesn't need.
  */
-function renderAppHeaderAt(initialPath: string) {
-  const rootRoute = createRootRoute({ component: () => <AppHeader /> });
+function renderAppHeaderAt(initialPath: string, wordmarkLinksHome: boolean) {
+  const rootRoute = createRootRoute({ component: () => <AppHeader wordmarkLinksHome={wordmarkLinksHome} /> });
   const dashboardRoute = createRoute({ getParentRoute: () => rootRoute, path: "/dashboard", component: () => null });
   const routeTree = rootRoute.addChildren([dashboardRoute]);
   const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: [initialPath] }) });
@@ -22,18 +22,25 @@ function renderAppHeaderAt(initialPath: string) {
 }
 
 describe("AppHeader", () => {
-  it("renders the Palmimo DevKit wordmark", async () => {
-    renderAppHeaderAt("/dashboard");
+  it("renders the Palmimo DevKit wordmark as a link when wordmarkLinksHome is true", async () => {
+    renderAppHeaderAt("/dashboard", true);
 
     expect(await screen.findByRole("link", { name: "Palmimo DevKit" })).toBeInTheDocument();
   });
 
-  it("navigates to / when the wordmark is clicked", async () => {
-    const router = renderAppHeaderAt("/dashboard");
+  it("navigates to / when the linked wordmark is clicked", async () => {
+    const router = renderAppHeaderAt("/dashboard", true);
     const user = userEvent.setup();
 
     await user.click(await screen.findByRole("link", { name: "Palmimo DevKit" }));
 
     await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+  });
+
+  it("renders the Palmimo DevKit wordmark as inert text when wordmarkLinksHome is false", async () => {
+    renderAppHeaderAt("/dashboard", false);
+
+    expect(await screen.findByText("Palmimo DevKit")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Palmimo DevKit" })).not.toBeInTheDocument();
   });
 });

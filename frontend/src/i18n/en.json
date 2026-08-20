@@ -47,7 +47,7 @@
     "submit": "Set password"
   },
   "login": {
-    "stickerTitle": "Welcome to Palmimo Portal",
+    "stickerTitle": "Welcome to Palmimo DevKit",
     "stickerBody": "Enter the password printed on the sticker under this device.",
     "deviceIdLabel": "Device ID",
     "title": "Log in",

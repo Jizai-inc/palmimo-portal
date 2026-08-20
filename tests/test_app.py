@@ -25,7 +25,7 @@ def _built_static_dir(tmp_path: Path) -> Path:
     """A minimal fake `make build` output: enough for `_mount_frontend` to mount it."""
     static_dir = tmp_path / "static"
     (static_dir / "assets").mkdir(parents=True)
-    (static_dir / "index.html").write_text("<!doctype html><title>Palmimo Setup</title>", encoding="utf-8")
+    (static_dir / "index.html").write_text("<!doctype html><title>Palmimo Portal</title>", encoding="utf-8")
     (static_dir / "assets" / "index.js").write_text("// built asset\n", encoding="utf-8")
     return static_dir
 
@@ -96,7 +96,7 @@ def test_create_app_restores_static_from_static_prev_when_static_is_missing(tmp_
     static_dir = tmp_path / "static"
     prev_dir = tmp_path / "static.prev"
     (prev_dir / "assets").mkdir(parents=True)
-    (prev_dir / "index.html").write_text("<!doctype html><title>Palmimo Setup</title>", encoding="utf-8")
+    (prev_dir / "index.html").write_text("<!doctype html><title>Palmimo Portal</title>", encoding="utf-8")
     (prev_dir / "assets" / "index.js").write_text("// built asset\n", encoding="utf-8")
     settings = Settings(allowed_hosts=frozenset({"testserver"}), static_dir=static_dir)
 
@@ -104,7 +104,7 @@ def test_create_app_restores_static_from_static_prev_when_static_is_missing(tmp_
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "Palmimo Setup" in response.text
+    assert "Palmimo Portal" in response.text
     assert not prev_dir.exists()
 
 
@@ -115,7 +115,7 @@ def test_frontend_root_serves_index_html(tmp_path: Path) -> None:
     response = client.get("/")
 
     assert response.status_code == 200
-    assert "Palmimo Setup" in response.text
+    assert "Palmimo Portal" in response.text
 
 
 def test_frontend_serves_a_built_asset(tmp_path: Path) -> None:
@@ -138,7 +138,7 @@ def test_frontend_spa_fallback_serves_index_html_for_a_client_route(tmp_path: Pa
     response = client.get("/login")
 
     assert response.status_code == 200
-    assert "Palmimo Setup" in response.text
+    assert "Palmimo Portal" in response.text
 
 
 def test_frontend_spa_fallback_still_404s_an_unmatched_api_path(tmp_path: Path) -> None:
@@ -208,7 +208,7 @@ def test_mount_frontend_degrades_to_api_only_when_assets_dir_is_missing(
     # wholly missing static_dir.
     static_dir = tmp_path / "static"
     static_dir.mkdir()
-    (static_dir / "index.html").write_text("<!doctype html><title>Palmimo Setup</title>", encoding="utf-8")
+    (static_dir / "index.html").write_text("<!doctype html><title>Palmimo Portal</title>", encoding="utf-8")
     settings = Settings(allowed_hosts=frozenset({"testserver"}), static_dir=static_dir)
 
     with caplog.at_level(logging.WARNING, logger="palmimo_portal"):
@@ -233,7 +233,7 @@ def test_mount_frontend_degrades_to_api_only_when_assets_dir_is_empty(
     # warning in journalctl to explain why.
     static_dir = tmp_path / "static"
     (static_dir / "assets").mkdir(parents=True)
-    (static_dir / "index.html").write_text("<!doctype html><title>Palmimo Setup</title>", encoding="utf-8")
+    (static_dir / "index.html").write_text("<!doctype html><title>Palmimo Portal</title>", encoding="utf-8")
     settings = Settings(allowed_hosts=frozenset({"testserver"}), static_dir=static_dir)
 
     with caplog.at_level(logging.WARNING, logger="palmimo_portal"):

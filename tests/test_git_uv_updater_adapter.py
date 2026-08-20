@@ -32,6 +32,7 @@ from typing import Any
 
 import pytest
 
+import palmimo_portal.adapters.git_uv_updater as git_uv_updater_module
 from palmimo_portal.adapters.git_uv_updater import (
     _CHECKOUT_MARKER_NAME,
     _STALE_LOCK_MIN_AGE_SECONDS,
@@ -602,54 +603,212 @@ def test_apply_refuses_a_user_dirty_tree_with_no_marker_even_after_a_previous_ch
     assert called_subcommands == ["status"]  # nothing forced, nothing else even attempted
 
 
-# --- stale git lock sweep: gated, not unconditional ---
-
-
-def test_apply_sweeps_an_old_lock_with_no_marker(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+def test_checkout_creates_the_marker_through_the_fsync_helper(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The marker's creation must be fsynced (file + `.git` directory entry)
+    # so a power cut immediately after cannot lose the marker while the
+    # half-checkout dirt it attests to survives -- pinned by asserting
+    # creation goes through the shared fsynced-write helper, not a bare
+    # `Path.touch()`.
     git_dir = _seed_git_dir(tmp_path)
-    lock = git_dir / "index.lock"
-    lock.write_text("")
-    old_mtime = time.time() - _STALE_LOCK_MIN_AGE_SECONDS - 60
-    os.utime(lock, (old_mtime, old_mtime))
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    calls: list[tuple[Path, str]] = []
+    real_atomic_write_text = git_uv_updater_module.atomic_write_text
+
+    def spying_atomic_write_text(path: Path, text: str) -> None:
+        calls.append((path, text))
+        real_atomic_write_text(path, text)
+
+    monkeypatch.setattr(git_uv_updater_module, "atomic_write_text", spying_atomic_write_text)
+    runner = _ScriptedRunner(_happy_checkout_script())
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner)
+
+    updater._checkout("v2.0.0", on_step=lambda step: None)
+
+    assert calls == [(marker, "")]
+
+
+def test_apply_clears_a_stale_marker_at_start_so_a_later_dirtied_tree_refuses_instead_of_forcing(
+    tmp_path: Path,
+) -> None:
+    # Pins the fix for a proof-of-concept: a marker left behind by a kill
+    # between checkout-success and its own removal (or between its
+    # creation and the checkout even starting) could otherwise linger
+    # indefinitely and license a force far later, once the tree becomes
+    # dirty again for an unrelated (operator) reason. apply() now clears a
+    # stale marker against the CURRENT tree state at the very start, before
+    # `fetch` -- so by the time `_checkout`'s own guard runs later in this
+    # same call, a tree that has since become dirty (simulated here by the
+    # second scripted `status` response) is correctly refused, not forced.
+    git_dir = _seed_git_dir(tmp_path)
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    marker.touch()  # stale -- left behind by some earlier, now-irrelevant run
+    script = _happy_checkout_script(status=_seq(_ok(""), _ok(" M some/file.py\n")))
+    runner = _ScriptedRunner(script)
+    opener = _asset_opener("v2.0.0", _minimal_static_tar())
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner, opener=opener)
+
+    with pytest.raises(UpdateStepError) as excinfo:
+        updater.apply("v2.0.0", on_step=lambda step: None)
+
+    assert excinfo.value.step == "checkout"
+    assert DIRTY_TREE_REFUSAL_PREFIX in str(excinfo.value)
+    assert not marker.exists()  # cleared at apply-start; never resurrected since checkout refused, not forced
+
+
+def test_apply_logs_info_once_when_it_clears_a_stale_marker(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    git_dir = _seed_git_dir(tmp_path)
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    marker.touch()
     runner = _ScriptedRunner(_happy_checkout_script())
     opener = _asset_opener("v2.0.0", _minimal_static_tar())
     updater = GitUvUpdater(portal_dir=tmp_path, runner=runner, opener=opener)
 
-    with caplog.at_level(logging.WARNING):
+    with caplog.at_level(logging.INFO):
         updater.apply("v2.0.0", on_step=lambda step: None)
 
-    assert not lock.exists()
-    assert any("index.lock" in r.message for r in caplog.records)
+    info_records = [r for r in caplog.records if r.levelno == logging.INFO and "stale" in r.message]
+    assert len(info_records) == 1
+
+
+def test_apply_leaves_an_attested_marker_alone_at_start_when_the_tree_is_still_dirty(tmp_path: Path) -> None:
+    # The apply-start clear must only fire on a CLEAN tree -- a marker
+    # whose dirt is still present is exactly the attested-debris case the
+    # marker exists to preserve.
+    git_dir = _seed_git_dir(tmp_path)
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    marker.touch()
+    runner = _ScriptedRunner(_happy_checkout_script(status=_ok(" M some/file.py\n")))
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner)
+
+    updater._clear_marker_if_tree_is_clean()
+
+    assert marker.exists()
+
+
+# --- stale git lock sweep: gated, not unconditional ---
+
+
+def test_sweep_leaves_a_lock_alone_the_first_time_it_is_seen(tmp_path: Path) -> None:
+    # The monotonic first-seen gate cannot possibly consider a lock
+    # eligible the very first time this process observes it.
+    git_dir = _seed_git_dir(tmp_path)
+    lock = git_dir / "index.lock"
+    lock.write_text("")
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=_ScriptedRunner({}), monotonic=lambda: 1000.0)
+
+    updater._sweep_stale_locks()
+
+    assert lock.exists()
 
 
 def test_apply_leaves_a_fresh_lock_with_no_marker_alone(tmp_path: Path) -> None:
     git_dir = _seed_git_dir(tmp_path)
     lock = git_dir / "index.lock"
-    lock.write_text("")  # mtime is "now" -- well under the staleness threshold
+    lock.write_text("")
     runner = _ScriptedRunner(_happy_checkout_script())
     opener = _asset_opener("v2.0.0", _minimal_static_tar())
     updater = GitUvUpdater(portal_dir=tmp_path, runner=runner, opener=opener)
 
     updater.apply("v2.0.0", on_step=lambda step: None)
 
-    assert lock.exists()  # not attributable to this updater -- left alone
+    assert lock.exists()  # not attributable to this updater on a first sighting -- left alone
 
 
-def test_apply_sweeps_a_fresh_lock_when_the_marker_is_present(tmp_path: Path) -> None:
-    # The marker attests "this updater's own previous run died mid-
-    # mutation" -- once that's true, the locks from that same run are its
-    # own regardless of age.
+def test_sweep_removes_a_lock_once_observed_stale_for_the_threshold_via_monotonic_time(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     git_dir = _seed_git_dir(tmp_path)
     lock = git_dir / "index.lock"
     lock.write_text("")
-    (git_dir / _CHECKOUT_MARKER_NAME).touch()
-    runner = _ScriptedRunner(_happy_checkout_script())
-    opener = _asset_opener("v2.0.0", _minimal_static_tar())
-    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner, opener=opener)
+    clock = {"t": 1000.0}
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=_ScriptedRunner({}), monotonic=lambda: clock["t"])
 
-    updater.apply("v2.0.0", on_step=lambda step: None)
+    updater._sweep_stale_locks()  # first sight -- records first_seen, does not remove
+    assert lock.exists()
+
+    clock["t"] += _STALE_LOCK_MIN_AGE_SECONDS - 1
+    updater._sweep_stale_locks()  # not yet elapsed
+    assert lock.exists()
+
+    clock["t"] += 2
+    with caplog.at_level(logging.WARNING):
+        updater._sweep_stale_locks()  # now elapsed
+    assert not lock.exists()
+    assert any("index.lock" in r.message for r in caplog.records)
+
+
+def test_sweep_ignores_a_wall_clock_jump(tmp_path: Path) -> None:
+    # An NTP step-forward at boot must not make a just-created, genuinely
+    # live lock look hours old -- only this process's own monotonic clock
+    # counts.
+    git_dir = _seed_git_dir(tmp_path)
+    lock = git_dir / "index.lock"
+    lock.write_text("")
+    backdated = time.time() - 3600  # wall-clock mtime says "an hour old"
+    os.utime(lock, (backdated, backdated))
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=_ScriptedRunner({}), monotonic=lambda: 1000.0)
+
+    updater._sweep_stale_locks()
+
+    assert lock.exists()
+
+
+def test_sweep_prunes_first_seen_bookkeeping_once_a_lock_disappears_on_its_own(tmp_path: Path) -> None:
+    git_dir = _seed_git_dir(tmp_path)
+    lock = git_dir / "index.lock"
+    lock.write_text("")
+    clock = {"t": 1000.0}
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=_ScriptedRunner({}), monotonic=lambda: clock["t"])
+    updater._sweep_stale_locks()
+    assert lock in updater._lock_first_seen
+
+    lock.unlink()  # e.g. the operator's own command finished and cleaned up after itself
+    updater._sweep_stale_locks()
+    assert lock not in updater._lock_first_seen
+
+    # A brand-new lock reappearing at the same path is treated as newly
+    # seen -- not instantly eligible from leftover bookkeeping.
+    lock.write_text("")
+    clock["t"] += _STALE_LOCK_MIN_AGE_SECONDS + 1
+    updater._sweep_stale_locks()
+    assert lock.exists()
+
+
+def test_sweep_removes_a_lock_no_newer_than_the_marker(tmp_path: Path) -> None:
+    # The marker attests "this updater's own previous run died mid-
+    # mutation" -- a lock that already existed before the marker was even
+    # written can only be from something that predates that same crash.
+    git_dir = _seed_git_dir(tmp_path)
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    marker.touch()
+    marker_mtime = marker.stat().st_mtime
+    lock = git_dir / "index.lock"
+    lock.write_text("")
+    os.utime(lock, (marker_mtime - 5, marker_mtime - 5))  # predates the marker
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=_ScriptedRunner({}), monotonic=lambda: 1000.0)
+
+    updater._sweep_stale_locks()
 
     assert not lock.exists()
+
+
+def test_sweep_leaves_a_lock_newer_than_the_marker_to_the_normal_gate(tmp_path: Path) -> None:
+    # Pins the fix for a proof-of-concept: a lock CREATED AFTER the marker
+    # could be this same crashed attempt's own lock, or an operator's
+    # brand-new one made during a post-crash SSH rescue -- indistinguishable
+    # by mtime alone, so it must NOT get automatic marker-based amnesty.
+    git_dir = _seed_git_dir(tmp_path)
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    marker.touch()
+    marker_mtime = marker.stat().st_mtime
+    lock = git_dir / "index.lock"
+    lock.write_text("")
+    os.utime(lock, (marker_mtime + 5, marker_mtime + 5))  # postdates the marker
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=_ScriptedRunner({}), monotonic=lambda: 1000.0)
+
+    updater._sweep_stale_locks()
+
+    assert lock.exists()  # falls to the (not-yet-elapsed) monotonic gate instead
 
 
 def test_apply_warns_once_when_git_dir_is_not_a_plain_directory(

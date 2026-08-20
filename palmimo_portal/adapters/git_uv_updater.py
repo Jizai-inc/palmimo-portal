@@ -83,7 +83,11 @@ tree**: ``git checkout``. The marker lives outside the worktree, at
      human's and left alone.
 
 2. If the tree is clean, remove any stale marker (a clean tree needs no
-   repair) and proceed to resolve the tag.
+   repair) and proceed to resolve the tag. This same check also runs once,
+   unconditionally, at the very *start* of :meth:`apply` -- before
+   ``fetch`` -- not only inside this step; see "A clean tree at apply-start
+   proves any marker stale" below for why that duplication is load-bearing,
+   not defensive fluff.
 3. Resolve ``tag`` against ``refs/tags/<tag>^{commit}``. If this fails ("tag
    not found after fetch"), the tree was **never touched** by this attempt --
    no marker is created here, so a later retry cannot force through a tree an
@@ -119,20 +123,48 @@ tree**: ``git checkout``. The marker lives outside the worktree, at
 
 Marker lifecycle, audited in full: created only in step 4 (after tag
 resolution succeeds, immediately before the mutating ``git checkout``
-call); removed in step 2 (stale, tree already clean), on success in step 5,
-and on the step-5 "still clean" recheck. No other code creates or removes
-it. A ``.git`` that is not a plain directory (a gitfile -- submodule or
-worktree layout) makes the marker (and the lock sweep below) a silent no-op;
-this is logged once at WARNING, since the device deploy contract is a plain
-``git clone``.
+call); removed in step 2 (stale, tree already clean), at the start of
+:meth:`apply` (see immediately below), on success in step 5, and on the
+step-5 "still clean" recheck. No other code creates or removes it, and its
+creation is fsynced together with the ``.git`` directory entry (mirroring
+:func:`~palmimo_portal.adapters.atomic_write.atomic_write_text`'s
+discipline), so a power cut immediately after cannot lose the marker while
+the half-checkout dirt it attests to survives -- that would silently
+recreate the exact wedge this class exists to fix. A ``.git`` that is not a
+plain directory (a gitfile -- submodule or worktree layout) makes the
+marker (and the lock sweep below) a silent no-op; this is logged once at
+WARNING, since the device deploy contract is a plain ``git clone``.
 
-**Residual accepted risk:** an operator who edits the tree over SSH *after*
-a power cut mid-checkout (marker left behind, tree dirty) but *before* the
-next retry loses those edits to the forced checkout. This is narrow -- it
-requires deliberately editing a tree that already holds updater debris from
-an interrupted run -- and is documented here rather than engineered away,
-since doing so would require the operator to signal "I am about to touch
-this" through some channel the Portal has no way to observe.
+**A clean tree at apply-start proves any marker stale.** The marker's
+meaning is "the tree's *current* dirt is attested updater debris" -- not
+"a checkout attempt once failed at some point in the past." A marker that
+outlives the dirt it was created for (the checkout that left it eventually
+gets cleaned up by a human, or the tree was fixed some other way) is no
+longer evidence of anything, and a proof-of-concept confirmed it can
+otherwise linger for days: a kill between checkout-success and the marker's
+own removal, or between the marker's creation and the checkout even
+starting, leaves a marker sitting next to a tree that later *becomes*
+clean again through unrelated means -- and every ``fetch``-only failure in
+between (a network blip) does nothing to clear it, since :meth:`_checkout`
+is never reached. :meth:`apply` therefore re-runs the same "clean tree
+clears a stale marker" check unconditionally at its own start, before
+``fetch`` -- so a marker can survive at most from one checkout attempt to
+the very next ``apply()`` call, never longer, regardless of how many
+unrelated failures happen in between.
+
+**Residual accepted risk**, now narrowed to a single attempt's own live
+window: a process killed *inside* one attempt, after this same attempt's
+own marker-create (step 4) but before its checkout subprocess starts or
+completes, leaves a marker and a dirty tree from that one attempt. If an
+operator edits the tree in the narrow gap between that kill and the very
+next ``apply()`` call reaching the dirty-tree guard, those edits are
+indistinguishable from the attempt's own half-applied dirt and are lost to
+the forced checkout. This is deliberately left as documented risk rather
+than engineered away, since there is no channel for the Portal to observe
+"an operator is about to touch this"; the change from earlier revisions of
+this docstring is the size of the window -- it used to be able to persist
+across arbitrarily many later apply attempts (fixed above), and now cannot
+outlive the one attempt that created it.
 
 **Stale git locks: a gated sweep, not an unconditional one.**
 :meth:`_sweep_stale_locks` runs at the start of every ``apply``/rollback,
@@ -142,15 +174,28 @@ invocation in this checkout fail with "File exists" forever. But locks are
 *not* always safe to delete on sight: an operator's own ``git`` command
 running concurrently over SSH (a commit, a stash) holds a real, live lock,
 and deleting it out from under that command can corrupt the operator's own
-work. A lock is removed only when it is attributable to this updater by one
-of two signals:
+work -- and the moment right after a power cut, when an operator SSHes in
+to investigate, is exactly when a live operator lock is most likely to
+appear. A lock is removed only when one of two signals attributes it to
+this updater:
 
-- its mtime is older than :data:`_STALE_LOCK_MIN_AGE_SECONDS` (comfortably
-  longer than every step timeout this class uses, and longer than any
-  plausible interactive git command an operator might run by hand), or
-- the checkout-attestation marker above exists, meaning a previous run of
-  *this updater* provably died mid-mutation -- the locks from that same run
-  are its own regardless of age.
+- **The checkout marker exists, and the lock's mtime is no newer than the
+  marker's.** A lock that already existed *before* this attempt's marker
+  was even written can only be left over from something that predates
+  whatever is currently attested -- never from an operator's command that
+  starts *after* the marker (e.g. one run during a post-crash SSH rescue).
+  A lock *newer* than the marker is ambiguous -- it could be this same
+  crashed attempt's own lock, or an operator's brand-new one -- and falls
+  through to the age-based signal below rather than getting automatic
+  marker-based amnesty; this is a deliberate conservative trade against a
+  proof-of-concept that showed the previous "marker present -> sweep
+  everything" rule could delete a live operator lock created moments after
+  a crash.
+- **The lock has been observed, by this same running process, to persist
+  for at least** :data:`_STALE_LOCK_MIN_AGE_SECONDS` **of its own**
+  :func:`time.monotonic` **clock** -- not wall-clock age. See
+  :data:`_STALE_LOCK_MIN_AGE_SECONDS`'s own comment for why wall-clock
+  mtime is unsafe on an RTC-less Pi and what a reboot does to this signal.
 
 A lock that matches neither is left alone; the git call that needs it then
 fails visibly with git's own "File exists" error, and a later retry (once
@@ -184,6 +229,38 @@ proofs-of-concept before landing:
    attests directly, in the filesystem, at the moment the tree is actually
    about to be mutated -- no history to overwrite, no ambiguity about which
    failure produced which dirt.
+3. *This marker mechanism itself, first revision.* A further adversarial
+   review, with proofs-of-concept, found the mechanism's core (attest in
+   the filesystem, at the moment of mutation, not from job history) sound,
+   but four refinements were needed:
+
+   - A stale marker on an already-clean tree could linger indefinitely
+     (survives every intervening ``fetch``-only failure, since
+     :meth:`_checkout` -- the only place that used to clear it -- is never
+     reached) and license a force far later, against dirt an operator
+     introduced long after the crash that created the marker. Fixed by
+     re-running the "clean tree clears a stale marker" check
+     unconditionally at the start of every :meth:`apply`, not only inside
+     :meth:`_checkout` -- see "A clean tree at apply-start proves any
+     marker stale" above.
+   - The "marker present -> sweep every lock regardless of age" rule could
+     delete a lock an operator's own concurrent ``git`` command was
+     legitimately holding, precisely because a post-crash SSH rescue is
+     exactly when an operator is likely to be running git by hand. Fixed
+     by only trusting a lock the marker attests to when the lock's mtime
+     does not postdate the marker's own -- see "Stale git locks" above.
+   - The wall-clock age gate (locks older than 10 minutes by ``mtime``) is
+     unsafe on an RTC-less Pi: an NTP step-forward can make a just-created,
+     genuinely live lock appear hours old. Replaced with a
+     per-process, :func:`time.monotonic`-based "observed to persist across
+     this process's own attempts" gate -- see :data:`_STALE_LOCK_MIN_AGE_SECONDS`.
+   - The marker's creation (:func:`~pathlib.Path.touch`) was not fsynced,
+     so a power cut could lose the marker itself while the half-checkout
+     dirt it was meant to attest to survived -- silently recreating the
+     original wedge this class exists to fix. Fixed by writing it through
+     :func:`~palmimo_portal.adapters.atomic_write.atomic_write_text`,
+     which fsyncs the file and the parent (``.git``) directory before
+     returning.
 """
 
 from __future__ import annotations
@@ -197,6 +274,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from palmimo_portal.adapters.atomic_write import atomic_write_text
 from palmimo_portal.adapters.static_asset import (
     Opener,
     StaticAssetError,
@@ -234,12 +312,22 @@ DIRTY_TREE_REFUSAL_PREFIX = "working tree has local changes"
 #: module docstring's "Being killed mid-``checkout``" section.
 _CHECKOUT_MARKER_NAME = "palmimo-checkout-in-progress"
 
-#: Minimum age, in seconds, before :meth:`GitUvUpdater._sweep_stale_locks`
-#: will remove a git lock file it cannot otherwise attribute to this updater
-#: via the checkout marker. Comfortably longer than every step timeout this
-#: class uses (fetch 120s, checkout 60s) and longer than any plausible
-#: interactive ``git`` command an operator might be running by hand over
-#: SSH.
+#: Minimum time, in seconds of this *process's own* :func:`time.monotonic`
+#: clock, a lock file must be observed to persist before
+#: :meth:`GitUvUpdater._sweep_stale_locks` will remove it under the
+#: age-based signal (the marker-mtime signal, when it applies, is
+#: independent of this constant -- see the module docstring's "Stale git
+#: locks"). Deliberately monotonic, not wall-clock ``mtime``: a Pi has no
+#: RTC, and an NTP step-forward at boot can make a just-created, genuinely
+#: live lock (an operator's concurrent ``git add`` over SSH) look hours
+#: old by ``mtime`` alone. uv itself never takes a git lock -- this bound
+#: is only about how long an interactive git command an operator might run
+#: by hand could plausibly hold one. The trade this makes: after this
+#: *process* restarts (a reboot, or the Portal's own systemd restart), the
+#: monotonic clock -- and with it every lock's "first seen" bookkeeping --
+#: restarts too, so a lock this updater's own earlier run left behind is
+#: swept again only once this process has been up for this long, with
+#: visible "File exists" ``fetch``/``checkout`` failures in the meantime.
 _STALE_LOCK_MIN_AGE_SECONDS = 600.0
 
 #: Git lock files directly under ``.git/`` a killed ``git fetch``/``git
@@ -266,8 +354,16 @@ class GitUvUpdater(Updater):
     #: (``settings.update_repo``).
     update_repo: str = "Jizai-inc/palmimo-portal"
     opener: Opener = field(default=default_opener)
+    #: Test/production seam for the stale-lock sweep's age gate -- defaults
+    #: to the real :func:`time.monotonic`. See :data:`_STALE_LOCK_MIN_AGE_SECONDS`.
+    monotonic: Callable[[], float] = field(default=time.monotonic)
     _warned_not_git: bool = field(default=False, init=False, repr=False)
     _warned_not_plain_clone: bool = field(default=False, init=False, repr=False)
+    #: In-memory "first observed at this monotonic time" bookkeeping for
+    #: git lock files not (yet) attributable via the checkout marker --
+    #: one :class:`GitUvUpdater` per running Portal process, so this
+    #: naturally resets across a restart along with `monotonic()` itself.
+    _lock_first_seen: dict[Path, float] = field(default_factory=dict, init=False, repr=False)
 
     def installed(self) -> InstalledVersion:
         commit = self._run_git_capture(["git", "rev-parse", "--short", "HEAD"])
@@ -293,6 +389,7 @@ class GitUvUpdater(Updater):
         return output or None
 
     def apply(self, tag: str, on_step: Callable[[str], None]) -> None:
+        self._clear_marker_if_tree_is_clean()
         self._sweep_stale_locks()
         self._step("fetch", ["git", "fetch", "--tags", "origin"], FETCH_TIMEOUT_SECONDS, on_step)
         temp_dir = self._assets(tag, on_step)
@@ -331,6 +428,33 @@ class GitUvUpdater(Updater):
         if git_dir is None:
             return None
         return git_dir / _CHECKOUT_MARKER_NAME
+
+    def _clear_marker_if_tree_is_clean(self) -> None:
+        """Clear a stale checkout marker at the start of every apply/rollback run.
+
+        See the module docstring's "A clean tree at apply-start proves any
+        marker stale" section: without this, a marker can otherwise outlive
+        the dirt it was created for -- surviving any number of unrelated
+        later ``fetch`` failures, since :meth:`_checkout` (the only other
+        place that clears a stale marker) is never reached until ``fetch``
+        and ``assets`` both succeed. Best-effort: if the dirty check itself
+        cannot be run, the marker is left in place rather than treated as
+        stale by default.
+        """
+        marker = self._checkout_marker_path()
+        if marker is None or not marker.exists():
+            return
+        try:
+            dirty = self._working_tree_is_dirty()
+        except UpdateStepError:
+            logger.warning(
+                "could not check working-tree cleanliness while looking for a stale checkout marker -- "
+                "leaving it in place"
+            )
+            return
+        if not dirty:
+            marker.unlink(missing_ok=True)
+            logger.info("cleared a stale checkout-attestation marker: the working tree is already clean")
 
     def _working_tree_is_dirty(self) -> bool:
         status = self._run_or_raise(
@@ -390,8 +514,12 @@ class GitUvUpdater(Updater):
 
         # Create the marker only now, as late as possible: immediately
         # before the one command that can actually mutate the tree.
+        # Written through atomic_write_text (fsync the file, fsync the
+        # `.git` directory entry) so a power cut right after this cannot
+        # lose the marker while the half-checkout dirt it attests to
+        # survives.
         if marker is not None:
-            marker.touch()
+            atomic_write_text(marker, "")
 
         checkout_argv = ["git", "checkout", "--detach", ref]
         if force:
@@ -416,32 +544,62 @@ class GitUvUpdater(Updater):
     def _sweep_stale_locks(self) -> None:
         """Remove git lock files this updater can attribute to itself, before every apply/rollback run.
 
-        See the module docstring's "Stale git locks" section: a lock is
-        removed only when it is older than :data:`_STALE_LOCK_MIN_AGE_SECONDS`
-        or the checkout marker is present (this updater's own previous run
-        provably died mid-mutation). A fresh, unattributed lock is left
-        alone -- the git call that needs it fails visibly instead of this
-        method silently deleting a live operator lock out from under a
-        concurrent SSH session.
+        See the module docstring's "Stale git locks" section. Two
+        independent signals attribute a lock to this updater:
+
+        1. The checkout marker exists, and the lock's mtime is no newer
+           than the marker's own -- it existed before this attempt's
+           marker was even written, so it cannot be an operator's command
+           that started afterward (e.g. during a post-crash SSH rescue).
+        2. This process's own :attr:`monotonic` clock has observed the
+           lock persist for at least :data:`_STALE_LOCK_MIN_AGE_SECONDS`,
+           tracked per-lock in :attr:`_lock_first_seen` -- never by
+           wall-clock ``mtime``, which an NTP step can misrepresent. A
+           lock seen for the first time this call is recorded but never
+           removed on that same call.
+
+        A lock the marker attests to but whose mtime *postdates* the
+        marker falls through to signal 2 instead of getting automatic
+        marker-based amnesty -- see the module docstring for why.
+        :attr:`_lock_first_seen` entries for locks that no longer exist are
+        pruned first, so a lock that reappears at the same path later is
+        treated as newly seen, not instantly eligible from stale
+        bookkeeping.
         """
         git_dir = self._git_dir()
         if git_dir is None:
             return
-        marker_present = (git_dir / _CHECKOUT_MARKER_NAME).exists()
+        marker_path = git_dir / _CHECKOUT_MARKER_NAME
+        try:
+            marker_mtime: float | None = marker_path.stat().st_mtime
+        except OSError:
+            marker_mtime = None  # no marker (or a stat race) -- no marker-based amnesty this round
+
         candidates = [git_dir / name for name in _GIT_DIR_LOCK_NAMES]
         refs_dir = git_dir / "refs"
         if refs_dir.is_dir():
             candidates.extend(sorted(refs_dir.rglob("*.lock")))
-        now = time.time()
+        candidate_set = set(candidates)
+        for tracked in list(self._lock_first_seen):
+            if tracked not in candidate_set or not tracked.is_file():
+                del self._lock_first_seen[tracked]
+
+        now_monotonic = self.monotonic()
         removed: list[str] = []
         for path in candidates:
             try:
                 if not path.is_file():
                     continue
-                attributable = marker_present or (now - path.stat().st_mtime) >= _STALE_LOCK_MIN_AGE_SECONDS
+                attributable_via_marker = marker_mtime is not None and path.stat().st_mtime <= marker_mtime
+                if attributable_via_marker:
+                    attributable = True
+                else:
+                    first_seen = self._lock_first_seen.setdefault(path, now_monotonic)
+                    attributable = (now_monotonic - first_seen) >= _STALE_LOCK_MIN_AGE_SECONDS
                 if not attributable:
                     continue
                 path.unlink()
+                self._lock_first_seen.pop(path, None)
                 removed.append(str(path.relative_to(self.portal_dir)))
             except OSError as error:
                 logger.warning("could not remove stale git lock %s: %s", path, error)

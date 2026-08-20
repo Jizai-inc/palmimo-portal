@@ -3,7 +3,7 @@ import { RouterProvider, createMemoryHistory, createRootRoute, createRoute, crea
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { UpdateStatusResponse } from "@/api/generated/models";
 import { getGetStatusApiV1SystemStatusGetMockHandler } from "@/api/generated/system/system.msw";
@@ -11,6 +11,7 @@ import { getGetStatusApiV1UpdateStatusGetMockHandler } from "@/api/generated/upd
 import { getGetStatusApiV1WifiStatusGetMockHandler } from "@/api/generated/wifi/wifi.msw";
 import { AppShell } from "@/components/AppShell";
 import { NAV_ITEMS } from "@/lib/navigation";
+import { stubMatchMedia } from "@/test/matchMedia";
 import { server } from "@/test/server";
 
 const IDLE_JOB = {
@@ -146,11 +147,102 @@ describe("AppShell mobile drawer", () => {
 
     await user.click(toggleButton());
     await screen.findByRole("dialog", { name: "Primary navigation" });
-    const backdrop = container.querySelector(".fixed.inset-0.bg-black\\/50");
+    const backdrop = container.querySelector('[data-testid="drawer-backdrop"]');
     expect(backdrop).not.toBeNull();
     await user.click(backdrop as Element);
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("closes via the drawer's own close button", async () => {
+    const user = userEvent.setup();
+    stubStatuses();
+    renderAppShell();
+    await screen.findAllByText("Home");
+
+    await user.click(toggleButton());
+    const dialog = await screen.findByRole("dialog", { name: "Primary navigation" });
+    await user.click(within(dialog).getByRole("button", { name: "Close menu" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("locks body scroll while open and restores it on close", async () => {
+    const user = userEvent.setup();
+    stubStatuses();
+    renderAppShell();
+    await screen.findAllByText("Home");
+    expect(document.body.style.overflow).not.toBe("hidden");
+
+    await user.click(toggleButton());
+    await screen.findByRole("dialog", { name: "Primary navigation" });
+    expect(document.body.style.overflow).toBe("hidden");
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(document.body.style.overflow).not.toBe("hidden");
+  });
+
+  it("traps Tab within the drawer, wrapping from the last link to the close button", async () => {
+    const user = userEvent.setup();
+    stubStatuses();
+    renderAppShell();
+    await screen.findAllByText("Home");
+
+    await user.click(toggleButton());
+    const dialog = await screen.findByRole("dialog", { name: "Primary navigation" });
+    const closeButton = within(dialog).getByRole("button", { name: "Close menu" });
+    const links = within(dialog).getAllByRole("link");
+    links[links.length - 1].focus();
+
+    await user.tab();
+
+    expect(closeButton).toHaveFocus();
+  });
+
+  it("closes the drawer when the viewport crosses into desktop width", async () => {
+    const user = userEvent.setup();
+    stubStatuses();
+    const mediaQuery = stubMatchMedia(false);
+    renderAppShell();
+    await screen.findAllByText("Home");
+
+    await user.click(toggleButton());
+    await screen.findByRole("dialog", { name: "Primary navigation" });
+
+    mediaQuery.setMatches("(min-width: 768px)", true);
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+});
+
+describe("AppShell desktop sidebar", () => {
+  it("collapses the sidebar from the header toggle without opening the drawer", async () => {
+    const user = userEvent.setup();
+    stubStatuses();
+    stubMatchMedia(true);
+    const { container } = renderAppShell();
+    await screen.findAllByText("Home");
+    expect(container.querySelector("aside")).not.toBeNull();
+
+    await user.click(toggleButton());
+
+    expect(container.querySelector("aside")).toBeNull();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("never attaches the drawer's document-level Escape/Tab listener at desktop width", async () => {
+    const user = userEvent.setup();
+    stubStatuses();
+    stubMatchMedia(true);
+    const addEventListenerSpy = vi.spyOn(document, "addEventListener");
+    renderAppShell();
+    await screen.findAllByText("Home");
+
+    await user.click(toggleButton());
+
+    expect(addEventListenerSpy).not.toHaveBeenCalledWith("keydown", expect.any(Function));
+    addEventListenerSpy.mockRestore();
   });
 });
 
@@ -177,5 +269,21 @@ describe("AppShell update badge", () => {
 
     await screen.findAllByText("Home");
     expect(screen.queryAllByText("Update available")).toHaveLength(0);
+  });
+
+  it("never calls update/check on mount or on drawer interactions", async () => {
+    const user = userEvent.setup();
+    const checkSpy = vi.fn();
+    server.use(http.post("*/api/v1/update/check", () => (checkSpy(), HttpResponse.json(BASE_UPDATE_STATUS))));
+    stubStatuses({ update: { ...BASE_UPDATE_STATUS, update_available: true } });
+    renderAppShell();
+    await screen.findAllByText("Home");
+
+    await user.click(toggleButton());
+    await screen.findByRole("dialog", { name: "Primary navigation" });
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    expect(checkSpy).not.toHaveBeenCalled();
   });
 });

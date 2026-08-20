@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import { X } from "lucide-react";
 import type * as React from "react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -9,18 +10,18 @@ import { useGetStatusApiV1SystemStatusGet } from "@/api/generated/system/system"
 import { useGetStatusApiV1UpdateStatusGet } from "@/api/generated/update/update";
 import { useLogoutApiV1AuthLogoutPost } from "@/api/generated/auth/auth";
 import { AppHeader } from "@/components/AppHeader";
+import { UpdateDot } from "@/components/UpdateDot";
 import { Button } from "@/components/ui/button";
 import { isActive, NAV_ITEMS, type NavItem } from "@/lib/navigation";
 import { navLabel } from "@/lib/navLabels";
+import { useMediaQuery } from "@/lib/useMediaQuery";
 import { cn } from "@/lib/utils";
 
 /** How often to re-poll `update/status` for the nav badge -- cheap, auth-gated, no need for tighter than window-focus + a slow floor. */
 const UPDATE_BADGE_REFETCH_INTERVAL_MS = 5 * 60 * 1000;
 
-/** A small red dot marking an update-available nav entry. `aria-hidden`; callers pair it with an accessible announcement. */
-function UpdateDot({ className }: { className?: string }) {
-  return <span aria-hidden className={cn("absolute block size-2 rounded-full bg-red-500 ring-2 ring-background", className)} />;
-}
+/** Tailwind's `md` breakpoint -- the same width at which the desktop sidebar replaces the mobile drawer in the markup below. */
+const DESKTOP_QUERY = "(min-width: 768px)";
 
 /**
  * Chrome for the dashboard family (`/dashboard`, `/ssh-keys`, `/power`, Wi-Fi settings, update).
@@ -46,10 +47,13 @@ export function AppShell({
   const navigate = useNavigate();
   const location = useLocation();
   const queryClient = useQueryClient();
-  // Desktop: collapses the static sidebar. Mobile: opens the drawer. Both track the same
-  // header toggle button and flip in lockstep on every click -- only one is ever visible at a
-  // given viewport width, so the other's state change is inert there.
+  const isDesktop = useMediaQuery(DESKTOP_QUERY);
+  // Desktop-only: collapses the static sidebar. Never touched by the mobile drawer path.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  // Mobile-only: opens the slide-in drawer. Never touched by the desktop sidebar path, and
+  // forced closed the moment the viewport crosses into desktop width (see the effect below) --
+  // e.g. rotating a phone to landscape closes the drawer instead of leaking its state into the
+  // desktop sidebar.
   const [drawerOpen, setDrawerOpen] = useState(false);
   const drawerRef = useRef<HTMLDivElement>(null);
   const focusBeforeDrawerRef = useRef<HTMLElement | null>(null);
@@ -69,12 +73,15 @@ export function AppShell({
   const updateAvailable = updateStatus?.update_available ?? false;
 
   function handleToggleClick() {
+    if (isDesktop) {
+      setSidebarCollapsed((collapsed) => !collapsed);
+      return;
+    }
     if (!drawerOpen) {
-      // About to open the drawer (a no-op at desktop widths) -- remember what had focus so
-      // closing can restore it, mirroring the alert-dialog primitive's own focus-return behavior.
+      // About to open the drawer -- remember what had focus so closing can restore it,
+      // mirroring the alert-dialog primitive's own focus-return behavior.
       focusBeforeDrawerRef.current = document.activeElement as HTMLElement | null;
     }
-    setSidebarCollapsed((collapsed) => !collapsed);
     setDrawerOpen((open) => !open);
   }
 
@@ -82,6 +89,14 @@ export function AppShell({
     setDrawerOpen(false);
     focusBeforeDrawerRef.current?.focus();
   }
+
+  // A viewport crossing into desktop width closes any open drawer rather than leaving it open
+  // (and its document-level listeners attached) underneath the now-visible desktop sidebar.
+  useEffect(() => {
+    if (isDesktop) {
+      setDrawerOpen(false);
+    }
+  }, [isDesktop]);
 
   // Moves focus into the drawer's first link once it opens; a plain fixed-position panel (not
   // a native <dialog>) doesn't do this on its own.
@@ -92,20 +107,53 @@ export function AppShell({
     drawerRef.current?.querySelector<HTMLElement>("a")?.focus();
   }, [drawerOpen]);
 
-  // Escape closes the drawer, like the alert-dialog primitive it stands in for.
+  // Locks background scroll while the drawer covers the viewport, restoring whatever value was
+  // there before (rather than assuming "") so nested overflow rules aren't clobbered.
   useEffect(() => {
     if (!drawerOpen) {
+      return undefined;
+    }
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [drawerOpen]);
+
+  // Escape closes the drawer, like the alert-dialog primitive it stands in for; Tab/Shift-Tab
+  // are trapped inside it so a plain fixed-position panel (not a native <dialog>) still reads as
+  // modal to a keyboard user. Attached only while the drawer is actually open on mobile -- never
+  // while `isDesktop`, so it can't collide with an unrelated dialog (e.g. /power's AlertDialog).
+  useEffect(() => {
+    if (!drawerOpen || isDesktop) {
       return undefined;
     }
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         closeDrawer();
+        return;
+      }
+      if (event.key !== "Tab") {
+        return;
+      }
+      const focusable = drawerRef.current?.querySelectorAll<HTMLElement>('a[href], button:not([disabled])');
+      if (!focusable || focusable.length === 0) {
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
       }
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawerOpen]);
+  }, [drawerOpen, isDesktop]);
 
   const logoutButton = (
     <Button
@@ -127,18 +175,7 @@ export function AppShell({
 
   return (
     <div className="flex min-h-screen flex-col bg-background">
-      <div className="relative">
-        <AppHeader onToggleSidebar={handleToggleClick} logoutSlot={logoutButton} />
-        {updateAvailable && sidebarCollapsed ? (
-          // Positioned over AppHeader's own toggle button (h-14 header, px-4 padding, a
-          // size="icon" h-9 w-9 Button) rather than passing a prop through it, to keep this PR's
-          // diff to AppHeader minimal. Desktop half of the pair below; hidden on mobile, where
-          // the drawer-closed dot (keyed off `drawerOpen`) takes over.
-          <UpdateDot className="left-[42px] top-2 hidden md:block" />
-        ) : null}
-        {updateAvailable && !drawerOpen ? <UpdateDot className="left-[42px] top-2 md:hidden" /> : null}
-        {updateAvailable ? <span className="sr-only">{t("nav.updateAvailable")}</span> : null}
-      </div>
+      <AppHeader onToggleSidebar={handleToggleClick} logoutSlot={logoutButton} showToggleBadge={updateAvailable} />
       <div className="flex flex-1 md:flex-row">
         {sidebarCollapsed ? null : (
           <aside className="hidden w-60 shrink-0 flex-col gap-4 border-r border-border bg-muted/40 p-4 md:flex">
@@ -180,15 +217,20 @@ export function AppShell({
 
       {drawerOpen ? (
         <div className="fixed inset-0 z-50 md:hidden">
-          <div className="fixed inset-0 bg-black/50" aria-hidden onClick={closeDrawer} />
+          <div data-testid="drawer-backdrop" className="fixed inset-0 bg-black/50" aria-hidden onClick={closeDrawer} />
           <div
             ref={drawerRef}
             role="dialog"
             aria-modal="true"
             aria-label={t("nav.primaryNavigation")}
-            className="fixed inset-y-0 left-0 flex w-[280px] max-w-[80vw] flex-col gap-4 border-r border-border bg-background p-4 shadow-lg"
+            className="fixed inset-y-0 left-0 flex w-[280px] max-w-[80vw] flex-col gap-4 overscroll-contain border-r border-border bg-background p-4 shadow-lg"
           >
-            <p className="px-2 text-xs font-medium text-muted-foreground">{t("nav.deviceSection")}</p>
+            <div className="flex items-center justify-between px-2">
+              <p className="text-xs font-medium text-muted-foreground">{t("nav.deviceSection")}</p>
+              <Button type="button" variant="ghost" size="icon" aria-label={t("nav.closeMenu")} onClick={closeDrawer}>
+                <X className="size-4" />
+              </Button>
+            </div>
             <nav className="flex flex-col gap-1" aria-label={t("nav.primaryNavigation")}>
               {NAV_ITEMS.map((item) => (
                 <SidebarLink

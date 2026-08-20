@@ -27,7 +27,8 @@
     "powerDescription": "Restart or shut down",
     "update": "Update",
     "updateDescription": "Update Portal and SDK",
-    "updateAvailable": "Update available"
+    "updateAvailable": "Update available",
+    "closeMenu": "Close menu"
   },
   "status": {
     "unavailable": {

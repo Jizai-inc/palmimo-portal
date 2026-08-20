@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import { Download, KeyRound, LayoutDashboard, Power, Wifi } from "lucide-react";
 
-/** One entry in the dashboard family's navigation (mobile tab bar, desktop sidebar, dashboard quick-action list). */
+/** One entry in the dashboard family's navigation (mobile drawer, desktop sidebar, dashboard quick-action list). */
 export interface NavItem {
   to: string;
   icon: LucideIcon;
@@ -12,7 +12,7 @@ export interface NavItem {
 
 /**
  * Single source of truth for the dashboard family's navigation -- rendered by
- * the mobile tab bar and desktop sidebar (components/AppShell.tsx), and by
+ * the mobile slide-in drawer and desktop sidebar (components/AppShell.tsx), and by
  * the dashboard's own quick-actions list (routes/dashboard.tsx, minus itself).
  * `authGate.ts`'s `DASHBOARD_FAMILY_PATHS` derives from this list so the two can't drift.
  */

@@ -5,7 +5,11 @@ Schema (spec v2)::
     {"device_id": "<string>", "initial_password": "<plaintext string>"}
 
 A v1 file (``initial_password_hash`` instead) is treated as malformed -- see
-:meth:`FileIdentityStore.read_identity`.
+:meth:`FileIdentityStore.read_identity`. Manufactured ``initial_password``
+values match ``^[A-Za-z0-9]{8,63}$`` (the monorepo's infra/image tooling's
+"O10" sticker alphabet) -- a generation-side contract only, not enforced
+here: this module accepts and compares any string, failing closed on a
+mismatch rather than rejecting an out-of-alphabet value outright.
 
 Written once, at manufacturing time, to a path outside ``/var/lib/palmimo/``
 (by default the boot partition, so a factory reset does not erase it); the

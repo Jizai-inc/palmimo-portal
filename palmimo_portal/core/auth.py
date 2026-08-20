@@ -63,8 +63,8 @@ class InvalidCurrentPasswordError(Exception):
     """Raised by :func:`change_password_from_initial`/:func:`change_password_from_full`.
 
     The ``current_password`` submitted to ``POST /auth/change-password``
-    did not match the active credential (the identity file's initial hash
-    in initial mode, ``auth.json`` in full mode) -- ``api/auth.py``
+    did not match the active credential (the identity file's sticker
+    password in initial mode, ``auth.json`` in full mode) -- ``api/auth.py``
     translates this to 401.
     """
 
@@ -80,17 +80,36 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    """Report whether ``password`` matches the given argon2id hash."""
+    """Report whether ``password`` matches the given argon2id hash.
+
+    A lone UTF-16 surrogate in ``password`` (valid per :func:`json.loads`, but
+    unencodable) makes argon2-cffi itself raise :class:`UnicodeEncodeError`
+    trying to hash it for comparison; treated as simply the wrong password,
+    not propagated, so a caller's rate-limit bookkeeping still runs.
+    """
     try:
         _hasher.verify(password_hash, password)
-    except (VerifyMismatchError, InvalidHashError):
+    except (VerifyMismatchError, InvalidHashError, UnicodeEncodeError):
         return False
     return True
 
 
 def verify_identity_password(password: str, identity: Identity) -> bool:
-    """Constant-time compare against the sticker password (spec v2 stores it in plaintext, not hashed)."""
-    return secrets.compare_digest(password.encode("utf-8"), identity.initial_password.encode("utf-8"))
+    """Compare ``password`` against the sticker password with no data-dependent early exit.
+
+    Uses :func:`secrets.compare_digest`, whose only shortcut is a length
+    mismatch -- unlike ``==``, it does not return as soon as the first
+    differing byte is found. ``identity.initial_password`` is guaranteed
+    encodable (the file parser rejects anything else); a lone UTF-16
+    surrogate in the *supplied* ``password`` (valid per :func:`json.loads`,
+    but unencodable) is treated as simply the wrong password rather than
+    propagated, so a caller's rate-limit bookkeeping still runs.
+    """
+    try:
+        supplied = password.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return secrets.compare_digest(supplied, identity.initial_password.encode("utf-8"))
 
 
 def setup_password(store: StateStore, password: str) -> AuthState:
@@ -125,7 +144,7 @@ def change_password(store: StateStore, new_password: str) -> AuthState:
 def change_password_from_initial(
     store: StateStore, identity: Identity, current_password: str, new_password: str
 ) -> AuthState:
-    """Create ``auth.json`` for the first time, verifying ``current_password`` against the sticker hash.
+    """Create ``auth.json`` for the first time, verifying ``current_password`` against the sticker password.
 
     The initial-mode half of ``POST /auth/change-password``: uses
     :meth:`~palmimo_portal.ports.StateStore.create_auth` (same

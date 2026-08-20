@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 from typing import cast
 
+import httpx
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
@@ -36,6 +37,16 @@ def _initial_login(client: TestClient) -> None:
     response = client.post("/api/v1/auth/login", json={"password": STICKER_PASSWORD}, headers=CSRF_HEADERS)
     assert response.status_code == 200
     assert response.json()["mode"] == "initial"
+
+
+def _post_json_with_lone_surrogate(client: TestClient, url: str, payload: dict[str, str]) -> httpx.Response:
+    # See test_api_auth.py's twin helper: httpx's own json= encoding would
+    # fail before the request is even sent, so this sends the literal
+    # `\uXXXX` escape (ASCII on the wire) instead, letting the server-side
+    # json.loads() decode it back into an in-memory surrogate.
+    body = json.dumps(payload).encode("ascii")
+    headers = {**CSRF_HEADERS, "Content-Type": "application/json"}
+    return client.post(url, content=body, headers=headers)
 
 
 def test_open_setup_setup_works_once_then_409(client: TestClient) -> None:
@@ -115,6 +126,49 @@ def test_login_with_the_wrong_initial_password_rate_limits(client: TestClient, a
 
     assert locked.status_code == 429
     assert locked.json()["error"]["code"] == "auth_rate_limited"
+
+
+def test_login_with_an_unencodable_initial_password_is_rejected_not_500(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    # A lone UTF-16 surrogate is valid JSON (json.loads accepts it) but
+    # cannot be UTF-8 encoded -- must be treated as simply the wrong
+    # sticker password, not surface .encode()'s UnicodeEncodeError as a 500.
+    _carry_identity(adapters)
+
+    response = _post_json_with_lone_surrogate(client, "/api/v1/auth/login", {"password": "\ud800"})
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "invalid_credentials"
+
+
+def test_login_with_an_unencodable_initial_password_rate_limits(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    _carry_identity(adapters)
+
+    for _ in range(5):
+        failed = _post_json_with_lone_surrogate(client, "/api/v1/auth/login", {"password": "\ud800"})
+        assert failed.status_code == 401
+
+    locked = client.post("/api/v1/auth/login", json={"password": STICKER_PASSWORD}, headers=CSRF_HEADERS)
+
+    assert locked.status_code == 429
+    assert locked.json()["error"]["code"] == "auth_rate_limited"
+
+
+def test_change_password_from_initial_with_an_unencodable_current_password_is_401(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    _carry_identity(adapters)
+    _initial_login(client)
+
+    response = _post_json_with_lone_surrogate(
+        client, "/api/v1/auth/change-password", {"current_password": "\ud800", "new_password": "new-owner-password"}
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "invalid_current_password"
 
 
 def test_ssh_keys_is_403_with_an_initial_session(client: TestClient, adapters: FakeAdapterBundle) -> None:

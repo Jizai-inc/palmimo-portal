@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Literal, Protocol
 
@@ -286,7 +286,7 @@ class Identity:
     """
 
     device_id: str
-    initial_password: str
+    initial_password: str = field(repr=False)
 
 
 class IdentityUnavailable(StrEnum):

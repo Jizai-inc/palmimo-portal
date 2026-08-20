@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { PanelLeft } from "lucide-react";
 import type * as React from "react";
 import { useTranslation } from "react-i18next";
@@ -36,7 +37,9 @@ export function AppHeader({
           <PanelLeft className="size-4" />
         </Button>
       ) : null}
-      <span className="font-semibold">{t("app.wordmark")}</span>
+      <Link to="/" className="font-semibold hover:opacity-80">
+        {t("app.wordmark")}
+      </Link>
       <div className="ml-auto flex items-center gap-2">
         <LanguageToggle />
         {logoutSlot ? <div className="hidden md:block">{logoutSlot}</div> : null}

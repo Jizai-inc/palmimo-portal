@@ -34,6 +34,20 @@ describe("SshKeysPanel", () => {
     expect(screen.getByText("SHA256:cccc3333dddd4444")).toBeInTheDocument();
   });
 
+  it("truncates a long comment instead of pushing the delete button out of the row", async () => {
+    const longComment = "a".repeat(200);
+    server.use(
+      getListKeysApiV1SshKeysGetMockHandler([
+        { fingerprint: "SHA256:aaaa1111bbbb2222", key_type: "ssh-ed25519", comment: longComment },
+      ]),
+    );
+    renderWithProviders(<SshKeysPanel />);
+
+    const comment = await screen.findByText(longComment);
+    expect(comment.className).toContain("min-w-0");
+    expect(comment.className).toContain("truncate");
+  });
+
   it("shows an empty state when there are no keys", async () => {
     server.use(getListKeysApiV1SshKeysGetMockHandler([]));
     renderWithProviders(<SshKeysPanel />);

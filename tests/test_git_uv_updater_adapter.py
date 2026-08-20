@@ -19,16 +19,26 @@ from __future__ import annotations
 
 import hashlib
 import io
+import logging
+import os
 import subprocess
 import tarfile
+import time
 import urllib.error
 import urllib.request
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from palmimo_portal.adapters.git_uv_updater import GitUvUpdater
+import palmimo_portal.adapters.git_uv_updater as git_uv_updater_module
+from palmimo_portal.adapters.git_uv_updater import (
+    _CHECKOUT_MARKER_NAME,
+    _STALE_LOCK_MIN_AGE_SECONDS,
+    DIRTY_TREE_REFUSAL_PREFIX,
+    GitUvUpdater,
+)
 from palmimo_portal.adapters.static_asset import ASSET_MAX_BYTES, MEMBER_MAX_BYTES
 from palmimo_portal.core.update import STATIC_ASSET_NAME_TEMPLATE
 from palmimo_portal.ports import InstalledVersion, UpdateStepError
@@ -45,6 +55,8 @@ class _ScriptedRunner:
         self.calls.append({"argv": argv, **kwargs})
         key = argv[1]
         outcome = self._script.get(key, subprocess.CompletedProcess(argv, 0, stdout="", stderr=""))
+        if callable(outcome) and not isinstance(outcome, subprocess.CompletedProcess):
+            outcome = outcome()  # a _seq(...) value -- the next scripted outcome for this key
         if isinstance(outcome, Exception):
             raise outcome
         return outcome
@@ -107,6 +119,96 @@ def _minimal_static_tar() -> bytes:
 
 def _static_dir(portal_dir: Path) -> Path:
     return portal_dir / "palmimo_portal" / "static"
+
+
+def _seq(*outcomes: Any) -> Callable[[], Any]:
+    """A script-dict value that returns successive ``outcomes`` on successive calls to the same subcommand key.
+
+    ``_ScriptedRunner`` calls a callable script value with no arguments to
+    get the outcome for *this* invocation -- used where a subcommand (e.g.
+    ``status``, checked both before and after the mutating ``git checkout``
+    call) must answer differently the second time it's called within one
+    ``_checkout`` attempt.
+    """
+    iterator: Iterator[Any] = iter(outcomes)
+    return lambda: next(iterator)
+
+
+def _seed_git_dir(tmp_path: Path) -> Path:
+    """Create a real ``.git/`` directory (with ``refs/heads`` and ``refs/tags``) so the marker/lock-sweep code activates.
+
+    Most tests use a bare ``tmp_path`` with a scripted (non-real) ``git``
+    runner -- ``_git_dir()`` then finds no ``.git`` directory and the
+    marker/sweep mechanisms are (correctly) no-ops. Tests that exercise
+    those mechanisms need a real ``.git/`` on disk, even though the git
+    *commands* themselves stay scripted.
+    """
+    git_dir = tmp_path / ".git"
+    (git_dir / "refs" / "heads").mkdir(parents=True)
+    (git_dir / "refs" / "tags").mkdir(parents=True)
+    return git_dir
+
+
+def _run_real_git(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True, text=True)
+    assert result.returncode == 0, f"git {args} in {cwd} failed: {result.stderr}"
+    return result
+
+
+def _init_real_release_repo(base: Path, *, tracked_file: str = "app.py", v1_content: str = "v1\n") -> Path:
+    """Build a REAL git repo (not scripted) with an ``origin`` remote and a ``v1.0.0`` tag, checked out detached.
+
+    Used by the integration-style tests below that must exercise the
+    marker mechanism against *real* git failure text and behavior (an
+    untracked-file conflict, a genuine forced checkout) rather than a
+    scripted stand-in -- the earlier, broken attribution designs looked
+    correct against scripted runners and only fell apart against real git
+    semantics. Returns the ``portal_dir`` (a clone of a freshly created
+    ``origin`` sibling directory), checked out detached at ``v1.0.0``.
+    """
+    origin = base / "origin"
+    origin.mkdir()
+    _run_real_git(origin, "init", "-q")
+    _run_real_git(origin, "config", "user.email", "test@example.com")
+    _run_real_git(origin, "config", "user.name", "Test")
+    (origin / tracked_file).write_text(v1_content)
+    _run_real_git(origin, "add", tracked_file)
+    _run_real_git(origin, "commit", "-q", "-m", "v1")
+    _run_real_git(origin, "tag", "v1.0.0")
+
+    portal_dir = base / "portal"
+    _run_real_git(base, "clone", "-q", str(origin), str(portal_dir))
+    _run_real_git(portal_dir, "checkout", "-q", "--detach", "v1.0.0")
+    return portal_dir
+
+
+def _publish_real_tag(origin: Path, tag: str, *, file_name: str, content: str) -> None:
+    """Add a new tracked file with ``content`` to ``origin`` and tag the resulting commit ``tag``."""
+    (origin / file_name).write_text(content)
+    _run_real_git(origin, "add", file_name)
+    _run_real_git(origin, "commit", "-q", "-m", tag)
+    _run_real_git(origin, "tag", tag)
+
+
+class _FailingStepRunner:
+    """Wraps real ``subprocess.run`` but fails one chosen git/uv subcommand outright.
+
+    Simulates e.g. a network blip on ``fetch`` (without needing a broken
+    real remote) while every *other* subcommand runs for real against the
+    actual repository -- the integration tests below use this to prove the
+    checkout-attestation marker survives an unrelated intervening failure.
+    """
+
+    def __init__(self, fail_subcommand: str, message: str = "network unreachable") -> None:
+        self.fail_subcommand = fail_subcommand
+        self.message = message
+        self.calls: list[list[str]] = []
+
+    def __call__(self, argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        self.calls.append(argv)
+        if len(argv) > 1 and argv[1] == self.fail_subcommand:
+            return subprocess.CompletedProcess(argv, 1, stdout="", stderr=self.message)
+        return subprocess.run(argv, **kwargs)
 
 
 def test_installed_reports_tag_and_commit(tmp_path: Path) -> None:
@@ -314,6 +416,420 @@ def test_checkout_ignores_untracked_files_when_checking_dirtiness(tmp_path: Path
     assert status_call["argv"] == ["git", "status", "--porcelain", "--untracked-files=no"]
 
 
+# --- checkout-attestation marker: force/refuse decisions, lifecycle ---
+
+
+def test_checkout_refusal_message_starts_with_the_shared_dirty_tree_prefix(tmp_path: Path) -> None:
+    # The refusal message must be BUILT FROM DIRTY_TREE_REFUSAL_PREFIX, not
+    # merely happen to start with the same text -- pins that contract so a
+    # reword of the message breaks this test, not the marker-gating logic
+    # that shares the constant's *identity* (not its text) with the guard.
+    runner = _ScriptedRunner(_happy_checkout_script(status=_ok(" M some/file.py\n")))
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner)
+
+    with pytest.raises(UpdateStepError) as excinfo:
+        updater._checkout("v2.0.0", on_step=lambda step: None)
+
+    message = str(excinfo.value)
+    assert message.startswith(f"checkout: {DIRTY_TREE_REFUSAL_PREFIX}")
+
+
+def test_checkout_forces_through_a_dirty_tree_attested_by_the_marker(tmp_path: Path) -> None:
+    git_dir = _seed_git_dir(tmp_path)
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    marker.touch()  # attested debris from a previous checkout attempt
+    runner = _ScriptedRunner(_happy_checkout_script(status=_ok(" M some/file.py\n")))
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner)
+
+    updater._checkout("v2.0.0", on_step=lambda step: None)
+
+    checkout_call = next(call for call in runner.calls if call["argv"][:2] == ["git", "checkout"])
+    assert checkout_call["argv"] == ["git", "checkout", "--force", "--detach", "refs/tags/v2.0.0"]
+    assert not marker.exists()  # success removes it
+
+
+def test_checkout_refuses_a_dirty_tree_with_no_git_dir_at_all_the_same_as_no_marker(tmp_path: Path) -> None:
+    # No `.git` on disk (the vast majority of tests in this file) must
+    # behave exactly like "no marker" -- a bare tmp_path is not a special
+    # case that accidentally allows force.
+    runner = _ScriptedRunner(_happy_checkout_script(status=_ok(" M some/file.py\n")))
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner)
+
+    with pytest.raises(UpdateStepError) as excinfo:
+        updater._checkout("v2.0.0", on_step=lambda step: None)
+
+    assert DIRTY_TREE_REFUSAL_PREFIX in str(excinfo.value)
+
+
+def test_checkout_creates_the_marker_immediately_before_the_mutating_checkout_call(tmp_path: Path) -> None:
+    git_dir = _seed_git_dir(tmp_path)
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    observed: dict[str, bool] = {}
+
+    def recording_runner(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if argv[:2] == ["git", "checkout"]:
+            observed["marker_exists_at_checkout"] = marker.exists()
+        script = _happy_checkout_script()
+        return script.get(argv[1], _ok())
+
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=recording_runner)
+
+    updater._checkout("v2.0.0", on_step=lambda step: None)
+
+    assert observed == {"marker_exists_at_checkout": True}
+    assert not marker.exists()  # removed again once the checkout succeeded
+
+
+def test_checkout_never_creates_a_marker_when_the_tag_is_not_found(tmp_path: Path) -> None:
+    # A tag-verify failure means the tree was never touched by this
+    # attempt -- creating a marker here would license a force on a later
+    # retry even though nothing was ever half-applied (this is the exact
+    # scenario an independent review flagged against an early draft of
+    # this mechanism).
+    git_dir = _seed_git_dir(tmp_path)
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    runner = _ScriptedRunner(_happy_checkout_script(**{"rev-parse": _fail("fatal: bad revision")}))
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner)
+
+    with pytest.raises(UpdateStepError):
+        updater._checkout("v2.0.0", on_step=lambda step: None)
+
+    assert not marker.exists()
+
+
+def test_checkout_clears_a_stale_marker_when_the_tree_is_clean_even_if_the_tag_is_not_found(tmp_path: Path) -> None:
+    # Isolates the "clean tree clears a stale marker" step from the
+    # "success removes it" step: forcing a tag-not-found failure means
+    # checkout never runs and never gets a chance to remove the marker
+    # itself, so the marker's absence here can only be explained by the
+    # up-front clean-tree clear.
+    git_dir = _seed_git_dir(tmp_path)
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    marker.touch()  # stale, leftover from some earlier run
+    runner = _ScriptedRunner(_happy_checkout_script(**{"rev-parse": _fail("fatal: bad revision")}))
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner)
+
+    with pytest.raises(UpdateStepError):
+        updater._checkout("v2.0.0", on_step=lambda step: None)
+
+    assert not marker.exists()
+
+
+def test_checkout_keeps_the_marker_when_a_timeout_leaves_the_tree_dirty(tmp_path: Path) -> None:
+    # The dirty-tree guard runs twice in this attempt: clean beforehand
+    # (so the plain, unforced checkout is attempted and the marker gets
+    # created), then dirty afterward once the checkout subprocess itself
+    # times out mid-write -- that dirt is now attested, so the marker must
+    # survive for the next attempt to force through it.
+    git_dir = _seed_git_dir(tmp_path)
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    script = _happy_checkout_script(
+        status=_seq(_ok(""), _ok(" M some/file.py\n")),
+        checkout=subprocess.TimeoutExpired(cmd=["git", "checkout"], timeout=60),
+    )
+    runner = _ScriptedRunner(script)
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner)
+
+    with pytest.raises(UpdateStepError) as excinfo:
+        updater._checkout("v2.0.0", on_step=lambda step: None)
+
+    assert excinfo.value.step == "checkout"
+    assert marker.exists()
+
+
+def test_checkout_removes_the_marker_when_a_failure_leaves_the_tree_clean(tmp_path: Path) -> None:
+    # git refused or died before writing anything (an untracked-file
+    # conflict, a bad pathspec, disk-full-before-any-write): the recheck
+    # finds the tree still clean, so nothing was half-applied and the
+    # marker is removed -- a retry must hit the same visible error again,
+    # never silently force.
+    git_dir = _seed_git_dir(tmp_path)
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    script = _happy_checkout_script(
+        status=_seq(_ok(""), _ok("")),
+        checkout=_fail("error: The following untracked working tree files would be overwritten"),
+    )
+    runner = _ScriptedRunner(script)
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner)
+
+    with pytest.raises(UpdateStepError) as excinfo:
+        updater._checkout("v2.0.0", on_step=lambda step: None)
+
+    assert excinfo.value.step == "checkout"
+    assert not marker.exists()
+
+
+def test_checkout_keeps_the_marker_when_the_post_failure_recheck_itself_cannot_be_run(tmp_path: Path) -> None:
+    # Erring toward keeping the marker when the recheck itself fails: a
+    # forced checkout of a tree that turns out to already be clean is a
+    # no-op-equivalent, while discarding the marker here risks re-wedging
+    # the device the way the unconditional-refusal bug this class fixes
+    # did.
+    git_dir = _seed_git_dir(tmp_path)
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    script = _happy_checkout_script(
+        status=_seq(_ok(""), _fail("fatal: index file corrupt")),
+        checkout=_fail("fatal: unable to write new index file"),
+    )
+    runner = _ScriptedRunner(script)
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner)
+
+    with pytest.raises(UpdateStepError):
+        updater._checkout("v2.0.0", on_step=lambda step: None)
+
+    assert marker.exists()
+
+
+def test_apply_refuses_a_user_dirty_tree_with_no_marker_even_after_a_previous_checkout_step_failure(
+    tmp_path: Path,
+) -> None:
+    # The scenario an earlier, broken design got wrong: a death/timeout
+    # during the dirty-tree GUARD itself (e.g. a slow SD card) must never
+    # attribute the tree's dirt to the updater. Since attribution is now
+    # purely marker-based rather than inferred from job history, this is
+    # pinned directly: a dirty tree with no marker refuses regardless of
+    # what any previous job record might say.
+    git_dir = _seed_git_dir(tmp_path)
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    assert not marker.exists()
+    runner = _ScriptedRunner(_happy_checkout_script(status=_ok(" M some/file.py\n")))
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner)
+
+    with pytest.raises(UpdateStepError) as excinfo:
+        updater._checkout("v2.0.0", on_step=lambda step: None)
+
+    assert DIRTY_TREE_REFUSAL_PREFIX in str(excinfo.value)
+    called_subcommands = [call["argv"][1] for call in runner.calls]
+    assert called_subcommands == ["status"]  # nothing forced, nothing else even attempted
+
+
+def test_checkout_creates_the_marker_through_the_fsync_helper(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The marker's creation must be fsynced (file + `.git` directory entry)
+    # so a power cut immediately after cannot lose the marker while the
+    # half-checkout dirt it attests to survives -- pinned by asserting
+    # creation goes through the shared fsynced-write helper, not a bare
+    # `Path.touch()`.
+    git_dir = _seed_git_dir(tmp_path)
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    calls: list[tuple[Path, str]] = []
+    real_atomic_write_text = git_uv_updater_module.atomic_write_text
+
+    def spying_atomic_write_text(path: Path, text: str) -> None:
+        calls.append((path, text))
+        real_atomic_write_text(path, text)
+
+    monkeypatch.setattr(git_uv_updater_module, "atomic_write_text", spying_atomic_write_text)
+    runner = _ScriptedRunner(_happy_checkout_script())
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner)
+
+    updater._checkout("v2.0.0", on_step=lambda step: None)
+
+    assert calls == [(marker, "")]
+
+
+def test_apply_clears_a_stale_marker_at_start_so_a_later_dirtied_tree_refuses_instead_of_forcing(
+    tmp_path: Path,
+) -> None:
+    # Pins the fix for a proof-of-concept: a marker left behind by a kill
+    # between checkout-success and its own removal (or between its
+    # creation and the checkout even starting) could otherwise linger
+    # indefinitely and license a force far later, once the tree becomes
+    # dirty again for an unrelated (operator) reason. apply() now clears a
+    # stale marker against the CURRENT tree state at the very start, before
+    # `fetch` -- so by the time `_checkout`'s own guard runs later in this
+    # same call, a tree that has since become dirty (simulated here by the
+    # second scripted `status` response) is correctly refused, not forced.
+    git_dir = _seed_git_dir(tmp_path)
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    marker.touch()  # stale -- left behind by some earlier, now-irrelevant run
+    script = _happy_checkout_script(status=_seq(_ok(""), _ok(" M some/file.py\n")))
+    runner = _ScriptedRunner(script)
+    opener = _asset_opener("v2.0.0", _minimal_static_tar())
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner, opener=opener)
+
+    with pytest.raises(UpdateStepError) as excinfo:
+        updater.apply("v2.0.0", on_step=lambda step: None)
+
+    assert excinfo.value.step == "checkout"
+    assert DIRTY_TREE_REFUSAL_PREFIX in str(excinfo.value)
+    assert not marker.exists()  # cleared at apply-start; never resurrected since checkout refused, not forced
+
+
+def test_apply_logs_info_once_when_it_clears_a_stale_marker(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    git_dir = _seed_git_dir(tmp_path)
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    marker.touch()
+    runner = _ScriptedRunner(_happy_checkout_script())
+    opener = _asset_opener("v2.0.0", _minimal_static_tar())
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner, opener=opener)
+
+    with caplog.at_level(logging.INFO):
+        updater.apply("v2.0.0", on_step=lambda step: None)
+
+    info_records = [r for r in caplog.records if r.levelno == logging.INFO and "stale" in r.message]
+    assert len(info_records) == 1
+
+
+def test_apply_leaves_an_attested_marker_alone_at_start_when_the_tree_is_still_dirty(tmp_path: Path) -> None:
+    # The apply-start clear must only fire on a CLEAN tree -- a marker
+    # whose dirt is still present is exactly the attested-debris case the
+    # marker exists to preserve.
+    git_dir = _seed_git_dir(tmp_path)
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    marker.touch()
+    runner = _ScriptedRunner(_happy_checkout_script(status=_ok(" M some/file.py\n")))
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner)
+
+    updater._clear_marker_if_tree_is_clean()
+
+    assert marker.exists()
+
+
+# --- stale git lock sweep: gated, not unconditional ---
+
+
+def test_sweep_leaves_a_lock_alone_the_first_time_it_is_seen(tmp_path: Path) -> None:
+    # The monotonic first-seen gate cannot possibly consider a lock
+    # eligible the very first time this process observes it.
+    git_dir = _seed_git_dir(tmp_path)
+    lock = git_dir / "index.lock"
+    lock.write_text("")
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=_ScriptedRunner({}), monotonic=lambda: 1000.0)
+
+    updater._sweep_stale_locks()
+
+    assert lock.exists()
+
+
+def test_apply_leaves_a_fresh_lock_with_no_marker_alone(tmp_path: Path) -> None:
+    git_dir = _seed_git_dir(tmp_path)
+    lock = git_dir / "index.lock"
+    lock.write_text("")
+    runner = _ScriptedRunner(_happy_checkout_script())
+    opener = _asset_opener("v2.0.0", _minimal_static_tar())
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner, opener=opener)
+
+    updater.apply("v2.0.0", on_step=lambda step: None)
+
+    assert lock.exists()  # not attributable to this updater on a first sighting -- left alone
+
+
+def test_sweep_removes_a_lock_once_observed_stale_for_the_threshold_via_monotonic_time(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    git_dir = _seed_git_dir(tmp_path)
+    lock = git_dir / "index.lock"
+    lock.write_text("")
+    clock = {"t": 1000.0}
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=_ScriptedRunner({}), monotonic=lambda: clock["t"])
+
+    updater._sweep_stale_locks()  # first sight -- records first_seen, does not remove
+    assert lock.exists()
+
+    clock["t"] += _STALE_LOCK_MIN_AGE_SECONDS - 1
+    updater._sweep_stale_locks()  # not yet elapsed
+    assert lock.exists()
+
+    clock["t"] += 2
+    with caplog.at_level(logging.WARNING):
+        updater._sweep_stale_locks()  # now elapsed
+    assert not lock.exists()
+    assert any("index.lock" in r.message for r in caplog.records)
+
+
+def test_sweep_ignores_a_wall_clock_jump(tmp_path: Path) -> None:
+    # An NTP step-forward at boot must not make a just-created, genuinely
+    # live lock look hours old -- only this process's own monotonic clock
+    # counts.
+    git_dir = _seed_git_dir(tmp_path)
+    lock = git_dir / "index.lock"
+    lock.write_text("")
+    backdated = time.time() - 3600  # wall-clock mtime says "an hour old"
+    os.utime(lock, (backdated, backdated))
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=_ScriptedRunner({}), monotonic=lambda: 1000.0)
+
+    updater._sweep_stale_locks()
+
+    assert lock.exists()
+
+
+def test_sweep_prunes_first_seen_bookkeeping_once_a_lock_disappears_on_its_own(tmp_path: Path) -> None:
+    git_dir = _seed_git_dir(tmp_path)
+    lock = git_dir / "index.lock"
+    lock.write_text("")
+    clock = {"t": 1000.0}
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=_ScriptedRunner({}), monotonic=lambda: clock["t"])
+    updater._sweep_stale_locks()
+    assert lock in updater._lock_first_seen
+
+    lock.unlink()  # e.g. the operator's own command finished and cleaned up after itself
+    updater._sweep_stale_locks()
+    assert lock not in updater._lock_first_seen
+
+    # A brand-new lock reappearing at the same path is treated as newly
+    # seen -- not instantly eligible from leftover bookkeeping.
+    lock.write_text("")
+    clock["t"] += _STALE_LOCK_MIN_AGE_SECONDS + 1
+    updater._sweep_stale_locks()
+    assert lock.exists()
+
+
+def test_sweep_removes_a_lock_no_newer_than_the_marker(tmp_path: Path) -> None:
+    # The marker attests "this updater's own previous run died mid-
+    # mutation" -- a lock that already existed before the marker was even
+    # written can only be from something that predates that same crash.
+    git_dir = _seed_git_dir(tmp_path)
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    marker.touch()
+    marker_mtime = marker.stat().st_mtime
+    lock = git_dir / "index.lock"
+    lock.write_text("")
+    os.utime(lock, (marker_mtime - 5, marker_mtime - 5))  # predates the marker
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=_ScriptedRunner({}), monotonic=lambda: 1000.0)
+
+    updater._sweep_stale_locks()
+
+    assert not lock.exists()
+
+
+def test_sweep_leaves_a_lock_newer_than_the_marker_to_the_normal_gate(tmp_path: Path) -> None:
+    # Pins the fix for a proof-of-concept: a lock CREATED AFTER the marker
+    # could be this same crashed attempt's own lock, or an operator's
+    # brand-new one made during a post-crash SSH rescue -- indistinguishable
+    # by mtime alone, so it must NOT get automatic marker-based amnesty.
+    git_dir = _seed_git_dir(tmp_path)
+    marker = git_dir / _CHECKOUT_MARKER_NAME
+    marker.touch()
+    marker_mtime = marker.stat().st_mtime
+    lock = git_dir / "index.lock"
+    lock.write_text("")
+    os.utime(lock, (marker_mtime + 5, marker_mtime + 5))  # postdates the marker
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=_ScriptedRunner({}), monotonic=lambda: 1000.0)
+
+    updater._sweep_stale_locks()
+
+    assert lock.exists()  # falls to the (not-yet-elapsed) monotonic gate instead
+
+
+def test_apply_warns_once_when_git_dir_is_not_a_plain_directory(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A gitfile/worktree layout -- `.git` is not a directory at all. The
+    # sweep and marker mechanisms must silently no-op rather than crash,
+    # with exactly one WARNING even though both `_sweep_stale_locks` and
+    # `_checkout` independently ask "is there a .git directory?".
+    (tmp_path / ".git").write_text("gitdir: /elsewhere\n")
+    runner = _ScriptedRunner(_happy_checkout_script())
+    opener = _asset_opener("v2.0.0", _minimal_static_tar())
+    updater = GitUvUpdater(portal_dir=tmp_path, runner=runner, opener=opener)
+
+    with caplog.at_level(logging.WARNING):
+        updater.apply("v2.0.0", on_step=lambda step: None)
+
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING and "not a plain directory" in r.message]
+    assert len(warnings) == 1
+
+
 def test_resolve_uv_bin_uses_shutil_which_when_found(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("palmimo_portal.adapters.git_uv_updater.shutil.which", lambda name: "/opt/uv/uv")
     updater = GitUvUpdater(portal_dir=tmp_path, uv_bin="uv", runner=_ScriptedRunner({}))
@@ -384,6 +900,121 @@ def test_stderr_tail_is_truncated_to_the_last_20_lines(tmp_path: Path) -> None:
     message = str(excinfo.value)
     assert "line 49" in message
     assert "line 29" not in message
+
+
+# --- real-git integration tests: the marker mechanism against actual git semantics ---
+#
+# The rest of this file scripts `git` itself -- fast, but it can only prove
+# the adapter behaves correctly against whatever the *script* says a git
+# command returned, which is exactly how two earlier, broken attribution
+# designs looked correct in review and were then broken by real git
+# semantics an adversarial reviewer actually ran. These tests drive a real
+# `git` binary against a real repository instead.
+
+
+def test_real_git_marker_survives_an_intervening_fetch_failure_then_force_repairs(tmp_path: Path) -> None:
+    """Pins the multi-job durability scenario: a killed-mid-checkout marker must outlive an unrelated later failure."""
+    portal_dir = _init_real_release_repo(tmp_path)
+    _publish_real_tag(tmp_path / "origin", "v2.0.0", file_name="app.py", content="v2\n")
+
+    # Simulate the aftermath of a checkout killed mid-write: a marker left
+    # behind and a genuinely dirty tracked file.
+    (portal_dir / "app.py").write_text("half-written-garbage")
+    marker = portal_dir / ".git" / _CHECKOUT_MARKER_NAME
+    marker.touch()
+
+    # A second apply that fails at "fetch" (a network blip) must not touch
+    # the marker or the dirty tree at all -- the failure happens before
+    # checkout is ever reached.
+    failing_fetch = _FailingStepRunner("fetch")
+    updater = GitUvUpdater(
+        portal_dir=portal_dir, runner=failing_fetch, opener=_asset_opener("v2.0.0", _minimal_static_tar())
+    )
+    with pytest.raises(UpdateStepError) as first:
+        updater.apply("v2.0.0", on_step=lambda step: None)
+    assert first.value.step == "fetch"
+    assert marker.exists()
+    assert (portal_dir / "app.py").read_text() == "half-written-garbage"
+
+    # A third apply -- fetch/checkout for real, sync deliberately failing
+    # so this test doesn't need a real `uv sync` -- must still
+    # force-repair through the attested dirt.
+    failing_sync = _FailingStepRunner("sync")
+    updater2 = GitUvUpdater(
+        portal_dir=portal_dir, runner=failing_sync, opener=_asset_opener("v2.0.0", _minimal_static_tar())
+    )
+    with pytest.raises(UpdateStepError) as second:
+        updater2.apply("v2.0.0", on_step=lambda step: None)
+    assert second.value.step == "sync"
+    assert not marker.exists()
+    assert (portal_dir / "app.py").read_text() == "v2\n"
+
+
+def test_real_git_untracked_conflict_refuses_both_times_without_ever_clobbering_the_operators_file(
+    tmp_path: Path,
+) -> None:
+    """Pins the untracked-conflict scenario: git's own refusal must never be silently forced away on retry."""
+    portal_dir = _init_real_release_repo(tmp_path)
+    _publish_real_tag(tmp_path / "origin", "v2.0.0", file_name="conflict.txt", content="from-v2\n")
+    (portal_dir / "conflict.txt").write_text("operator-data\n")  # untracked, operator-owned
+    marker = portal_dir / ".git" / _CHECKOUT_MARKER_NAME
+    updater = GitUvUpdater(portal_dir=portal_dir, opener=_asset_opener("v2.0.0", _minimal_static_tar()))
+
+    with pytest.raises(UpdateStepError) as first:
+        updater.apply("v2.0.0", on_step=lambda step: None)
+    assert first.value.step == "checkout"
+    assert not marker.exists()
+    assert (portal_dir / "conflict.txt").read_text() == "operator-data\n"
+
+    with pytest.raises(UpdateStepError) as second:
+        updater.apply("v2.0.0", on_step=lambda step: None)
+    assert second.value.step == "checkout"
+    assert not marker.exists()
+    assert (portal_dir / "conflict.txt").read_text() == "operator-data\n"
+
+
+def test_real_git_tag_not_found_never_creates_a_marker_so_a_later_operator_edit_is_never_forced_away(
+    tmp_path: Path,
+) -> None:
+    """The tree was never touched by a tag-not-found failure -- a later operator edit must still refuse, not force."""
+    portal_dir = _init_real_release_repo(tmp_path)
+    # v2.0.0 is never published -- fetch succeeds, but the tag simply does
+    # not exist.
+    marker = portal_dir / ".git" / _CHECKOUT_MARKER_NAME
+    updater = GitUvUpdater(portal_dir=portal_dir, opener=_asset_opener("v2.0.0", _minimal_static_tar()))
+
+    with pytest.raises(UpdateStepError) as first:
+        updater.apply("v2.0.0", on_step=lambda step: None)
+    assert first.value.step == "checkout"
+    assert "tag not found after fetch" in str(first.value)
+    assert not marker.exists()
+
+    # The operator now edits a tracked file over SSH, in the gap between
+    # attempts.
+    (portal_dir / "app.py").write_text("operator's own edit\n")
+
+    with pytest.raises(UpdateStepError) as second:
+        updater.apply("v2.0.0", on_step=lambda step: None)
+    assert second.value.step == "checkout"
+    assert DIRTY_TREE_REFUSAL_PREFIX in str(second.value)  # refused, never forced
+    assert not marker.exists()
+    assert (portal_dir / "app.py").read_text() == "operator's own edit\n"
+
+
+def test_real_git_fresh_lock_with_no_marker_makes_checkout_fail_visibly_and_the_lock_survives(tmp_path: Path) -> None:
+    """A live operator lock (a concurrent `git add`/commit over SSH) must never be swept -- the git call fails instead."""
+    portal_dir = _init_real_release_repo(tmp_path)
+    _publish_real_tag(tmp_path / "origin", "v2.0.0", file_name="app.py", content="v2\n")
+    lock = portal_dir / ".git" / "index.lock"
+    lock.write_text("")  # fresh -- e.g. an operator's own concurrent `git add` over SSH
+    updater = GitUvUpdater(portal_dir=portal_dir, opener=_asset_opener("v2.0.0", _minimal_static_tar()))
+
+    with pytest.raises(UpdateStepError) as excinfo:
+        updater.apply("v2.0.0", on_step=lambda step: None)
+
+    assert excinfo.value.step == "checkout"
+    assert "File exists" in str(excinfo.value)
+    assert lock.exists()  # never attributed to this updater -- left for the operator's own command
 
 
 # --- the "assets" step: download, verify, and safely stage the frontend build ---

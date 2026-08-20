@@ -135,7 +135,7 @@ export function SshKeysPanel() {
                 key={key.fingerprint}
                 className={`flex flex-col gap-1 p-3 md:grid md:grid-cols-[1fr_120px_1fr_44px] md:items-center md:gap-2 md:px-3 md:py-2 ${index === 0 ? "" : "border-t border-input"}`}
               >
-                <span className="min-w-0 text-sm font-medium md:truncate">{key.comment || t("sshKeys.noComment")}</span>
+                <span className="min-w-0 max-w-full truncate text-sm font-medium">{key.comment || t("sshKeys.noComment")}</span>
                 <Badge variant="outline" className="w-fit">
                   {key.key_type}
                 </Badge>

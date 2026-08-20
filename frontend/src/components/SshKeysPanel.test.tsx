@@ -44,8 +44,11 @@ describe("SshKeysPanel", () => {
     renderWithProviders(<SshKeysPanel />);
 
     const comment = await screen.findByText(longComment);
-    expect(comment.className).toContain("min-w-0");
-    expect(comment.className).toContain("truncate");
+    const classes = comment.className.split(" ");
+    expect(classes).toContain("min-w-0");
+    // Unprefixed, not `md:truncate` -- the row is `flex-col` (not `md:grid`) below md, so
+    // truncation must apply at mobile widths too, not just once the desktop grid kicks in.
+    expect(classes).toContain("truncate");
   });
 
   it("shows an empty state when there are no keys", async () => {

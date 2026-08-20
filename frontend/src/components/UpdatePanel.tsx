@@ -121,7 +121,7 @@ export function UpdatePanel({
   const queryClient = useQueryClient();
   const statusQueryKey = getGetStatusApiV1UpdateStatusGetQueryKey();
 
-  // Write each check/apply/rollback response straight into the status query's cache so a job
+  // Write each apply/rollback response straight into the status query's cache so a job
   // that just moved to "running"/"restarting" is visible immediately; `refetchType: "none"`
   // only marks the entry stale rather than forcing an immediate refetch that could race this
   // write and clobber it with a stale read.
@@ -345,9 +345,11 @@ function UpdateCard({
         <p className="font-semibold">
           {status.update_available
             ? t("update.newVersionAvailable")
-            : status.latest === null
-              ? t("update.checkFailedTitle")
-              : t("update.upToDate")}
+            : status.latest !== null
+              ? t("update.upToDate")
+              : checkPending
+                ? t("update.checkingTitle")
+                : t("update.checkFailedTitle")}
         </p>
         {status.latest ? (
           <Badge variant="outline" className="ml-auto">
@@ -412,19 +414,17 @@ function UpdateCard({
       <ApiErrorAlert error={applyError} />
 
       <div className="flex flex-col gap-3 md:flex-row">
-        <Button
-          className={cn("flex-1 md:flex-initial")}
-          disabled={
-            (!status.update_available && !status.retry_available) ||
-            !status.latest ||
-            applyPending ||
-            job.state === "running" ||
-            job.state === "restarting"
-          }
-          onClick={() => setDialogKind("update")}
-        >
-          {status.latest ? t("update.updateButton", { tag: status.latest.tag }) : t("update.updateButton", { tag: "" })}
-        </Button>
+        {status.latest ? (
+          <Button
+            className={cn("flex-1 md:flex-initial")}
+            disabled={
+              (!status.update_available && !status.retry_available) || applyPending || job.state === "running" || job.state === "restarting"
+            }
+            onClick={() => setDialogKind("update")}
+          >
+            {t("update.updateButton", { tag: status.latest.tag })}
+          </Button>
+        ) : null}
         {status.latest ? (
           <Button variant="outline" asChild>
             <a href={status.latest.html_url} target="_blank" rel="noreferrer">

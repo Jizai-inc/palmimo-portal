@@ -200,6 +200,7 @@
     "newVersionAvailable": "新しいバージョンがあります",
     "upToDate": "最新の状態です",
     "checkFailedTitle": "リリース情報を取得できませんでした",
+    "checkingTitle": "更新を確認しています…",
     "installedVersionLabel": "現在のバージョン",
     "latestReleaseLabel": "最新リリース",
     "lastCheckedLabel": "最終確認",

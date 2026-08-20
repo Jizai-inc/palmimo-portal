@@ -665,6 +665,69 @@ def test_apply_after_a_failed_job_can_retry_the_same_target(client: TestClient, 
     assert adapters.updater.apply_calls == ["v2.0.0", "v2.0.0"]
 
 
+def _clear_check_rate_limit(adapters: FakeAdapterBundle) -> None:
+    """Back-date ``checked_at`` past :data:`CHECK_RATE_LIMIT_SECONDS` without a real sleep."""
+    from dataclasses import replace
+
+    state = adapters.state.read_update_state()
+    assert state.checked_at is not None
+    adapters.state.write_update_state(replace(state, checked_at=state.checked_at - 100.0))
+
+
+def test_check_preserves_a_failed_job_and_its_retry_availability(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    _log_in(client, adapters)
+    adapters.updater.installed_version = InstalledVersion(tag="v1.0.0", commit="abc")
+    _check_v2(client, adapters)
+    adapters.updater.fail_at_step = "sync"
+    apply_response = client.post("/api/v1/update/apply", json={"tag": "v2.0.0"}, headers=CSRF_HEADERS)
+    assert apply_response.json()["job"]["state"] == "failed"
+    _clear_check_rate_limit(adapters)
+
+    check_response = client.post("/api/v1/update/check", headers=CSRF_HEADERS)
+
+    assert check_response.status_code == 200
+    body = check_response.json()
+    assert body["job"]["state"] == "failed"
+    assert body["job"]["step"] == "sync"
+    assert body["job"]["target"] == "v2.0.0"
+    assert body["retry_available"] is True
+    persisted = adapters.state.read_update_state()
+    assert persisted.job.state == "failed"
+    assert persisted.job.target == "v2.0.0"
+
+
+def test_check_leaves_a_done_job_unchanged(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    from palmimo_portal.core.update import finalize_after_restart
+
+    _log_in(client, adapters)
+    adapters.updater.installed_version = InstalledVersion(tag="v1.0.0", commit="abc")
+    _check_v2(client, adapters)
+    client.post("/api/v1/update/apply", json={"tag": "v2.0.0"}, headers=CSRF_HEADERS)
+    adapters.updater.installed_version = InstalledVersion(tag="v2.0.0", commit="def")
+    state = adapters.state.read_update_state()
+    adapters.state.write_update_state(finalize_after_restart(state, adapters.updater.installed(), now=1000.0))
+    done_job = adapters.state.read_update_state().job
+    assert done_job.state == "done"
+    _clear_check_rate_limit(adapters)
+
+    check_response = client.post("/api/v1/update/check", headers=CSRF_HEADERS)
+
+    assert check_response.status_code == 200
+    assert check_response.json()["job"] == {
+        "kind": done_job.kind,
+        "state": done_job.state,
+        "target": done_job.target,
+        "step": done_job.step,
+        "error": done_job.error,
+        "started_at": done_job.started_at,
+        "finished_at": done_job.finished_at,
+        "restarting_at": done_job.restarting_at,
+    }
+    assert adapters.state.read_update_state().job.state == "done"
+
+
 def test_lifespan_leaves_an_idle_job_untouched(tmp_path: Path) -> None:
     from palmimo_portal.api.app import create_app
 

@@ -57,10 +57,9 @@ def test_status_reports_auth_state_corrupt(client: TestClient, adapters: FakeAda
 def test_status_reports_auth_state_initial_when_identity_present_and_no_password_set(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
-    from palmimo_portal.core.auth import hash_password
     from palmimo_portal.ports import Identity
 
-    adapters.identity.identity = Identity(device_id="palmimo-042", initial_password_hash=hash_password("sticker"))
+    adapters.identity.identity = Identity(device_id="palmimo-042", initial_password="sticker")
 
     response = client.get("/api/v1/system/status")
 
@@ -70,10 +69,9 @@ def test_status_reports_auth_state_initial_when_identity_present_and_no_password
 def test_status_reports_auth_state_set_when_identity_present_and_password_already_set(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
-    from palmimo_portal.core.auth import hash_password
     from palmimo_portal.ports import Identity
 
-    adapters.identity.identity = Identity(device_id="palmimo-042", initial_password_hash=hash_password("sticker"))
+    adapters.identity.identity = Identity(device_id="palmimo-042", initial_password="sticker")
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
 
     response = client.get("/api/v1/system/status")
@@ -93,10 +91,9 @@ def test_status_device_id_is_null_without_an_identity_file(client: TestClient) -
 def test_status_reports_the_device_id_when_an_identity_file_is_present(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
-    from palmimo_portal.core.auth import hash_password
     from palmimo_portal.ports import Identity
 
-    adapters.identity.identity = Identity(device_id="palmimo-042", initial_password_hash=hash_password("sticker"))
+    adapters.identity.identity = Identity(device_id="palmimo-042", initial_password="sticker")
 
     response = client.get("/api/v1/system/status")
 
@@ -111,7 +108,7 @@ def test_status_reflects_an_identity_file_removed_from_disk_without_a_restart(
     # cache primed from an earlier request, so a removed identity file
     # shows up immediately rather than only after a process restart.
     identity_path = tmp_path / "identity.json"
-    identity_path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password_hash": "argon2id$..."}))
+    identity_path.write_text(json.dumps({"device_id": "palmimo-042", "initial_password": "sticker"}))
     identity_store = FileIdentityStore(identity_path)
     # A deliberate mixed bundle -- a real adapter standing in for the
     # identity port only, everything else stays fake -- so cast to the

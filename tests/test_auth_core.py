@@ -141,7 +141,7 @@ def test_decode_session_is_none_for_a_tampered_token() -> None:
     assert decode_session(signing_key, token + "x") is None
 
 
-IDENTITY = Identity(device_id="palmimo-042", initial_password_hash=hash_password("sticker-password"))
+IDENTITY = Identity(device_id="palmimo-042", initial_password="sticker-password")
 
 
 def test_change_password_from_initial_creates_auth_material() -> None:
@@ -630,7 +630,7 @@ def test_reset_rate_limiter_release_reopens_the_window() -> None:
     assert limiter.try_acquire() is True
 
 
-STICKER_IDENTITY = Identity(device_id="palmimo-042", initial_password_hash=hash_password("sticker"))
+STICKER_IDENTITY = Identity(device_id="palmimo-042", initial_password="sticker")
 
 
 @pytest.mark.parametrize(

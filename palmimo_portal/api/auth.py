@@ -45,7 +45,7 @@ from palmimo_portal.core.auth import (
     decide_reset,
     issue_session,
     setup_password,
-    verify_password,
+    verify_identity_password,
     verify_password_against_store,
 )
 from palmimo_portal.core.identity import PortalAuthState, compute_auth_state
@@ -157,7 +157,7 @@ def login(
     """Verify the password and, on success, issue a session cookie.
 
     Checks against ``auth.json`` (mode ``"full"``) when a password has been
-    set, or the identity file's sticker hash (mode ``"initial"``) when one
+    set, or the identity file's sticker password (mode ``"initial"``) when one
     hasn't but an identity file is present -- see
     :func:`~palmimo_portal.core.identity.compute_auth_state`. Response
     ``mode`` lets the frontend route straight to change-password after an
@@ -209,7 +209,7 @@ def login(
                 raise PortalError(409, "auth_not_set") from error
         else:
             assert identity is not None and identity is not IDENTITY_UNAVAILABLE
-            correct = verify_password(body.password, identity.initial_password_hash)
+            correct = verify_identity_password(body.password, identity)
 
         if not correct:
             rate_limiter.record_failure()
@@ -252,7 +252,7 @@ def change_password_endpoint(
     everywhere else, is deliberately not applied here.
 
     - **From an initial session**: ``current_password`` checks against the
-      identity file's sticker hash; ``auth.json`` is *created* for the
+      identity file's sticker password; ``auth.json`` is *created* for the
       first time (:func:`~palmimo_portal.core.auth.change_password_from_initial`,
       same exclusive-create machinery as ``POST /setup``, so two concurrent
       requests from two initial sessions cannot both win).

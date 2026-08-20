@@ -6,7 +6,7 @@ from palmimo_portal.core.identity import PortalAuthState, compute_auth_state
 from palmimo_portal.ports import IDENTITY_UNAVAILABLE, AuthFileState, Identity
 
 
-IDENTITY = Identity(device_id="palmimo-042", initial_password_hash="hash")
+IDENTITY = Identity(device_id="palmimo-042", initial_password="sticker-password")
 
 
 def test_open_setup_when_no_identity_and_auth_absent() -> None:

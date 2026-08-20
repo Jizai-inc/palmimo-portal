@@ -88,6 +88,11 @@ def verify_password(password: str, password_hash: str) -> bool:
     return True
 
 
+def verify_identity_password(password: str, identity: Identity) -> bool:
+    """Constant-time compare against the sticker password (spec v2 stores it in plaintext, not hashed)."""
+    return secrets.compare_digest(password.encode("utf-8"), identity.initial_password.encode("utf-8"))
+
+
 def setup_password(store: StateStore, password: str) -> AuthState:
     """Set the Portal password for the first time.
 
@@ -132,11 +137,11 @@ def change_password_from_initial(
     :attr:`~palmimo_portal.ports.AuthFileState.ABSENT`.
 
     Raises:
-        InvalidCurrentPasswordError: ``current_password`` does not match ``identity.initial_password_hash``.
+        InvalidCurrentPasswordError: ``current_password`` does not match ``identity.initial_password``.
         AuthAlreadyExistsError: a concurrent change created ``auth.json`` first;
             ``api/auth.py`` translates this to 409 for the loser.
     """
-    if not verify_password(current_password, identity.initial_password_hash):
+    if not verify_identity_password(current_password, identity):
         raise InvalidCurrentPasswordError()
     state = AuthState(password_hash=hash_password(new_password), signing_key=generate_signing_key())
     store.create_auth(state)

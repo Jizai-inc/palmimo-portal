@@ -18,23 +18,31 @@ describe("formatLastWifiAttempt", () => {
     expect(formatLastWifiAttempt(attempt({ result: "attempting" }), i18n.t.bind(i18n))).toBe("Connecting…");
   });
 
-  it("renders the connected copy with a MM-DD HH:mm timestamp", () => {
-    // 2024-03-05T06:07:00Z -- use a UTC-based Date so the assertion does not
-    // depend on the test runner's own timezone.
+  it("renders the connected copy with a fixed-epoch, exact UTC MM-DD HH:mm timestamp", () => {
+    // 2024-03-05T06:07:00Z -- a fixed epoch pinned to an exact string, so the
+    // assertion does not depend on the test runner's own timezone.
     const timestamp = Date.UTC(2024, 2, 5, 6, 7, 0) / 1000;
-    const expectedDate = new Date(timestamp * 1000);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const expected = `Connected (${pad(expectedDate.getMonth() + 1)}-${pad(expectedDate.getDate())} ${pad(expectedDate.getHours())}:${pad(expectedDate.getMinutes())})`;
 
-    expect(formatLastWifiAttempt(attempt({ result: "connected", timestamp }), i18n.t.bind(i18n))).toBe(expected);
+    expect(formatLastWifiAttempt(attempt({ result: "connected", timestamp }), i18n.t.bind(i18n))).toBe(
+      "Connected (03-05 06:07 UTC)",
+    );
   });
 
-  it("renders the failed copy with a MM-DD HH:mm timestamp", () => {
+  it("renders the failed copy with a fixed-epoch, exact UTC MM-DD HH:mm timestamp", () => {
     const timestamp = Date.UTC(2024, 2, 5, 6, 7, 0) / 1000;
-    const expectedDate = new Date(timestamp * 1000);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const expected = `Failed (${pad(expectedDate.getMonth() + 1)}-${pad(expectedDate.getDate())} ${pad(expectedDate.getHours())}:${pad(expectedDate.getMinutes())})`;
 
-    expect(formatLastWifiAttempt(attempt({ result: "failed", timestamp }), i18n.t.bind(i18n))).toBe(expected);
+    expect(formatLastWifiAttempt(attempt({ result: "failed", timestamp }), i18n.t.bind(i18n))).toBe(
+      "Failed (03-05 06:07 UTC)",
+    );
+  });
+
+  it("renders in UTC even when the local calendar day would differ (near-midnight UTC)", () => {
+    // 2024-03-05T23:30:00Z -- in a local timezone ahead of UTC, the naive
+    // local-time formatting this replaced would show 03-06 instead.
+    const timestamp = Date.UTC(2024, 2, 5, 23, 30, 0) / 1000;
+
+    expect(formatLastWifiAttempt(attempt({ result: "connected", timestamp }), i18n.t.bind(i18n))).toBe(
+      "Connected (03-05 23:30 UTC)",
+    );
   });
 });

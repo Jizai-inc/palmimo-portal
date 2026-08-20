@@ -278,6 +278,6 @@ def _built_static_dir(tmp_path: Path) -> Path:
     """
     static_dir = tmp_path / "static"
     (static_dir / "assets").mkdir(parents=True)
-    (static_dir / "index.html").write_text("<!doctype html><title>Palmimo Setup</title>", encoding="utf-8")
+    (static_dir / "index.html").write_text("<!doctype html><title>Palmimo Portal</title>", encoding="utf-8")
     (static_dir / "assets" / "index.js").write_text("// built asset\n", encoding="utf-8")
     return static_dir

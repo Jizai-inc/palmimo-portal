@@ -63,6 +63,9 @@ export function WifiConnectForm({
             id="psk"
             type={showPassword ? "text" : "password"}
             autoComplete="off"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             required={network.secured}
             value={psk}
             onChange={(event) => setPsk(event.target.value)}

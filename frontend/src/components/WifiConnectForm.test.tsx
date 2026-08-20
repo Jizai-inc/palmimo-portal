@@ -114,6 +114,33 @@ describe("WifiConnectForm", () => {
     expect(toggle).toHaveAttribute("aria-pressed", "false");
   });
 
+  it("never submits the form when the visibility toggle is clicked", async () => {
+    // Uses the open network (no `required` password) so HTML5 constraint
+    // validation can't mask a regression: an empty required field blocks
+    // native submission on its own, which would hide a missing
+    // `type="button"` on the toggle.
+    const user = userEvent.setup();
+    const { container } = renderWithProviders(
+      <WifiConnectForm
+        network={OPEN_NETWORK}
+        lastAttempt={undefined}
+        connectError={undefined}
+        isSubmitting={false}
+        onSubmit={vi.fn()}
+        onBack={vi.fn()}
+      />,
+    );
+
+    const form = container.querySelector("form");
+    if (!form) throw new Error("form not found in rendered output");
+    const onFormSubmit = vi.fn();
+    form.addEventListener("submit", onFormSubmit);
+
+    await user.click(screen.getByRole("button", { name: "Show or hide password" }));
+
+    expect(onFormSubmit).not.toHaveBeenCalled();
+  });
+
   it("hides the password again once the target network changes", async () => {
     const user = userEvent.setup();
     const { rerender } = renderWithProviders(

@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import time
+from pathlib import Path
+from typing import cast
 
 import pytest
+from fastapi import FastAPI
 from starlette.testclient import TestClient
 
+from palmimo_portal.adapters.state import LAST_ATTEMPT_FILENAME, JsonFileStateStore
 from palmimo_portal.core.auth import hash_password
 from palmimo_portal.core.wifi_attempt import GRACE_PERIOD_SECONDS
 from palmimo_portal.ports import (
@@ -20,6 +25,7 @@ from palmimo_portal.ports import (
     WifiStatus,
 )
 from palmimo_portal.testing.fakes import FakeAdapterBundle
+from palmimo_portal.wiring import AdapterBundle
 
 
 CSRF_HEADERS = {"X-Requested-With": "PalmimoPortal"}
@@ -206,6 +212,43 @@ def test_connect_accepts_a_32_byte_multibyte_ssid(client: TestClient, adapters: 
     assert adapters.network.connect_calls == [(ssid, "secret123")]
 
 
+def test_connect_accepts_an_over_32_byte_ssid_containing_the_replacement_char(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    # NetworkManager/comitup decode a raw (Latin-1/SJIS) 32-*raw*-byte SSID
+    # lossily, expanding each undecodable byte to U+FFFD (3 UTF-8 bytes) --
+    # a legal, scan-listed network can arrive here well past 32 UTF-8 bytes.
+    # The replacement char is the signature of that lossy decode, so its
+    # presence relaxes the cap rather than rejecting a network the portal's
+    # own GET /wifi/networks just offered.
+    ssid = "�" * 11 + "net"
+    assert len(ssid.encode("utf-8")) == 36
+
+    response = client.post("/api/v1/wifi/connect", json={"ssid": ssid, "psk": "secret123"}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 200
+    assert adapters.network.connect_calls == [(ssid, "secret123")]
+
+
+def test_connect_rejects_a_129_byte_ssid_even_with_the_replacement_char(client: TestClient) -> None:
+    ssid = "�" * 43  # 129 bytes -- past the 128-byte sanity cap
+    assert len(ssid.encode("utf-8")) == 129
+
+    response = client.post("/api/v1/wifi/connect", json={"ssid": ssid, "psk": "secret123"}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "wifi_invalid_ssid"
+
+
+def test_connect_rejects_a_33_byte_ssid_without_the_replacement_char(client: TestClient) -> None:
+    # The relaxed cap is specifically for U+FFFD's lossy-decode signature --
+    # an ordinary over-length ssid must still be rejected at 32 bytes.
+    response = client.post("/api/v1/wifi/connect", json={"ssid": "a" * 33, "psk": "secret123"}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "wifi_invalid_ssid"
+
+
 def test_connect_rejects_a_too_short_psk(client: TestClient, adapters: FakeAdapterBundle) -> None:
     response = client.post("/api/v1/wifi/connect", json={"ssid": "home", "psk": "1234567"}, headers=CSRF_HEADERS)
 
@@ -242,6 +285,72 @@ def test_connect_rejects_a_psk_with_a_non_printable_char(client: TestClient) -> 
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "wifi_invalid_psk"
+
+
+def test_connect_accepts_an_8_char_japanese_psk_that_is_24_utf8_bytes(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    # wpa_supplicant/NetworkManager accept 8..63 arbitrary *bytes* for the
+    # passphrase, not 8..63 ASCII characters -- JP consumer routers commonly
+    # allow (and their owners commonly set) a UTF-8 passphrase. 8 Japanese
+    # characters is well over 8 bytes, so a characters-based rule would
+    # wrongly reject this even though it's a valid 8-character passphrase.
+    psk = "あ" * 8
+    assert len(psk.encode("utf-8")) == 24
+
+    response = client.post("/api/v1/wifi/connect", json={"ssid": "home", "psk": psk}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 200
+    assert adapters.network.connect_calls == [("home", psk)]
+
+
+def test_connect_rejects_a_22_char_japanese_psk_that_is_66_utf8_bytes(client: TestClient) -> None:
+    # The byte cap (63) is what actually bounds wpa_supplicant, not the
+    # character count (22, which alone would look valid).
+    psk = "あ" * 22
+    assert len(psk.encode("utf-8")) == 66
+
+    response = client.post("/api/v1/wifi/connect", json={"ssid": "home", "psk": psk}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "wifi_invalid_psk"
+
+
+def test_connect_rejects_a_lone_surrogate_psk(client: TestClient) -> None:
+    body = json.dumps({"ssid": "home", "psk": "\ud800aaaaaaa"}, ensure_ascii=True).encode("ascii")
+    response = client.post(
+        "/api/v1/wifi/connect",
+        content=body,
+        headers={**CSRF_HEADERS, "Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "wifi_invalid_psk"
+
+
+def test_status_survives_and_heals_a_poisoned_attempt_file_through_the_real_state_store(
+    tmp_path: Path, app: FastAPI, adapters: FakeAdapterBundle, client: TestClient
+) -> None:
+    # Pins the poison scenario end-to-end through the *real* on-disk store
+    # -- test_state_adapter.py exercises JsonFileStateStore directly, and
+    # the tests above exercise the API boundary against the fake state
+    # store, but neither proves the two fixes actually compose: a real
+    # last_attempt.json, written before ssid validation existed, sitting on
+    # disk when GET /system/status reads it back through this app. A
+    # deliberate mixed bundle -- a real JsonFileStateStore standing in for
+    # the state port only, everything else stays fake (network/system/etc.
+    # still need no D-Bus or systemd) -- so cast to the general
+    # AdapterBundle (see FakeAdapterBundle's docstring) for the replace()
+    # call itself.
+    attempt_path = tmp_path / LAST_ATTEMPT_FILENAME
+    attempt_path.write_bytes(b'{"ssid": "\\ud800", "result": "attempting", "timestamp": 1.0}')
+    real_state = JsonFileStateStore(tmp_path)
+    app.state.adapters = dataclasses.replace(cast(AdapterBundle, adapters), state=real_state)
+
+    response = client.get("/api/v1/system/status")
+
+    assert response.status_code == 200
+    assert not attempt_path.exists()
 
 
 # -- reconfigure-while-connected: operator visibility ------------------------

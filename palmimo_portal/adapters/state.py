@@ -353,8 +353,9 @@ class JsonFileStateStore(StateStore):
         # the stdlib decoder, not valid UTF-8. Left unchecked, that value
         # would make every later serialization of this attempt (e.g.
         # `GET /system/status`) raise. Encode-checking here, rather than
-        # trusting the writer, is what makes an already-poisoned file
-        # self-heal on the very next read.
+        # trusting the writer, lets :meth:`read_last_wifi_attempt` catch
+        # this case and delete the poisoned file outright -- the read heals
+        # by removing the file, not merely by masking it on every call.
         for value in (ssid, observed_connection_name):
             if value is not None:
                 value.encode("utf-8")
@@ -368,8 +369,19 @@ class JsonFileStateStore(StateStore):
         try:
             return self._parse_wifi_attempt(self._last_attempt_path.read_text(encoding="utf-8"))
         except UnicodeEncodeError as error:
+            # Masking without deleting would re-warn on every ~10s status
+            # poll forever -- thousands of journal lines a day for a device
+            # that never recovers on its own. Delete outright instead, so
+            # this is the last time this particular poisoned file is ever
+            # seen. No lock: `write_last_wifi_attempt` writes this file
+            # lock-free too (atomic_write_text's temp-then-rename is the
+            # only atomicity this file gets), so `missing_ok=True` alone is
+            # enough to make a concurrent deleter (another read racing the
+            # same file, or an operator over SSH) a silent no-op here
+            # rather than a crash.
+            self._last_attempt_path.unlink(missing_ok=True)
             logger.warning(
-                "state file contains an ssid/observed name that cannot encode to UTF-8, treating as absent: %s (%s)",
+                "state file contained an ssid/observed name that cannot encode to UTF-8, deleted it: %s (%s)",
                 self._last_attempt_path,
                 error,
             )

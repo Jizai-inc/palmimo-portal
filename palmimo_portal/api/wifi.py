@@ -38,10 +38,33 @@ from palmimo_portal.ports import (
 
 logger = logging.getLogger("palmimo_portal")
 
-#: 802.11 SSIDs are 1..32 *bytes* of the encoded name, not 1..32 characters --
-#: a multibyte SSID can be shorter in characters than in the wire length that
-#: actually bounds it.
+#: 802.11 bounds the RAW wire SSID to 1..32 bytes -- but the string this
+#: handler sees is NetworkManager/comitup's *decoded* name, not the raw
+#: bytes. A legal 32-raw-byte SSID from an old Latin-1/SJIS router that
+#: isn't valid UTF-8 gets lossily decoded, each bad byte expanded to one
+#: U+FFFD (3 UTF-8 bytes) -- up to 96 encoded bytes for a network that
+#: works fine and is already listed by ``GET /wifi/networks``. See
+#: _SSID_LOSSY_DECODE_MAX_BYTES for the relaxed cap that applies only when
+#: U+FFFD's presence marks that lossy-decode case.
 _SSID_MAX_BYTES = 32
+
+#: Sanity ceiling for an ssid containing U+FFFD (see _SSID_MAX_BYTES): the
+#: connect target is matched against comitup's own scan names, so passing
+#: the sanitized string through verbatim is exactly what makes connecting
+#: to one of these routers work -- this is just a hard upper bound against
+#: garbage, not a real protocol limit.
+_SSID_LOSSY_DECODE_MAX_BYTES = 128
+
+#: The signature NetworkManager's lossy UTF-8 decode leaves behind: every
+#: byte it couldn't decode becomes one U+FFFD.
+_REPLACEMENT_CHAR = "�"
+
+#: wpa_supplicant bounds a WPA2-PSK passphrase to 8..63 *bytes*, not
+#: characters -- JP consumer routers commonly allow (and their owners set)
+#: a UTF-8 passphrase, so a characters-based or ASCII-only rule would
+#: wrongly reject a passphrase that works fine on the device.
+_PSK_MIN_BYTES = 8
+_PSK_MAX_BYTES = 63
 
 
 def _validate_ssid(ssid: str) -> None:
@@ -53,12 +76,16 @@ def _validate_ssid(ssid: str) -> None:
     attempt, and then makes every later ``GET /system/status`` 500 trying to
     serialize it back out. The C0-control / DEL check catches the other
     reachable-pre-auth variant: an embedded NUL breaks the D-Bus message.
+    The byte cap is normally 32 (see :data:`_SSID_MAX_BYTES`), relaxed to
+    :data:`_SSID_LOSSY_DECODE_MAX_BYTES` when the string contains
+    :data:`_REPLACEMENT_CHAR` -- see that constant's docstring.
     """
     try:
         encoded = ssid.encode("utf-8")
     except UnicodeEncodeError as error:
         raise PortalError(400, "wifi_invalid_ssid") from error
-    if not (1 <= len(encoded) <= _SSID_MAX_BYTES):
+    max_bytes = _SSID_LOSSY_DECODE_MAX_BYTES if _REPLACEMENT_CHAR in ssid else _SSID_MAX_BYTES
+    if not (1 <= len(encoded) <= max_bytes):
         raise PortalError(400, "wifi_invalid_ssid")
     if any(ord(char) < 0x20 or ord(char) == 0x7F for char in ssid):
         raise PortalError(400, "wifi_invalid_ssid")
@@ -67,17 +94,24 @@ def _validate_ssid(ssid: str) -> None:
 def _validate_psk(psk: str) -> None:
     """Reject a ``psk`` that isn't a valid WPA2 passphrase (or the empty string for an open network).
 
-    WPA2-PSK accepts either an 8..63 character ASCII passphrase (printable
-    only -- 0x20..0x7E) or a 64-character hex-encoded raw key. Anything else
-    would only be rejected by NetworkManager *after* the reconfigure path
-    above has already run ``forget`` on the device's current network for a
-    doomed request.
+    WPA2-PSK accepts either an 8..63 *byte* passphrase (see
+    :data:`_PSK_MIN_BYTES` / :data:`_PSK_MAX_BYTES` -- arbitrary UTF-8, not
+    ASCII-only: wpa_supplicant treats the passphrase as bytes) or a
+    64-character hex-encoded raw key. Anything else would only be rejected
+    by NetworkManager *after* the reconfigure path above has already run
+    ``forget`` on the device's current network for a doomed request.
     """
     if psk == "":
         return
-    if 8 <= len(psk) <= 63 and all(0x20 <= ord(char) <= 0x7E for char in psk):
-        return
     if len(psk) == 64 and all(char in "0123456789abcdefABCDEF" for char in psk):
+        return
+    try:
+        encoded = psk.encode("utf-8")
+    except UnicodeEncodeError as error:
+        raise PortalError(400, "wifi_invalid_psk") from error
+    if _PSK_MIN_BYTES <= len(encoded) <= _PSK_MAX_BYTES and not any(
+        ord(char) < 0x20 or ord(char) == 0x7F for char in psk
+    ):
         return
     raise PortalError(400, "wifi_invalid_psk")
 

@@ -191,6 +191,61 @@ def test_read_last_wifi_attempt_treats_a_lone_surrogate_ssid_as_absent(
     assert str(attempt_path) in caplog.text
 
 
+def test_read_last_wifi_attempt_deletes_a_poisoned_file_instead_of_re_warning_on_every_poll(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # Without deleting the file, `GET /system/status`'s ~10s poll would
+    # re-warn forever -- thousands of journal lines a day for a device that
+    # never recovers on its own. The read path must heal by removing the
+    # poisoned file, not merely by masking it on every call.
+    attempt_path = tmp_path / LAST_ATTEMPT_FILENAME
+    attempt_path.write_bytes(b'{"ssid": "\\ud800", "result": "attempting", "timestamp": 1.0}')
+    store = JsonFileStateStore(tmp_path)
+
+    with caplog.at_level(logging.WARNING):
+        first = store.read_last_wifi_attempt()
+
+    assert first is None
+    assert not attempt_path.exists()
+
+    # A second read, with the file already gone, must not warn again --
+    # confirms the deletion actually happened rather than the file being
+    # transiently missing for some other reason.
+    caplog.clear()
+    with caplog.at_level(logging.WARNING):
+        second = store.read_last_wifi_attempt()
+
+    assert second is None
+    assert caplog.text == ""
+
+
+def test_read_last_wifi_attempt_survives_the_file_already_being_gone_when_it_tries_to_delete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A concurrent deleter (another read racing the same poisoned file, or
+    # an operator deleting it over SSH) can win between this read's
+    # is_file() check and its own unlink -- that race must not raise past
+    # the tolerant-read contract.
+    attempt_path = tmp_path / LAST_ATTEMPT_FILENAME
+    attempt_path.write_bytes(b'{"ssid": "\\ud800", "result": "attempting", "timestamp": 1.0}')
+    store = JsonFileStateStore(tmp_path)
+
+    real_unlink = Path.unlink
+
+    def racing_unlink(self: Path, *, missing_ok: bool = False) -> None:
+        # Simulate another process winning the unlink race: the file is
+        # already gone by the time this call happens.
+        if self == attempt_path:
+            real_unlink(self, missing_ok=True)
+        real_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", racing_unlink)
+
+    result = store.read_last_wifi_attempt()
+
+    assert result is None
+
+
 def test_preflight_state_dir_creates_a_private_directory(tmp_path: Path) -> None:
     from palmimo_portal.adapters.state import preflight_state_dir
 

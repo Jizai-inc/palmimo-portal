@@ -48,7 +48,7 @@ def _promote_to_full(client: TestClient) -> None:
     _initial_login(client)
     response = client.post(
         "/api/v1/auth/change-password",
-        json={"current_password": STICKER_PASSWORD, "new_password": "owner-password"},
+        json={"new_password": "owner-password"},
         headers=CSRF_HEADERS,
     )
     assert response.status_code == 200
@@ -240,7 +240,7 @@ def test_reset_refuses_when_a_cached_identity_has_since_been_removed_from_disk(
     _initial_login(client)
     change_response = client.post(
         "/api/v1/auth/change-password",
-        json={"current_password": STICKER_PASSWORD, "new_password": "owner-password"},
+        json={"new_password": "owner-password"},
         headers=CSRF_HEADERS,
     )
     assert change_response.status_code == 200

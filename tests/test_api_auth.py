@@ -254,6 +254,34 @@ def test_change_password_locks_out_after_five_wrong_current_password_attempts(
     assert locked.json()["error"]["code"] == "auth_rate_limited"
 
 
+def test_change_password_from_full_with_no_current_password_is_401_and_does_not_consume_budget(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    # A full session omitting current_password is a malformed request, not
+    # a guess -- it must be rejected before try_attempt() so it cannot be
+    # used to burn the shared login/change-password rate-limit budget.
+    client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
+    _provision(adapters)
+    client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
+
+    response = client.post(
+        "/api/v1/auth/change-password",
+        json={"new_password": "new-password"},
+        headers=CSRF_HEADERS,
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "invalid_current_password"
+
+    correct = client.post(
+        "/api/v1/auth/change-password",
+        json={"current_password": "hunter2", "new_password": "new-password"},
+        headers=CSRF_HEADERS,
+    )
+
+    assert correct.status_code == 200
+
+
 def test_change_password_and_login_share_the_same_rate_limit_budget(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:

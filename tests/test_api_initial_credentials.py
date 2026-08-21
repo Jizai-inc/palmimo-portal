@@ -157,18 +157,21 @@ def test_login_with_an_unencodable_initial_password_rate_limits(
     assert locked.json()["error"]["code"] == "auth_rate_limited"
 
 
-def test_change_password_from_initial_with_an_unencodable_current_password_is_401(
+def test_change_password_from_initial_ignores_a_supplied_current_password(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
+    # The initial-mode path performs no current-password verification at
+    # all; a caller sending one anyway must not be rejected for it.
     _carry_identity(adapters)
     _initial_login(client)
 
-    response = _post_json_with_lone_surrogate(
-        client, "/api/v1/auth/change-password", {"current_password": "\ud800", "new_password": "new-owner-password"}
+    response = client.post(
+        "/api/v1/auth/change-password",
+        json={"current_password": "whatever", "new_password": "new-owner-password"},
+        headers=CSRF_HEADERS,
     )
 
-    assert response.status_code == 401
-    assert response.json()["error"]["code"] == "invalid_current_password"
+    assert response.status_code == 200
 
 
 def test_ssh_keys_is_403_with_an_initial_session(client: TestClient, adapters: FakeAdapterBundle) -> None:
@@ -237,7 +240,7 @@ def test_change_password_is_reachable_with_an_initial_session(client: TestClient
 
     response = client.post(
         "/api/v1/auth/change-password",
-        json={"current_password": STICKER_PASSWORD, "new_password": "new-owner-password"},
+        json={"new_password": "new-owner-password"},
         headers=CSRF_HEADERS,
     )
 
@@ -253,20 +256,28 @@ def test_logout_is_reachable_with_an_initial_session(client: TestClient, adapter
     assert response.status_code == 200
 
 
-def test_change_password_from_initial_rejects_the_wrong_current_password(
+def test_change_password_from_initial_succeeds_while_the_login_rate_limiter_is_locked_out(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
+    # Proves zero coupling with the login rate limiter: even fully locked
+    # out on login failures, the initial-mode change-password path must
+    # still succeed, since it never touches the limiter.
     _carry_identity(adapters)
     _initial_login(client)
 
+    for _ in range(5):
+        failed = client.post("/api/v1/auth/login", json={"password": "wrong"}, headers=CSRF_HEADERS)
+        assert failed.status_code == 401
+    locked = client.post("/api/v1/auth/login", json={"password": STICKER_PASSWORD}, headers=CSRF_HEADERS)
+    assert locked.status_code == 429
+
     response = client.post(
         "/api/v1/auth/change-password",
-        json={"current_password": "wrong", "new_password": "new-owner-password"},
+        json={"new_password": "new-owner-password"},
         headers=CSRF_HEADERS,
     )
 
-    assert response.status_code == 401
-    assert response.json()["error"]["code"] == "invalid_current_password"
+    assert response.status_code == 200
 
 
 def test_change_password_from_initial_success_moves_auth_state_to_set(
@@ -277,7 +288,7 @@ def test_change_password_from_initial_success_moves_auth_state_to_set(
 
     client.post(
         "/api/v1/auth/change-password",
-        json={"current_password": STICKER_PASSWORD, "new_password": "new-owner-password"},
+        json={"new_password": "new-owner-password"},
         headers=CSRF_HEADERS,
     )
 
@@ -295,7 +306,7 @@ def test_change_password_from_initial_invalidates_the_old_initial_session(
 
     client.post(
         "/api/v1/auth/change-password",
-        json={"current_password": STICKER_PASSWORD, "new_password": "new-owner-password"},
+        json={"new_password": "new-owner-password"},
         headers=CSRF_HEADERS,
     )
 
@@ -313,7 +324,7 @@ def test_login_with_the_initial_password_fails_after_the_password_is_changed(
     _initial_login(client)
     client.post(
         "/api/v1/auth/change-password",
-        json={"current_password": STICKER_PASSWORD, "new_password": "new-owner-password"},
+        json={"new_password": "new-owner-password"},
         headers=CSRF_HEADERS,
     )
     client.cookies.delete(SESSION_COOKIE_NAME)
@@ -331,7 +342,7 @@ def test_login_with_the_new_password_works_after_the_password_is_changed(
     _initial_login(client)
     client.post(
         "/api/v1/auth/change-password",
-        json={"current_password": STICKER_PASSWORD, "new_password": "new-owner-password"},
+        json={"new_password": "new-owner-password"},
         headers=CSRF_HEADERS,
     )
     client.cookies.delete(SESSION_COOKIE_NAME)
@@ -356,7 +367,7 @@ def test_wifi_reachable_after_change_password_from_initial_using_the_reissued_se
 
     client.post(
         "/api/v1/auth/change-password",
-        json={"current_password": STICKER_PASSWORD, "new_password": "new-owner-password"},
+        json={"new_password": "new-owner-password"},
         headers=CSRF_HEADERS,
     )
 
@@ -380,20 +391,18 @@ def test_change_password_from_initial_concurrent_race_loser_gets_409(
     _carry_identity(adapters)
     _initial_login(client)
 
-    identity = adapters.identity.identity
-    assert identity is not None
     original_create_auth = adapters.state.create_auth
 
     def racing_create_auth(state: AuthState) -> None:
         adapters.state.create_auth = original_create_auth  # type: ignore[method-assign]  # deliberate monkeypatch of a bound method for this test
-        change_password_from_initial(adapters.state, identity, STICKER_PASSWORD, "other-winner-password")
+        change_password_from_initial(adapters.state, "other-winner-password")
         original_create_auth(state)
 
     adapters.state.create_auth = racing_create_auth  # type: ignore[method-assign]  # deliberate monkeypatch of a bound method for this test
 
     response = client.post(
         "/api/v1/auth/change-password",
-        json={"current_password": STICKER_PASSWORD, "new_password": "new-owner-password"},
+        json={"new_password": "new-owner-password"},
         headers=CSRF_HEADERS,
     )
 
@@ -466,7 +475,7 @@ def test_change_password_is_401_once_auth_corrupts_after_an_initial_session_was_
 
     response = client.post(
         "/api/v1/auth/change-password",
-        json={"current_password": STICKER_PASSWORD, "new_password": "new-owner-password"},
+        json={"new_password": "new-owner-password"},
         headers=CSRF_HEADERS,
     )
 
@@ -548,7 +557,7 @@ def test_change_password_from_initial_is_503_when_identity_is_unavailable(
 
     response = client.post(
         "/api/v1/auth/change-password",
-        json={"current_password": STICKER_PASSWORD, "new_password": "new-password"},
+        json={"new_password": "new-password"},
         headers=CSRF_HEADERS,
     )
 

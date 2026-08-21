@@ -652,14 +652,12 @@ def test_discard_initial_signing_key_fsyncs_the_parent_directory(
 def test_change_password_from_initial_discards_the_initial_signing_key(tmp_path: Path) -> None:
     from palmimo_portal.adapters.state import INITIAL_SESSION_KEY_FILENAME
     from palmimo_portal.core.auth import change_password_from_initial
-    from palmimo_portal.ports import Identity
 
     store = JsonFileStateStore(tmp_path)
     store.read_or_create_initial_signing_key()
     assert (tmp_path / INITIAL_SESSION_KEY_FILENAME).exists()
-    identity = Identity(device_id="palmimo-042", initial_password="sticker-password")
 
-    change_password_from_initial(store, identity, "sticker-password", "new-owner-password")
+    change_password_from_initial(store, "new-owner-password")
 
     assert not (tmp_path / INITIAL_SESSION_KEY_FILENAME).exists()
 

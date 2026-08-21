@@ -76,7 +76,6 @@
   "changePassword": {
     "title": "新しいパスワードを設定",
     "body": "デバイスを保護するため、続ける前にあなただけが知るパスワードを設定してください。",
-    "currentPasswordLabel": "現在のパスワード",
     "newPasswordLabel": "新しいパスワード",
     "newPasswordPlaceholder": "8 文字以上",
     "confirmPasswordLabel": "新しいパスワード（確認）",

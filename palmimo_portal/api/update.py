@@ -250,7 +250,9 @@ def rollback(
             if there is no previous tag to roll back to; 400
             ``invalid_release_tag`` if the previous tag is not a safe
             ``git``/``uv`` argument (defense in depth -- see
-            :func:`~palmimo_portal.core.update.start_rollback`'s docstring).
+            :func:`~palmimo_portal.core.update.start_rollback`'s docstring);
+            409 ``prerelease_refused`` if the previous tag is a pre-release
+            tag on the stable channel.
     """
     with lock:
         state = state_store.read_update_state()
@@ -263,6 +265,8 @@ def rollback(
             raise PortalError(409, "no_previous_version") from error
         except update_core.InvalidReleaseTagError as error:
             raise PortalError(400, "invalid_release_tag") from error
+        except update_core.PrereleaseRefusedError as error:
+            raise PortalError(409, "prerelease_refused") from error
         state_store.write_update_state(state)
 
     target = state.job.target

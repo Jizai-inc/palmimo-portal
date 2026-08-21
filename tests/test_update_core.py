@@ -511,6 +511,15 @@ def test_start_rollback_raises_invalid_release_tag_for_an_unsafe_previous_tag() 
         start_rollback(state, InstalledVersion(tag="v2.0.0", commit="abc"), now=2000.0)
 
 
+def test_start_rollback_raises_prerelease_refused_for_a_hyphenated_previous_tag() -> None:
+    # A device that opted into prerelease, installed an rc, then returned to
+    # stable must not be able to roll back onto that rc.
+    state = UpdateState(latest=RELEASE_V2, checked_at=1000.0, previous_tag="v2.0.0-rc1", job=IDLE_UPDATE_STATE.job)
+
+    with pytest.raises(PrereleaseRefusedError):
+        start_rollback(state, InstalledVersion(tag="v3.0.0", commit="abc"), now=2000.0)
+
+
 def test_expire_stale_restart_is_a_no_op_when_not_restarting() -> None:
     state = _running_state()  # job.state == "running", not "restarting"
 

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 
 from palmimo_portal.ports import InstalledVersion, Release, StateStore, UpdateJob, UpdateState
 
@@ -113,14 +114,16 @@ def is_prerelease_tag(tag: str) -> bool:
 #: keeps a per-poll status check from spamming the log with the same
 #: warning every few seconds while a pre-release sits published.
 _last_warned_prerelease_tag: str | None = None
+_last_warned_prerelease_tag_lock = threading.Lock()
 
 
 def _warn_prerelease_once(tag: str) -> None:
     global _last_warned_prerelease_tag
-    if tag == _last_warned_prerelease_tag:
-        return
+    with _last_warned_prerelease_tag_lock:
+        if tag == _last_warned_prerelease_tag:
+            return
+        _last_warned_prerelease_tag = tag
     logger.warning("refusing pre-release tag %s on the stable channel", tag)
-    _last_warned_prerelease_tag = tag
 
 
 def is_update_available(installed: InstalledVersion, latest: Release | None) -> bool:
@@ -239,6 +242,11 @@ def start_rollback(state: UpdateState, installed: InstalledVersion, now: float) 
         NoPreviousVersionError: ``state.previous_tag`` is ``None``.
         InvalidReleaseTagError: ``state.previous_tag`` is not :func:`is_valid_release_tag`
             (defense in depth; should not happen since it is only ever set from an already-validated tag).
+        PrereleaseRefusedError: ``state.previous_tag`` is :func:`is_prerelease_tag` --
+            the "stable devices never install a hyphenated tag" guarantee
+            covers every install path, not just :func:`start_apply`; a
+            device that opted into ``prerelease``, installed an rc, and
+            returned to ``stable`` must not be able to roll back onto it.
     """
     if state.job.state not in _ALLOWS_NEW_JOB_STATES:
         raise UpdateInProgressError()
@@ -246,6 +254,8 @@ def start_rollback(state: UpdateState, installed: InstalledVersion, now: float) 
         raise NoPreviousVersionError()
     if not is_valid_release_tag(state.previous_tag):
         raise InvalidReleaseTagError()
+    if is_prerelease_tag(state.previous_tag):
+        raise PrereleaseRefusedError()
     target = state.previous_tag
     previous_tag = installed.tag if installed.tag is not None and installed.tag != target else state.previous_tag
     return UpdateState(

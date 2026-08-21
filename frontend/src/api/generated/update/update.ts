@@ -233,7 +233,9 @@ export const useCheckApiV1UpdateCheckPost = <TError = unknown,
  *         if there is no previous tag to roll back to; 400
  *         ``invalid_release_tag`` if the previous tag is not a safe
  *         ``git``/``uv`` argument (defense in depth -- see
- *         :func:`~palmimo_portal.core.update.start_rollback`'s docstring).
+ *         :func:`~palmimo_portal.core.update.start_rollback`'s docstring);
+ *         409 ``prerelease_refused`` if the previous tag is a pre-release
+ *         tag on the stable channel.
  * @summary Rollback
  */
 export const rollbackApiV1UpdateRollbackPost = async ( options?: RequestInit): Promise<UpdateStatusResponse> => {

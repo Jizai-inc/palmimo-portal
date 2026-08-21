@@ -449,6 +449,25 @@ def test_rollback_requires_a_previous_tag(client: TestClient, adapters: FakeAdap
     assert response.json()["error"]["code"] == "no_previous_version"
 
 
+def test_rollback_rejects_a_prerelease_previous_tag(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    """A device that opted into prerelease, installed an rc, and returned to stable must not
+    be able to roll back onto that rc (see core/update.py's start_rollback docstring)."""
+    _log_in(client, adapters)
+    adapters.updater.installed_version = InstalledVersion(tag="v3.0.0", commit="abc")
+    idle_job = UpdateJob(
+        state="idle", kind="update", target=None, step=None, error=None, started_at=None, finished_at=None
+    )
+    adapters.state.write_update_state(
+        UpdateState(latest=RELEASE_V2, checked_at=1000.0, previous_tag="v2.0.0-rc1", job=idle_job)
+    )
+
+    response = client.post("/api/v1/update/rollback", headers=CSRF_HEADERS)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "prerelease_refused"
+    assert adapters.updater.apply_calls == []
+
+
 def test_rollback_happy_path_targets_the_previous_tag(client: TestClient, adapters: FakeAdapterBundle) -> None:
     _log_in(client, adapters)
     adapters.updater.installed_version = InstalledVersion(tag="v1.0.0", commit="abc")

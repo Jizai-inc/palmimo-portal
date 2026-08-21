@@ -897,3 +897,24 @@ def test_stable_channel_still_refuses_a_prerelease_tag(client: TestClient, adapt
     assert status.json()["update_available"] is False
     assert apply_response.status_code == 409
     assert apply_response.json()["error"]["code"] == "prerelease_refused"
+
+
+def test_prerelease_channel_allows_rolling_back_onto_a_prerelease_tag(
+    prerelease_client: TestClient, prerelease_adapters: FakeAdapterBundle
+) -> None:
+    """Mirrors test_rollback_rejects_a_prerelease_previous_tag, but on the prerelease
+    channel: a dev machine that flips back to prerelease can roll back onto an rc."""
+    _log_in(prerelease_client, prerelease_adapters)
+    prerelease_adapters.updater.installed_version = InstalledVersion(tag="v3.0.0", commit="abc")
+    idle_job = UpdateJob(
+        state="idle", kind="update", target=None, step=None, error=None, started_at=None, finished_at=None
+    )
+    prerelease_adapters.state.write_update_state(
+        UpdateState(latest=RELEASE_V2, checked_at=1000.0, previous_tag="v2.0.0-rc1", job=idle_job)
+    )
+
+    response = prerelease_client.post("/api/v1/update/rollback", headers=CSRF_HEADERS)
+
+    assert response.status_code == 202
+    assert response.json()["job"]["target"] == "v2.0.0-rc1"
+    assert prerelease_adapters.updater.apply_calls == ["v2.0.0-rc1"]

@@ -261,11 +261,12 @@ def rollback(
             409 ``prerelease_refused`` if the previous tag is a pre-release
             tag on the stable channel.
     """
+    settings: Settings = request.app.state.settings
     with lock:
         state = state_store.read_update_state()
         installed = updater.installed()
         try:
-            state = update_core.start_rollback(state, installed, now=time.time())
+            state = update_core.start_rollback(state, installed, now=time.time(), channel=settings.update_channel)
         except update_core.UpdateInProgressError as error:
             raise PortalError(409, "update_in_progress") from error
         except update_core.NoPreviousVersionError as error:
@@ -278,7 +279,6 @@ def rollback(
 
     target = state.job.target
     assert target is not None  # start_rollback always sets job.target = previous_tag
-    settings: Settings = request.app.state.settings
     _start_runner(request, target)
     return _status_response(state_store.read_update_state(), updater.installed(), channel=settings.update_channel)
 

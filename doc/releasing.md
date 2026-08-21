@@ -159,7 +159,10 @@ sudo systemctl restart palmimo-portal
 The dashboard's update check now resolves the newest published pre-release
 (not `releases/latest`) and allows applying it. The UI never exposes this
 setting — it is a deliberate opt-in for dev machines, not a fleet control.
-To return the device to the stable channel, remove the override
+Rolling back onto a previously installed rc is refused the same as applying
+one unless the device is still on the `prerelease` channel — flip the
+channel back to `prerelease` first if you need to go back to one. To
+return the device to the stable channel, remove the override
 (`sudo systemctl revert palmimo-portal`) and restart the service again.
 
 ## Release notes template

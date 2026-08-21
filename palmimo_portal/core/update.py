@@ -231,7 +231,7 @@ def start_apply(
     )
 
 
-def start_rollback(state: UpdateState, installed: InstalledVersion, now: float) -> UpdateState:
+def start_rollback(state: UpdateState, installed: InstalledVersion, now: float, channel: str = "stable") -> UpdateState:
     """Begin rolling back to ``state.previous_tag``, or raise if it cannot start right now.
 
     ``previous_tag`` becomes the tag being *left* (``installed.tag``) once
@@ -245,11 +245,13 @@ def start_rollback(state: UpdateState, installed: InstalledVersion, now: float) 
         NoPreviousVersionError: ``state.previous_tag`` is ``None``.
         InvalidReleaseTagError: ``state.previous_tag`` is not :func:`is_valid_release_tag`
             (defense in depth; should not happen since it is only ever set from an already-validated tag).
-        PrereleaseRefusedError: ``state.previous_tag`` is :func:`is_prerelease_tag` --
-            the "stable devices never install a hyphenated tag" guarantee
-            covers every install path, not just :func:`start_apply`; a
-            device that opted into ``prerelease``, installed an rc, and
-            returned to ``stable`` must not be able to roll back onto it.
+        PrereleaseRefusedError: ``state.previous_tag`` is :func:`is_prerelease_tag` and
+            ``channel != "prerelease"`` -- the "stable devices never install
+            a hyphenated tag" guarantee covers every install path, not just
+            :func:`start_apply`; a device that opted into ``prerelease``,
+            installed an rc, and returned to ``stable`` must not be able to
+            roll back onto it. Rolling back onto an rc while still on the
+            ``prerelease`` channel is allowed, mirroring :func:`start_apply`.
     """
     if state.job.state not in _ALLOWS_NEW_JOB_STATES:
         raise UpdateInProgressError()
@@ -257,7 +259,7 @@ def start_rollback(state: UpdateState, installed: InstalledVersion, now: float) 
         raise NoPreviousVersionError()
     if not is_valid_release_tag(state.previous_tag):
         raise InvalidReleaseTagError()
-    if is_prerelease_tag(state.previous_tag):
+    if channel != "prerelease" and is_prerelease_tag(state.previous_tag):
         raise PrereleaseRefusedError()
     target = state.previous_tag
     previous_tag = installed.tag if installed.tag is not None and installed.tag != target else state.previous_tag

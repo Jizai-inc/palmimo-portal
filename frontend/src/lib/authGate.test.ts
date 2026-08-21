@@ -1,7 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { http } from "msw";
 
-import { DASHBOARD_FAMILY_PATHS, isPathAllowedForGate } from "@/lib/authGate";
+import { DASHBOARD_FAMILY_PATHS, isPathAllowedForGate, resolveAuthGateSafely, runAuthGate } from "@/lib/authGate";
 import type { AuthGate } from "@/lib/authGate";
+import { getGetStatusApiV1SystemStatusGetMockHandler } from "@/api/generated/system/system.msw";
+import { getGetStatusApiV1WifiStatusGetMockHandler } from "@/api/generated/wifi/wifi.msw";
+import { queryClient } from "@/lib/queryClient";
+import { server } from "@/test/server";
 
 const LOGIN_GATE: AuthGate = { screen: "login", variant: "normal", hasIdentity: true };
 const DIY_LOGIN_GATE: AuthGate = { screen: "login", variant: "normal", hasIdentity: false };
@@ -76,5 +81,89 @@ describe("isPathAllowedForGate", () => {
     for (const path of DASHBOARD_FAMILY_PATHS) {
       expect(isPathAllowedForGate(DASHBOARD_GATE, path)).toBe(true);
     }
+  });
+});
+
+describe("resolveAuthGateSafely", () => {
+  afterEach(() => {
+    queryClient.clear();
+    vi.useRealTimers();
+  });
+
+  it("resolves to status-error/unavailable instead of hanging forever when system/status never responds", async () => {
+    // Regression for issue #13: the Wi-Fi connect form's own navigate to `/wifi/waiting` waits
+    // on this exact probe (routes/__root.tsx's `beforeLoad`) -- a same-origin request that
+    // hangs (as it does mid-AP-teardown) must not stall that navigation indefinitely.
+    server.use(http.get("*/api/v1/system/status", () => new Promise(() => {})));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    const resultPromise = resolveAuthGateSafely();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect(resultPromise).resolves.toEqual({ screen: "status-error", reason: "unavailable", hasIdentity: false });
+  });
+
+  it("cancels the hung system/status query on timeout, so the next probe gets a fresh fetch instead of the same stuck one", async () => {
+    // Without cancelling, React Query keeps dealing out that first, never-settling fetch to
+    // every later caller -- the next navigation would time out again too, even once a real
+    // response is available, instead of picking it up immediately.
+    server.use(http.get("*/api/v1/system/status", () => new Promise(() => {})));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    const first = resolveAuthGateSafely();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(first).resolves.toEqual({ screen: "status-error", reason: "unavailable", hasIdentity: false });
+
+    server.resetHandlers();
+    server.use(
+      getGetStatusApiV1SystemStatusGetMockHandler({
+        state: "connecting",
+        hostname: "palmimo-1234",
+        auth_state: "set",
+        device_id: "1234",
+        versions: { portal: "0.1.0", sdk: null },
+        last_wifi_attempt: null,
+        adapters: "fake",
+        state_dir: "/tmp",
+      }),
+      getGetStatusApiV1WifiStatusGetMockHandler(),
+    );
+
+    const second = resolveAuthGateSafely();
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(second).resolves.toEqual({ screen: "wifi" });
+  });
+});
+
+describe("runAuthGate", () => {
+  afterEach(() => {
+    queryClient.clear();
+  });
+
+  it("skips the gate probe entirely for /wifi/waiting, resolving immediately even when system/status never responds", async () => {
+    // Pins issue #13's fix: a hanging handler with no fake timers means this test would itself
+    // hang, not just go slow, if runAuthGate ever went back to awaiting the probe here.
+    server.use(http.get("*/api/v1/system/status", () => new Promise(() => {})));
+
+    await expect(runAuthGate("/wifi/waiting")).resolves.toBeUndefined();
+  });
+
+  it("still probes the gate, and still redirects, for other paths", async () => {
+    server.use(
+      getGetStatusApiV1SystemStatusGetMockHandler({
+        state: "connecting",
+        hostname: "palmimo-1234",
+        auth_state: "set",
+        device_id: "1234",
+        versions: { portal: "0.1.0", sdk: null },
+        last_wifi_attempt: null,
+        adapters: "fake",
+        state_dir: "/tmp",
+      }),
+      getGetStatusApiV1WifiStatusGetMockHandler(),
+    );
+
+    await expect(runAuthGate("/wifi")).resolves.toBeUndefined();
+    await expect(runAuthGate("/dashboard")).rejects.toMatchObject({ options: { to: "/wifi" } });
   });
 });

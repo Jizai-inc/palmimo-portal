@@ -1,4 +1,4 @@
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -89,7 +89,14 @@ export function WifiConnectForm({
           {t("common.back")}
         </Button>
         <Button type="submit" disabled={isSubmitting || pskTooShort} className="flex-1">
-          {t("wifi.connect")}
+          {isSubmitting ? (
+            <>
+              <LoaderCircle className="size-4 animate-spin" />
+              {t("wifi.connecting")}
+            </>
+          ) : (
+            t("wifi.connect")
+          )}
         </Button>
       </div>
     </form>

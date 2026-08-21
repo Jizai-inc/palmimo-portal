@@ -171,6 +171,24 @@ describe("WifiConnectForm", () => {
     expect(screen.getByLabelText("Wi-Fi password")).toHaveAttribute("type", "password");
   });
 
+  it("shows a connecting spinner and disables submit while isSubmitting", () => {
+    renderWithProviders(
+      <WifiConnectForm
+        network={OPEN_NETWORK}
+        lastAttempt={undefined}
+        connectError={undefined}
+        isSubmitting={true}
+        onSubmit={vi.fn()}
+        onBack={vi.fn()}
+      />,
+    );
+
+    const submitButton = screen.getByRole("button", { name: "Connecting…" });
+    expect(submitButton).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Connect" })).not.toBeInTheDocument();
+    expect(submitButton.querySelector(".animate-spin")).not.toBeNull();
+  });
+
   it("renders the wifi_invalid_psk error message", () => {
     renderWithProviders(
       <WifiConnectForm

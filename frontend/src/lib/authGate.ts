@@ -1,6 +1,11 @@
+import { redirect } from "@tanstack/react-router";
+
 import { PortalApiError } from "@/api/client";
 import { getStatusApiV1WifiStatusGet } from "@/api/generated/wifi/wifi";
-import { getGetStatusApiV1SystemStatusGetQueryOptions } from "@/api/generated/system/system";
+import {
+  getGetStatusApiV1SystemStatusGetQueryKey,
+  getGetStatusApiV1SystemStatusGetQueryOptions,
+} from "@/api/generated/system/system";
 import type { SystemStatus } from "@/api/generated/models";
 import { queryClient } from "@/lib/queryClient";
 import { NAV_ITEMS } from "@/lib/navigation";
@@ -75,11 +80,13 @@ export function isPathAllowedForGate(gate: AuthGate, pathname: string): boolean 
 /**
  * Probe session state via `GET /api/v1/wifi/status`, doubling as a session check without a
  * dedicated "whoami" endpoint: 200 -> full session; 403 `initial_password_must_be_changed` ->
- * valid initial-mode session; 401 `not_authenticated` -> none.
+ * valid initial-mode session; 401 `not_authenticated` -> none. `signal` bounds the fetch itself
+ * (see `resolveAuthGateSafely`) -- an aborted fetch rejects with `AbortError`, which is not a
+ * `PortalApiError` and so rethrows, same as any other unexpected failure.
  */
-async function probeSession(): Promise<"full" | "initial" | "none"> {
+async function probeSession(signal?: AbortSignal): Promise<"full" | "initial" | "none"> {
   try {
-    await getStatusApiV1WifiStatusGet();
+    await getStatusApiV1WifiStatusGet({ signal });
     return "full";
   } catch (error) {
     if (error instanceof PortalApiError) {
@@ -95,7 +102,7 @@ async function probeSession(): Promise<"full" | "initial" | "none"> {
 }
 
 /** Resolve the current system status into the screen the guard should route to. */
-export async function resolveAuthGate(status: SystemStatus): Promise<AuthGate> {
+export async function resolveAuthGate(status: SystemStatus, signal?: AbortSignal): Promise<AuthGate> {
   const hasIdentity = status.device_id != null;
   if (status.auth_state === "unavailable") {
     return { screen: "status-error", reason: "unavailable", hasIdentity };
@@ -107,7 +114,7 @@ export async function resolveAuthGate(status: SystemStatus): Promise<AuthGate> {
     return { screen: "setup" };
   }
 
-  const session = await probeSession();
+  const session = await probeSession(signal);
   if (session === "none") {
     return { screen: "login", variant: status.auth_state === "initial" ? "sticker" : "normal", hasIdentity };
   }
@@ -118,15 +125,84 @@ export async function resolveAuthGate(status: SystemStatus): Promise<AuthGate> {
 }
 
 /**
+ * Bound on how long {@link resolveAuthGateSafely} waits for its probes, for every route other
+ * than `/wifi/waiting` (see {@link shouldSkipAuthGate}): a same-origin `fetch` with no timeout
+ * of its own can hang for a long, OS-dependent stretch, and `beforeLoad` awaits this on every
+ * navigation.
+ */
+const GATE_PROBE_TIMEOUT_MS = 5_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("auth gate probe timed out")), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+/**
  * The guard's entry point: fetches `system/status` and resolves the gate, never letting a
  * failure of either probe escape as a thrown error -- otherwise a failed fetch would reject
  * `beforeLoad` and land on the router's default error boundary instead of a screen this app owns.
+ *
+ * On timeout, cancels the still-hung `system/status` query: React Query keeps a fetch that
+ * outlives our race in flight and hands the same unsettled promise to the next caller, so
+ * without this every subsequent navigation would time out again instead of getting a fresh
+ * attempt. `probeSession`'s direct fetch is bounded the same way but natively, via its own
+ * `AbortSignal.timeout` -- it isn't routed through the query cache, so there's nothing to cancel.
  */
 export async function resolveAuthGateSafely(): Promise<AuthGate> {
+  const systemStatusQueryKey = getGetStatusApiV1SystemStatusGetQueryKey();
   try {
-    const status = await queryClient.fetchQuery(getGetStatusApiV1SystemStatusGetQueryOptions());
-    return await resolveAuthGate(status);
+    const status = await withTimeout(
+      queryClient.fetchQuery(getGetStatusApiV1SystemStatusGetQueryOptions()),
+      GATE_PROBE_TIMEOUT_MS,
+    );
+    return await resolveAuthGate(status, AbortSignal.timeout(GATE_PROBE_TIMEOUT_MS));
   } catch {
+    void queryClient.cancelQueries({ queryKey: systemStatusQueryKey });
     return { screen: "status-error", reason: "unavailable", hasIdentity: false };
+  }
+}
+
+/**
+ * Whether the root guard (`routes/__root.tsx`) must skip {@link resolveAuthGateSafely}
+ * entirely for `pathname`, rather than merely time-bounding it. `/wifi/waiting` runs precisely
+ * while the network is gone (AP-disconnection-asymmetry), so any probe there is meaningless or
+ * harmful, and a submit-to-waiting transition must be 0ms, not bounded by
+ * {@link GATE_PROBE_TIMEOUT_MS}. Safe to skip: every gate reachable during AP teardown already
+ * carves out `/wifi/waiting` (`isPathAllowedForGate`); the route's own `beforeLoad`
+ * (`wifiWaitingGate.ts`'s `shouldRedirectToWifiScan`) bounces malformed/stale entries back to
+ * `/wifi`, which re-gates; and its outcome handlers navigate to `/dashboard` or `/wifi`, both
+ * re-gated on arrival. The residual exposure -- a deep link can render this screen in a state
+ * the gate would otherwise have redirected out of -- is UX-only and self-resolving the moment
+ * one of those outcome handlers fires; the server remains the actual access boundary.
+ */
+export function shouldSkipAuthGate(pathname: string): boolean {
+  return pathname === "/wifi/waiting";
+}
+
+/**
+ * The root guard's decision for one navigation to `pathname`: resolve the gate (unless
+ * {@link shouldSkipAuthGate} applies) and redirect away if `pathname` isn't allowed under it.
+ * Factored out of `routes/__root.tsx`'s `beforeLoad` so it's callable, and testable, without a
+ * full TanStack Router `beforeLoad` context.
+ */
+export async function runAuthGate(pathname: string): Promise<void> {
+  if (shouldSkipAuthGate(pathname)) {
+    return;
+  }
+  const gate = await resolveAuthGateSafely();
+  const search = gate.screen === "status-error" ? { reason: gate.reason } : undefined;
+  if (!isPathAllowedForGate(gate, pathname)) {
+    throw redirect({ to: GATE_PATHS[gate.screen], search });
   }
 }

@@ -23,7 +23,7 @@ packages = ["palmimo_portal"]
 dev = [
     "httpx>=0.28.1",
     "mypy>=1.8,<2",
-    "pytest>=8,<9",
+    "pytest>=9.0.3",
     "pytest-asyncio>=0.23",
     "ruff>=0.3,<1",
 ]

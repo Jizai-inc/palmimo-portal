@@ -279,6 +279,11 @@ def test_change_password_from_initial_succeeds_while_the_login_rate_limiter_is_l
 
     assert response.status_code == 200
 
+    # ...and the lockout must still stand afterwards: the path records no
+    # success either (a record_success() side effect would clear it).
+    still_locked = client.post("/api/v1/auth/login", json={"password": "new-owner-password"}, headers=CSRF_HEADERS)
+    assert still_locked.status_code == 429
+
 
 def test_change_password_from_initial_success_moves_auth_state_to_set(
     client: TestClient, adapters: FakeAdapterBundle

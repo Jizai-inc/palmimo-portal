@@ -617,6 +617,41 @@ def test_check_rejects_an_invalid_tag_from_the_release_source(client: TestClient
     assert adapters.state.read_update_state().latest is None
 
 
+def test_apply_rejects_a_prerelease_tag_matching_the_last_checked_release(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    """A forged/stale target: the check itself never filters `latest`, so the guard
+    must not rely on the badge having refused to show the update first."""
+    _log_in(client, adapters)
+    prerelease = Release(
+        tag="v2.0.0-rc1", name="v2.0.0-rc1", published_at="2026-01-01T00:00:00Z", html_url="https://example.test/rc1"
+    )
+    adapters.releases.latest = prerelease
+    client.post("/api/v1/update/check", headers=CSRF_HEADERS)
+
+    response = client.post("/api/v1/update/apply", json={"tag": "v2.0.0-rc1"}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "prerelease_refused"
+    assert adapters.updater.apply_calls == []
+
+
+def test_status_reports_no_update_available_for_a_checked_prerelease_tag(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    _log_in(client, adapters)
+    adapters.updater.installed_version = InstalledVersion(tag="v1.0.0", commit="abc")
+    prerelease = Release(
+        tag="v2.0.0-rc1", name="v2.0.0-rc1", published_at="2026-01-01T00:00:00Z", html_url="https://example.test/rc1"
+    )
+    adapters.releases.latest = prerelease
+    client.post("/api/v1/update/check", headers=CSRF_HEADERS)
+
+    response = client.get("/api/v1/update/status")
+
+    assert response.json()["update_available"] is False
+
+
 def test_apply_rejects_an_invalid_tag(client: TestClient, adapters: FakeAdapterBundle) -> None:
     _log_in(client, adapters)
     _check_v2(client, adapters)

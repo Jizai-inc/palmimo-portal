@@ -210,9 +210,10 @@ def apply(
     Raises:
         PortalError: 409 ``update_in_progress``; 400 ``invalid_release_tag``
             if ``tag`` is not a safe ``git``/``uv`` argument; 409
-            ``no_release_checked`` if no release has ever been checked; 409
-            ``update_target_mismatch`` if ``tag`` is not the last-checked
-            release's tag.
+            ``prerelease_refused`` if ``tag`` is a pre-release tag on the
+            stable channel; 409 ``no_release_checked`` if no release has
+            ever been checked; 409 ``update_target_mismatch`` if ``tag`` is
+            not the last-checked release's tag.
     """
     with lock:
         state = state_store.read_update_state()
@@ -223,6 +224,8 @@ def apply(
             raise PortalError(409, "update_in_progress") from error
         except update_core.InvalidReleaseTagError as error:
             raise PortalError(400, "invalid_release_tag") from error
+        except update_core.PrereleaseRefusedError as error:
+            raise PortalError(409, "prerelease_refused") from error
         except update_core.NoReleaseCheckedError as error:
             raise PortalError(409, "no_release_checked") from error
         except update_core.UpdateTargetMismatch as error:

@@ -262,6 +262,7 @@
     "not_authenticated": "You need to log in first.",
     "not_found": "That page does not exist.",
     "not_provisioned": "Finish connecting Palmimo to Wi-Fi first.",
+    "prerelease_refused": "That is a pre-release build and cannot be installed on this channel.",
     "release_source_unavailable": "Palmimo could not reach the update service. Try again shortly.",
     "reset_not_available": "This device cannot be reset from here. Delete auth.json over SSH.",
     "ssh_keys_busy": "Another key change is already in progress. Try again in a moment.",

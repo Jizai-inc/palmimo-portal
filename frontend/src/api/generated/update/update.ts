@@ -63,9 +63,10 @@ export const getApplyApiV1UpdateApplyPostUrl = () => {
  * Raises:
  *     PortalError: 409 ``update_in_progress``; 400 ``invalid_release_tag``
  *         if ``tag`` is not a safe ``git``/``uv`` argument; 409
- *         ``no_release_checked`` if no release has ever been checked; 409
- *         ``update_target_mismatch`` if ``tag`` is not the last-checked
- *         release's tag.
+ *         ``prerelease_refused`` if ``tag`` is a pre-release tag on the
+ *         stable channel; 409 ``no_release_checked`` if no release has
+ *         ever been checked; 409 ``update_target_mismatch`` if ``tag`` is
+ *         not the last-checked release's tag.
  * @summary Apply
  */
 export const applyApiV1UpdateApplyPost = async (applyRequest: ApplyRequest, options?: RequestInit): Promise<UpdateStatusResponse> => {

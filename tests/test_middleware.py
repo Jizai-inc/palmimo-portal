@@ -65,18 +65,14 @@ def test_hostguard_runs_before_csrf(client: TestClient) -> None:
 
 
 def test_unprovisioned_apple_captive_probe_redirects_to_this_machine(client: TestClient) -> None:
-    response = client.get(
-        "/hotspot-detect.html", headers={"Host": "captive.apple.com"}, follow_redirects=False
-    )
+    response = client.get("/hotspot-detect.html", headers={"Host": "captive.apple.com"}, follow_redirects=False)
 
     assert response.status_code == 302
     assert response.headers["location"] == CAPTIVE_PROBE_LOCATION
 
 
 def test_unprovisioned_android_captive_probe_redirects(client: TestClient) -> None:
-    response = client.get(
-        "/generate_204", headers={"Host": "connectivitycheck.gstatic.com"}, follow_redirects=False
-    )
+    response = client.get("/generate_204", headers={"Host": "connectivitycheck.gstatic.com"}, follow_redirects=False)
 
     assert response.status_code == 302
     assert response.headers["location"] == CAPTIVE_PROBE_LOCATION
@@ -97,9 +93,7 @@ def test_unprovisioned_captive_probe_host_on_api_path_is_rejected_with_421(clien
 
 
 def test_unprovisioned_captive_probe_host_post_is_rejected_with_421(client: TestClient) -> None:
-    response = client.post(
-        "/hotspot-detect.html", headers={"Host": "captive.apple.com", **CSRF_HEADERS}
-    )
+    response = client.post("/hotspot-detect.html", headers={"Host": "captive.apple.com", **CSRF_HEADERS})
 
     assert response.status_code == 421
 

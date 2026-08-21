@@ -1002,7 +1002,7 @@
     },
     "/api/v1/update/apply": {
       "post": {
-        "description": "Start applying ``tag`` in the background and return immediately.\n\nRaises:\n    PortalError: 409 ``update_in_progress``; 400 ``invalid_release_tag``\n        if ``tag`` is not a safe ``git``/``uv`` argument; 409\n        ``no_release_checked`` if no release has ever been checked; 409\n        ``update_target_mismatch`` if ``tag`` is not the last-checked\n        release's tag.",
+        "description": "Start applying ``tag`` in the background and return immediately.\n\nRaises:\n    PortalError: 409 ``update_in_progress``; 400 ``invalid_release_tag``\n        if ``tag`` is not a safe ``git``/``uv`` argument; 409\n        ``prerelease_refused`` if ``tag`` is a pre-release tag on the\n        stable channel; 409 ``no_release_checked`` if no release has\n        ever been checked; 409 ``update_target_mismatch`` if ``tag`` is\n        not the last-checked release's tag.",
         "operationId": "apply_api_v1_update_apply_post",
         "requestBody": {
           "content": {
@@ -1066,7 +1066,7 @@
     },
     "/api/v1/update/rollback": {
       "post": {
-        "description": "Start rolling back to the previous tag in the background and return immediately.\n\nRaises:\n    PortalError: 409 ``update_in_progress``; 409 ``no_previous_version``\n        if there is no previous tag to roll back to; 400\n        ``invalid_release_tag`` if the previous tag is not a safe\n        ``git``/``uv`` argument (defense in depth -- see\n        :func:`~palmimo_portal.core.update.start_rollback`'s docstring).",
+        "description": "Start rolling back to the previous tag in the background and return immediately.\n\nRaises:\n    PortalError: 409 ``update_in_progress``; 409 ``no_previous_version``\n        if there is no previous tag to roll back to; 400\n        ``invalid_release_tag`` if the previous tag is not a safe\n        ``git``/``uv`` argument (defense in depth -- see\n        :func:`~palmimo_portal.core.update.start_rollback`'s docstring);\n        409 ``prerelease_refused`` if the previous tag is a pre-release\n        tag on the stable channel.",
         "operationId": "rollback_api_v1_update_rollback_post",
         "responses": {
           "202": {

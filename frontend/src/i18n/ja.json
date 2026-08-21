@@ -262,6 +262,7 @@
     "not_authenticated": "先にログインしてください。",
     "not_found": "そのページは存在しません。",
     "not_provisioned": "先に Palmimo を Wi-Fi に接続してください。",
+    "prerelease_refused": "これはプレリリースビルドのため、このチャンネルではインストールできません。",
     "release_source_unavailable": "Palmimo は更新サービスに接続できませんでした。しばらくしてから再試行してください。",
     "reset_not_available": "このデバイスではリセットできません。SSH で auth.json を削除してください。",
     "ssh_keys_busy": "別の鍵の変更が進行中です。しばらくしてからもう一度お試しください。",

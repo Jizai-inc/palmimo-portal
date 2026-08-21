@@ -21,9 +21,14 @@ covers any step failing along the way.
 
 from __future__ import annotations
 
+import logging
 import re
+import threading
 
 from palmimo_portal.ports import InstalledVersion, Release, StateStore, UpdateJob, UpdateState
+
+
+logger = logging.getLogger("palmimo_portal")
 
 
 #: How long a successful check protects the Portal from another one.
@@ -82,6 +87,10 @@ class InvalidReleaseTagError(Exception):
     """
 
 
+class PrereleaseRefusedError(Exception):
+    """Raised by :func:`start_apply` when ``target`` is a pre-release tag on the stable channel."""
+
+
 def is_valid_release_tag(tag: str) -> bool:
     """Report whether ``tag`` is safe to pass to ``git``/``uv`` as a ref/argument. See :data:`_VALID_RELEASE_TAG_PATTERN`."""
     if not _VALID_RELEASE_TAG_PATTERN.fullmatch(tag):
@@ -91,13 +100,44 @@ def is_valid_release_tag(tag: str) -> bool:
     return ".." not in tag
 
 
+def is_prerelease_tag(tag: str) -> bool:
+    """Report whether ``tag`` is a pre-release tag.
+
+    The release workflow's tag ruleset splits ``v*`` (protected) from
+    ``v*-*`` (mutable rc) -- see doc/releasing.md -- so a hyphen IS the
+    pre-release marker; nothing more elaborate is needed.
+    """
+    return "-" in tag
+
+
+#: The last tag :func:`is_update_available` logged a refusal warning for --
+#: keeps a per-poll status check from spamming the log with the same
+#: warning every few seconds while a pre-release sits published.
+_last_warned_prerelease_tag: str | None = None
+_last_warned_prerelease_tag_lock = threading.Lock()
+
+
+def _warn_prerelease_once(tag: str) -> None:
+    global _last_warned_prerelease_tag
+    with _last_warned_prerelease_tag_lock:
+        if tag == _last_warned_prerelease_tag:
+            return
+        _last_warned_prerelease_tag = tag
+    logger.warning("refusing pre-release tag %s on the stable channel", tag)
+
+
 def is_update_available(installed: InstalledVersion, latest: Release | None) -> bool:
     """Report whether ``latest`` names a release the installed checkout is not already on.
 
     ``installed.tag is None`` (``HEAD`` not exactly on a tag) is treated
-    as "always behind" whenever a latest release is known.
+    as "always behind" whenever a latest release is known. A pre-release
+    ``latest.tag`` (:func:`is_prerelease_tag`) is never available on the
+    stable channel, regardless of what is installed.
     """
     if latest is None:
+        return False
+    if is_prerelease_tag(latest.tag):
+        _warn_prerelease_once(latest.tag)
         return False
     if installed.tag is None:
         return True
@@ -160,6 +200,10 @@ def start_apply(state: UpdateState, installed: InstalledVersion, target: str, no
     Raises:
         UpdateInProgressError: a job is already running/restarting/checking.
         InvalidReleaseTagError: ``target`` is not :func:`is_valid_release_tag`.
+        PrereleaseRefusedError: ``target`` is :func:`is_prerelease_tag` --
+            refused on the stable channel even if it matches
+            ``state.latest.tag`` (a forged or stale target), so the guard
+            does not depend on the badge ever having shown an update.
         NoReleaseCheckedError: ``state.latest is None``.
         UpdateTargetMismatch: ``target`` is not ``state.latest.tag``.
     """
@@ -167,6 +211,8 @@ def start_apply(state: UpdateState, installed: InstalledVersion, target: str, no
         raise UpdateInProgressError()
     if not is_valid_release_tag(target):
         raise InvalidReleaseTagError()
+    if is_prerelease_tag(target):
+        raise PrereleaseRefusedError()
     if state.latest is None:
         raise NoReleaseCheckedError()
     if target != state.latest.tag:
@@ -196,6 +242,11 @@ def start_rollback(state: UpdateState, installed: InstalledVersion, now: float) 
         NoPreviousVersionError: ``state.previous_tag`` is ``None``.
         InvalidReleaseTagError: ``state.previous_tag`` is not :func:`is_valid_release_tag`
             (defense in depth; should not happen since it is only ever set from an already-validated tag).
+        PrereleaseRefusedError: ``state.previous_tag`` is :func:`is_prerelease_tag` --
+            the "stable devices never install a hyphenated tag" guarantee
+            covers every install path, not just :func:`start_apply`; a
+            device that opted into ``prerelease``, installed an rc, and
+            returned to ``stable`` must not be able to roll back onto it.
     """
     if state.job.state not in _ALLOWS_NEW_JOB_STATES:
         raise UpdateInProgressError()
@@ -203,6 +254,8 @@ def start_rollback(state: UpdateState, installed: InstalledVersion, now: float) 
         raise NoPreviousVersionError()
     if not is_valid_release_tag(state.previous_tag):
         raise InvalidReleaseTagError()
+    if is_prerelease_tag(state.previous_tag):
+        raise PrereleaseRefusedError()
     target = state.previous_tag
     previous_tag = installed.tag if installed.tag is not None and installed.tag != target else state.previous_tag
     return UpdateState(

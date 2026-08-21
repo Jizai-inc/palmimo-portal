@@ -6,12 +6,14 @@ from typing import Literal
 
 import pytest
 
+from palmimo_portal.core import update as update_core
 from palmimo_portal.core.update import (
     DEFAULT_RESTART_MAX_AGE_SECONDS,
     IDLE_UPDATE_STATE,
     InvalidReleaseTagError,
     NoPreviousVersionError,
     NoReleaseCheckedError,
+    PrereleaseRefusedError,
     UpdateCheckRateLimitedError,
     UpdateInProgressError,
     UpdateTargetMismatch,
@@ -20,6 +22,7 @@ from palmimo_portal.core.update import (
     expire_stale_restart,
     expire_stale_running,
     finalize_after_restart,
+    is_prerelease_tag,
     is_retry_available,
     is_update_available,
     is_valid_release_tag,
@@ -64,6 +67,54 @@ def test_is_update_available_is_true_when_tags_differ() -> None:
 
 def test_is_update_available_is_false_when_tags_match() -> None:
     assert is_update_available(InstalledVersion(tag="v2.0.0", commit="abc"), RELEASE_V2) is False
+
+
+@pytest.mark.parametrize("tag", ["v2.0.0-rc1", "v2.0.0-beta", "v2.0.0-1"])
+def test_is_prerelease_tag_is_true_for_a_hyphenated_tag(tag: str) -> None:
+    assert is_prerelease_tag(tag) is True
+
+
+@pytest.mark.parametrize("tag", ["v2.0.0", "v1", "release2026"])
+def test_is_prerelease_tag_is_false_for_a_plain_tag(tag: str) -> None:
+    assert is_prerelease_tag(tag) is False
+
+
+def test_is_update_available_is_false_for_a_prerelease_tag_even_when_installed_differs() -> None:
+    prerelease = Release(
+        tag="v2.0.0-rc1", name="v2.0.0-rc1", published_at="2026-01-01T00:00:00Z", html_url="https://example.test/rc1"
+    )
+
+    assert is_update_available(InstalledVersion(tag="v1.0.0", commit="abc"), prerelease) is False
+
+
+def test_is_update_available_logs_a_warning_for_a_prerelease_tag(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(update_core, "_last_warned_prerelease_tag", None)
+    prerelease = Release(
+        tag="v2.0.0-rc1", name="v2.0.0-rc1", published_at="2026-01-01T00:00:00Z", html_url="https://example.test/rc1"
+    )
+
+    with caplog.at_level("WARNING", logger="palmimo_portal"):
+        is_update_available(InstalledVersion(tag="v1.0.0", commit="abc"), prerelease)
+
+    assert "v2.0.0-rc1" in caplog.text
+    assert "refusing pre-release tag" in caplog.text
+
+
+def test_is_update_available_warns_only_once_per_distinct_prerelease_tag(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(update_core, "_last_warned_prerelease_tag", None)
+    prerelease = Release(
+        tag="v2.0.0-rc1", name="v2.0.0-rc1", published_at="2026-01-01T00:00:00Z", html_url="https://example.test/rc1"
+    )
+
+    with caplog.at_level("WARNING", logger="palmimo_portal"):
+        is_update_available(InstalledVersion(tag="v1.0.0", commit="abc"), prerelease)
+        is_update_available(InstalledVersion(tag="v1.0.0", commit="abc"), prerelease)
+
+    assert len(caplog.records) == 1
 
 
 def test_start_check_succeeds_from_idle_and_leaves_job_untouched() -> None:
@@ -206,6 +257,16 @@ def test_start_apply_raises_target_mismatch() -> None:
 
     with pytest.raises(UpdateTargetMismatch):
         start_apply(state, InstalledVersion(tag="v1.0.0", commit="abc"), "v3.0.0", now=1001.0)
+
+
+def test_start_apply_raises_prerelease_refused_for_a_hyphenated_target() -> None:
+    prerelease = Release(
+        tag="v2.0.0-rc1", name="v2.0.0-rc1", published_at="2026-01-01T00:00:00Z", html_url="https://example.test/rc1"
+    )
+    state = UpdateState(latest=prerelease, checked_at=1000.0, previous_tag=None, job=IDLE_UPDATE_STATE.job)
+
+    with pytest.raises(PrereleaseRefusedError):
+        start_apply(state, InstalledVersion(tag="v1.0.0", commit="abc"), "v2.0.0-rc1", now=1001.0)
 
 
 def test_start_apply_raises_update_in_progress_when_a_job_is_running() -> None:
@@ -448,6 +509,15 @@ def test_start_rollback_raises_invalid_release_tag_for_an_unsafe_previous_tag() 
 
     with pytest.raises(InvalidReleaseTagError):
         start_rollback(state, InstalledVersion(tag="v2.0.0", commit="abc"), now=2000.0)
+
+
+def test_start_rollback_raises_prerelease_refused_for_a_hyphenated_previous_tag() -> None:
+    # A device that opted into prerelease, installed an rc, then returned to
+    # stable must not be able to roll back onto that rc.
+    state = UpdateState(latest=RELEASE_V2, checked_at=1000.0, previous_tag="v2.0.0-rc1", job=IDLE_UPDATE_STATE.job)
+
+    with pytest.raises(PrereleaseRefusedError):
+        start_rollback(state, InstalledVersion(tag="v3.0.0", commit="abc"), now=2000.0)
 
 
 def test_expire_stale_restart_is_a_no_op_when_not_restarting() -> None:

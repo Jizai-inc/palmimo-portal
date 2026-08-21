@@ -63,9 +63,10 @@ export const getApplyApiV1UpdateApplyPostUrl = () => {
  * Raises:
  *     PortalError: 409 ``update_in_progress``; 400 ``invalid_release_tag``
  *         if ``tag`` is not a safe ``git``/``uv`` argument; 409
- *         ``no_release_checked`` if no release has ever been checked; 409
- *         ``update_target_mismatch`` if ``tag`` is not the last-checked
- *         release's tag.
+ *         ``prerelease_refused`` if ``tag`` is a pre-release tag on the
+ *         stable channel; 409 ``no_release_checked`` if no release has
+ *         ever been checked; 409 ``update_target_mismatch`` if ``tag`` is
+ *         not the last-checked release's tag.
  * @summary Apply
  */
 export const applyApiV1UpdateApplyPost = async (applyRequest: ApplyRequest, options?: RequestInit): Promise<UpdateStatusResponse> => {
@@ -232,7 +233,9 @@ export const useCheckApiV1UpdateCheckPost = <TError = unknown,
  *         if there is no previous tag to roll back to; 400
  *         ``invalid_release_tag`` if the previous tag is not a safe
  *         ``git``/``uv`` argument (defense in depth -- see
- *         :func:`~palmimo_portal.core.update.start_rollback`'s docstring).
+ *         :func:`~palmimo_portal.core.update.start_rollback`'s docstring);
+ *         409 ``prerelease_refused`` if the previous tag is a pre-release
+ *         tag on the stable channel.
  * @summary Rollback
  */
 export const rollbackApiV1UpdateRollbackPost = async ( options?: RequestInit): Promise<UpdateStatusResponse> => {

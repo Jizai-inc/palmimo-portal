@@ -10,6 +10,11 @@ import { shouldRedirectToWifiScan } from "@/lib/wifiWaitingGate";
  * AP-teardown waiting screen, shown the instant `/wifi`'s connect form submits, before any
  * result is known (see palmimo-portal-technical.md, AP-disconnection-asymmetry). Route
  * definition only; logic lives in `WifiWaitingPanel` (no router hooks), unit-tested directly.
+ *
+ * Filename uses TanStack Router's trailing-underscore escape (`wifi_.waiting.tsx`, not
+ * `wifi.waiting.tsx`) so this is a sibling of `/wifi`, not nested under it (issue #13): `/wifi`
+ * (routes/wifi.tsx) renders no `<Outlet/>`, so nesting silently kept the connect form on
+ * screen after `navigate({ to: "/wifi/waiting" })` -- the URL changed, this screen never did.
  */
 interface WifiWaitingSearch {
   ssid: string;
@@ -19,7 +24,7 @@ interface WifiWaitingSearch {
   submitted: number;
 }
 
-export const Route = createFileRoute("/wifi/waiting")({
+export const Route = createFileRoute("/wifi_/waiting")({
   validateSearch: (search: Record<string, unknown>): WifiWaitingSearch => ({
     ssid: typeof search.ssid === "string" ? search.ssid : "",
     since: typeof search.since === "number" ? search.since : 0,

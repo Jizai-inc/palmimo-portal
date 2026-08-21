@@ -2,7 +2,10 @@ import { redirect } from "@tanstack/react-router";
 
 import { PortalApiError } from "@/api/client";
 import { getStatusApiV1WifiStatusGet } from "@/api/generated/wifi/wifi";
-import { getGetStatusApiV1SystemStatusGetQueryOptions } from "@/api/generated/system/system";
+import {
+  getGetStatusApiV1SystemStatusGetQueryKey,
+  getGetStatusApiV1SystemStatusGetQueryOptions,
+} from "@/api/generated/system/system";
 import type { SystemStatus } from "@/api/generated/models";
 import { queryClient } from "@/lib/queryClient";
 import { NAV_ITEMS } from "@/lib/navigation";
@@ -77,11 +80,13 @@ export function isPathAllowedForGate(gate: AuthGate, pathname: string): boolean 
 /**
  * Probe session state via `GET /api/v1/wifi/status`, doubling as a session check without a
  * dedicated "whoami" endpoint: 200 -> full session; 403 `initial_password_must_be_changed` ->
- * valid initial-mode session; 401 `not_authenticated` -> none.
+ * valid initial-mode session; 401 `not_authenticated` -> none. `signal` bounds the fetch itself
+ * (see `resolveAuthGateSafely`) -- an aborted fetch rejects with `AbortError`, which is not a
+ * `PortalApiError` and so rethrows, same as any other unexpected failure.
  */
-async function probeSession(): Promise<"full" | "initial" | "none"> {
+async function probeSession(signal?: AbortSignal): Promise<"full" | "initial" | "none"> {
   try {
-    await getStatusApiV1WifiStatusGet();
+    await getStatusApiV1WifiStatusGet({ signal });
     return "full";
   } catch (error) {
     if (error instanceof PortalApiError) {
@@ -97,7 +102,7 @@ async function probeSession(): Promise<"full" | "initial" | "none"> {
 }
 
 /** Resolve the current system status into the screen the guard should route to. */
-export async function resolveAuthGate(status: SystemStatus): Promise<AuthGate> {
+export async function resolveAuthGate(status: SystemStatus, signal?: AbortSignal): Promise<AuthGate> {
   const hasIdentity = status.device_id != null;
   if (status.auth_state === "unavailable") {
     return { screen: "status-error", reason: "unavailable", hasIdentity };
@@ -109,7 +114,7 @@ export async function resolveAuthGate(status: SystemStatus): Promise<AuthGate> {
     return { screen: "setup" };
   }
 
-  const session = await probeSession();
+  const session = await probeSession(signal);
   if (session === "none") {
     return { screen: "login", variant: status.auth_state === "initial" ? "sticker" : "normal", hasIdentity };
   }
@@ -147,15 +152,23 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
  * The guard's entry point: fetches `system/status` and resolves the gate, never letting a
  * failure of either probe escape as a thrown error -- otherwise a failed fetch would reject
  * `beforeLoad` and land on the router's default error boundary instead of a screen this app owns.
+ *
+ * On timeout, cancels the still-hung `system/status` query: React Query keeps a fetch that
+ * outlives our race in flight and hands the same unsettled promise to the next caller, so
+ * without this every subsequent navigation would time out again instead of getting a fresh
+ * attempt. `probeSession`'s direct fetch is bounded the same way but natively, via its own
+ * `AbortSignal.timeout` -- it isn't routed through the query cache, so there's nothing to cancel.
  */
 export async function resolveAuthGateSafely(): Promise<AuthGate> {
+  const systemStatusQueryKey = getGetStatusApiV1SystemStatusGetQueryKey();
   try {
     const status = await withTimeout(
       queryClient.fetchQuery(getGetStatusApiV1SystemStatusGetQueryOptions()),
       GATE_PROBE_TIMEOUT_MS,
     );
-    return await withTimeout(resolveAuthGate(status), GATE_PROBE_TIMEOUT_MS);
+    return await resolveAuthGate(status, AbortSignal.timeout(GATE_PROBE_TIMEOUT_MS));
   } catch {
+    void queryClient.cancelQueries({ queryKey: systemStatusQueryKey });
     return { screen: "status-error", reason: "unavailable", hasIdentity: false };
   }
 }
@@ -169,7 +182,9 @@ export async function resolveAuthGateSafely(): Promise<AuthGate> {
  * carves out `/wifi/waiting` (`isPathAllowedForGate`); the route's own `beforeLoad`
  * (`wifiWaitingGate.ts`'s `shouldRedirectToWifiScan`) bounces malformed/stale entries back to
  * `/wifi`, which re-gates; and its outcome handlers navigate to `/dashboard` or `/wifi`, both
- * re-gated on arrival.
+ * re-gated on arrival. The residual exposure -- a deep link can render this screen in a state
+ * the gate would otherwise have redirected out of -- is UX-only and self-resolving the moment
+ * one of those outcome handlers fires; the server remains the actual access boundary.
  */
 export function shouldSkipAuthGate(pathname: string): boolean {
   return pathname === "/wifi/waiting";

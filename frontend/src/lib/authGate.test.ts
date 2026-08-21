@@ -102,6 +102,37 @@ describe("resolveAuthGateSafely", () => {
 
     await expect(resultPromise).resolves.toEqual({ screen: "status-error", reason: "unavailable", hasIdentity: false });
   });
+
+  it("cancels the hung system/status query on timeout, so the next probe gets a fresh fetch instead of the same stuck one", async () => {
+    // Without cancelling, React Query keeps dealing out that first, never-settling fetch to
+    // every later caller -- the next navigation would time out again too, even once a real
+    // response is available, instead of picking it up immediately.
+    server.use(http.get("*/api/v1/system/status", () => new Promise(() => {})));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    const first = resolveAuthGateSafely();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await expect(first).resolves.toEqual({ screen: "status-error", reason: "unavailable", hasIdentity: false });
+
+    server.resetHandlers();
+    server.use(
+      getGetStatusApiV1SystemStatusGetMockHandler({
+        state: "connecting",
+        hostname: "palmimo-1234",
+        auth_state: "set",
+        device_id: "1234",
+        versions: { portal: "0.1.0", sdk: null },
+        last_wifi_attempt: null,
+        adapters: "fake",
+        state_dir: "/tmp",
+      }),
+      getGetStatusApiV1WifiStatusGetMockHandler(),
+    );
+
+    const second = resolveAuthGateSafely();
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(second).resolves.toEqual({ screen: "wifi" });
+  });
 });
 
 describe("runAuthGate", () => {

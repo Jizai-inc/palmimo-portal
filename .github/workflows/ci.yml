@@ -78,7 +78,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           # One source of truth for the Node version: frontend/.nvmrc, not
           # a duplicated literal here that could silently drift from it.

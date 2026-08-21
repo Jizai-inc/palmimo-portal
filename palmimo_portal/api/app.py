@@ -4,7 +4,9 @@ Middleware runs outside-in as **HostGuard -> Session -> CSRF -> router**:
 
 - :class:`HostGuardMiddleware` rejects DNS-rebinding-style requests (a
   ``Host`` header that names neither this machine nor an explicitly allowed
-  one) with 421, before anything else runs.
+  one) with 421, before anything else runs -- except an OS captive-portal
+  probe while unprovisioned, which it redirects to this machine so the
+  setup AP's captive portal opens automatically.
 - :class:`SessionMiddleware` reads the session cookie, if any, and records
   whether it verifies against the current signing key on
   ``request.state.authenticated`` — it never itself rejects a request,
@@ -22,6 +24,7 @@ the exception handlers registered in :func:`create_app`.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import socket
 import struct
@@ -32,9 +35,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+import anyio.to_thread
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
@@ -44,9 +48,17 @@ from palmimo_portal.api import system as system_api
 from palmimo_portal.api import update as update_api
 from palmimo_portal.api import wifi as wifi_api
 from palmimo_portal.core.auth import SESSION_COOKIE_NAME, LoginRateLimiter, ResetRateLimiter, decode_session
+from palmimo_portal.core.provisioning import is_provisioned
 from palmimo_portal.core.update import finalize_after_restart
 from palmimo_portal.core.update_runner import UpdateRunner
-from palmimo_portal.ports import AdapterUnavailableError, AuthFileState, Identity, IdentityStore, StateStore
+from palmimo_portal.ports import (
+    AdapterUnavailableError,
+    AuthFileState,
+    Identity,
+    IdentityStore,
+    NetworkPort,
+    StateStore,
+)
 from palmimo_portal.settings import Settings, get_settings
 from palmimo_portal.version import portal_version
 from palmimo_portal.wiring import AdapterBundle, build_adapters
@@ -69,6 +81,37 @@ CSRF_HEADER_VALUE = "PalmimoPortal"
 # appears after boot (e.g. DHCP finally assigning one once the device
 # leaves AP mode) becomes allowed without a restart.
 _HOST_CACHE_TTL_SECONDS = 30.0
+
+# How long HostGuard trusts its cached provisioned/unprovisioned snapshot
+# before re-asking the network port. Short enough that finishing Wi-Fi setup
+# stops the captive-probe redirect within one probe interval, without
+# hammering D-Bus on every probe (OSes poll this every few seconds).
+_PROVISIONED_CACHE_TTL_SECONDS = 5.0
+
+# Hostnames the major OSes' connectivity-check clients query to detect a
+# captive portal. Wildcard DNS on the setup AP (comitup's dnsmasq) answers
+# every one of these with the AP's own IP, routing the probe here.
+CAPTIVE_PROBE_HOSTS = frozenset(
+    {
+        "captive.apple.com",
+        "connectivitycheck.gstatic.com",
+        "connectivitycheck.android.com",
+        "clients3.google.com",
+        "www.msftconnecttest.com",
+        "msftconnecttest.com",
+        "www.msftncsi.com",
+        "msftncsi.com",
+        "detectportal.firefox.com",
+        "nmcheck.gnome.org",
+    }
+)
+
+_CAPTIVE_PROBE_METHODS = frozenset({"GET", "HEAD"})
+
+
+def _is_api_path(path: str) -> bool:
+    """Match the SPA fallback's own API-namespace check (see ``_serve_spa``)."""
+    return path.startswith(f"/{API_PATH_PREFIX}") or path == f"/{API_PATH_PREFIX.rstrip('/')}"
 
 
 _SIOCGIFADDR = 0x8915
@@ -137,19 +180,30 @@ class HostGuardMiddleware(BaseHTTPMiddleware):
     :data:`_HOST_CACHE_TTL_SECONDS`, rather than once at :func:`create_app`
     time -- resolving before the network is up would otherwise permanently
     exclude an address that only becomes valid after boot.
+
+    One exception to the 421: a GET/HEAD to a non-API path (see
+    :func:`_is_api_path`) with a :data:`CAPTIVE_PROBE_HOSTS` ``Host``
+    header, while the device is unprovisioned, gets a 302 to this machine
+    instead -- see :meth:`dispatch`.
     """
 
     def __init__(
         self,
         app: Any,
         always_allowed_hosts: frozenset[str],
+        network: NetworkPort | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         super().__init__(app)
         self._always_allowed_hosts = always_allowed_hosts
+        self._network = network
         self._clock = clock
         self._cached_machine_hosts: frozenset[str] = frozenset()
         self._cached_at: float = float("-inf")
+        self._cached_provisioned: bool = True
+        self._provisioned_cached_at: float = float("-inf")
+        self._provisioned_warned_at: float = float("-inf")
+        self._provisioned_refresh_lock = asyncio.Lock()
 
     def _allowed_hosts(self) -> frozenset[str]:
         now = self._clock()
@@ -158,9 +212,52 @@ class HostGuardMiddleware(BaseHTTPMiddleware):
             self._cached_at = now
         return self._always_allowed_hosts | self._cached_machine_hosts
 
+    async def _is_provisioned(self) -> bool:
+        """Report provisioned state, cached for :data:`_PROVISIONED_CACHE_TTL_SECONDS`.
+
+        The port call runs off the event loop (:func:`anyio.to_thread.run_sync`)
+        -- the real adapter's D-Bus round trip can take several seconds, and
+        blocking the loop for that would stall every other request the
+        moment a probe lands. A refresh past the TTL takes
+        ``_provisioned_refresh_lock`` and re-checks the TTL once inside it,
+        so a burst of simultaneous probes triggers one port call, not one
+        per request; the rest just wait on the lock.
+
+        Fails closed: a missing network port or a raising one is treated as
+        provisioned, so the ambiguous case keeps the existing 421 behavior
+        rather than opening the redirect exception. A raise is logged at
+        most once per TTL window, so a broken D-Bus link during a probe
+        storm does not flood the log.
+        """
+        if self._network is None:
+            return True
+        if self._clock() - self._provisioned_cached_at <= _PROVISIONED_CACHE_TTL_SECONDS:
+            return self._cached_provisioned
+        async with self._provisioned_refresh_lock:
+            now = self._clock()
+            if now - self._provisioned_cached_at <= _PROVISIONED_CACHE_TTL_SECONDS:
+                return self._cached_provisioned
+            network = self._network
+            try:
+                self._cached_provisioned = await anyio.to_thread.run_sync(is_provisioned, network)
+            except Exception as error:
+                if now - self._provisioned_warned_at > _PROVISIONED_CACHE_TTL_SECONDS:
+                    logger.warning("HostGuard: network port unavailable, treating as provisioned: %s", error)
+                    self._provisioned_warned_at = now
+                self._cached_provisioned = True
+            self._provisioned_cached_at = self._clock()
+            return self._cached_provisioned
+
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Any:
         host = _normalize_host(request.headers.get("host", ""))
         if host not in self._allowed_hosts():
+            if (
+                host in CAPTIVE_PROBE_HOSTS
+                and request.method in _CAPTIVE_PROBE_METHODS
+                and not _is_api_path(request.url.path)
+                and not await self._is_provisioned()
+            ):
+                return RedirectResponse(url=f"http://{socket.gethostname()}.local/", status_code=302)
             logger.warning("HostGuard rejected a request: Host=%r", host)
             return JSONResponse(
                 status_code=421,
@@ -334,7 +431,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # CSRF then Session then HostGuard makes requests hit HostGuard first.
     app.add_middleware(CSRFMiddleware)
     app.add_middleware(SessionMiddleware)
-    app.add_middleware(HostGuardMiddleware, always_allowed_hosts=always_allowed_hosts)
+    app.add_middleware(HostGuardMiddleware, always_allowed_hosts=always_allowed_hosts, network=adapters.network)
 
     # PortalError is an HTTPException subclass, so registering the base class
     # covers it too, alongside every other HTTPException FastAPI itself

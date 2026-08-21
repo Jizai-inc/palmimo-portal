@@ -1,3 +1,5 @@
+import { redirect } from "@tanstack/react-router";
+
 import { PortalApiError } from "@/api/client";
 import { getStatusApiV1WifiStatusGet } from "@/api/generated/wifi/wifi";
 import { getGetStatusApiV1SystemStatusGetQueryOptions } from "@/api/generated/system/system";
@@ -118,12 +120,10 @@ export async function resolveAuthGate(status: SystemStatus): Promise<AuthGate> {
 }
 
 /**
- * Bound on how long {@link resolveAuthGateSafely} waits for its probes. `beforeLoad` on the
- * root route (routes/__root.tsx) awaits this on every navigation, including the Wi-Fi connect
- * form's own `navigate` to `/wifi/waiting` -- a same-origin `fetch` with no timeout of its own
- * hangs for a long, OS-dependent stretch when it races the AP teardown that connect triggers,
- * which otherwise stalls that navigation instead of failing fast into the `status-error`
- * gate's `/wifi/waiting` carve-out (see `isPathAllowedForGate`).
+ * Bound on how long {@link resolveAuthGateSafely} waits for its probes, for every route other
+ * than `/wifi/waiting` (see {@link shouldSkipAuthGate}): a same-origin `fetch` with no timeout
+ * of its own can hang for a long, OS-dependent stretch, and `beforeLoad` awaits this on every
+ * navigation.
  */
 const GATE_PROBE_TIMEOUT_MS = 5_000;
 
@@ -157,5 +157,37 @@ export async function resolveAuthGateSafely(): Promise<AuthGate> {
     return await withTimeout(resolveAuthGate(status), GATE_PROBE_TIMEOUT_MS);
   } catch {
     return { screen: "status-error", reason: "unavailable", hasIdentity: false };
+  }
+}
+
+/**
+ * Whether the root guard (`routes/__root.tsx`) must skip {@link resolveAuthGateSafely}
+ * entirely for `pathname`, rather than merely time-bounding it. `/wifi/waiting` runs precisely
+ * while the network is gone (AP-disconnection-asymmetry), so any probe there is meaningless or
+ * harmful, and a submit-to-waiting transition must be 0ms, not bounded by
+ * {@link GATE_PROBE_TIMEOUT_MS}. Safe to skip: every gate reachable during AP teardown already
+ * carves out `/wifi/waiting` (`isPathAllowedForGate`); the route's own `beforeLoad`
+ * (`wifiWaitingGate.ts`'s `shouldRedirectToWifiScan`) bounces malformed/stale entries back to
+ * `/wifi`, which re-gates; and its outcome handlers navigate to `/dashboard` or `/wifi`, both
+ * re-gated on arrival.
+ */
+export function shouldSkipAuthGate(pathname: string): boolean {
+  return pathname === "/wifi/waiting";
+}
+
+/**
+ * The root guard's decision for one navigation to `pathname`: resolve the gate (unless
+ * {@link shouldSkipAuthGate} applies) and redirect away if `pathname` isn't allowed under it.
+ * Factored out of `routes/__root.tsx`'s `beforeLoad` so it's callable, and testable, without a
+ * full TanStack Router `beforeLoad` context.
+ */
+export async function runAuthGate(pathname: string): Promise<void> {
+  if (shouldSkipAuthGate(pathname)) {
+    return;
+  }
+  const gate = await resolveAuthGateSafely();
+  const search = gate.screen === "status-error" ? { reason: gate.reason } : undefined;
+  if (!isPathAllowedForGate(gate, pathname)) {
+    throw redirect({ to: GATE_PATHS[gate.screen], search });
   }
 }

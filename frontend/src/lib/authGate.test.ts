@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { http } from "msw";
 
-import { DASHBOARD_FAMILY_PATHS, isPathAllowedForGate, resolveAuthGateSafely } from "@/lib/authGate";
+import { DASHBOARD_FAMILY_PATHS, isPathAllowedForGate, resolveAuthGateSafely, runAuthGate } from "@/lib/authGate";
 import type { AuthGate } from "@/lib/authGate";
+import { getGetStatusApiV1SystemStatusGetMockHandler } from "@/api/generated/system/system.msw";
+import { getGetStatusApiV1WifiStatusGetMockHandler } from "@/api/generated/wifi/wifi.msw";
 import { queryClient } from "@/lib/queryClient";
 import { server } from "@/test/server";
 
@@ -99,5 +101,38 @@ describe("resolveAuthGateSafely", () => {
     await vi.advanceTimersByTimeAsync(10_000);
 
     await expect(resultPromise).resolves.toEqual({ screen: "status-error", reason: "unavailable", hasIdentity: false });
+  });
+});
+
+describe("runAuthGate", () => {
+  afterEach(() => {
+    queryClient.clear();
+  });
+
+  it("skips the gate probe entirely for /wifi/waiting, resolving immediately even when system/status never responds", async () => {
+    // Pins issue #13's fix: a hanging handler with no fake timers means this test would itself
+    // hang, not just go slow, if runAuthGate ever went back to awaiting the probe here.
+    server.use(http.get("*/api/v1/system/status", () => new Promise(() => {})));
+
+    await expect(runAuthGate("/wifi/waiting")).resolves.toBeUndefined();
+  });
+
+  it("still probes the gate, and still redirects, for other paths", async () => {
+    server.use(
+      getGetStatusApiV1SystemStatusGetMockHandler({
+        state: "connecting",
+        hostname: "palmimo-1234",
+        auth_state: "set",
+        device_id: "1234",
+        versions: { portal: "0.1.0", sdk: null },
+        last_wifi_attempt: null,
+        adapters: "fake",
+        state_dir: "/tmp",
+      }),
+      getGetStatusApiV1WifiStatusGetMockHandler(),
+    );
+
+    await expect(runAuthGate("/wifi")).resolves.toBeUndefined();
+    await expect(runAuthGate("/dashboard")).rejects.toMatchObject({ options: { to: "/wifi" } });
   });
 });

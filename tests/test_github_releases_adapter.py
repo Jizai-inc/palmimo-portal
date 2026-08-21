@@ -16,7 +16,7 @@ from palmimo_portal.ports import Release, ReleaseSourceError
 
 
 class _FakeResponse:
-    def __init__(self, payload: dict[str, Any]) -> None:
+    def __init__(self, payload: Any) -> None:
         self._body = json.dumps(payload).encode("utf-8")
 
     def read(self) -> bytes:
@@ -29,7 +29,7 @@ class _FakeResponse:
         pass
 
 
-def _opener_returning(payload: dict[str, Any]) -> Any:
+def _opener_returning(payload: Any) -> Any:
     def opener(request: urllib.request.Request, timeout: float) -> _FakeResponse:
         return _FakeResponse(payload)
 
@@ -146,3 +146,76 @@ def test_fetch_latest_raises_release_source_unavailable_on_an_unexpected_shape()
         source.fetch_latest()
 
     assert excinfo.value.code == "release_source_unavailable"
+
+
+PRERELEASE_PAYLOAD = {
+    "tag_name": "v2.0.0-rc1",
+    "name": "v2.0.0-rc1",
+    "published_at": "2026-02-01T00:00:00Z",
+    "html_url": "https://github.com/Jizai-inc/palmimo-portal/releases/tag/v2.0.0-rc1",
+    "draft": False,
+}
+
+
+def test_fetch_latest_on_the_prerelease_channel_resolves_the_newest_non_draft_entry() -> None:
+    payload = [
+        {**PRERELEASE_PAYLOAD, "draft": True, "tag_name": "v2.0.0-rc2-draft"},
+        PRERELEASE_PAYLOAD,
+        {**VALID_PAYLOAD, "draft": False},
+    ]
+    source = GitHubReleaseSource(
+        repo="Jizai-inc/palmimo-portal", channel="prerelease", opener=_opener_returning(payload)
+    )
+
+    release = source.fetch_latest()
+
+    assert release.tag == "v2.0.0-rc1"
+
+
+def test_fetch_latest_on_the_prerelease_channel_uses_the_release_list_url() -> None:
+    captured: dict[str, urllib.request.Request] = {}
+
+    def opener(request: urllib.request.Request, timeout: float) -> _FakeResponse:
+        captured["request"] = request
+        return _FakeResponse([PRERELEASE_PAYLOAD])
+
+    source = GitHubReleaseSource(repo="Jizai-inc/palmimo-portal", channel="prerelease", opener=opener)
+
+    source.fetch_latest()
+
+    request = captured["request"]
+    assert request.full_url == "https://api.github.com/repos/Jizai-inc/palmimo-portal/releases?per_page=10"
+
+
+def test_fetch_latest_on_the_prerelease_channel_raises_no_release_when_only_drafts_exist() -> None:
+    payload = [{**PRERELEASE_PAYLOAD, "draft": True}]
+    source = GitHubReleaseSource(channel="prerelease", opener=_opener_returning(payload))
+
+    with pytest.raises(ReleaseSourceError) as excinfo:
+        source.fetch_latest()
+
+    assert excinfo.value.code == "no_release"
+
+
+def test_fetch_latest_on_the_prerelease_channel_raises_no_release_on_an_empty_list() -> None:
+    source = GitHubReleaseSource(channel="prerelease", opener=_opener_returning([]))
+
+    with pytest.raises(ReleaseSourceError) as excinfo:
+        source.fetch_latest()
+
+    assert excinfo.value.code == "no_release"
+
+
+def test_fetch_latest_on_the_stable_channel_still_uses_the_latest_endpoint() -> None:
+    captured: dict[str, urllib.request.Request] = {}
+
+    def opener(request: urllib.request.Request, timeout: float) -> _FakeResponse:
+        captured["request"] = request
+        return _FakeResponse(VALID_PAYLOAD)
+
+    source = GitHubReleaseSource(repo="Jizai-inc/palmimo-portal", channel="stable", opener=opener)
+
+    source.fetch_latest()
+
+    request = captured["request"]
+    assert request.full_url == "https://api.github.com/repos/Jizai-inc/palmimo-portal/releases/latest"

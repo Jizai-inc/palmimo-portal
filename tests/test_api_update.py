@@ -825,3 +825,96 @@ def test_lifespan_fails_a_running_job_left_over_from_before_this_boot(tmp_path: 
     assert finalized.job.state == "failed"
     assert finalized.job.step == "sync"
     assert "interrupted" in (finalized.job.error or "")
+
+
+PRERELEASE_V2 = Release(
+    tag="v2.0.0-rc1",
+    name="v2.0.0-rc1",
+    published_at="2026-01-01T00:00:00Z",
+    html_url="https://example.test/v2-rc1",
+)
+
+
+@pytest.fixture
+def prerelease_client(tmp_path: Path) -> Iterator[TestClient]:
+    """A Portal wired to ``PALMIMO_UPDATE_CHANNEL=prerelease`` -- the dev-machine opt-in."""
+    from palmimo_portal.api.app import create_app
+
+    settings = Settings(
+        allowed_hosts=frozenset({"testserver"}),
+        static_dir=tmp_path / "static-not-built",
+        update_run_in_thread=False,
+        update_restart_delay_seconds=0.0,
+        update_channel="prerelease",
+    )
+    app = create_app(settings)
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+@pytest.fixture
+def prerelease_adapters(prerelease_client: TestClient) -> FakeAdapterBundle:
+    bundle: FakeAdapterBundle = prerelease_client.app.state.adapters  # type: ignore[attr-defined]
+    return bundle
+
+
+def test_status_reports_update_available_for_a_prerelease_tag_on_the_prerelease_channel(
+    prerelease_client: TestClient, prerelease_adapters: FakeAdapterBundle
+) -> None:
+    _log_in(prerelease_client, prerelease_adapters)
+    prerelease_adapters.updater.installed_version = InstalledVersion(tag="v1.0.0", commit="abc")
+    prerelease_adapters.releases.latest = PRERELEASE_V2
+
+    prerelease_client.post("/api/v1/update/check", headers=CSRF_HEADERS)
+    response = prerelease_client.get("/api/v1/update/status")
+
+    assert response.json()["update_available"] is True
+
+
+def test_apply_accepts_a_prerelease_tag_on_the_prerelease_channel(
+    prerelease_client: TestClient, prerelease_adapters: FakeAdapterBundle
+) -> None:
+    _log_in(prerelease_client, prerelease_adapters)
+    prerelease_adapters.releases.latest = PRERELEASE_V2
+    prerelease_client.post("/api/v1/update/check", headers=CSRF_HEADERS)
+
+    response = prerelease_client.post("/api/v1/update/apply", json={"tag": "v2.0.0-rc1"}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 202
+    assert prerelease_adapters.updater.apply_calls == ["v2.0.0-rc1"]
+
+
+def test_stable_channel_still_refuses_a_prerelease_tag(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    """The default (``stable``) channel used by the rest of this module is unaffected by
+    the prerelease-channel wiring added alongside it."""
+    _log_in(client, adapters)
+    adapters.releases.latest = PRERELEASE_V2
+    client.post("/api/v1/update/check", headers=CSRF_HEADERS)
+
+    status = client.get("/api/v1/update/status")
+    apply_response = client.post("/api/v1/update/apply", json={"tag": "v2.0.0-rc1"}, headers=CSRF_HEADERS)
+
+    assert status.json()["update_available"] is False
+    assert apply_response.status_code == 409
+    assert apply_response.json()["error"]["code"] == "prerelease_refused"
+
+
+def test_prerelease_channel_allows_rolling_back_onto_a_prerelease_tag(
+    prerelease_client: TestClient, prerelease_adapters: FakeAdapterBundle
+) -> None:
+    """Mirrors test_rollback_rejects_a_prerelease_previous_tag, but on the prerelease
+    channel: a dev machine that flips back to prerelease can roll back onto an rc."""
+    _log_in(prerelease_client, prerelease_adapters)
+    prerelease_adapters.updater.installed_version = InstalledVersion(tag="v3.0.0", commit="abc")
+    idle_job = UpdateJob(
+        state="idle", kind="update", target=None, step=None, error=None, started_at=None, finished_at=None
+    )
+    prerelease_adapters.state.write_update_state(
+        UpdateState(latest=RELEASE_V2, checked_at=1000.0, previous_tag="v2.0.0-rc1", job=idle_job)
+    )
+
+    response = prerelease_client.post("/api/v1/update/rollback", headers=CSRF_HEADERS)
+
+    assert response.status_code == 202
+    assert response.json()["job"]["target"] == "v2.0.0-rc1"
+    assert prerelease_adapters.updater.apply_calls == ["v2.0.0-rc1"]

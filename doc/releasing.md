@@ -131,6 +131,40 @@ who can replace one can replace the other to match. Integrity-in-transit and
 origin authenticity are different guarantees; this sidecar only gives the
 first.
 
+## 9. Testing a pre-release on a device
+
+The default (`stable`) channel refuses to check for or apply a hyphenated
+tag — see [Versioning](#1-versioning). To let one dev machine install an
+`rc` published under [step 3](#3-tag-and-push), opt it into the
+`prerelease` channel:
+
+```bash
+sudo systemctl edit palmimo-portal
+```
+
+Add, in the `[Service]` section of the override file the editor opens:
+
+```ini
+[Service]
+Environment=PALMIMO_UPDATE_CHANNEL=prerelease
+```
+
+Then:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart palmimo-portal
+```
+
+The dashboard's update check now resolves the newest published pre-release
+(not `releases/latest`) and allows applying it. The UI never exposes this
+setting — it is a deliberate opt-in for dev machines, not a fleet control.
+Rolling back onto a previously installed rc is refused the same as applying
+one unless the device is still on the `prerelease` channel — flip the
+channel back to `prerelease` first if you need to go back to one. To
+return the device to the stable channel, remove the override
+(`sudo systemctl revert palmimo-portal`) and restart the service again.
+
 ## Release notes template
 
 GitHub has no free-form release-template file — `.github/release.yml` only

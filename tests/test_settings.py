@@ -114,3 +114,31 @@ def test_get_settings_reads_portal_dir_from_the_environment(monkeypatch: pytest.
     settings = get_settings()
 
     assert settings.portal_dir == tmp_path
+
+
+def test_get_settings_defaults_update_channel_to_stable_when_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PALMIMO_UPDATE_CHANNEL", raising=False)
+
+    settings = get_settings()
+
+    assert settings.update_channel == "stable"
+
+
+def test_get_settings_reads_update_channel_prerelease_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("PALMIMO_UPDATE_CHANNEL", "prerelease")
+
+    settings = get_settings()
+
+    assert settings.update_channel == "prerelease"
+
+
+def test_get_settings_falls_back_to_stable_and_warns_on_an_invalid_update_channel(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setenv("PALMIMO_UPDATE_CHANNEL", "nightly")
+
+    with caplog.at_level("WARNING", logger="palmimo_portal"):
+        settings = get_settings()
+
+    assert settings.update_channel == "stable"
+    assert "nightly" in caplog.text

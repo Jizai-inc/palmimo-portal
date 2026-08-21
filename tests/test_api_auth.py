@@ -264,14 +264,16 @@ def test_change_password_from_full_with_no_current_password_is_401_and_does_not_
     _provision(adapters)
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
 
-    response = client.post(
-        "/api/v1/auth/change-password",
-        json={"new_password": "new-password"},
-        headers=CSRF_HEADERS,
-    )
-
-    assert response.status_code == 401
-    assert response.json()["error"]["code"] == "invalid_current_password"
+    # One more than MAX_LOGIN_FAILURES: if any of these consumed budget,
+    # the correct attempt below would be locked out.
+    for _ in range(6):
+        response = client.post(
+            "/api/v1/auth/change-password",
+            json={"new_password": "new-password"},
+            headers=CSRF_HEADERS,
+        )
+        assert response.status_code == 401
+        assert response.json()["error"]["code"] == "invalid_current_password"
 
     correct = client.post(
         "/api/v1/auth/change-password",

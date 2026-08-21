@@ -71,7 +71,7 @@ class PasswordRequest(BaseModel):
 
 
 class ChangePasswordRequest(BaseModel):
-    current_password: str
+    current_password: str | None = None
     new_password: str
 
 
@@ -251,13 +251,22 @@ def change_password_endpoint(
     :func:`~palmimo_portal.api.deps.require_full_session`, applied
     everywhere else, is deliberately not applied here.
 
-    - **From an initial session**: ``current_password`` checks against the
-      identity file's sticker password; ``auth.json`` is *created* for the
-      first time (:func:`~palmimo_portal.core.auth.change_password_from_initial`,
-      same exclusive-create machinery as ``POST /setup``, so two concurrent
-      requests from two initial sessions cannot both win).
+    - **From an initial session**: no ``current_password`` check --
+      ``auth.json`` is *created* for the first time
+      (:func:`~palmimo_portal.core.auth.change_password_from_initial`, same
+      exclusive-create machinery as ``POST /setup``, so two concurrent
+      requests from two initial sessions cannot both win). The login rate
+      limiter is not touched on this path: an initial session already
+      proved sticker-password knowledge at login, the sticker password
+      crosses the same plain-HTTP LAN hop either way, and this endpoint is
+      the only action an initial session can take -- re-verifying here
+      would only let a stolen initial-mode cookie burn the shared login
+      budget.
     - **From a full session**: ``current_password`` checks against the
-      stored hash; ``auth.json`` is rotated in place
+      stored hash and shares :class:`~palmimo_portal.core.auth.LoginRateLimiter`
+      with ``POST /login`` (same instance, budget, lockout) -- a stolen
+      full session cookie must not hand an attacker an unlimited oracle to
+      brute-force the current password; ``auth.json`` is rotated in place
       (:func:`~palmimo_portal.core.auth.change_password_from_full`).
 
     Either way a fresh full-mode session is issued, so the caller need not
@@ -266,33 +275,30 @@ def change_password_endpoint(
     identity-carrying device (see
     :func:`~palmimo_portal.api.deps.require_wifi_access`).
 
-    ``current_password`` verification shares
-    :class:`~palmimo_portal.core.auth.LoginRateLimiter` with ``POST
-    /login`` (same instance, budget, lockout) -- a stolen session cookie
-    must not hand an attacker an unlimited oracle to brute-force the
-    current password. The lockout is checked before either verify path
-    runs.
-
     Raises:
-        PortalError: 409 ``auth_state_corrupt`` if ``auth.json`` is
-            corrupt (in practice unreachable: a corrupt ``auth.json``
-            already fails every session to verify, so ``require_auth``
-            rejects with 401 first -- kept as defense in depth); 429
-            ``auth_rate_limited`` while locked out; 401
-            ``invalid_current_password`` if ``current_password`` is wrong;
+        PortalError: 409 ``auth_state_corrupt`` if ``auth.json`` is corrupt,
+            or (initial session only) if the identity file backing the
+            session has since disappeared; 503 ``identity_unavailable`` if
+            the identity file could not be read (initial session only);
             409 ``auth_change_conflict`` if a concurrent change from
             another initial session already won the race to create
-            ``auth.json``; 409 ``auth_change_in_progress`` if a concurrent
-            full-mode change is already holding
+            ``auth.json`` (initial session only); 401
+            ``invalid_current_password`` (full session only) if
+            ``current_password`` is missing or wrong -- checked before
+            ``try_attempt()`` when missing, so a malformed request doesn't
+            spend budget; 429 ``auth_rate_limited`` while locked out (full
+            session only); 409 ``auth_not_set`` (full session only) if
+            ``auth.json`` is deleted between the mode check and the verify
+            call running (a race, not reachable from a normal request);
+            409 ``auth_change_in_progress`` (full session only) if a
+            concurrent full-mode change is already holding
             :meth:`~palmimo_portal.ports.StateStore.lock_auth` past its
             timeout.
     """
     if state.auth_state() is AuthFileState.CORRUPT:
         raise PortalError(409, "auth_state_corrupt")
 
-    # Identity/mode resolution happens before try_attempt(), as in login().
     session_mode = getattr(request.state, "session_mode", None)
-    identity: Identity | None = None
     if session_mode == SESSION_MODE_INITIAL:
         maybe_identity = identity_store.read_identity()
         if maybe_identity is IDENTITY_UNAVAILABLE:
@@ -301,7 +307,17 @@ def change_password_endpoint(
         if maybe_identity is None:
             # Session claims initial mode but its identity file is gone.
             raise PortalError(409, "auth_state_corrupt")
-        identity = maybe_identity
+
+        try:
+            new_state = change_password_from_initial(state, body.new_password)
+        except AuthAlreadyExistsError as error:
+            raise PortalError(409, "auth_change_conflict") from error
+
+        _set_session_cookie(response, new_state.signing_key, SESSION_MODE_FULL)
+        return ChangePasswordResponse()
+
+    if body.current_password is None:
+        raise PortalError(401, "invalid_current_password")
 
     if not rate_limiter.try_attempt():
         raise PortalError(429, "auth_rate_limited", retry_after_seconds=rate_limiter.seconds_remaining())
@@ -310,17 +326,11 @@ def change_password_endpoint(
     outcome_recorded = False
     try:
         try:
-            if session_mode == SESSION_MODE_INITIAL:
-                assert identity is not None
-                new_state = change_password_from_initial(state, identity, body.current_password, body.new_password)
-            else:
-                new_state = change_password_from_full(state, body.current_password, body.new_password)
+            new_state = change_password_from_full(state, body.current_password, body.new_password)
         except InvalidCurrentPasswordError as error:
             rate_limiter.record_failure()
             outcome_recorded = True
             raise PortalError(401, "invalid_current_password") from error
-        except AuthAlreadyExistsError as error:
-            raise PortalError(409, "auth_change_conflict") from error
         except PasswordNotSetError as error:
             raise PortalError(409, "auth_not_set") from error
         except AuthLockTimeoutError as error:

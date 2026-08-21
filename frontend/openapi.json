@@ -30,8 +30,15 @@
       "ChangePasswordRequest": {
         "properties": {
           "current_password": {
-            "title": "Current Password",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Password"
           },
           "new_password": {
             "title": "New Password",
@@ -39,7 +46,6 @@
           }
         },
         "required": [
-          "current_password",
           "new_password"
         ],
         "title": "ChangePasswordRequest",
@@ -635,7 +641,7 @@
   "paths": {
     "/api/v1/auth/change-password": {
       "post": {
-        "description": "Change the Portal password, from either an initial or a full session.\n\nThis and ``POST /logout`` are the only authenticated endpoints reachable\nwhile the session's mode is ``\"initial\"`` --\n:func:`~palmimo_portal.api.deps.require_full_session`, applied\neverywhere else, is deliberately not applied here.\n\n- **From an initial session**: ``current_password`` checks against the\n  identity file's sticker password; ``auth.json`` is *created* for the\n  first time (:func:`~palmimo_portal.core.auth.change_password_from_initial`,\n  same exclusive-create machinery as ``POST /setup``, so two concurrent\n  requests from two initial sessions cannot both win).\n- **From a full session**: ``current_password`` checks against the\n  stored hash; ``auth.json`` is rotated in place\n  (:func:`~palmimo_portal.core.auth.change_password_from_full`).\n\nEither way a fresh full-mode session is issued, so the caller need not\nlog in again -- required for the initial-to-full transition, since\nWi-Fi endpoints are session-gated even while unprovisioned on an\nidentity-carrying device (see\n:func:`~palmimo_portal.api.deps.require_wifi_access`).\n\n``current_password`` verification shares\n:class:`~palmimo_portal.core.auth.LoginRateLimiter` with ``POST\n/login`` (same instance, budget, lockout) -- a stolen session cookie\nmust not hand an attacker an unlimited oracle to brute-force the\ncurrent password. The lockout is checked before either verify path\nruns.\n\nRaises:\n    PortalError: 409 ``auth_state_corrupt`` if ``auth.json`` is\n        corrupt (in practice unreachable: a corrupt ``auth.json``\n        already fails every session to verify, so ``require_auth``\n        rejects with 401 first -- kept as defense in depth); 429\n        ``auth_rate_limited`` while locked out; 401\n        ``invalid_current_password`` if ``current_password`` is wrong;\n        409 ``auth_change_conflict`` if a concurrent change from\n        another initial session already won the race to create\n        ``auth.json``; 409 ``auth_change_in_progress`` if a concurrent\n        full-mode change is already holding\n        :meth:`~palmimo_portal.ports.StateStore.lock_auth` past its\n        timeout.",
+        "description": "Change the Portal password, from either an initial or a full session.\n\nThis and ``POST /logout`` are the only authenticated endpoints reachable\nwhile the session's mode is ``\"initial\"`` --\n:func:`~palmimo_portal.api.deps.require_full_session`, applied\neverywhere else, is deliberately not applied here.\n\n- **From an initial session**: no ``current_password`` check --\n  ``auth.json`` is *created* for the first time\n  (:func:`~palmimo_portal.core.auth.change_password_from_initial`, same\n  exclusive-create machinery as ``POST /setup``, so two concurrent\n  requests from two initial sessions cannot both win). The login rate\n  limiter is not touched on this path: an initial session already\n  proved sticker-password knowledge at login, the sticker password\n  crosses the same plain-HTTP LAN hop either way, and this endpoint is\n  the only action an initial session can take -- re-verifying here\n  would only let a stolen initial-mode cookie burn the shared login\n  budget.\n- **From a full session**: ``current_password`` checks against the\n  stored hash and shares :class:`~palmimo_portal.core.auth.LoginRateLimiter`\n  with ``POST /login`` (same instance, budget, lockout) -- a stolen\n  full session cookie must not hand an attacker an unlimited oracle to\n  brute-force the current password; ``auth.json`` is rotated in place\n  (:func:`~palmimo_portal.core.auth.change_password_from_full`).\n\nEither way a fresh full-mode session is issued, so the caller need not\nlog in again -- required for the initial-to-full transition, since\nWi-Fi endpoints are session-gated even while unprovisioned on an\nidentity-carrying device (see\n:func:`~palmimo_portal.api.deps.require_wifi_access`).\n\nRaises:\n    PortalError: 409 ``auth_state_corrupt`` if ``auth.json`` is corrupt,\n        or (initial session only) if the identity file backing the\n        session has since disappeared; 503 ``identity_unavailable`` if\n        the identity file could not be read (initial session only);\n        409 ``auth_change_conflict`` if a concurrent change from\n        another initial session already won the race to create\n        ``auth.json`` (initial session only); 401\n        ``invalid_current_password`` (full session only) if\n        ``current_password`` is missing or wrong -- checked before\n        ``try_attempt()`` when missing, so a malformed request doesn't\n        spend budget; 429 ``auth_rate_limited`` while locked out (full\n        session only); 409 ``auth_not_set`` (full session only) if\n        ``auth.json`` is deleted between the mode check and the verify\n        call running (a race, not reachable from a normal request);\n        409 ``auth_change_in_progress`` (full session only) if a\n        concurrent full-mode change is already holding\n        :meth:`~palmimo_portal.ports.StateStore.lock_auth` past its\n        timeout.",
         "operationId": "change_password_endpoint_api_v1_auth_change_password_post",
         "requestBody": {
           "content": {

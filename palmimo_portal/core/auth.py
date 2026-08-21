@@ -60,12 +60,10 @@ class PasswordNotSetError(Exception):
 
 
 class InvalidCurrentPasswordError(Exception):
-    """Raised by :func:`change_password_from_initial`/:func:`change_password_from_full`.
+    """Raised by :func:`change_password_from_full`.
 
     The ``current_password`` submitted to ``POST /auth/change-password``
-    did not match the active credential (the identity file's sticker
-    password in initial mode, ``auth.json`` in full mode) -- ``api/auth.py``
-    translates this to 401.
+    did not match ``auth.json`` -- ``api/auth.py`` translates this to 401.
     """
 
 
@@ -141,12 +139,13 @@ def change_password(store: StateStore, new_password: str) -> AuthState:
     return state
 
 
-def change_password_from_initial(
-    store: StateStore, identity: Identity, current_password: str, new_password: str
-) -> AuthState:
-    """Create ``auth.json`` for the first time, verifying ``current_password`` against the sticker password.
+def change_password_from_initial(store: StateStore, new_password: str) -> AuthState:
+    """Create ``auth.json`` for the first time, from an initial-mode session.
 
-    The initial-mode half of ``POST /auth/change-password``: uses
+    No current-password check: an initial session is already gated to
+    sticker-password knowledge at login, and the sticker password travels
+    the same plain-HTTP LAN hop either way, so re-verifying it here buys
+    nothing and would only burn login rate-limit budget. Uses
     :meth:`~palmimo_portal.ports.StateStore.create_auth` (same
     exclusive-create as :func:`setup_password`), so two concurrent requests
     from two initial sessions cannot both succeed -- the loser gets
@@ -156,12 +155,9 @@ def change_password_from_initial(
     :attr:`~palmimo_portal.ports.AuthFileState.ABSENT`.
 
     Raises:
-        InvalidCurrentPasswordError: ``current_password`` does not match ``identity.initial_password``.
         AuthAlreadyExistsError: a concurrent change created ``auth.json`` first;
             ``api/auth.py`` translates this to 409 for the loser.
     """
-    if not verify_identity_password(current_password, identity):
-        raise InvalidCurrentPasswordError()
     state = AuthState(password_hash=hash_password(new_password), signing_key=generate_signing_key())
     store.create_auth(state)
     store.discard_initial_signing_key()

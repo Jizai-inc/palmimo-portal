@@ -26,7 +26,6 @@ function ChangePasswordScreen() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: status } = useGetStatusApiV1SystemStatusGet();
-  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [mismatch, setMismatch] = useState(false);
@@ -40,7 +39,7 @@ function ChangePasswordScreen() {
     }
     setMismatch(false);
     mutation.mutate(
-      { data: { current_password: currentPassword, new_password: newPassword } },
+      { data: { new_password: newPassword } },
       {
         onSuccess: () => {
           // No screen reachable after this point may keep rendering the
@@ -55,17 +54,6 @@ function ChangePasswordScreen() {
   return (
     <AuthShell title={t("changePassword.title")} description={t("changePassword.body")}>
       <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="current-password">{t("changePassword.currentPasswordLabel")}</Label>
-          <Input
-            id="current-password"
-            type="password"
-            autoComplete="current-password"
-            required
-            value={currentPassword}
-            onChange={(event) => setCurrentPassword(event.target.value)}
-          />
-        </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="new-password">{t("changePassword.newPasswordLabel")}</Label>
           <Input

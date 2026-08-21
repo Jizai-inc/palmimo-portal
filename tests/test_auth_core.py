@@ -170,39 +170,21 @@ def test_verify_identity_password_returns_false_for_an_unencodable_password() ->
 def test_change_password_from_initial_creates_auth_material() -> None:
     store = FakeStateStore()
 
-    state = change_password_from_initial(store, IDENTITY, "sticker-password", "new-password")
+    state = change_password_from_initial(store, "new-password")
 
     assert store.read_auth() == state
     assert verify_password("new-password", state.password_hash)
 
 
-def test_change_password_from_initial_rejects_the_wrong_current_password() -> None:
-    store = FakeStateStore()
-
-    with pytest.raises(InvalidCurrentPasswordError):
-        change_password_from_initial(store, IDENTITY, "wrong-sticker-password", "new-password")
-
-    assert store.read_auth() is None
-
-
-def test_change_password_from_initial_rejects_an_unencodable_current_password() -> None:
-    store = FakeStateStore()
-
-    with pytest.raises(InvalidCurrentPasswordError):
-        change_password_from_initial(store, IDENTITY, "\ud800", "new-password")
-
-    assert store.read_auth() is None
-
-
 def test_change_password_from_initial_race_the_loser_gets_auth_already_exists() -> None:
-    # Two initial-mode sessions both submitting a correct current_password
-    # -- create_auth's O_CREAT|O_EXCL semantics mean only one of them may
+    # Two initial-mode sessions both racing to change the password --
+    # create_auth's O_CREAT|O_EXCL semantics mean only one of them may
     # actually create auth.json.
     store = FakeStateStore()
-    change_password_from_initial(store, IDENTITY, "sticker-password", "winner-password")
+    change_password_from_initial(store, "winner-password")
 
     with pytest.raises(AuthAlreadyExistsError):
-        change_password_from_initial(store, IDENTITY, "sticker-password", "loser-password")
+        change_password_from_initial(store, "loser-password")
 
     winner_auth = store.read_auth()
     assert winner_auth is not None

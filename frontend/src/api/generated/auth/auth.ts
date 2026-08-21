@@ -45,13 +45,22 @@ export const getChangePasswordEndpointApiV1AuthChangePasswordPostUrl = () => {
  * :func:`~palmimo_portal.api.deps.require_full_session`, applied
  * everywhere else, is deliberately not applied here.
  *
- * - **From an initial session**: ``current_password`` checks against the
- *   identity file's sticker password; ``auth.json`` is *created* for the
- *   first time (:func:`~palmimo_portal.core.auth.change_password_from_initial`,
- *   same exclusive-create machinery as ``POST /setup``, so two concurrent
- *   requests from two initial sessions cannot both win).
+ * - **From an initial session**: no ``current_password`` check --
+ *   ``auth.json`` is *created* for the first time
+ *   (:func:`~palmimo_portal.core.auth.change_password_from_initial`, same
+ *   exclusive-create machinery as ``POST /setup``, so two concurrent
+ *   requests from two initial sessions cannot both win). The login rate
+ *   limiter is not touched on this path: an initial session already
+ *   proved sticker-password knowledge at login, the sticker password
+ *   crosses the same plain-HTTP LAN hop either way, and this endpoint is
+ *   the only action an initial session can take -- re-verifying here
+ *   would only let a stolen initial-mode cookie burn the shared login
+ *   budget.
  * - **From a full session**: ``current_password`` checks against the
- *   stored hash; ``auth.json`` is rotated in place
+ *   stored hash and shares :class:`~palmimo_portal.core.auth.LoginRateLimiter`
+ *   with ``POST /login`` (same instance, budget, lockout) -- a stolen
+ *   full session cookie must not hand an attacker an unlimited oracle to
+ *   brute-force the current password; ``auth.json`` is rotated in place
  *   (:func:`~palmimo_portal.core.auth.change_password_from_full`).
  *
  * Either way a fresh full-mode session is issued, so the caller need not
@@ -60,24 +69,23 @@ export const getChangePasswordEndpointApiV1AuthChangePasswordPostUrl = () => {
  * identity-carrying device (see
  * :func:`~palmimo_portal.api.deps.require_wifi_access`).
  *
- * ``current_password`` verification shares
- * :class:`~palmimo_portal.core.auth.LoginRateLimiter` with ``POST
- * /login`` (same instance, budget, lockout) -- a stolen session cookie
- * must not hand an attacker an unlimited oracle to brute-force the
- * current password. The lockout is checked before either verify path
- * runs.
- *
  * Raises:
- *     PortalError: 409 ``auth_state_corrupt`` if ``auth.json`` is
- *         corrupt (in practice unreachable: a corrupt ``auth.json``
- *         already fails every session to verify, so ``require_auth``
- *         rejects with 401 first -- kept as defense in depth); 429
- *         ``auth_rate_limited`` while locked out; 401
- *         ``invalid_current_password`` if ``current_password`` is wrong;
+ *     PortalError: 409 ``auth_state_corrupt`` if ``auth.json`` is corrupt,
+ *         or (initial session only) if the identity file backing the
+ *         session has since disappeared; 503 ``identity_unavailable`` if
+ *         the identity file could not be read (initial session only);
  *         409 ``auth_change_conflict`` if a concurrent change from
  *         another initial session already won the race to create
- *         ``auth.json``; 409 ``auth_change_in_progress`` if a concurrent
- *         full-mode change is already holding
+ *         ``auth.json`` (initial session only); 401
+ *         ``invalid_current_password`` (full session only) if
+ *         ``current_password`` is missing or wrong -- checked before
+ *         ``try_attempt()`` when missing, so a malformed request doesn't
+ *         spend budget; 429 ``auth_rate_limited`` while locked out (full
+ *         session only); 409 ``auth_not_set`` (full session only) if
+ *         ``auth.json`` is deleted between the mode check and the verify
+ *         call running (a race, not reachable from a normal request);
+ *         409 ``auth_change_in_progress`` (full session only) if a
+ *         concurrent full-mode change is already holding
  *         :meth:`~palmimo_portal.ports.StateStore.lock_auth` past its
  *         timeout.
  * @summary Change Password Endpoint

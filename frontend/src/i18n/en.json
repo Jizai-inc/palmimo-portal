@@ -76,7 +76,6 @@
   "changePassword": {
     "title": "Choose a new password",
     "body": "For your device's security, set a password only you know before continuing.",
-    "currentPasswordLabel": "Current password",
     "newPasswordLabel": "New password",
     "newPasswordPlaceholder": "8+ characters",
     "confirmPasswordLabel": "Confirm new password",

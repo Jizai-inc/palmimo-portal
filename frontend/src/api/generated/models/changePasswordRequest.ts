@@ -6,6 +6,6 @@
  */
 
 export interface ChangePasswordRequest {
-  current_password: string;
+  current_password?: string | null;
   new_password: string;
 }

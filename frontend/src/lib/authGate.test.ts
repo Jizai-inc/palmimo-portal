@@ -1,7 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { http } from "msw";
 
-import { DASHBOARD_FAMILY_PATHS, isPathAllowedForGate } from "@/lib/authGate";
+import { DASHBOARD_FAMILY_PATHS, isPathAllowedForGate, resolveAuthGateSafely } from "@/lib/authGate";
 import type { AuthGate } from "@/lib/authGate";
+import { queryClient } from "@/lib/queryClient";
+import { server } from "@/test/server";
 
 const LOGIN_GATE: AuthGate = { screen: "login", variant: "normal", hasIdentity: true };
 const DIY_LOGIN_GATE: AuthGate = { screen: "login", variant: "normal", hasIdentity: false };
@@ -76,5 +79,25 @@ describe("isPathAllowedForGate", () => {
     for (const path of DASHBOARD_FAMILY_PATHS) {
       expect(isPathAllowedForGate(DASHBOARD_GATE, path)).toBe(true);
     }
+  });
+});
+
+describe("resolveAuthGateSafely", () => {
+  afterEach(() => {
+    queryClient.clear();
+    vi.useRealTimers();
+  });
+
+  it("resolves to status-error/unavailable instead of hanging forever when system/status never responds", async () => {
+    // Regression for issue #13: the Wi-Fi connect form's own navigate to `/wifi/waiting` waits
+    // on this exact probe (routes/__root.tsx's `beforeLoad`) -- a same-origin request that
+    // hangs (as it does mid-AP-teardown) must not stall that navigation indefinitely.
+    server.use(http.get("*/api/v1/system/status", () => new Promise(() => {})));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    const resultPromise = resolveAuthGateSafely();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await expect(resultPromise).resolves.toEqual({ screen: "status-error", reason: "unavailable", hasIdentity: false });
   });
 });

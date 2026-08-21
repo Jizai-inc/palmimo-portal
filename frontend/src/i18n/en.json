@@ -96,6 +96,7 @@
     "togglePasswordVisibility": "Show or hide password",
     "passwordTooShort": "Password must be 8-63 characters.",
     "connect": "Connect",
+  "connecting": "Connecting…",
     "lastAttemptFailedTitle": "Previous attempt failed",
     "waitingTitle": "Connecting…",
     "waitingBody": "Palmimo is switching to your Wi-Fi network “{{ssid}}”. The Wi-Fi that Palmimo itself broadcasts (“{{hostname}}”) will disappear in a few seconds — that is expected.",

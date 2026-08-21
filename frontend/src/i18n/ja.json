@@ -96,6 +96,7 @@
     "togglePasswordVisibility": "パスワードの表示・非表示を切り替え",
     "passwordTooShort": "パスワードは 8〜63 文字で入力してください。",
     "connect": "接続",
+  "connecting": "接続しています…",
     "lastAttemptFailedTitle": "前回の接続に失敗しました",
     "waitingTitle": "接続しています…",
     "waitingBody": "Palmimo をご自宅の Wi-Fi「{{ssid}}」につなぎ替えています。いま接続している Palmimo 自身の Wi-Fi「{{hostname}}」は数秒で消えます（正常な動作です）。",

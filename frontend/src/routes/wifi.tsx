@@ -68,10 +68,13 @@ function WifiScreen() {
     // a network-level error even on success -- that failure is expected (AP-disconnection-
     // asymmetry; routes/wifi.waiting.tsx handles it).
     connect.mutate({ data: { ssid, psk } });
+    // Navigate immediately after firing, before any other work -- these two calls must not sit
+    // between "fire" and "transition" (issue #13: the AP teardown can start before this ever
+    // yields, so anything here delays the only visible feedback the user gets).
+    void navigate({ to: "/wifi/waiting", search: { ssid, since, submitted } });
     // Cache hygiene only -- WifiWaitingPanel's poll detects the outcome.
     void queryClient.invalidateQueries({ queryKey: getGetStatusApiV1SystemStatusGetQueryKey() });
     void queryClient.invalidateQueries({ queryKey: getGetStatusApiV1WifiStatusGetQueryKey() });
-    void navigate({ to: "/wifi/waiting", search: { ssid, since, submitted } });
   }
 
   if (selected) {

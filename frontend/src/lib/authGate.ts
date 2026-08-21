@@ -118,14 +118,43 @@ export async function resolveAuthGate(status: SystemStatus): Promise<AuthGate> {
 }
 
 /**
+ * Bound on how long {@link resolveAuthGateSafely} waits for its probes. `beforeLoad` on the
+ * root route (routes/__root.tsx) awaits this on every navigation, including the Wi-Fi connect
+ * form's own `navigate` to `/wifi/waiting` -- a same-origin `fetch` with no timeout of its own
+ * hangs for a long, OS-dependent stretch when it races the AP teardown that connect triggers,
+ * which otherwise stalls that navigation instead of failing fast into the `status-error`
+ * gate's `/wifi/waiting` carve-out (see `isPathAllowedForGate`).
+ */
+const GATE_PROBE_TIMEOUT_MS = 5_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("auth gate probe timed out")), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+/**
  * The guard's entry point: fetches `system/status` and resolves the gate, never letting a
  * failure of either probe escape as a thrown error -- otherwise a failed fetch would reject
  * `beforeLoad` and land on the router's default error boundary instead of a screen this app owns.
  */
 export async function resolveAuthGateSafely(): Promise<AuthGate> {
   try {
-    const status = await queryClient.fetchQuery(getGetStatusApiV1SystemStatusGetQueryOptions());
-    return await resolveAuthGate(status);
+    const status = await withTimeout(
+      queryClient.fetchQuery(getGetStatusApiV1SystemStatusGetQueryOptions()),
+      GATE_PROBE_TIMEOUT_MS,
+    );
+    return await withTimeout(resolveAuthGate(status), GATE_PROBE_TIMEOUT_MS);
   } catch {
     return { screen: "status-error", reason: "unavailable", hasIdentity: false };
   }

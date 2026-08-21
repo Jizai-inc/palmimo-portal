@@ -126,17 +126,18 @@ def _warn_prerelease_once(tag: str) -> None:
     logger.warning("refusing pre-release tag %s on the stable channel", tag)
 
 
-def is_update_available(installed: InstalledVersion, latest: Release | None) -> bool:
+def is_update_available(installed: InstalledVersion, latest: Release | None, channel: str = "stable") -> bool:
     """Report whether ``latest`` names a release the installed checkout is not already on.
 
     ``installed.tag is None`` (``HEAD`` not exactly on a tag) is treated
     as "always behind" whenever a latest release is known. A pre-release
     ``latest.tag`` (:func:`is_prerelease_tag`) is never available on the
-    stable channel, regardless of what is installed.
+    stable channel (``channel != "prerelease"``), regardless of what is
+    installed; the ``"prerelease"`` channel skips that guard entirely.
     """
     if latest is None:
         return False
-    if is_prerelease_tag(latest.tag):
+    if channel != "prerelease" and is_prerelease_tag(latest.tag):
         _warn_prerelease_once(latest.tag)
         return False
     if installed.tag is None:
@@ -190,7 +191,9 @@ def is_retry_available(job: UpdateJob, latest: Release | None) -> bool:
     return job.state == "failed" and latest is not None and job.target == latest.tag
 
 
-def start_apply(state: UpdateState, installed: InstalledVersion, target: str, now: float) -> UpdateState:
+def start_apply(
+    state: UpdateState, installed: InstalledVersion, target: str, now: float, channel: str = "stable"
+) -> UpdateState:
     """Begin applying ``target``, or raise if it cannot start right now.
 
     ``previous_tag`` is set to ``installed.tag`` only when not ``None`` and different from
@@ -200,8 +203,8 @@ def start_apply(state: UpdateState, installed: InstalledVersion, target: str, no
     Raises:
         UpdateInProgressError: a job is already running/restarting/checking.
         InvalidReleaseTagError: ``target`` is not :func:`is_valid_release_tag`.
-        PrereleaseRefusedError: ``target`` is :func:`is_prerelease_tag` --
-            refused on the stable channel even if it matches
+        PrereleaseRefusedError: ``target`` is :func:`is_prerelease_tag` and
+            ``channel != "prerelease"`` -- refused even if it matches
             ``state.latest.tag`` (a forged or stale target), so the guard
             does not depend on the badge ever having shown an update.
         NoReleaseCheckedError: ``state.latest is None``.
@@ -211,7 +214,7 @@ def start_apply(state: UpdateState, installed: InstalledVersion, target: str, no
         raise UpdateInProgressError()
     if not is_valid_release_tag(target):
         raise InvalidReleaseTagError()
-    if is_prerelease_tag(target):
+    if channel != "prerelease" and is_prerelease_tag(target):
         raise PrereleaseRefusedError()
     if state.latest is None:
         raise NoReleaseCheckedError()

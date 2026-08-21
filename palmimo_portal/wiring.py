@@ -88,6 +88,6 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         ssh_keys=AuthorizedKeysSshKeyPort(),
         state=real_state,
         identity=FileIdentityStore(settings.identity_file),
-        releases=GitHubReleaseSource(repo=settings.update_repo),
+        releases=GitHubReleaseSource(repo=settings.update_repo, channel=settings.update_channel),
         updater=GitUvUpdater(portal_dir=settings.portal_dir, uv_bin=settings.uv_bin, update_repo=settings.update_repo),
     )

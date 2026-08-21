@@ -8,10 +8,14 @@ hand instead of adding another dependency for it.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
+
+
+logger = logging.getLogger("palmimo_portal")
 
 
 DEFAULT_STATE_DIR = Path("/var/lib/palmimo/portal")
@@ -30,6 +34,8 @@ DEFAULT_PORTAL_UNIT = "palmimo-portal.service"
 DEFAULT_UV_BIN = "uv"
 
 AdapterMode = Literal["fake", "real"]
+UpdateChannel = Literal["stable", "prerelease"]
+DEFAULT_UPDATE_CHANNEL: UpdateChannel = "stable"
 
 
 @dataclass(frozen=True)
@@ -58,6 +64,11 @@ class Settings:
     #: this process runs out of; overridable via PALMIMO_PORTAL_DIR mainly for tests.
     portal_dir: Path = DEFAULT_PORTAL_DIR
     update_repo: str = DEFAULT_UPDATE_REPO  #: owner/repo GitHubReleaseSource queries. Env PALMIMO_UPDATE_REPO
+    #: "stable" (default) resolves releases/latest and refuses a pre-release tag; "prerelease" is
+    #: an unsupported dev-machine opt-in that also accepts the newest pre-release from the release
+    #: list. Never exposed in the UI on purpose. Env PALMIMO_UPDATE_CHANNEL -- an unrecognized value
+    #: falls back to "stable" with a WARNING (appliance: fail safe, not loud).
+    update_channel: UpdateChannel = DEFAULT_UPDATE_CHANNEL
     #: systemd unit SystemdSystemPort.restart_portal restarts after an update applies.
     #: Env PALMIMO_PORTAL_UNIT.
     portal_unit: str = DEFAULT_PORTAL_UNIT
@@ -100,6 +111,14 @@ def get_settings() -> Settings:
     enable_docs = _env_flag("PALMIMO_ENABLE_DOCS")
     portal_dir = Path(os.environ.get("PALMIMO_PORTAL_DIR", str(DEFAULT_PORTAL_DIR)))
     update_repo = os.environ.get("PALMIMO_UPDATE_REPO", DEFAULT_UPDATE_REPO)
+    update_channel_raw = os.environ.get("PALMIMO_UPDATE_CHANNEL", DEFAULT_UPDATE_CHANNEL).strip().lower()
+    if update_channel_raw not in ("stable", "prerelease"):
+        logger.warning(
+            "PALMIMO_UPDATE_CHANNEL=%r is not 'stable' or 'prerelease' -- falling back to 'stable'",
+            update_channel_raw,
+        )
+        update_channel_raw = "stable"
+    update_channel: UpdateChannel = update_channel_raw  # type: ignore[assignment]
     portal_unit = os.environ.get("PALMIMO_PORTAL_UNIT", DEFAULT_PORTAL_UNIT)
     uv_bin = os.environ.get("PALMIMO_UV_BIN", DEFAULT_UV_BIN)
     return Settings(
@@ -111,6 +130,7 @@ def get_settings() -> Settings:
         enable_docs=enable_docs,
         portal_dir=portal_dir,
         update_repo=update_repo,
+        update_channel=update_channel,
         portal_unit=portal_unit,
         uv_bin=uv_bin,
     )

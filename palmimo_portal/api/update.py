@@ -40,6 +40,7 @@ from palmimo_portal.ports import (
     Updater,
     UpdateState,
 )
+from palmimo_portal.settings import Settings
 
 
 logger = logging.getLogger("palmimo_portal")
@@ -89,7 +90,7 @@ class ApplyRequest(BaseModel):
     tag: str
 
 
-def _status_response(state: UpdateState, installed: InstalledVersion) -> UpdateStatusResponse:
+def _status_response(state: UpdateState, installed: InstalledVersion, channel: str) -> UpdateStatusResponse:
     return UpdateStatusResponse(
         installed=InstalledInfo(tag=installed.tag, commit=installed.commit),
         latest=(
@@ -103,7 +104,7 @@ def _status_response(state: UpdateState, installed: InstalledVersion) -> UpdateS
             else None
         ),
         checked_at=state.checked_at,
-        update_available=update_core.is_update_available(installed, state.latest),
+        update_available=update_core.is_update_available(installed, state.latest, channel=channel),
         previous_tag=state.previous_tag,
         retry_available=update_core.is_retry_available(state.job, state.latest),
         job=UpdateJobInfo(
@@ -137,11 +138,13 @@ def get_status(
     with lock:
         runner_alive = request.app.state.update_runner_alive.is_set()
         state = update_core.current_update_state(state_store, now=time.time(), runner_alive=runner_alive)
-    return _status_response(state, updater.installed())
+    settings: Settings = request.app.state.settings
+    return _status_response(state, updater.installed(), channel=settings.update_channel)
 
 
 @router.post("/check")
 def check(
+    request: Request,
     release_source: ReleaseSource = Depends(get_release_source),
     state_store: StateStore = Depends(get_state_store),
     updater: Updater = Depends(get_updater),
@@ -194,7 +197,8 @@ def check(
             logger.warning("update: check received an invalid release tag %r -- refusing to store it", latest.tag)
             raise PortalError(502, "release_source_unavailable") from error
         state_store.write_update_state(state)
-    return _status_response(state, updater.installed())
+    settings: Settings = request.app.state.settings
+    return _status_response(state, updater.installed(), channel=settings.update_channel)
 
 
 @router.post("/apply", status_code=202)
@@ -215,11 +219,14 @@ def apply(
             ever been checked; 409 ``update_target_mismatch`` if ``tag`` is
             not the last-checked release's tag.
     """
+    settings: Settings = request.app.state.settings
     with lock:
         state = state_store.read_update_state()
         installed = updater.installed()
         try:
-            state = update_core.start_apply(state, installed, body.tag, now=time.time())
+            state = update_core.start_apply(
+                state, installed, body.tag, now=time.time(), channel=settings.update_channel
+            )
         except update_core.UpdateInProgressError as error:
             raise PortalError(409, "update_in_progress") from error
         except update_core.InvalidReleaseTagError as error:
@@ -233,7 +240,7 @@ def apply(
         state_store.write_update_state(state)
 
     _start_runner(request, body.tag)
-    return _status_response(state_store.read_update_state(), updater.installed())
+    return _status_response(state_store.read_update_state(), updater.installed(), channel=settings.update_channel)
 
 
 @router.post("/rollback", status_code=202)
@@ -271,8 +278,9 @@ def rollback(
 
     target = state.job.target
     assert target is not None  # start_rollback always sets job.target = previous_tag
+    settings: Settings = request.app.state.settings
     _start_runner(request, target)
-    return _status_response(state_store.read_update_state(), updater.installed())
+    return _status_response(state_store.read_update_state(), updater.installed(), channel=settings.update_channel)
 
 
 def _start_runner(request: Request, target: str) -> None:

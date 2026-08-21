@@ -49,7 +49,14 @@ from palmimo_portal.core.auth import SESSION_COOKIE_NAME, LoginRateLimiter, Rese
 from palmimo_portal.core.provisioning import is_provisioned
 from palmimo_portal.core.update import finalize_after_restart
 from palmimo_portal.core.update_runner import UpdateRunner
-from palmimo_portal.ports import AdapterUnavailableError, AuthFileState, Identity, IdentityStore, NetworkPort, StateStore
+from palmimo_portal.ports import (
+    AdapterUnavailableError,
+    AuthFileState,
+    Identity,
+    IdentityStore,
+    NetworkPort,
+    StateStore,
+)
 from palmimo_portal.settings import Settings, get_settings
 from palmimo_portal.version import portal_version
 from palmimo_portal.wiring import AdapterBundle, build_adapters

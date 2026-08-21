@@ -24,6 +24,7 @@ the exception handlers registered in :func:`create_app`.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import socket
 import struct
@@ -34,6 +35,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
+import anyio.to_thread
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
@@ -107,6 +109,11 @@ CAPTIVE_PROBE_HOSTS = frozenset(
 _CAPTIVE_PROBE_METHODS = frozenset({"GET", "HEAD"})
 
 
+def _is_api_path(path: str) -> bool:
+    """Match the SPA fallback's own API-namespace check (see ``_serve_spa``)."""
+    return path.startswith(f"/{API_PATH_PREFIX}") or path == f"/{API_PATH_PREFIX.rstrip('/')}"
+
+
 _SIOCGIFADDR = 0x8915
 
 
@@ -174,9 +181,10 @@ class HostGuardMiddleware(BaseHTTPMiddleware):
     time -- resolving before the network is up would otherwise permanently
     exclude an address that only becomes valid after boot.
 
-    One exception to the 421: a GET/HEAD to a non-``/api/`` path with a
-    :data:`CAPTIVE_PROBE_HOSTS` ``Host`` header, while the device is
-    unprovisioned, gets a 302 to this machine instead -- see :meth:`dispatch`.
+    One exception to the 421: a GET/HEAD to a non-API path (see
+    :func:`_is_api_path`) with a :data:`CAPTIVE_PROBE_HOSTS` ``Host``
+    header, while the device is unprovisioned, gets a 302 to this machine
+    instead -- see :meth:`dispatch`.
     """
 
     def __init__(
@@ -195,6 +203,7 @@ class HostGuardMiddleware(BaseHTTPMiddleware):
         self._cached_provisioned: bool = True
         self._provisioned_cached_at: float = float("-inf")
         self._provisioned_warned_at: float = float("-inf")
+        self._provisioned_refresh_lock = asyncio.Lock()
 
     def _allowed_hosts(self) -> frozenset[str]:
         now = self._clock()
@@ -203,8 +212,16 @@ class HostGuardMiddleware(BaseHTTPMiddleware):
             self._cached_at = now
         return self._always_allowed_hosts | self._cached_machine_hosts
 
-    def _is_provisioned(self) -> bool:
+    async def _is_provisioned(self) -> bool:
         """Report provisioned state, cached for :data:`_PROVISIONED_CACHE_TTL_SECONDS`.
+
+        The port call runs off the event loop (:func:`anyio.to_thread.run_sync`)
+        -- the real adapter's D-Bus round trip can take several seconds, and
+        blocking the loop for that would stall every other request the
+        moment a probe lands. A refresh past the TTL takes
+        ``_provisioned_refresh_lock`` and re-checks the TTL once inside it,
+        so a burst of simultaneous probes triggers one port call, not one
+        per request; the rest just wait on the lock.
 
         Fails closed: a missing network port or a raising one is treated as
         provisioned, so the ambiguous case keeps the existing 421 behavior
@@ -214,18 +231,22 @@ class HostGuardMiddleware(BaseHTTPMiddleware):
         """
         if self._network is None:
             return True
-        now = self._clock()
-        if now - self._provisioned_cached_at <= _PROVISIONED_CACHE_TTL_SECONDS:
+        if self._clock() - self._provisioned_cached_at <= _PROVISIONED_CACHE_TTL_SECONDS:
             return self._cached_provisioned
-        try:
-            self._cached_provisioned = is_provisioned(self._network)
-        except Exception as error:
-            if now - self._provisioned_warned_at > _PROVISIONED_CACHE_TTL_SECONDS:
-                logger.warning("HostGuard: network port unavailable, treating as provisioned: %s", error)
-                self._provisioned_warned_at = now
-            self._cached_provisioned = True
-        self._provisioned_cached_at = now
-        return self._cached_provisioned
+        async with self._provisioned_refresh_lock:
+            now = self._clock()
+            if now - self._provisioned_cached_at <= _PROVISIONED_CACHE_TTL_SECONDS:
+                return self._cached_provisioned
+            network = self._network
+            try:
+                self._cached_provisioned = await anyio.to_thread.run_sync(is_provisioned, network)
+            except Exception as error:
+                if now - self._provisioned_warned_at > _PROVISIONED_CACHE_TTL_SECONDS:
+                    logger.warning("HostGuard: network port unavailable, treating as provisioned: %s", error)
+                    self._provisioned_warned_at = now
+                self._cached_provisioned = True
+            self._provisioned_cached_at = self._clock()
+            return self._cached_provisioned
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Any:
         host = _normalize_host(request.headers.get("host", ""))
@@ -233,8 +254,8 @@ class HostGuardMiddleware(BaseHTTPMiddleware):
             if (
                 host in CAPTIVE_PROBE_HOSTS
                 and request.method in _CAPTIVE_PROBE_METHODS
-                and not request.url.path.startswith(f"/{API_PATH_PREFIX}")
-                and not self._is_provisioned()
+                and not _is_api_path(request.url.path)
+                and not await self._is_provisioned()
             ):
                 return RedirectResponse(url=f"http://{socket.gethostname()}.local/", status_code=302)
             logger.warning("HostGuard rejected a request: Host=%r", host)

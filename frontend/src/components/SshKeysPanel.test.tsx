@@ -19,8 +19,9 @@ import { renderWithProviders } from "@/test/render";
 import { server } from "@/test/server";
 
 // The generate-key flow is unit-tested against known vectors in sshKeygen.test.ts; here it is
-// mocked so the component tests exercise the UI wiring without depending on jsdom's WebCrypto
-// support (or risking a global crypto stub breaking MSW's own use of it).
+// mocked so the component tests exercise the UI wiring deterministically (a real generation
+// yields a different key each call) without risking a global crypto stub breaking MSW's own
+// use of it.
 vi.mock("@/lib/sshKeygen", async (importOriginal) => ({
   ...(await importOriginal<typeof sshKeygen>()),
   probeEd25519KeygenSupport: vi.fn(() => Promise.resolve(true)),

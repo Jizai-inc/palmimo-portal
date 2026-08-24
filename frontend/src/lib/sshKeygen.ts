@@ -1,35 +1,56 @@
 /**
- * Pure encoding helpers for client-side Ed25519 SSH key generation.
+ * Pure encoding helpers, plus Ed25519 key generation, for client-side SSH
+ * key generation.
  *
- * WebCrypto (`crypto.subtle.generateKey`/`exportKey`) produces the raw key
- * material; everything here is byte-format plumbing with no crypto calls of
- * its own, so it is unit-testable against fixed RFC 8032 vectors without a
- * WebCrypto implementation.
+ * Generation deliberately does NOT use WebCrypto (`crypto.subtle`):
+ * `SubtleCrypto` is available only in a secure context (HTTPS, or
+ * localhost), and the Palmimo Portal is served over plain HTTP on the
+ * device's LAN by design (see doc/design/ in the palmimo-portal repo for
+ * why). On the real device `crypto.subtle` is `undefined`, so a
+ * `crypto.subtle`-based implementation silently has no generate button at
+ * all -- this was caught on-device, not in tests, because Node/vitest's
+ * WebCrypto has no secure-context gate. `@noble/ed25519` (wired to
+ * `@noble/hashes`'s pure-JS sha512, so it never touches `crypto.subtle`
+ * either) plus `crypto.getRandomValues` -- which, unlike `crypto.subtle`,
+ * IS available in insecure contexts -- works everywhere the portal runs.
+ * Do not "simplify" this back to `crypto.subtle.generateKey`.
+ *
+ * Everything below the generation functions is pure byte-format plumbing
+ * with no crypto calls of its own, so it is unit-testable against fixed
+ * RFC 8032 vectors independent of either crypto backend.
  */
+
+import { getPublicKey as nobleGetPublicKey, hashes as nobleHashes } from "@noble/ed25519";
+import { sha512 } from "@noble/hashes/sha2.js";
+
+// One-time wiring so noble's synchronous API (no crypto.subtle involved, unlike its default
+// async methods -- see the module doc comment above) has a hash function to use at all.
+nobleHashes.sha512 = sha512;
 
 const KEY_TYPE = "ssh-ed25519";
 const CIPHER_BLOCK_SIZE = 8;
 
-/** Cheap existence check (Chrome 113+/Safari 17+ expose the API at all); see {@link probeEd25519KeygenSupport} for a real capability probe. */
+/** Cheap existence check; see {@link probeEd25519KeygenSupport} for a real capability probe. */
 export function supportsEd25519Keygen(): boolean {
-  return typeof crypto !== "undefined" && typeof crypto.subtle?.generateKey === "function";
+  return typeof crypto !== "undefined" && typeof crypto.getRandomValues === "function";
 }
 
 let cachedSupportProbe: Promise<boolean> | null = null;
 
 /**
- * A browser can expose `crypto.subtle.generateKey` while still rejecting
- * the Ed25519 algorithm at call time (older Safari/Firefox), so button
- * visibility is decided by actually attempting a generation, not just
- * checking the method exists. Memoized for the page's lifetime -- the
- * answer cannot change without a reload.
+ * Decides button visibility by actually attempting a generation, not just
+ * checking `crypto.getRandomValues` exists -- cheap insurance against a
+ * runtime surprise in noble's derivation on some engine. Memoized for the
+ * page's lifetime; the answer cannot change without a reload.
  */
 export function probeEd25519KeygenSupport(): Promise<boolean> {
   if (!cachedSupportProbe) {
     cachedSupportProbe = (async () => {
       if (!supportsEd25519Keygen()) return false;
       try {
-        await crypto.subtle.generateKey({ name: "Ed25519" }, false, ["sign", "verify"]);
+        const probeSeed = new Uint8Array(32);
+        crypto.getRandomValues(probeSeed);
+        nobleGetPublicKey(probeSeed);
         return true;
       } catch {
         return false;
@@ -82,34 +103,6 @@ export function encodeEd25519PublicKeyBlob(publicKeyBytes: Uint8Array): Uint8Arr
 export function formatOpenSshPublicKey(publicKeyBytes: Uint8Array, comment: string): string {
   const base64Blob = bytesToBase64(encodeEd25519PublicKeyBlob(publicKeyBytes));
   return `${KEY_TYPE} ${base64Blob} ${comment}`;
-}
-
-// The fixed 16-byte DER prefix of an Ed25519 PKCS#8 structure (RFC 5958 /
-// RFC 8410): SEQUENCE { version 0, AlgorithmIdentifier { OID 1.3.101.112 },
-// OCTET STRING { OCTET STRING { <32-byte seed> } } } up to but not
-// including the seed itself.
-const ED25519_PKCS8_PREFIX = Uint8Array.from([
-  0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
-]);
-
-/**
- * Ed25519 PKCS#8 (RFC 5958 / RFC 8410) is a fixed 48-byte DER structure for
- * this algorithm, with a fixed 16-byte prefix; the 32-byte private seed is
- * always its last 32 bytes (verified against the RFC 8032 test-1 vector in
- * sshKeygen.test.ts). The prefix is checked byte-for-byte rather than
- * trusted from length alone: a 48-byte structure that isn't actually this
- * layout would otherwise silently yield 32 bytes that are not the seed.
- */
-export function extractEd25519SeedFromPkcs8(pkcs8Bytes: Uint8Array): Uint8Array {
-  if (pkcs8Bytes.length !== 48) {
-    throw new Error(`expected a 48-byte Ed25519 PKCS#8 structure, got ${pkcs8Bytes.length} bytes`);
-  }
-  for (let i = 0; i < ED25519_PKCS8_PREFIX.length; i++) {
-    if (pkcs8Bytes[i] !== ED25519_PKCS8_PREFIX[i]) {
-      throw new Error("pkcs8 bytes do not match the canonical Ed25519 PKCS#8 header (302e020100300506032b657004220420)");
-    }
-  }
-  return pkcs8Bytes.slice(16);
 }
 
 /**
@@ -177,17 +170,17 @@ export interface GeneratedEd25519KeyPair {
 }
 
 /**
- * The only function here that touches WebCrypto: generates an Ed25519 key
- * pair with `crypto.subtle`, entirely client-side, and formats both halves.
- * The private key material (`seed`) never leaves this call -- it is used
- * only to build `privateKeyFile`'s string, never returned, logged, or sent
- * anywhere.
+ * The only function here that generates key material, entirely
+ * client-side: a random 32-byte seed from `crypto.getRandomValues`, its
+ * Ed25519 public key via `@noble/ed25519` (see the module doc comment for
+ * why not WebCrypto), then both halves formatted. The seed never leaves
+ * this call -- it is used only to build `privateKeyFile`'s string, never
+ * returned on its own, logged, or sent anywhere.
  */
 export async function generateEd25519KeyPair(comment: string): Promise<GeneratedEd25519KeyPair> {
-  const keyPair = await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"]);
-  const publicKeyBytes = new Uint8Array(await crypto.subtle.exportKey("raw", keyPair.publicKey));
-  const pkcs8Bytes = new Uint8Array(await crypto.subtle.exportKey("pkcs8", keyPair.privateKey));
-  const seed = extractEd25519SeedFromPkcs8(pkcs8Bytes);
+  const seed = new Uint8Array(32);
+  crypto.getRandomValues(seed);
+  const publicKeyBytes = nobleGetPublicKey(seed);
 
   return {
     publicKeyLine: formatOpenSshPublicKey(publicKeyBytes, comment),

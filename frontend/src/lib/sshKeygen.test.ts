@@ -1,8 +1,8 @@
+import { getPublicKey as nobleGetPublicKey } from "@noble/ed25519";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   encodeEd25519PublicKeyBlob,
-  extractEd25519SeedFromPkcs8,
   formatOpenSshPrivateKey,
   formatOpenSshPublicKey,
   probeEd25519KeygenSupport,
@@ -26,16 +26,14 @@ function bytesToHex(bytes: Uint8Array): string {
     .join("");
 }
 
-/** Builds the 48-byte Ed25519 PKCS#8 DER structure (RFC 5958 / RFC 8410) around a raw seed, for round-trip testing. */
-function wrapSeedAsPkcs8(seed: Uint8Array): Uint8Array {
-  return new Uint8Array([
-    0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
-    ...seed,
-  ]);
-}
-
 const SEED = hexToBytes(SEED_HEX);
 const PUBLIC_KEY = hexToBytes(PUBLIC_KEY_HEX);
+
+describe("noble Ed25519 derivation (importing sshKeygen.ts wires @noble/hashes' sha512 in)", () => {
+  it("derives the RFC 8032 test-1 public key from its seed", () => {
+    expect(bytesToHex(nobleGetPublicKey(SEED))).toBe(PUBLIC_KEY_HEX);
+  });
+});
 
 describe("formatOpenSshPublicKey", () => {
   it("encodes the RFC 8032 test-1 key as the known ssh-ed25519 public-key line", () => {
@@ -54,24 +52,6 @@ describe("formatOpenSshPublicKey", () => {
     // Then the 4-byte length prefix (32) + the raw public key.
     expect(blob.slice(15, 19)).toEqual(new Uint8Array([0, 0, 0, 32]));
     expect(blob.slice(19)).toEqual(PUBLIC_KEY);
-  });
-});
-
-describe("extractEd25519SeedFromPkcs8", () => {
-  it("recovers the RFC 8032 test-1 seed from its PKCS#8 wrapping", () => {
-    const pkcs8 = wrapSeedAsPkcs8(SEED);
-    expect(bytesToHex(extractEd25519SeedFromPkcs8(pkcs8))).toBe(SEED_HEX);
-  });
-
-  it("rejects a structure that is not exactly 48 bytes", () => {
-    expect(() => extractEd25519SeedFromPkcs8(new Uint8Array(47))).toThrow();
-  });
-
-  it("rejects a 48-byte structure whose header does not match the canonical Ed25519 PKCS#8 prefix", () => {
-    const pkcs8 = wrapSeedAsPkcs8(SEED);
-    const corrupted = pkcs8.slice();
-    corrupted[10] = 0xff; // inside the OID bytes (1.3.101.112)
-    expect(() => extractEd25519SeedFromPkcs8(corrupted)).toThrow(/canonical Ed25519 PKCS#8 header/);
   });
 });
 
@@ -175,13 +155,14 @@ describe("supportsEd25519Keygen", () => {
     vi.unstubAllGlobals();
   });
 
-  it("returns true when crypto.subtle.generateKey exists", () => {
+  it("returns true when crypto.getRandomValues exists", () => {
     expect(supportsEd25519Keygen()).toBe(true);
   });
 
-  it("returns false when crypto.subtle is unavailable", () => {
-    // Simulates an older browser without WebCrypto's subtle API.
-    vi.stubGlobal("crypto", { ...globalThis.crypto, subtle: undefined });
+  it("returns false when crypto.getRandomValues is unavailable", () => {
+    // crypto.subtle is what's actually missing in the portal's real (insecure-context) target
+    // environment -- this simulates the more extreme case of no usable `crypto` at all.
+    vi.stubGlobal("crypto", {});
     expect(supportsEd25519Keygen()).toBe(false);
   });
 });
@@ -192,29 +173,27 @@ describe("probeEd25519KeygenSupport", () => {
     resetEd25519KeygenSupportProbeForTests();
   });
 
-  it("resolves true when a real Ed25519 generateKey call succeeds", async () => {
+  it("resolves true for a real, unmocked generation (this runs the actual noble/hashes code path)", async () => {
     await expect(probeEd25519KeygenSupport()).resolves.toBe(true);
   });
 
-  it("resolves false, rather than throwing, when generateKey exists but rejects the algorithm", async () => {
+  it("resolves false when crypto.getRandomValues is unavailable, without attempting a derivation", async () => {
+    vi.stubGlobal("crypto", {});
+    await expect(probeEd25519KeygenSupport()).resolves.toBe(false);
+  });
+
+  it("resolves false, rather than throwing, when getRandomValues itself throws", async () => {
     vi.stubGlobal("crypto", {
-      ...globalThis.crypto,
-      subtle: {
-        ...globalThis.crypto.subtle,
-        generateKey: vi.fn().mockRejectedValue(new Error("algorithm not supported")),
+      getRandomValues: () => {
+        throw new Error("boom");
       },
     });
     await expect(probeEd25519KeygenSupport()).resolves.toBe(false);
   });
 
-  it("resolves false when crypto.subtle is unavailable, without calling generateKey", async () => {
-    vi.stubGlobal("crypto", { ...globalThis.crypto, subtle: undefined });
-    await expect(probeEd25519KeygenSupport()).resolves.toBe(false);
-  });
-
   it("memoizes the result: a later stub change does not affect an already-resolved probe", async () => {
     await expect(probeEd25519KeygenSupport()).resolves.toBe(true);
-    vi.stubGlobal("crypto", { ...globalThis.crypto, subtle: undefined });
+    vi.stubGlobal("crypto", {});
     await expect(probeEd25519KeygenSupport()).resolves.toBe(true);
   });
 });

@@ -5,6 +5,8 @@ import {
   extractEd25519SeedFromPkcs8,
   formatOpenSshPrivateKey,
   formatOpenSshPublicKey,
+  probeEd25519KeygenSupport,
+  resetEd25519KeygenSupportProbeForTests,
   supportsEd25519Keygen,
 } from "@/lib/sshKeygen";
 
@@ -63,6 +65,13 @@ describe("extractEd25519SeedFromPkcs8", () => {
 
   it("rejects a structure that is not exactly 48 bytes", () => {
     expect(() => extractEd25519SeedFromPkcs8(new Uint8Array(47))).toThrow();
+  });
+
+  it("rejects a 48-byte structure whose header does not match the canonical Ed25519 PKCS#8 prefix", () => {
+    const pkcs8 = wrapSeedAsPkcs8(SEED);
+    const corrupted = pkcs8.slice();
+    corrupted[10] = 0xff; // inside the OID bytes (1.3.101.112)
+    expect(() => extractEd25519SeedFromPkcs8(corrupted)).toThrow(/canonical Ed25519 PKCS#8 header/);
   });
 });
 
@@ -174,5 +183,38 @@ describe("supportsEd25519Keygen", () => {
     // Simulates an older browser without WebCrypto's subtle API.
     vi.stubGlobal("crypto", { ...globalThis.crypto, subtle: undefined });
     expect(supportsEd25519Keygen()).toBe(false);
+  });
+});
+
+describe("probeEd25519KeygenSupport", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    resetEd25519KeygenSupportProbeForTests();
+  });
+
+  it("resolves true when a real Ed25519 generateKey call succeeds", async () => {
+    await expect(probeEd25519KeygenSupport()).resolves.toBe(true);
+  });
+
+  it("resolves false, rather than throwing, when generateKey exists but rejects the algorithm", async () => {
+    vi.stubGlobal("crypto", {
+      ...globalThis.crypto,
+      subtle: {
+        ...globalThis.crypto.subtle,
+        generateKey: vi.fn().mockRejectedValue(new Error("algorithm not supported")),
+      },
+    });
+    await expect(probeEd25519KeygenSupport()).resolves.toBe(false);
+  });
+
+  it("resolves false when crypto.subtle is unavailable, without calling generateKey", async () => {
+    vi.stubGlobal("crypto", { ...globalThis.crypto, subtle: undefined });
+    await expect(probeEd25519KeygenSupport()).resolves.toBe(false);
+  });
+
+  it("memoizes the result: a later stub change does not affect an already-resolved probe", async () => {
+    await expect(probeEd25519KeygenSupport()).resolves.toBe(true);
+    vi.stubGlobal("crypto", { ...globalThis.crypto, subtle: undefined });
+    await expect(probeEd25519KeygenSupport()).resolves.toBe(true);
   });
 });

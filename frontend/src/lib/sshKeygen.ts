@@ -10,9 +10,38 @@
 const KEY_TYPE = "ssh-ed25519";
 const CIPHER_BLOCK_SIZE = 8;
 
-/** Feature-detect Ed25519 support (Chrome 113+/Safari 17+); older browsers lack the algorithm entirely. */
+/** Cheap existence check (Chrome 113+/Safari 17+ expose the API at all); see {@link probeEd25519KeygenSupport} for a real capability probe. */
 export function supportsEd25519Keygen(): boolean {
   return typeof crypto !== "undefined" && typeof crypto.subtle?.generateKey === "function";
+}
+
+let cachedSupportProbe: Promise<boolean> | null = null;
+
+/**
+ * A browser can expose `crypto.subtle.generateKey` while still rejecting
+ * the Ed25519 algorithm at call time (older Safari/Firefox), so button
+ * visibility is decided by actually attempting a generation, not just
+ * checking the method exists. Memoized for the page's lifetime -- the
+ * answer cannot change without a reload.
+ */
+export function probeEd25519KeygenSupport(): Promise<boolean> {
+  if (!cachedSupportProbe) {
+    cachedSupportProbe = (async () => {
+      if (!supportsEd25519Keygen()) return false;
+      try {
+        await crypto.subtle.generateKey({ name: "Ed25519" }, false, ["sign", "verify"]);
+        return true;
+      } catch {
+        return false;
+      }
+    })();
+  }
+  return cachedSupportProbe;
+}
+
+/** Test-only: clears the memoized probe result so a test can force it to re-run. */
+export function resetEd25519KeygenSupportProbeForTests(): void {
+  cachedSupportProbe = null;
 }
 
 function utf8Bytes(value: string): Uint8Array {
@@ -55,14 +84,30 @@ export function formatOpenSshPublicKey(publicKeyBytes: Uint8Array, comment: stri
   return `${KEY_TYPE} ${base64Blob} ${comment}`;
 }
 
+// The fixed 16-byte DER prefix of an Ed25519 PKCS#8 structure (RFC 5958 /
+// RFC 8410): SEQUENCE { version 0, AlgorithmIdentifier { OID 1.3.101.112 },
+// OCTET STRING { OCTET STRING { <32-byte seed> } } } up to but not
+// including the seed itself.
+const ED25519_PKCS8_PREFIX = Uint8Array.from([
+  0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20,
+]);
+
 /**
  * Ed25519 PKCS#8 (RFC 5958 / RFC 8410) is a fixed 48-byte DER structure for
- * this algorithm; the 32-byte private seed is always its last 32 bytes
- * (verified against the RFC 8032 test-1 vector in sshKeygen.test.ts).
+ * this algorithm, with a fixed 16-byte prefix; the 32-byte private seed is
+ * always its last 32 bytes (verified against the RFC 8032 test-1 vector in
+ * sshKeygen.test.ts). The prefix is checked byte-for-byte rather than
+ * trusted from length alone: a 48-byte structure that isn't actually this
+ * layout would otherwise silently yield 32 bytes that are not the seed.
  */
 export function extractEd25519SeedFromPkcs8(pkcs8Bytes: Uint8Array): Uint8Array {
   if (pkcs8Bytes.length !== 48) {
     throw new Error(`expected a 48-byte Ed25519 PKCS#8 structure, got ${pkcs8Bytes.length} bytes`);
+  }
+  for (let i = 0; i < ED25519_PKCS8_PREFIX.length; i++) {
+    if (pkcs8Bytes[i] !== ED25519_PKCS8_PREFIX[i]) {
+      throw new Error("pkcs8 bytes do not match the canonical Ed25519 PKCS#8 header (302e020100300506032b657004220420)");
+    }
   }
   return pkcs8Bytes.slice(16);
 }

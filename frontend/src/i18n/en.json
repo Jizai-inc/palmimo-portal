@@ -181,7 +181,11 @@
     "lastKeyDialogConfirm": "Delete anyway",
     "generateButton": "Generate a key in this browser",
     "generatedNoteTitle": "Save your private key now — this is the only copy",
-    "generatedNoteBody": "Palmimo downloaded {{filename}}. Move it to ~/.ssh/{{filename}} and run chmod 600 ~/.ssh/{{filename}}. The private key was generated in your browser and never sent to Palmimo — if you lose this file, it cannot be recovered. The matching public key below has been filled in for you; click \"Add key\" to register it."
+    "generatedNoteBody": "Palmimo attempted to download {{filename}} -- check your downloads and confirm it's there before continuing (use \"Download again\" if not). Move it to ~/.ssh/{{filename}} and run chmod 600 ~/.ssh/{{filename}}. The private key was generated in your browser and never sent to Palmimo -- if you lose this file, it cannot be recovered.",
+    "downloadAgainButton": "Download again",
+    "confirmSavedButton": "I saved the private key",
+    "generateErrorMessage": "Key generation failed. Your browser may not support it after all -- try a recent Chrome or Safari, or add a key from another device instead.",
+    "confirmedNoteBody": "The matching public key has been filled in below. Click \"Add key\" to register it."
   },
   "power": {
     "title": "Power",

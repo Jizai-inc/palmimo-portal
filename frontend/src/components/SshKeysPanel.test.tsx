@@ -23,8 +23,14 @@ import { server } from "@/test/server";
 // support (or risking a global crypto stub breaking MSW's own use of it).
 vi.mock("@/lib/sshKeygen", async (importOriginal) => ({
   ...(await importOriginal<typeof sshKeygen>()),
-  supportsEd25519Keygen: vi.fn(() => true),
+  probeEd25519KeygenSupport: vi.fn(() => Promise.resolve(true)),
 }));
+
+// jsdom does not implement URL.createObjectURL/revokeObjectURL at all, so these are added (not
+// replaced) directly on the real URL constructor for the whole file -- stubbing the whole global
+// would also break MSW's own use of `new URL(...)` to match requests.
+URL.createObjectURL = vi.fn(() => "blob:mock-url");
+URL.revokeObjectURL = vi.fn();
 
 const ONE_KEY: SshKeyResponse[] = [
   { fingerprint: "SHA256:aaaa1111bbbb2222", key_type: "ssh-ed25519", comment: "user@laptop" },
@@ -316,63 +322,84 @@ describe("SshKeysPanel", () => {
     vi.unstubAllGlobals();
 =======
   describe("browser key generation", () => {
+    const publicKeyLine =
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdamAGCsQq31Uv+08lkBzoO4XLz2qYjJa8CGmj3B1Ea palmimo-portal";
+    const privateKeyFile = "-----BEGIN OPENSSH PRIVATE KEY-----\nmock\n-----END OPENSSH PRIVATE KEY-----\n";
+
     afterEach(() => {
-      vi.mocked(sshKeygen.supportsEd25519Keygen).mockReturnValue(true);
+      vi.mocked(sshKeygen.probeEd25519KeygenSupport).mockResolvedValue(true);
       vi.restoreAllMocks();
-      vi.unstubAllGlobals();
     });
 
-    it("hides the generate button when the browser has no WebCrypto Ed25519 support", async () => {
-      vi.mocked(sshKeygen.supportsEd25519Keygen).mockReturnValue(false);
+    it("hides the generate button when the browser has no real Ed25519 keygen support", async () => {
+      vi.mocked(sshKeygen.probeEd25519KeygenSupport).mockResolvedValue(false);
       server.use(getListKeysApiV1SshKeysGetMockHandler([]));
       renderWithProviders(<SshKeysPanel />);
 
       await screen.findByText("No keys registered yet.");
+      await waitFor(() => expect(vi.mocked(sshKeygen.probeEd25519KeygenSupport)).toHaveBeenCalled());
       expect(screen.queryByRole("button", { name: "Generate a key in this browser" })).not.toBeInTheDocument();
     });
 
-    it("generates a key entirely client-side, downloads the private key, and fills in the matching public key", async () => {
+    it("surfaces an error instead of failing silently when generation itself throws", async () => {
       const user = userEvent.setup();
-      const publicKeyLine =
-        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdamAGCsQq31Uv+08lkBzoO4XLz2qYjJa8CGmj3B1Ea palmimo-portal";
-      const privateKeyFile = "-----BEGIN OPENSSH PRIVATE KEY-----\nmock\n-----END OPENSSH PRIVATE KEY-----\n";
-      vi.spyOn(sshKeygen, "generateEd25519KeyPair").mockResolvedValue({ publicKeyLine, privateKeyFile });
+      vi.spyOn(sshKeygen, "generateEd25519KeyPair").mockRejectedValue(new Error("boom"));
 
-      // jsdom does not implement URL.createObjectURL/revokeObjectURL at all, so these are added
-      // (not replaced) directly on the real URL constructor -- stubbing the whole global would
-      // also break MSW's own use of `new URL(...)` to match requests.
-      let downloadedBlob: Blob | undefined;
-      URL.createObjectURL = vi.fn((blob: Blob) => {
-        downloadedBlob = blob;
-        return "blob:mock-url";
-      });
-      URL.revokeObjectURL = vi.fn();
+      server.use(getListKeysApiV1SshKeysGetMockHandler([]));
+      renderWithProviders(<SshKeysPanel />);
+
+      await user.click(await screen.findByRole("button", { name: "Generate a key in this browser" }));
+
+      expect(await screen.findByText(/Key generation failed/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "I saved the private key" })).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Public key")).toHaveValue("");
+    });
+
+    it("blocks registering the public key until the private key is explicitly confirmed saved", async () => {
+      const user = userEvent.setup();
+      vi.spyOn(sshKeygen, "generateEd25519KeyPair").mockResolvedValue({ publicKeyLine, privateKeyFile });
       const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
       server.use(getListKeysApiV1SshKeysGetMockHandler([]));
       renderWithProviders(<SshKeysPanel />);
 
-      await screen.findByText("No keys registered yet.");
-      await user.click(screen.getByRole("button", { name: "Generate a key in this browser" }));
+      await user.click(await screen.findByRole("button", { name: "Generate a key in this browser" }));
 
-      expect(await screen.findByLabelText("Public key")).toHaveValue(publicKeyLine);
-      expect(screen.getByText("Save your private key now — this is the only copy")).toBeInTheDocument();
+      // Auto-download was attempted (best-effort), but that alone must not register anything:
+      // the public key field stays empty and there is no way to submit it yet.
       expect(clickSpy).toHaveBeenCalledTimes(1);
-      expect(downloadedBlob).toBeDefined();
-      expect(downloadedBlob!.type).toBe("application/octet-stream");
-      expect(await downloadedBlob!.text()).toBe(privateKeyFile);
+      expect(screen.getByLabelText("Public key")).toHaveValue("");
+      expect(screen.getByRole("button", { name: "Add key" })).toBeDisabled();
+      expect(screen.getByText("Save your private key now — this is the only copy")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Generate a key in this browser" })).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "I saved the private key" }));
+
+      expect(screen.getByLabelText("Public key")).toHaveValue(publicKeyLine);
+      expect(screen.getByRole("button", { name: "Add key" })).toBeEnabled();
+      expect(screen.queryByText("Save your private key now — this is the only copy")).not.toBeInTheDocument();
+      expect(screen.getByText(/matching public key has been filled in below/)).toBeInTheDocument();
     });
 
-    it("clears the one-time note after the generated public key is successfully added", async () => {
+    it("re-downloading reuses the same private-key file without generating a new key", async () => {
       const user = userEvent.setup();
-      const publicKeyLine =
-        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdamAGCsQq31Uv+08lkBzoO4XLz2qYjJa8CGmj3B1Ea palmimo-portal";
-      vi.spyOn(sshKeygen, "generateEd25519KeyPair").mockResolvedValue({
-        publicKeyLine,
-        privateKeyFile: "-----BEGIN OPENSSH PRIVATE KEY-----\nmock\n-----END OPENSSH PRIVATE KEY-----\n",
-      });
-      URL.createObjectURL = vi.fn(() => "blob:mock-url");
-      URL.revokeObjectURL = vi.fn();
+      const generate = vi.spyOn(sshKeygen, "generateEd25519KeyPair").mockResolvedValue({ publicKeyLine, privateKeyFile });
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+      server.use(getListKeysApiV1SshKeysGetMockHandler([]));
+      renderWithProviders(<SshKeysPanel />);
+
+      await user.click(await screen.findByRole("button", { name: "Generate a key in this browser" }));
+      await user.click(screen.getByRole("button", { name: "Download again" }));
+      await user.click(screen.getByRole("button", { name: "Download again" }));
+
+      expect(generate).toHaveBeenCalledTimes(1);
+      expect(clickSpy).toHaveBeenCalledTimes(3); // 1 automatic + 2 manual re-downloads
+    });
+
+    it("clears the confirmation note after the generated public key is successfully added", async () => {
+      const user = userEvent.setup();
+      vi.spyOn(sshKeygen, "generateEd25519KeyPair").mockResolvedValue({ publicKeyLine, privateKeyFile });
       vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 
       let listCallCount = 0;
@@ -385,14 +412,12 @@ describe("SshKeysPanel", () => {
       );
       renderWithProviders(<SshKeysPanel />);
 
-      await screen.findByText("No keys registered yet.");
-      await user.click(screen.getByRole("button", { name: "Generate a key in this browser" }));
-      await screen.findByText("Save your private key now — this is the only copy");
-
+      await user.click(await screen.findByRole("button", { name: "Generate a key in this browser" }));
+      await user.click(screen.getByRole("button", { name: "I saved the private key" }));
       await user.click(screen.getByRole("button", { name: "Add key" }));
 
       await waitFor(() =>
-        expect(screen.queryByText("Save your private key now — this is the only copy")).not.toBeInTheDocument(),
+        expect(screen.queryByText(/matching public key has been filled in below/)).not.toBeInTheDocument(),
       );
     });
 >>>>>>> 1154b7d (feat: generate SSH keys client-side in the browser)

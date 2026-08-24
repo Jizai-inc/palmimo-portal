@@ -3,9 +3,29 @@ import { PanelLeft } from "lucide-react";
 import type * as React from "react";
 import { useTranslation } from "react-i18next";
 
+import logoDark from "@/assets/palmimo-devkit-logo-white.png";
+import logoLight from "@/assets/palmimo-devkit-logo.png";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { UpdateDot } from "@/components/UpdateDot";
 import { Button } from "@/components/ui/button";
+
+/**
+ * Swaps by {@link index.css}'s `prefers-color-scheme` breakpoint, the only
+ * dark-mode mechanism this app has (no `.dark` class, no theme toggle). Both
+ * images carry `aria-hidden`, since CSS-only visibility (`dark:hidden`)
+ * isn't something the accessible-name computation can rely on; the wrapping
+ * `role="img"` element carries the one accessible name instead.
+ */
+function Wordmark() {
+  const { t } = useTranslation();
+  const alt = t("app.wordmark");
+  return (
+    <span role="img" aria-label={alt}>
+      <img src={logoLight} alt={alt} aria-hidden="true" className="block h-6 w-auto dark:hidden" />
+      <img src={logoDark} alt={alt} aria-hidden="true" className="hidden h-6 w-auto dark:block" />
+    </span>
+  );
+}
 
 /**
  * Chrome shared by every screen: a 56px header with the wordmark on the
@@ -59,11 +79,11 @@ export function AppHeader({
         </div>
       ) : null}
       {wordmarkLinksHome ? (
-        <Link to="/" className="font-semibold hover:opacity-80">
-          {t("app.wordmark")}
+        <Link to="/" className="hover:opacity-80">
+          <Wordmark />
         </Link>
       ) : (
-        <span className="font-semibold">{t("app.wordmark")}</span>
+        <Wordmark />
       )}
       <div className="ml-auto flex items-center gap-2">
         <LanguageToggle />

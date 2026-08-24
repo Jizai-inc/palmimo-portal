@@ -1,9 +1,13 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, delay, http } from "msw";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { getListKeysApiV1SshKeysGetMockHandler } from "@/api/generated/ssh-keys/ssh-keys.msw";
+import {
+  getGetStatusApiV1SystemStatusGetMockHandler,
+  getGetStatusApiV1SystemStatusGetResponseMock,
+} from "@/api/generated/system/system.msw";
 import type { SshKeyResponse } from "@/api/generated/models";
 import { SshKeysPanel } from "@/components/SshKeysPanel";
 import { renderWithProviders } from "@/test/render";
@@ -253,5 +257,48 @@ describe("SshKeysPanel", () => {
     await user.click(within(dialog).getByRole("button", { name: "Delete" }));
 
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDisabled());
+  });
+
+  it("renders the ready-to-copy ssh command once the hostname loads", async () => {
+    server.use(
+      getListKeysApiV1SshKeysGetMockHandler([]),
+      getGetStatusApiV1SystemStatusGetMockHandler(getGetStatusApiV1SystemStatusGetResponseMock({ hostname: "palmimo-406" })),
+    );
+    renderWithProviders(<SshKeysPanel />);
+
+    expect(await screen.findByText("ssh user@palmimo-406.local")).toBeInTheDocument();
+  });
+
+  it("renders no ssh command while the hostname has not loaded yet", async () => {
+    server.use(
+      getListKeysApiV1SshKeysGetMockHandler([]),
+      http.get("*/api/v1/system/status", async () => {
+        await delay(20);
+        return HttpResponse.json({});
+      }),
+    );
+    renderWithProviders(<SshKeysPanel />);
+
+    await screen.findByText("No keys registered yet.");
+    expect(screen.queryByText("Connect over SSH:", { exact: false })).not.toBeInTheDocument();
+  });
+
+  it("copies the ssh command to the clipboard when the copy button is clicked", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { ...navigator, clipboard: { writeText } });
+    server.use(
+      getListKeysApiV1SshKeysGetMockHandler([]),
+      getGetStatusApiV1SystemStatusGetMockHandler(getGetStatusApiV1SystemStatusGetResponseMock({ hostname: "palmimo-406" })),
+    );
+    renderWithProviders(<SshKeysPanel />);
+
+    await screen.findByText("ssh user@palmimo-406.local");
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+
+    expect(writeText).toHaveBeenCalledWith("ssh user@palmimo-406.local");
+    expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
+
+    vi.unstubAllGlobals();
   });
 });

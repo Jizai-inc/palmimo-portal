@@ -20,7 +20,17 @@ BANNED_CONTENT = [
     r"TODO\(before publish\)",
     r"(^|[^0-9A-Za-z-])(i|ami|subnet|sg|vpc|eipalloc)-[0-9a-f]{8,17}([^0-9A-Za-z-]|$)",
     "AKIA[0-9A-Z]{16}",
-    "BEGIN [A-Z ]*PRIVATE KEY",
+    # A real PEM-armored private key: a BEGIN...PRIVATE KEY line directly
+    # followed by one or more base64 body lines and an END...PRIVATE KEY
+    # line. Narrowed from a bare "BEGIN ... PRIVATE KEY" substring match
+    # because the portal ships a browser-based SSH keygen feature whose
+    # *format* constants (and the tests pinning them) legitimately contain
+    # that armor text with no base64 body attached -- only a real (or
+    # realistically-shaped, i.e. fabricated but complete) key block trips
+    # this now.
+    r"BEGIN [A-Z ]*PRIVATE KEY-----\r?\n"
+    r"(?:[A-Za-z0-9+/=]{40,}\r?\n)+"
+    r"-----END [A-Z ]*PRIVATE KEY",
 ]
 
 # Scanning a binary as text does not make a file unsafe, but a chance byte
@@ -116,3 +126,24 @@ def test_banned_content_scan_covers_path_names() -> None:
 def test_banned_content_scan_rejects_multibyte_boms() -> None:
     assert ("AKIA" + "A" * 16).encode("utf-16").startswith(UNSCANNABLE_BOMS)
     assert not b"plain ascii".startswith(UNSCANNABLE_BOMS)
+
+
+def test_banned_content_scan_detects_pem_private_key_blocks() -> None:
+    # Built from pieces (joined at runtime, not written as one contiguous
+    # literal) so this fixture itself does not trip the scan on this file.
+    base64_body_line = "A" * 44 + "="
+    fabricated_key_block = "\n".join(
+        [
+            "-----BEGIN OPENSSH PRIVATE KEY-----",
+            base64_body_line,
+            base64_body_line,
+            "-----END OPENSSH PRIVATE KEY-----",
+        ]
+    )
+    assert _banned_hits(fabricated_key_block)
+
+    # A bare armor line with no base64 body must NOT be flagged -- this is
+    # the portal's own browser-keygen output format, e.g. the PEM constants
+    # in frontend/src/lib/sshKeygen.ts and the strings its tests assert on.
+    assert not _banned_hits("-----BEGIN OPENSSH PRIVATE KEY-----")
+    assert not _banned_hits("-----BEGIN OPENSSH PRIVATE KEY-----\n-----END OPENSSH PRIVATE KEY-----")

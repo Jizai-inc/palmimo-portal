@@ -1,7 +1,11 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, delay, http } from "msw";
+<<<<<<< HEAD
 import { describe, expect, it, vi } from "vitest";
+=======
+import { afterEach, describe, expect, it, vi } from "vitest";
+>>>>>>> 1154b7d (feat: generate SSH keys client-side in the browser)
 
 import { getListKeysApiV1SshKeysGetMockHandler } from "@/api/generated/ssh-keys/ssh-keys.msw";
 import {
@@ -10,8 +14,17 @@ import {
 } from "@/api/generated/system/system.msw";
 import type { SshKeyResponse } from "@/api/generated/models";
 import { SshKeysPanel } from "@/components/SshKeysPanel";
+import * as sshKeygen from "@/lib/sshKeygen";
 import { renderWithProviders } from "@/test/render";
 import { server } from "@/test/server";
+
+// The generate-key flow is unit-tested against known vectors in sshKeygen.test.ts; here it is
+// mocked so the component tests exercise the UI wiring without depending on jsdom's WebCrypto
+// support (or risking a global crypto stub breaking MSW's own use of it).
+vi.mock("@/lib/sshKeygen", async (importOriginal) => ({
+  ...(await importOriginal<typeof sshKeygen>()),
+  supportsEd25519Keygen: vi.fn(() => true),
+}));
 
 const ONE_KEY: SshKeyResponse[] = [
   { fingerprint: "SHA256:aaaa1111bbbb2222", key_type: "ssh-ed25519", comment: "user@laptop" },
@@ -259,6 +272,7 @@ describe("SshKeysPanel", () => {
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDisabled());
   });
 
+<<<<<<< HEAD
   it("renders the ready-to-copy ssh command once the hostname loads", async () => {
     server.use(
       getListKeysApiV1SshKeysGetMockHandler([]),
@@ -300,5 +314,87 @@ describe("SshKeysPanel", () => {
     expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
 
     vi.unstubAllGlobals();
+=======
+  describe("browser key generation", () => {
+    afterEach(() => {
+      vi.mocked(sshKeygen.supportsEd25519Keygen).mockReturnValue(true);
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    });
+
+    it("hides the generate button when the browser has no WebCrypto Ed25519 support", async () => {
+      vi.mocked(sshKeygen.supportsEd25519Keygen).mockReturnValue(false);
+      server.use(getListKeysApiV1SshKeysGetMockHandler([]));
+      renderWithProviders(<SshKeysPanel />);
+
+      await screen.findByText("No keys registered yet.");
+      expect(screen.queryByRole("button", { name: "Generate a key in this browser" })).not.toBeInTheDocument();
+    });
+
+    it("generates a key entirely client-side, downloads the private key, and fills in the matching public key", async () => {
+      const user = userEvent.setup();
+      const publicKeyLine =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdamAGCsQq31Uv+08lkBzoO4XLz2qYjJa8CGmj3B1Ea palmimo-portal";
+      const privateKeyFile = "-----BEGIN OPENSSH PRIVATE KEY-----\nmock\n-----END OPENSSH PRIVATE KEY-----\n";
+      vi.spyOn(sshKeygen, "generateEd25519KeyPair").mockResolvedValue({ publicKeyLine, privateKeyFile });
+
+      // jsdom does not implement URL.createObjectURL/revokeObjectURL at all, so these are added
+      // (not replaced) directly on the real URL constructor -- stubbing the whole global would
+      // also break MSW's own use of `new URL(...)` to match requests.
+      let downloadedBlob: Blob | undefined;
+      URL.createObjectURL = vi.fn((blob: Blob) => {
+        downloadedBlob = blob;
+        return "blob:mock-url";
+      });
+      URL.revokeObjectURL = vi.fn();
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+      server.use(getListKeysApiV1SshKeysGetMockHandler([]));
+      renderWithProviders(<SshKeysPanel />);
+
+      await screen.findByText("No keys registered yet.");
+      await user.click(screen.getByRole("button", { name: "Generate a key in this browser" }));
+
+      expect(await screen.findByLabelText("Public key")).toHaveValue(publicKeyLine);
+      expect(screen.getByText("Save your private key now — this is the only copy")).toBeInTheDocument();
+      expect(clickSpy).toHaveBeenCalledTimes(1);
+      expect(downloadedBlob).toBeDefined();
+      expect(downloadedBlob!.type).toBe("application/octet-stream");
+      expect(await downloadedBlob!.text()).toBe(privateKeyFile);
+    });
+
+    it("clears the one-time note after the generated public key is successfully added", async () => {
+      const user = userEvent.setup();
+      const publicKeyLine =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdamAGCsQq31Uv+08lkBzoO4XLz2qYjJa8CGmj3B1Ea palmimo-portal";
+      vi.spyOn(sshKeygen, "generateEd25519KeyPair").mockResolvedValue({
+        publicKeyLine,
+        privateKeyFile: "-----BEGIN OPENSSH PRIVATE KEY-----\nmock\n-----END OPENSSH PRIVATE KEY-----\n",
+      });
+      URL.createObjectURL = vi.fn(() => "blob:mock-url");
+      URL.revokeObjectURL = vi.fn();
+      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+      let listCallCount = 0;
+      server.use(
+        http.get("*/api/v1/ssh-keys", () => {
+          listCallCount += 1;
+          return HttpResponse.json(listCallCount === 1 ? [] : ONE_KEY);
+        }),
+        http.post("*/api/v1/ssh-keys", () => HttpResponse.json(ONE_KEY[0], { status: 201 })),
+      );
+      renderWithProviders(<SshKeysPanel />);
+
+      await screen.findByText("No keys registered yet.");
+      await user.click(screen.getByRole("button", { name: "Generate a key in this browser" }));
+      await screen.findByText("Save your private key now — this is the only copy");
+
+      await user.click(screen.getByRole("button", { name: "Add key" }));
+
+      await waitFor(() =>
+        expect(screen.queryByText("Save your private key now — this is the only copy")).not.toBeInTheDocument(),
+      );
+    });
+>>>>>>> 1154b7d (feat: generate SSH keys client-side in the browser)
   });
 });

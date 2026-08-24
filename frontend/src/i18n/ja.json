@@ -178,7 +178,10 @@
     "deleteDialogConfirm": "削除",
     "lastKeyDialogTitle": "最後の鍵を削除しますか？",
     "lastKeyDialogBody": "これは登録されている最後の鍵です。このページから新しい鍵を追加するまで、Palmimo は SSH ログインを受け付けなくなります — Portal 自体へのログインには影響しません。",
-    "lastKeyDialogConfirm": "削除する"
+    "lastKeyDialogConfirm": "削除する",
+    "generateButton": "このブラウザで鍵を生成",
+    "generatedNoteTitle": "秘密鍵を今すぐ保存してください — これが唯一のコピーです",
+    "generatedNoteBody": "{{filename}} をダウンロードしました。~/.ssh/{{filename}} に移動し、chmod 600 ~/.ssh/{{filename}} を実行してください。秘密鍵はこのブラウザ内で生成され、Palmimo には一切送信されていません — このファイルを失うと復元できません。対応する公開鍵は下の欄に自動入力済みです。「鍵を追加」をクリックして登録してください。"
   },
   "power": {
     "title": "電源",

@@ -1,5 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
+<<<<<<< HEAD
 import { Check, Copy, TriangleAlert, Trash2, Upload } from "lucide-react";
+=======
+import { KeyRound, TriangleAlert, Trash2, Upload } from "lucide-react";
+>>>>>>> 1154b7d (feat: generate SSH keys client-side in the browser)
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -22,12 +26,27 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { generateEd25519KeyPair, supportsEd25519Keygen } from "@/lib/sshKeygen";
 
 const LAST_KEY_CONFIRMATION = "last-key";
+const PRIVATE_KEY_FILENAME = "palmimo_ed25519";
+const GENERATED_KEY_COMMENT = "palmimo-portal";
+
+/** Triggers a browser download of `content` as `filename`; the URL is revoked right after, since the download itself is synchronous. */
+function downloadAsFile(filename: string, content: string) {
+  const blob = new Blob([content], { type: "application/octet-stream" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
 
 /** How long the copy button shows its "copied" checkmark before reverting. */
 const COPIED_RESET_MS = 2000;
@@ -81,9 +100,12 @@ interface DeleteDialogState {
 export function SshKeysPanel() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const canGenerateKey = supportsEd25519Keygen();
   const { data: keys, isLoading, error: listError } = useListKeysApiV1SshKeysGet();
   const [publicKey, setPublicKey] = useState("");
   const [dialog, setDialog] = useState<DeleteDialogState | null>(null);
+  const [justGenerated, setJustGenerated] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function handleFileChosen(event: React.ChangeEvent<HTMLInputElement>) {
@@ -93,10 +115,23 @@ export function SshKeysPanel() {
     setPublicKey((await file.text()).trim());
   }
 
+  async function handleGenerateKey() {
+    setIsGenerating(true);
+    try {
+      const { publicKeyLine, privateKeyFile } = await generateEd25519KeyPair(GENERATED_KEY_COMMENT);
+      downloadAsFile(PRIVATE_KEY_FILENAME, privateKeyFile);
+      setPublicKey(publicKeyLine);
+      setJustGenerated(true);
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
   const addKey = useAddKeyApiV1SshKeysPost({
     mutation: {
       onSuccess: () => {
         setPublicKey("");
+        setJustGenerated(false);
         void queryClient.invalidateQueries({ queryKey: getListKeysApiV1SshKeysGetQueryKey() });
       },
     },
@@ -195,6 +230,24 @@ export function SshKeysPanel() {
           </ul>
         </div>
       )}
+
+      {listError ? null : canGenerateKey ? (
+        <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
+          <Button type="button" variant="outline" onClick={() => void handleGenerateKey()} disabled={isGenerating}>
+            <KeyRound className="size-4" />
+            <span className="font-semibold">{t("sshKeys.generateButton")}</span>
+          </Button>
+          {justGenerated ? (
+            <Alert>
+              <TriangleAlert />
+              <AlertTitle>{t("sshKeys.generatedNoteTitle")}</AlertTitle>
+              <AlertDescription>
+                {t("sshKeys.generatedNoteBody", { filename: PRIVATE_KEY_FILENAME })}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+        </div>
+      ) : null}
 
       {listError ? null : (
         <form className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4 md:p-0 md:border-0 md:bg-transparent" onSubmit={handleAddSubmit}>

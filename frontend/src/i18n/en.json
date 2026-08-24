@@ -178,7 +178,10 @@
     "deleteDialogConfirm": "Delete",
     "lastKeyDialogTitle": "Delete the last key?",
     "lastKeyDialogBody": "This is the last key on file. Palmimo will no longer accept SSH logins until a new key is added from this page — your Portal login itself is unaffected.",
-    "lastKeyDialogConfirm": "Delete anyway"
+    "lastKeyDialogConfirm": "Delete anyway",
+    "generateButton": "Generate a key in this browser",
+    "generatedNoteTitle": "Save your private key now — this is the only copy",
+    "generatedNoteBody": "Palmimo downloaded {{filename}}. Move it to ~/.ssh/{{filename}} and run chmod 600 ~/.ssh/{{filename}}. The private key was generated in your browser and never sent to Palmimo — if you lose this file, it cannot be recovered. The matching public key below has been filled in for you; click \"Add key\" to register it."
   },
   "power": {
     "title": "Power",

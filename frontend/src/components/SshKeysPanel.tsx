@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, TriangleAlert, Trash2, Upload } from "lucide-react";
-import { useRef, useState } from "react";
+import { Check, Copy, Download, KeyRound, TriangleAlert, Trash2, Upload } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -22,12 +22,34 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { generateEd25519KeyPair, probeEd25519KeygenSupport } from "@/lib/sshKeygen";
 
 const LAST_KEY_CONFIRMATION = "last-key";
+const PRIVATE_KEY_FILENAME = "palmimo_ed25519";
+const GENERATED_KEY_COMMENT = "palmimo-portal";
+// How long an unconfirmed download's Blob URL stays alive: long enough for a slow
+// download-start to land, short enough not to leak indefinitely if the user never
+// confirms. Confirming revokes it immediately instead of waiting this out.
+const PENDING_KEY_URL_LIFETIME_MS = 10_000;
+
+/** Triggers a browser download of `content` at `url`. Re-clickable: does not revoke the URL, so a retry can call this again with the same one. */
+function triggerDownload(url: string, filename: string) {
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+}
+
+/** A generated key pair awaiting the user's explicit "I saved it" confirmation before its public half is filled in and made registerable. */
+interface PendingGeneratedKey {
+  publicKeyLine: string;
+  downloadUrl: string;
+}
 
 /** How long the copy button shows its "copied" checkmark before reverting. */
 const COPIED_RESET_MS = 2000;
@@ -81,10 +103,33 @@ interface DeleteDialogState {
 export function SshKeysPanel() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const [canGenerateKey, setCanGenerateKey] = useState(false);
   const { data: keys, isLoading, error: listError } = useListKeysApiV1SshKeysGet();
   const [publicKey, setPublicKey] = useState("");
   const [dialog, setDialog] = useState<DeleteDialogState | null>(null);
+  const [pendingKey, setPendingKey] = useState<PendingGeneratedKey | null>(null);
+  const [justConfirmed, setJustConfirmed] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void probeEd25519KeygenSupport().then((supported) => {
+      if (!cancelled) setCanGenerateKey(supported);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // A confirmed key revokes its URL immediately (see handleConfirmSaved); this is only the
+  // fallback for a key the user generated but never confirmed -- e.g. navigated away.
+  useEffect(() => {
+    if (!pendingKey) return;
+    const timeoutId = window.setTimeout(() => URL.revokeObjectURL(pendingKey.downloadUrl), PENDING_KEY_URL_LIFETIME_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [pendingKey]);
 
   async function handleFileChosen(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -93,10 +138,42 @@ export function SshKeysPanel() {
     setPublicKey((await file.text()).trim());
   }
 
+  async function handleGenerateKey() {
+    setIsGenerating(true);
+    setGenerateError(false);
+    try {
+      const { publicKeyLine, privateKeyFile } = await generateEd25519KeyPair(GENERATED_KEY_COMMENT);
+      const downloadUrl = URL.createObjectURL(new Blob([privateKeyFile], { type: "application/octet-stream" }));
+      // Best-effort convenience: a browser can silently ignore or delay a synthetic click, so
+      // this is never treated as proof the file was saved -- only the user's own confirmation
+      // below (handleConfirmSaved) unlocks registering the matching public key.
+      triggerDownload(downloadUrl, PRIVATE_KEY_FILENAME);
+      setPendingKey({ publicKeyLine, downloadUrl });
+    } catch {
+      setGenerateError(true);
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  function handleRedownloadPendingKey() {
+    if (!pendingKey) return;
+    triggerDownload(pendingKey.downloadUrl, PRIVATE_KEY_FILENAME);
+  }
+
+  function handleConfirmSaved() {
+    if (!pendingKey) return;
+    setPublicKey(pendingKey.publicKeyLine);
+    URL.revokeObjectURL(pendingKey.downloadUrl);
+    setPendingKey(null);
+    setJustConfirmed(true);
+  }
+
   const addKey = useAddKeyApiV1SshKeysPost({
     mutation: {
       onSuccess: () => {
         setPublicKey("");
+        setJustConfirmed(false);
         void queryClient.invalidateQueries({ queryKey: getListKeysApiV1SshKeysGetQueryKey() });
       },
     },
@@ -195,6 +272,45 @@ export function SshKeysPanel() {
           </ul>
         </div>
       )}
+
+      {listError ? null : canGenerateKey ? (
+        <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
+          {pendingKey ? (
+            <>
+              <Alert>
+                <TriangleAlert />
+                <AlertTitle>{t("sshKeys.generatedNoteTitle")}</AlertTitle>
+                <AlertDescription>{t("sshKeys.generatedNoteBody", { filename: PRIVATE_KEY_FILENAME })}</AlertDescription>
+              </Alert>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" onClick={handleRedownloadPendingKey}>
+                  <Download className="size-4" />
+                  <span className="font-semibold">{t("sshKeys.downloadAgainButton")}</span>
+                </Button>
+                <Button type="button" onClick={handleConfirmSaved}>
+                  {t("sshKeys.confirmSavedButton")}
+                </Button>
+              </div>
+            </>
+          ) : (
+            <Button type="button" variant="outline" onClick={() => void handleGenerateKey()} disabled={isGenerating}>
+              <KeyRound className="size-4" />
+              <span className="font-semibold">{t("sshKeys.generateButton")}</span>
+            </Button>
+          )}
+          {generateError ? (
+            <Alert variant="destructive">
+              <TriangleAlert />
+              <AlertDescription>{t("sshKeys.generateErrorMessage")}</AlertDescription>
+            </Alert>
+          ) : null}
+          {justConfirmed ? (
+            <Alert>
+              <AlertDescription>{t("sshKeys.confirmedNoteBody")}</AlertDescription>
+            </Alert>
+          ) : null}
+        </div>
+      ) : null}
 
       {listError ? null : (
         <form className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4 md:p-0 md:border-0 md:bg-transparent" onSubmit={handleAddSubmit}>

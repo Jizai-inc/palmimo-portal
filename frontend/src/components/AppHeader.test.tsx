@@ -37,10 +37,10 @@ describe("AppHeader", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/"));
   });
 
-  it("renders the Palmimo DevKit wordmark as inert text when wordmarkLinksHome is false", async () => {
+  it("renders the Palmimo DevKit wordmark as an inert image when wordmarkLinksHome is false", async () => {
     renderAppHeaderAt("/dashboard", false);
 
-    expect(await screen.findByText("Palmimo DevKit")).toBeInTheDocument();
+    expect(await screen.findByRole("img", { name: "Palmimo DevKit" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Palmimo DevKit" })).not.toBeInTheDocument();
   });
 });

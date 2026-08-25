@@ -157,6 +157,9 @@
   "sshKeys": {
     "title": "SSH keys",
     "body": "Keys listed here can log in to Palmimo over SSH as its OS user.",
+    "sshCommandLabel": "Connect over SSH:",
+    "copyCommand": "Copy",
+    "copiedCommand": "Copied",
     "emptyState": "No keys registered yet.",
     "noComment": "No comment",
     "delete": "Delete",

@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { TriangleAlert, Trash2, Upload } from "lucide-react";
+import { Check, Copy, TriangleAlert, Trash2, Upload } from "lucide-react";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -9,6 +9,7 @@ import {
   useDeleteKeyApiV1SshKeysFingerprintDelete,
   useListKeysApiV1SshKeysGet,
 } from "@/api/generated/ssh-keys/ssh-keys";
+import { useGetStatusApiV1SystemStatusGet } from "@/api/generated/system/system";
 import type { SshKeyResponse } from "@/api/generated/models";
 import { PortalApiError } from "@/api/client";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
@@ -27,6 +28,45 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
 const LAST_KEY_CONFIRMATION = "last-key";
+
+/** How long the copy button shows its "copied" checkmark before reverting. */
+const COPIED_RESET_MS = 2000;
+
+/**
+ * The ready-to-run SSH command, built from the device's own hostname. Renders nothing until
+ * the hostname loads, so it never flashes `ssh user@undefined.local`.
+ */
+function SshCommandHint() {
+  const { t } = useTranslation();
+  const { data: systemStatus } = useGetStatusApiV1SystemStatusGet();
+  const [copied, setCopied] = useState(false);
+
+  if (!systemStatus?.hostname) return null;
+
+  const command = `ssh user@${systemStatus.hostname}.local`;
+
+  async function handleCopy() {
+    await navigator.clipboard.writeText(command);
+    setCopied(true);
+    setTimeout(() => setCopied(false), COPIED_RESET_MS);
+  }
+
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <span className="text-muted-foreground">{t("sshKeys.sshCommandLabel")}</span>
+      <code className="rounded-md border border-input bg-muted px-2 py-1 font-mono text-xs">{command}</code>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        aria-label={copied ? t("sshKeys.copiedCommand") : t("sshKeys.copyCommand")}
+        onClick={() => void handleCopy()}
+      >
+        {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+      </Button>
+    </div>
+  );
+}
 
 /** Which key the delete confirmation dialog is open for, and whether it is in last-key (lockout-warning) mode. */
 interface DeleteDialogState {
@@ -112,6 +152,7 @@ export function SshKeysPanel() {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground">{t("sshKeys.body")}</p>
+      <SshCommandHint />
       <ApiErrorAlert error={listError} />
       {showDeleteError ? <ApiErrorAlert error={deleteKey.error} /> : null}
 

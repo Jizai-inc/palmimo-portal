@@ -157,6 +157,9 @@
   "sshKeys": {
     "title": "SSH 鍵",
     "body": "ここに登録した鍵は、Palmimo の OS ユーザーとして SSH でログインできます。",
+    "sshCommandLabel": "SSH での接続:",
+    "copyCommand": "コピー",
+    "copiedCommand": "コピーしました",
     "emptyState": "登録されている鍵はまだありません。",
     "noComment": "コメントなし",
     "delete": "削除",

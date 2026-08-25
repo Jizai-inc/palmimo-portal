@@ -1,11 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, delay, http } from "msw";
-<<<<<<< HEAD
-import { describe, expect, it, vi } from "vitest";
-=======
 import { afterEach, describe, expect, it, vi } from "vitest";
->>>>>>> 1154b7d (feat: generate SSH keys client-side in the browser)
 
 import { getListKeysApiV1SshKeysGetMockHandler } from "@/api/generated/ssh-keys/ssh-keys.msw";
 import {
@@ -279,7 +275,6 @@ describe("SshKeysPanel", () => {
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDisabled());
   });
 
-<<<<<<< HEAD
   it("renders the ready-to-copy ssh command once the hostname loads", async () => {
     server.use(
       getListKeysApiV1SshKeysGetMockHandler([]),
@@ -321,7 +316,8 @@ describe("SshKeysPanel", () => {
     expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
 
     vi.unstubAllGlobals();
-=======
+  });
+
   describe("browser key generation", () => {
     const publicKeyLine =
       "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdamAGCsQq31Uv+08lkBzoO4XLz2qYjJa8CGmj3B1Ea palmimo-portal";
@@ -421,6 +417,5 @@ describe("SshKeysPanel", () => {
         expect(screen.queryByText(/matching public key has been filled in below/)).not.toBeInTheDocument(),
       );
     });
->>>>>>> 1154b7d (feat: generate SSH keys client-side in the browser)
   });
 });

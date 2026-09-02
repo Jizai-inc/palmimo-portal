@@ -11,6 +11,7 @@
     "generate:route-tree": "node scripts/generate-route-tree.mjs",
     "build": "npm run generate:route-tree && tsc -b && vite build",
     "generate": "orval --config orval.config.ts",
+    "licenses": "node scripts/generate-third-party-licenses.mjs ../palmimo_portal/static/THIRD_PARTY_LICENSES.txt",
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "vitest run"

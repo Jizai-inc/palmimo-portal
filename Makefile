@@ -51,9 +51,14 @@ generate: openapi
 	$(NPM) run generate
 
 # Build the frontend and land the output at palmimo_portal/static/, exactly
-# where app.py serves it from (see _mount_frontend in app.py).
+# where app.py serves it from (see _mount_frontend in app.py). `licenses`
+# runs after `build` (not before): it reads node_modules/<name>/ directly,
+# and needs nothing from the build output itself, but landing it under
+# static/ only makes sense once static/ exists -- and gives the Portal a
+# second, incidental way to serve it, at /THIRD_PARTY_LICENSES.txt.
 build:
 	$(NPM) run build
+	$(NPM) run licenses
 
 # Vite dev server, proxying /api to a backend already running on :8080
 # (`uv run --project .. python -m palmimo_portal`, PALMIMO_ADAPTERS=fake).

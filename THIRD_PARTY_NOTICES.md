@@ -5,10 +5,20 @@ repository *declares*, classified by the license each distribution declares
 for itself. This is not an inventory of everything an installed environment
 ends up containing: a wheel can bundle third-party binaries that its own
 metadata never mentions, and what follows records the ones that have been
-found rather than asserting there are no others. A complete attribution for a
-pre-installed image would be produced from the resolved lockfile as a
-separate artifact rather than maintained here, and nothing here substitutes
-for it.
+found rather than asserting there are no others. Nothing here substitutes for
+the complete, machine-generated attribution each shipped artifact carries:
+
+- **Frontend.** `make build` (via `frontend/scripts/generate-third-party-licenses.mjs`,
+  run as `npm run licenses`) collects every production npm dependency's
+  license text from its installed `node_modules/<name>/` directory into
+  `palmimo_portal/static/THIRD_PARTY_LICENSES.txt`, which ships inside the
+  release tarball `.github/workflows/release.yml` attaches to each
+  GitHub Release (and, incidentally, becomes servable by the Portal itself at
+  `/THIRD_PARTY_LICENSES.txt`).
+- **Python.** The SD image build collects each installed package's license
+  file from its venv's `*.dist-info/` directory; that step lives in the
+  [palmimo-image](https://github.com/Jizai-inc/palmimo-image) repository, not
+  here, since it depends on the image's fully resolved Python environment.
 
 None of the components below are vendored or distributed with `palmimo-portal`
 itself — they are installed as regular PyPI dependencies.

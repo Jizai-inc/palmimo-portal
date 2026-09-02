@@ -17,6 +17,10 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: ["src/test/setup.ts"],
-    include: ["src/**/*.test.{ts,tsx}"],
+    // `scripts/**/*.test.mjs` covers build-time Node scripts (e.g.
+    // generate-third-party-licenses.mjs) -- they need no jsdom environment,
+    // but a separate vitest project just for them would be overkill for one
+    // script; the jsdom environment above is a no-op for plain Node code.
+    include: ["src/**/*.test.{ts,tsx}", "scripts/**/*.test.mjs"],
   },
 });

@@ -1,37 +1,9 @@
-// Collects the license text of every production npm dependency bundled into
-// the built frontend into one text file, for attribution when the bundle
-// ships as a binary release asset (see Makefile's `build` target and
-// doc/releasing.md). Node's node_modules layout has no attribution file of
-// its own, and the device never has node_modules -- so this has to run in
-// CI, against the checked-out frontend/, before the bundle is packaged.
-//
-// Scope is "the production dependency closure from package-lock.json" UNION
-// "whatever vite.config.ts's bundled-packages plugin says actually ended up
-// in the built JS/CSS" (see loadBundledPackageNames below). The lockfile
-// closure alone misses a devDependency whose *output* still ships (Tailwind
-// CSS's preflight reset, pulled in by `@tailwindcss/vite` and landing in
-// index.css even though `tailwindcss` itself is a devDependency); the
-// bundle-membership set alone misses a runtime dependency that resolves but
-// whose code Rollup tree-shook away entirely. Taking the union and flagging
-// each entry's actual bundle membership keeps both directions honest without
-// either silently dropping attribution or renders attributing dead code.
-//
-// Dependency resolution follows Node's own upward node_modules search
-// (see resolveDependencyPath) rather than assuming everything hoists to a
-// flat top-level node_modules/<name> -- npm nests a dependency instead of
-// hoisting it whenever two packages need incompatible versions of the same
-// name, and a purely-flat lookup would silently resolve to the wrong
-// version (or nothing) whenever that happens.
-//
-// Once a package's identity is known this way, its license *text* still has
-// to come from the installed node_modules/<name>/ directory -- the
-// lockfile doesn't carry that -- so this script requires node_modules to
-// already be installed (`npm ci`). When no LICENSE file is installed, a
-// package can still supply the required copyright + permission text via its
-// package.json `author` plus a substantive README "# License" section, or
-// (last resort) a checked-in entry in third-party-license-overrides.json;
-// if none of those produce real text, the build fails loudly rather than
-// shipping an MIT/BSD package with no attribution at all.
+// Collects license text for every third-party package that ends up in the
+// built frontend bundle, for attribution when the bundle ships as a release
+// asset (see Makefile's `build` target). Scope is the production dependency
+// closure from package-lock.json, unioned with whatever vite.config.ts's
+// bundled-packages plugin recorded as actually bundled. Requires
+// node_modules to be installed (`npm ci`); writes the result to argv[2].
 import { readFileSync, readdirSync, mkdirSync, realpathSync, writeFileSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -42,17 +14,12 @@ const BUNDLED_PACKAGES_FILE_NAME = ".bundled-packages.json";
 
 const LICENSE_FILE_PATTERN = /^(licen[sc]e|copying)/i;
 const README_FILE_PATTERN = /^readme(\.md)?$/i;
-// A README "# License" / "## License" section's body must clear this length
-// (after collapsing to the SPDX identifier alone gets rejected below) before
-// it is trusted as real permission text rather than just a one-word restating
-// of the `license` field ("MIT", "Apache-2.0", ...) -- see
-// isSubstantiveReadmeLicenseText.
+// Minimum length for README license text to count as real permission text
+// rather than a one-word restating of the `license` field.
 const MIN_SUBSTANTIVE_LICENSE_TEXT_LENGTH = 40;
 
-// shadcn/ui's components are vendored by hand into the source tree (see
-// THIRD_PARTY_NOTICES.md) rather than installed as a package, so they have
-// no package-lock.json entry of their own -- but they do ship in the built
-// bundle, so their license travels alongside the installed packages' here.
+// shadcn/ui is vendored by hand (see THIRD_PARTY_NOTICES.md), so it has no
+// lockfile entry -- attribute it directly instead.
 function vendoredEntries(frontendDir) {
   return [
     {
@@ -78,9 +45,8 @@ function loadLockfile(frontendDir) {
   return lockfile;
 }
 
-// Reads the checked-in fallback license text table (see the file's own
-// header comment for the schema). Missing entirely is fine -- most projects
-// never need an override; a malformed file is not.
+// Checked-in fallback license text table (see its own header for the
+// schema). Missing entirely is fine; a malformed file is not.
 function loadOverrides(scriptDir = SCRIPT_DIR) {
   const overridesPath = join(scriptDir, "third-party-license-overrides.json");
   try {
@@ -91,12 +57,8 @@ function loadOverrides(scriptDir = SCRIPT_DIR) {
   }
 }
 
-// Reads the package-name set vite.config.ts's bundled-packages plugin wrote
-// next to the build output. Returns null (not []) when the file is absent --
-// distinct from "the bundle contains nothing" -- so callers can tell "no
-// build has run yet" from "the build ran and bundled zero third-party
-// packages", and skip bundle-membership checking rather than treating an
-// empty set as ground truth.
+// Package names vite.config.ts's plugin recorded as actually bundled. Null
+// (not []) means no build has run yet, so bundle-membership checks are skipped.
 function loadBundledPackageNames(staticDir) {
   const bundledPath = join(staticDir, BUNDLED_PACKAGES_FILE_NAME);
   try {
@@ -107,41 +69,24 @@ function loadBundledPackageNames(staticDir) {
   }
 }
 
-// npm's lockfile marks a package `dev: true` when only reachable from
-// devDependencies, and `devOptional: true` when it is reachable *only*
-// through some combination of devDependency and optional-dependency/peer
-// edges -- i.e. it would be pruned by `npm ci --omit=dev`'s production
-// install just as surely as a plain `dev: true` entry, even though a
-// non-omitting install (or one that also keeps optional deps) would still
-// place it on disk. Either flag means "not part of the production runtime
-// graph" for this script's purposes.
+// True when the lockfile marks this package unreachable from a production
+// install (`dev` or `devOptional`).
 function isDevOnly(entry) {
   return Boolean(entry?.dev) || Boolean(entry?.devOptional);
 }
 
-// A lockfile "packages" key is either "" (the workspace root) or
-// "node_modules/<name>[/node_modules/<name>...]". The package's own name is
-// always the segment after the last "node_modules/" -- this also handles
-// scoped names ("@scope/name") correctly, since the scope/name split never
-// contains the literal substring "node_modules/". Deliberately splits on
-// "node_modules/" without a leading slash: a top-level path
-// ("node_modules/react") has no "/" *before* its "node_modules/", only a
-// nested path does, and requiring the leading slash would leave every
-// top-level path unsplit.
+// A lockfile key is "" (root) or "node_modules/<name>[/node_modules/<name>...]";
+// the package name is the segment after the last "node_modules/" (this also
+// handles scoped names correctly).
 function packageNameFromPath(path) {
   const segments = path.split("node_modules/");
   return segments[segments.length - 1];
 }
 
-// Resolves `depName` the way Node's own require/import resolution would from
-// a package installed at lockfile path `fromPath` (`""` for the workspace
-// root): try `<fromPath>/node_modules/<depName>` first, then walk up one
-// ancestor node_modules directory at a time until the root is reached.
-// Skipping straight from a nested package's own node_modules entry to its
-// parent's (rather than checking every filesystem directory in between)
-// is equivalent here because only directories npm actually installed into
-// are ever lockfile "packages" keys -- there is nothing else upward
-// resolution could find along the way.
+// Resolves `depName` the way Node's own require/import would from a package
+// installed at lockfile path `fromPath` (`""` for the root): try
+// `<fromPath>/node_modules/<depName>` first, then walk up one ancestor
+// node_modules directory at a time.
 function resolveDependencyPath(lockfile, fromPath, depName) {
   let path = fromPath;
   for (;;) {
@@ -153,12 +98,9 @@ function resolveDependencyPath(lockfile, fromPath, depName) {
   }
 }
 
-// Finds *some* installed copy of `name` anywhere in the lockfile, without a
-// starting point to resolve upward from -- used only for names that came
-// from the bundled-packages set (vite.config.ts's plugin records a bare
-// package name, not the module id's full nested path). Prefers the
-// top-level install (what almost every case in practice is) and otherwise
-// takes the first nested match in sorted order, for determinism.
+// Finds an installed copy of `name` anywhere in the lockfile (used for names
+// that only came from the bundled-packages set). Prefers the top-level
+// install, else the first nested match in sorted order.
 function findAnyEntryPathByName(lockfile, name) {
   const topLevel = `node_modules/${name}`;
   if (lockfile.packages[topLevel]) return topLevel;
@@ -169,17 +111,9 @@ function findAnyEntryPathByName(lockfile, name) {
   return matches.length > 0 ? matches[0] : null;
 }
 
-// Walks package.json `dependencies` (the production ones only -- the
-// lockfile root's "dependencies" key never includes devDependencies) through
-// the lockfile, additionally following `peerDependencies` (including ones
-// npm's install marks optional in `peerDependenciesMeta` -- if a peer is
-// actually installed, its code can end up in the bundle just as easily as a
-// regular dependency's) and `optionalDependencies`. A required edge
-// (`dependencies`, or a peer not marked optional) that fails to resolve is a
-// broken lockfile/node_modules and throws; an edge legitimately allowed to
-// be absent (`optionalDependencies`, or an optional peer) is skipped instead.
-// Returns every visited path (including dev-only ones, so cycles through them
-// are not re-walked) -- callers filter dev-only back out.
+// Walks production `dependencies`, plus installed `peerDependencies` and
+// `optionalDependencies`, through the lockfile. A required edge that fails
+// to resolve throws; an allowed-absent one is skipped.
 function collectProductionClosure(lockfile) {
   const rootEntry = lockfile.packages[""];
   if (!rootEntry) {
@@ -228,13 +162,8 @@ function collectProductionClosure(lockfile) {
   return visited;
 }
 
-// Lists only *files* whose name matches LICENSE_FILE_PATTERN, ignoring any
-// same-named directory (some packages ship a `licenses/` subdirectory of
-// per-file notices, which is not itself a license file) -- and, when more
-// than one matches (dual-licensed packages sometimes ship
-// `LICENSE-MIT` + `LICENSE-APACHE` side by side), concatenates all of them
-// rather than picking one arbitrarily, so neither license's terms get
-// silently dropped.
+// Lists files (not directories) matching LICENSE_FILE_PATTERN; concatenates
+// all matches so a dual-licensed package doesn't lose either license's terms.
 function findLicenseFile(packageDir) {
   let dirents;
   try {
@@ -290,11 +219,8 @@ function readReadmeLicenseSection(packageDir) {
   return extractReadmeLicenseSection(content);
 }
 
-// A README "# License" section is only useful as MIT/BSD-style attribution
-// text if it is more than the SPDX identifier restated (e.g. just "MIT") --
-// that alone omits the copyright/permission/warranty text those licenses
-// require to travel with the distribution. Rejects anything too short, or
-// that (once whitespace-normalized) is exactly the `license` field's value.
+// Rejects README license text that's too short or just restates the SPDX
+// identifier -- that alone omits the required copyright/permission text.
 function isSubstantiveReadmeLicenseText(text, licenseField) {
   if (!text) return false;
   const normalized = text.trim();
@@ -335,13 +261,10 @@ function formatRepository(packageJson) {
   return null;
 }
 
-// Resolves a package's full attribution text, trying (in order):
-//   1. `"license": "SEE LICENSE IN <file>"` -- read that file verbatim.
-//   2. An installed LICENSE/COPYING file (see findLicenseFile).
-//   3. package.json `author` + a substantive README "# License" section.
-//   4. A checked-in entry in third-party-license-overrides.json.
-// Returns { text: null } if none of these produce anything -- the caller
-// treats that as fatal.
+// Resolves a package's attribution text, trying in order: a `SEE LICENSE IN
+// <file>` reference, an installed LICENSE/COPYING file, author + a
+// substantive README license section, then a checked-in override. Returns
+// { text: null } if none produce anything -- the caller treats that as fatal.
 function resolveLicenseText(packageDir, packageJson, overrides, name, version) {
   const licenseField = formatLicenseField(packageJson);
   const seeLicenseMatch = typeof licenseField === "string" && licenseField.match(/^see license in (.+)$/i);
@@ -374,20 +297,12 @@ function resolveLicenseText(packageDir, packageJson, overrides, name, version) {
   return { text: null, source: null };
 }
 
-// Reads each in-scope package's identity, license, and license text straight
-// from its installed node_modules/<name>/ directory -- the lockfile only
-// decides which packages are in scope, never their attribution.
-//
-// `bundledPackageNames` (from loadBundledPackageNames -- null means "no
-// build has run yet, skip bundle-membership checking") is unioned with the
-// lockfile's production closure: a name present in the bundle but not
-// reachable from the closure (e.g. a devDependency whose CSS/output still
-// ships) is still resolved and attributed; a name in the closure absent from
-// the bundle (dead code Rollup dropped) is still attributed but flagged
-// `inBundle: false`. A bundled name that cannot be resolved anywhere in the
-// lockfile at all is reported back as `unresolvedBundled` -- the caller
-// treats that as fatal, since it means the bundle contains something this
-// script has no way to identify.
+// Reads each in-scope package's license text from its installed
+// node_modules/<name>/ directory, unioning the lockfile's production closure
+// with the bundled-packages set (a name only in the bundle, e.g. a
+// devDependency whose output still ships, is still attributed; a name only
+// in the closure is attributed but flagged `inBundle: false`; a bundled name
+// unresolvable in the lockfile is reported in `unresolvedBundled`).
 function collectEntries(frontendDir, lockfile, { bundledPackageNames = null, overrides = {} } = {}) {
   const entries = [];
   const missingLicenseField = [];
@@ -535,24 +450,9 @@ function main() {
   }
 }
 
-// Only run when executed directly (`node generate-third-party-licenses.mjs`),
-// not when imported by the vitest unit tests.
-//
-// This needs care on two fronts a naive comparison gets wrong, both of which
-// fail *silently* (the script exits 0 having done nothing, rather than
-// erroring):
-//   - A raw string/URL comparison (`import.meta.url === \`file://${argv[1]}\``)
-//     never matches once the checkout path contains a space or other
-//     non-ASCII character: `import.meta.url` percent-encodes those,
-//     `process.argv[1]` never does.
-//   - A plain filesystem-path comparison
-//     (`fileURLToPath(import.meta.url) === resolve(argv[1])`) never matches
-//     when any ancestor directory is a symlink (e.g. macOS's `/tmp` ->
-//     `/private/tmp`): Node's ESM loader resolves `import.meta.url` through
-//     the real path, but `path.resolve(argv[1])` never touches the
-//     filesystem, so it keeps the symlinked form.
-// Running both sides through `realpathSync` before building a `file://` URL
-// (via `pathToFileURL`) makes the comparison immune to both.
+// True only when this module was invoked directly (not imported by tests).
+// realpathSync on both sides avoids mismatches from a symlinked tmp dir
+// (macOS's /tmp -> /private/tmp) or a checkout path containing a space.
 function isMainModule() {
   if (!process.argv[1]) return false;
   try {

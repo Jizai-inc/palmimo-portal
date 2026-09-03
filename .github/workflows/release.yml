@@ -82,11 +82,7 @@ jobs:
           # palmimo_portal/adapters/static_asset.py's extractor refuses any
           # member not rooted under `static/`.
           tar -C palmimo_portal -czf "$asset" static
-          # `make build` (above) is what actually generates this file (see
-          # frontend/scripts/generate-third-party-licenses.mjs); this check
-          # only guards against the tarball step silently losing it -- e.g. a
-          # future change to the `tar` invocation's path/filters -- since a
-          # release shipped without it has no MIT/BSD attribution at all.
+          # Guard against a release shipping with no third-party attribution.
           if ! tar -tzf "$asset" | grep -qx 'static/THIRD_PARTY_LICENSES.txt'; then
             echo "release asset $asset is missing static/THIRD_PARTY_LICENSES.txt" >&2
             exit 1

@@ -13,27 +13,12 @@ import { defineConfig, type Plugin } from "vite";
 // workflow tars it up as a GitHub Release asset (see doc/guides/releasing.md
 // -- this output is not committed).
 
-// `@tailwindcss/vite` compiles Tailwind's CSS (including the `tailwindcss`
-// package's own preflight reset, which lands straight in index.css) through
-// its own internal pipeline rather than through Rollup's module graph -- it
-// never calls resolveId/load/transform/moduleParsed for
-// `node_modules/tailwindcss/...` at all (verified empirically: instrumenting
-// every one of those hooks during a real build never sees it), so there is
-// no plugin-API hook that could observe it generically the way
-// `moduleParsed` observes an ordinary JS/CSS import below. Since this config
-// is the one place that knows `tailwindcss()` is active, and Tailwind always
-// inlines that reset whenever it is, its inclusion is asserted here rather
-// than detected.
+// `tailwindcss` is processed by `@tailwindcss/vite` through its own internal
+// pipeline, so it never appears in any Rollup plugin hook -- asserted here instead.
 const ALWAYS_BUNDLED_PACKAGE_NAMES = ["tailwindcss"];
 
-// Records which npm packages actually contributed a module to the build
-// (not merely "resolvable from package.json", which frontend/scripts/
-// generate-third-party-licenses.mjs's lockfile-closure walk already covers
-// on its own) and writes their names to <outDir>/.bundled-packages.json.
-// This exists because the lockfile closure alone misses a devDependency
-// whose *output* still ships (see ALWAYS_BUNDLED_PACKAGE_NAMES above).
-// `moduleParsed` sees every module Rollup includes in the graph, dev-only or
-// not; `closeBundle` runs once the bundle is finalized.
+// Records which npm packages actually contributed a module to the build,
+// for frontend/scripts/generate-third-party-licenses.mjs to attribute.
 function recordBundledPackagesPlugin(): Plugin {
   const packageNames = new Set<string>(ALWAYS_BUNDLED_PACKAGE_NAMES);
   let outDir = "";

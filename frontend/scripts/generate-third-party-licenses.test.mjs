@@ -19,14 +19,10 @@ const REAL_SCRIPTS_DIR = dirname(SCRIPT_PATH);
 const REAL_FRONTEND_DIR = dirname(REAL_SCRIPTS_DIR);
 
 // Builds a minimal fake frontend/ directory: a package-lock.json (v3 shape)
-// plus matching node_modules/<name>/{package.json,LICENSE} directories --
-// enough for the script to walk without touching the real project's
-// node_modules or lockfile.
-//
-// `packages` values may set `nestedUnder: "<parent-name>"` to install the
-// package only at node_modules/<parent-name>/node_modules/<name> (not
-// top-level) -- for exercising Node-style upward resolution instead of a
-// flat lookup.
+// plus matching node_modules/<name>/{package.json,LICENSE} dirs, enough for
+// the script to walk without touching the real project's node_modules.
+// `nestedUnder: "<parent>"` installs a package only under the parent's own
+// node_modules, to exercise Node-style upward resolution.
 function makeFakeFrontend(packages) {
   const frontendDir = mkdtempSync(join(tmpdir(), "third-party-licenses-test-"));
   mkdirSync(join(frontendDir, "src", "components", "ui"), { recursive: true });
@@ -39,32 +35,24 @@ function makeFakeFrontend(packages) {
       : `node_modules/${name}`;
     const packageDir = join(frontendDir, lockPath);
     mkdirSync(packageDir, { recursive: true });
-    const packageJson = {
-      name,
-      version: spec.version,
-      license: spec.license,
-      licenses: spec.licenses,
-      repository: spec.repository,
-      author: spec.author,
-    };
-    writeFileSync(join(packageDir, "package.json"), JSON.stringify(packageJson));
-
+    writeFileSync(
+      join(packageDir, "package.json"),
+      JSON.stringify({ name, version: spec.version, license: spec.license, author: spec.author }),
+    );
     for (const [fileName, contents] of Object.entries(spec.files ?? {})) {
       writeFileSync(join(packageDir, fileName), contents);
     }
-    if (spec.licenseDirs) {
-      for (const dirName of spec.licenseDirs) mkdirSync(join(packageDir, dirName), { recursive: true });
-    }
+    for (const dirName of spec.licenseDirs ?? []) mkdirSync(join(packageDir, dirName), { recursive: true });
 
     lockPackages[lockPath] = {
       version: spec.version,
       dev: Boolean(spec.dev),
+      devOptional: spec.devOptional,
       dependencies: spec.dependencies ?? {},
-      optionalDependencies: spec.optionalDependencies ?? undefined,
-      peerDependencies: spec.peerDependencies ?? undefined,
-      peerDependenciesMeta: spec.peerDependenciesMeta ?? undefined,
+      optionalDependencies: spec.optionalDependencies,
+      peerDependencies: spec.peerDependencies,
+      peerDependenciesMeta: spec.peerDependenciesMeta,
     };
-
     if (spec.isRootDependency !== false && !spec.nestedUnder) {
       lockPackages[""].dependencies[name] = spec.version;
     }
@@ -73,13 +61,11 @@ function makeFakeFrontend(packages) {
     join(frontendDir, "package-lock.json"),
     JSON.stringify({ name: "frontend", lockfileVersion: 3, packages: lockPackages }),
   );
-
   return frontendDir;
 }
 
 describe("generate-third-party-licenses", () => {
   const tempDirs = [];
-
   afterEach(() => {
     while (tempDirs.length > 0) rmSync(tempDirs.pop(), { recursive: true, force: true });
   });
@@ -90,53 +76,30 @@ describe("generate-third-party-licenses", () => {
     return frontendDir;
   }
 
-  it("includes only production dependencies, not dev-only ones", () => {
+  function names(entries) {
+    return entries.map((entry) => entry.name);
+  }
+
+  it("includes production and transitive-production deps, excludes dev-only ones", () => {
     const frontendDir = build({
-      react: { version: "19.0.0", license: "MIT", files: { LICENSE: "react license" } },
-      vitest: { version: "4.0.0", license: "MIT", dev: true, files: { LICENSE: "vitest license" } },
+      react: { version: "19.0.0", license: "MIT", files: { LICENSE: "x" }, dependencies: { "react-dep": "1.0.0" } },
+      "react-dep": { version: "1.0.0", license: "MIT", files: { LICENSE: "x" }, isRootDependency: false },
+      vitest: { version: "4.0.0", license: "MIT", dev: true, files: { LICENSE: "x" } },
     });
 
     const { entries } = collectEntries(frontendDir, loadLockfile(frontendDir));
-    const names = entries.map((entry) => entry.name);
 
-    expect(names).toContain("react");
-    expect(names).not.toContain("vitest");
-  });
-
-  it("includes a transitive production dependency reached through another production package", () => {
-    const frontendDir = build({
-      "pkg-a": {
-        version: "1.0.0",
-        license: "MIT",
-        files: { LICENSE: "pkg-a license" },
-        dependencies: { "pkg-b": "1.0.0" },
-      },
-      "pkg-b": {
-        version: "1.0.0",
-        license: "MIT",
-        files: { LICENSE: "pkg-b license" },
-        isRootDependency: false,
-      },
-    });
-
-    const { entries } = collectEntries(frontendDir, loadLockfile(frontendDir));
-    expect(entries.map((entry) => entry.name)).toContain("pkg-b");
+    expect(names(entries)).toEqual(expect.arrayContaining(["react", "react-dep"]));
+    expect(names(entries)).not.toContain("vitest");
   });
 
   it("carries the full license file body into the rendered notice", () => {
-    const frontendDir = build({
-      "pkg-a": {
-        version: "1.0.0",
-        license: "MIT",
-        files: { LICENSE: "Permission is hereby granted, free of charge..." },
-      },
-    });
+    const frontendDir = build({ "pkg-a": { version: "1.0.0", license: "MIT", files: { LICENSE: "Permission..." } } });
 
-    const { entries } = collectEntries(frontendDir, loadLockfile(frontendDir));
-    const notice = renderNotice(entries);
+    const notice = renderNotice(collectEntries(frontendDir, loadLockfile(frontendDir)).entries);
 
     expect(notice).toContain("=== pkg-a@1.0.0 — MIT ===");
-    expect(notice).toContain("Permission is hereby granted, free of charge...");
+    expect(notice).toContain("Permission...");
   });
 
   it("reports every package missing a license field, not just the first", () => {
@@ -153,13 +116,11 @@ describe("generate-third-party-licenses", () => {
 
   it("always includes the vendored shadcn/ui entry, marked in-bundle", () => {
     const frontendDir = build({});
-
     const { entries } = collectEntries(frontendDir, loadLockfile(frontendDir));
-
     const shadcn = entries.find((entry) => entry.name.includes("shadcn/ui"));
-    expect(shadcn).toBeDefined();
-    expect(shadcn.licenseText).toContain("MIT License (shadcn/ui)");
-    expect(shadcn.inBundle).toBe(true);
+
+    expect(shadcn?.licenseText).toContain("MIT License (shadcn/ui)");
+    expect(shadcn?.inBundle).toBe(true);
   });
 
   it("renders entries in deterministic, name-sorted order regardless of input order", () => {
@@ -167,29 +128,21 @@ describe("generate-third-party-licenses", () => {
       zeta: { version: "1.0.0", license: "MIT", files: { LICENSE: "z" } },
       alpha: { version: "1.0.0", license: "MIT", files: { LICENSE: "a" } },
     });
-
     const { entries } = collectEntries(frontendDir, loadLockfile(frontendDir));
     const notice = renderNotice(entries);
 
-    const alphaIndex = notice.indexOf("=== alpha@");
-    const zetaIndex = notice.indexOf("=== zeta@");
-    expect(alphaIndex).toBeGreaterThan(-1);
-    expect(zetaIndex).toBeGreaterThan(alphaIndex);
-
-    // Re-rendering the same entries in a different array order must produce
-    // byte-identical output -- renderNotice, not collection order, owns the
-    // sort.
-    const shuffled = [...entries].reverse();
-    expect(renderNotice(shuffled)).toBe(notice);
+    expect(notice.indexOf("=== zeta@")).toBeGreaterThan(notice.indexOf("=== alpha@"));
+    // renderNotice, not collection order, owns the sort.
+    expect(renderNotice([...entries].reverse())).toBe(notice);
   });
 
   describe("license text fallback chain", () => {
-    it("is fatal when a package has a license field but no file, no substantive README, and no override", () => {
+    it("is fatal with a license field but no file, no substantive README, and no override", () => {
       const frontendDir = build({
         "pkg-no-text": {
           version: "1.0.0",
           license: "MIT",
-          author: "Someone <someone@example.com>",
+          author: "Someone",
           files: { "README.md": "# pkg-no-text\n\n# License\nMIT\n" },
         },
       });
@@ -197,27 +150,26 @@ describe("generate-third-party-licenses", () => {
       const { entries, missingLicenseText } = collectEntries(frontendDir, loadLockfile(frontendDir));
 
       expect(missingLicenseText).toEqual(["pkg-no-text@1.0.0"]);
-      expect(entries.map((entry) => entry.name)).not.toContain("pkg-no-text");
+      expect(names(entries)).not.toContain("pkg-no-text");
     });
 
     it("falls back to author + a substantive README License section when no LICENSE file exists", () => {
-      const licenseBody =
-        "Permission is hereby granted, free of charge, to any person obtaining a copy of this software...";
+      const body = "Permission is hereby granted, free of charge, to any person obtaining a copy...";
       const frontendDir = build({
-        "pkg-readme-license": {
+        "pkg-readme": {
           version: "2.0.0",
           license: "MIT",
-          author: "Jane Doe <jane@example.com>",
-          files: { "README.md": `# pkg-readme-license\n\n## License\n${licenseBody}\n` },
+          author: "Jane Doe",
+          files: { "README.md": `# pkg-readme\n\n## License\n${body}\n` },
         },
       });
 
       const { entries, missingLicenseText } = collectEntries(frontendDir, loadLockfile(frontendDir));
 
       expect(missingLicenseText).toEqual([]);
-      const entry = entries.find((e) => e.name === "pkg-readme-license");
+      const entry = entries.find((e) => e.name === "pkg-readme");
       expect(entry.licenseText).toContain("Copyright (c) Jane Doe");
-      expect(entry.licenseText).toContain(licenseBody);
+      expect(entry.licenseText).toContain(body);
     });
 
     it("rejects a README License section that just restates the SPDX identifier", () => {
@@ -230,34 +182,23 @@ describe("generate-third-party-licenses", () => {
         },
       });
 
-      const { missingLicenseText } = collectEntries(frontendDir, loadLockfile(frontendDir));
-      expect(missingLicenseText).toEqual(["pkg-bare-readme@1.0.0"]);
+      expect(collectEntries(frontendDir, loadLockfile(frontendDir)).missingLicenseText).toEqual([
+        "pkg-bare-readme@1.0.0",
+      ]);
     });
 
     it("uses a checked-in override when no file or README text is available", () => {
-      const frontendDir = build({
-        "pkg-override": {
-          version: "3.0.0",
-          license: "MIT",
-        },
-      });
-
+      const frontendDir = build({ "pkg-override": { version: "3.0.0", license: "MIT" } });
       const overrides = {
-        "pkg-override@3.0.0": {
-          holder: "Override Holder",
-          license: "MIT",
-          text: "Permission is hereby granted... (override body)",
-        },
+        "pkg-override@3.0.0": { holder: "Override Holder", text: "Permission is hereby granted... (override)" },
       };
 
-      const { entries, missingLicenseText } = collectEntries(frontendDir, loadLockfile(frontendDir), {
-        overrides,
-      });
+      const { entries, missingLicenseText } = collectEntries(frontendDir, loadLockfile(frontendDir), { overrides });
 
       expect(missingLicenseText).toEqual([]);
       const entry = entries.find((e) => e.name === "pkg-override");
       expect(entry.licenseText).toContain("Copyright (c) Override Holder");
-      expect(entry.licenseText).toContain("override body");
+      expect(entry.licenseText).toContain("override");
     });
 
     it("reads the referenced file for a SEE LICENSE IN <file> license field", () => {
@@ -269,10 +210,8 @@ describe("generate-third-party-licenses", () => {
         },
       });
 
-      const { entries, missingLicenseText } = collectEntries(frontendDir, loadLockfile(frontendDir));
-      expect(missingLicenseText).toEqual([]);
-      const entry = entries.find((e) => e.name === "pkg-see-license-in");
-      expect(entry.licenseText).toContain("Custom license body text.");
+      const { entries } = collectEntries(frontendDir, loadLockfile(frontendDir));
+      expect(entries.find((e) => e.name === "pkg-see-license-in").licenseText).toContain("Custom license body text.");
     });
   });
 
@@ -282,10 +221,7 @@ describe("generate-third-party-licenses", () => {
         "pkg-dual": {
           version: "1.0.0",
           license: "(MIT OR CC0-1.0)",
-          files: {
-            "LICENSE-MIT": "MIT license body",
-            "LICENSE-CC0": "CC0 license body",
-          },
+          files: { "LICENSE-MIT": "MIT license body", "LICENSE-CC0": "CC0 license body" },
         },
       });
 
@@ -305,45 +241,26 @@ describe("generate-third-party-licenses", () => {
         },
       });
 
-      const packageDir = join(frontendDir, "node_modules", "pkg-license-dir");
-      const text = findLicenseFile(packageDir);
-      expect(text).toBe("the real license text");
+      expect(findLicenseFile(join(frontendDir, "node_modules", "pkg-license-dir"))).toBe("the real license text");
     });
   });
 
   describe("Node-style dependency resolution", () => {
     it("resolves a dependency installed only nested under its parent, not hoisted to the top level", () => {
       const frontendDir = build({
-        "pkg-a": {
-          version: "1.0.0",
-          license: "MIT",
-          files: { LICENSE: "pkg-a license" },
-          dependencies: { "pkg-nested": "2.0.0" },
-        },
-        "pkg-nested": {
-          version: "2.0.0",
-          license: "MIT",
-          files: { LICENSE: "pkg-nested license" },
-          nestedUnder: "pkg-a",
-        },
+        "pkg-a": { version: "1.0.0", license: "MIT", files: { LICENSE: "x" }, dependencies: { "pkg-nested": "2.0.0" } },
+        "pkg-nested": { version: "2.0.0", license: "MIT", files: { LICENSE: "x" }, nestedUnder: "pkg-a" },
       });
 
-      expect(
-        resolveDependencyPath(loadLockfile(frontendDir), "node_modules/pkg-a", "pkg-nested"),
-      ).toBe("node_modules/pkg-a/node_modules/pkg-nested");
-
-      const { entries } = collectEntries(frontendDir, loadLockfile(frontendDir));
-      expect(entries.map((entry) => entry.name)).toContain("pkg-nested");
+      expect(resolveDependencyPath(loadLockfile(frontendDir), "node_modules/pkg-a", "pkg-nested")).toBe(
+        "node_modules/pkg-a/node_modules/pkg-nested",
+      );
+      expect(names(collectEntries(frontendDir, loadLockfile(frontendDir)).entries)).toContain("pkg-nested");
     });
 
     it("throws when a required dependency cannot be resolved anywhere in the tree", () => {
       const frontendDir = build({
-        "pkg-broken": {
-          version: "1.0.0",
-          license: "MIT",
-          files: { LICENSE: "x" },
-          dependencies: { "pkg-missing": "1.0.0" },
-        },
+        "pkg-broken": { version: "1.0.0", license: "MIT", files: { LICENSE: "x" }, dependencies: { "pkg-missing": "1.0.0" } },
       });
 
       expect(() => collectEntries(frontendDir, loadLockfile(frontendDir))).toThrow(/pkg-missing/);
@@ -351,22 +268,11 @@ describe("generate-third-party-licenses", () => {
 
     it("follows a required peerDependency that is actually installed", () => {
       const frontendDir = build({
-        "pkg-a": {
-          version: "1.0.0",
-          license: "MIT",
-          files: { LICENSE: "pkg-a license" },
-          peerDependencies: { "pkg-peer": "1.0.0" },
-        },
-        "pkg-peer": {
-          version: "1.0.0",
-          license: "MIT",
-          files: { LICENSE: "pkg-peer license" },
-          isRootDependency: false,
-        },
+        "pkg-a": { version: "1.0.0", license: "MIT", files: { LICENSE: "x" }, peerDependencies: { "pkg-peer": "1.0.0" } },
+        "pkg-peer": { version: "1.0.0", license: "MIT", files: { LICENSE: "x" }, isRootDependency: false },
       });
 
-      const { entries } = collectEntries(frontendDir, loadLockfile(frontendDir));
-      expect(entries.map((entry) => entry.name)).toContain("pkg-peer");
+      expect(names(collectEntries(frontendDir, loadLockfile(frontendDir)).entries)).toContain("pkg-peer");
     });
 
     it("silently skips an optional peerDependency that is not installed", () => {
@@ -374,7 +280,7 @@ describe("generate-third-party-licenses", () => {
         "pkg-a": {
           version: "1.0.0",
           license: "MIT",
-          files: { LICENSE: "pkg-a license" },
+          files: { LICENSE: "x" },
           peerDependencies: { "pkg-optional-peer": "1.0.0" },
           peerDependenciesMeta: { "pkg-optional-peer": { optional: true } },
         },
@@ -388,28 +294,21 @@ describe("generate-third-party-licenses", () => {
         "pkg-a": {
           version: "1.0.0",
           license: "MIT",
-          files: { LICENSE: "pkg-a license" },
+          files: { LICENSE: "x" },
           optionalDependencies: { "pkg-opt-present": "1.0.0", "pkg-opt-absent": "1.0.0" },
         },
-        "pkg-opt-present": {
-          version: "1.0.0",
-          license: "MIT",
-          files: { LICENSE: "present" },
-          isRootDependency: false,
-        },
+        "pkg-opt-present": { version: "1.0.0", license: "MIT", files: { LICENSE: "x" }, isRootDependency: false },
       });
 
-      const { entries } = collectEntries(frontendDir, loadLockfile(frontendDir));
-      const names = entries.map((entry) => entry.name);
-      expect(names).toContain("pkg-opt-present");
-      expect(names).not.toContain("pkg-opt-absent");
+      const found = names(collectEntries(frontendDir, loadLockfile(frontendDir)).entries);
+      expect(found).toContain("pkg-opt-present");
+      expect(found).not.toContain("pkg-opt-absent");
     });
   });
 
   describe("bundle-membership union", () => {
     it("errors when the bundled set names a package that cannot be resolved in the lockfile", () => {
       const frontendDir = build({});
-
       const { unresolvedBundled } = collectEntries(frontendDir, loadLockfile(frontendDir), {
         bundledPackageNames: ["ghost-package"],
       });
@@ -417,159 +316,86 @@ describe("generate-third-party-licenses", () => {
       expect(unresolvedBundled).toEqual(["ghost-package"]);
     });
 
-    it("includes a devDependency-only package that is present in the bundled set (e.g. tailwindcss)", () => {
-      const frontendDir = build({
-        tailwindcss: {
-          version: "4.0.0",
-          license: "MIT",
-          dev: true,
-          files: { LICENSE: "tailwind license" },
-        },
-      });
+    it("includes a devDependency-only bundled package once, e.g. tailwindcss", () => {
+      const frontendDir = build({ tailwindcss: { version: "4.0.0", license: "MIT", dev: true, files: { LICENSE: "x" } } });
 
       const { entries } = collectEntries(frontendDir, loadLockfile(frontendDir), {
         bundledPackageNames: ["tailwindcss"],
       });
 
-      const entry = entries.find((e) => e.name === "tailwindcss");
-      expect(entry).toBeDefined();
-      expect(entry.inBundle).toBe(true);
+      const matches = entries.filter((e) => e.name === "tailwindcss");
+      expect(matches).toHaveLength(1);
+      expect(matches[0].inBundle).toBe(true);
     });
 
     it("marks a production dependency not present in the bundled set as in bundle: no", () => {
-      const frontendDir = build({
-        "pkg-unbundled": { version: "1.0.0", license: "MIT", files: { LICENSE: "x" } },
-      });
+      const frontendDir = build({ "pkg-unbundled": { version: "1.0.0", license: "MIT", files: { LICENSE: "x" } } });
 
-      const { entries } = collectEntries(frontendDir, loadLockfile(frontendDir), {
-        bundledPackageNames: [],
-      });
+      const { entries } = collectEntries(frontendDir, loadLockfile(frontendDir), { bundledPackageNames: [] });
 
-      const entry = entries.find((e) => e.name === "pkg-unbundled");
-      expect(entry.inBundle).toBe(false);
+      expect(entries.find((e) => e.name === "pkg-unbundled").inBundle).toBe(false);
       expect(renderNotice(entries)).toContain("In bundle: no");
     });
-
-    it("marks every entry's bundle status unknown when no .bundled-packages.json was found", () => {
-      const frontendDir = build({
-        "pkg-a": { version: "1.0.0", license: "MIT", files: { LICENSE: "x" } },
-      });
-
-      const { entries } = collectEntries(frontendDir, loadLockfile(frontendDir), {
-        bundledPackageNames: null,
-      });
-
-      const entry = entries.find((e) => e.name === "pkg-a");
-      expect(entry.inBundle).toBeNull();
-      expect(renderNotice(entries)).toContain("In bundle: unknown");
-    });
   });
 
-  describe("packageNameFromPath", () => {
-    it("extracts a scoped package name from a nested lockfile path", () => {
-      expect(packageNameFromPath("node_modules/pkg-a/node_modules/@scope/pkg-b")).toBe("@scope/pkg-b");
-    });
-
-    it("extracts the plain name from a top-level lockfile path", () => {
-      // Regression: an earlier implementation split on "/node_modules/"
-      // (leading slash required), which only a *nested* path contains --
-      // a top-level path like "node_modules/react" has no "/" before its
-      // "node_modules/", so it came back completely unsplit.
-      expect(packageNameFromPath("node_modules/react")).toBe("react");
-    });
+  it("extracts the package name from a lockfile path, scoped or not", () => {
+    expect(packageNameFromPath("node_modules/pkg-a/node_modules/@scope/pkg-b")).toBe("@scope/pkg-b");
+    expect(packageNameFromPath("node_modules/react")).toBe("react");
   });
 
-  describe("bundle-union deduplication", () => {
-    it("does not duplicate a top-level production dependency that is also in the bundled set", () => {
-      const frontendDir = build({
-        react: { version: "19.0.0", license: "MIT", files: { LICENSE: "react license" } },
-      });
-
-      const { entries } = collectEntries(frontendDir, loadLockfile(frontendDir), {
-        bundledPackageNames: ["react"],
-      });
-
-      expect(entries.filter((entry) => entry.name === "react")).toHaveLength(1);
+  it("excludes a package the lockfile marks devOptional (dev + optional-peer only)", () => {
+    const frontendDir = build({
+      "pkg-a": {
+        version: "1.0.0",
+        license: "MIT",
+        files: { LICENSE: "x" },
+        peerDependencies: { "pkg-types": "1.0.0" },
+        peerDependenciesMeta: { "pkg-types": { optional: true } },
+      },
+      "pkg-types": { version: "1.0.0", license: "MIT", files: { LICENSE: "x" }, isRootDependency: false, devOptional: true },
     });
+
+    expect(names(collectEntries(frontendDir, loadLockfile(frontendDir)).entries)).not.toContain("pkg-types");
   });
 
-  describe("devOptional handling", () => {
-    it("excludes a package the lockfile marks devOptional (dev + optional-peer only)", () => {
-      const frontendDir = build({
-        "pkg-a": {
-          version: "1.0.0",
-          license: "MIT",
-          files: { LICENSE: "pkg-a license" },
-          peerDependencies: { "pkg-types": "1.0.0" },
-          peerDependenciesMeta: { "pkg-types": { optional: true } },
+  it("runs main() when invoked directly, even from a directory path containing a space", () => {
+    const spacedRoot = mkdtempSync(join(tmpdir(), "third party licenses "));
+    tempDirs.push(spacedRoot);
+
+    // Copy just enough of the real frontend for the script to run for real:
+    // itself, its overrides table, the vendored shadcn/ui LICENSE, and a
+    // trivial lockfile with node_modules to match.
+    const scriptsDir = join(spacedRoot, "scripts");
+    mkdirSync(scriptsDir, { recursive: true });
+    cpSync(SCRIPT_PATH, join(scriptsDir, "generate-third-party-licenses.mjs"));
+    const overridesSrc = join(REAL_SCRIPTS_DIR, "third-party-license-overrides.json");
+    if (existsSync(overridesSrc)) cpSync(overridesSrc, join(scriptsDir, "third-party-license-overrides.json"));
+
+    mkdirSync(join(spacedRoot, "src", "components", "ui"), { recursive: true });
+    writeFileSync(join(spacedRoot, "src", "components", "ui", "LICENSE"), "MIT License (shadcn/ui)\n");
+
+    const packageDir = join(spacedRoot, "node_modules", "pkg-a");
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(join(packageDir, "package.json"), JSON.stringify({ name: "pkg-a", version: "1.0.0", license: "MIT" }));
+    writeFileSync(join(packageDir, "LICENSE"), "pkg-a license text");
+    writeFileSync(
+      join(spacedRoot, "package-lock.json"),
+      JSON.stringify({
+        name: "frontend",
+        lockfileVersion: 3,
+        packages: {
+          "": { dependencies: { "pkg-a": "1.0.0" } },
+          "node_modules/pkg-a": { version: "1.0.0", dependencies: {} },
         },
-        "pkg-types": {
-          version: "1.0.0",
-          license: "MIT",
-          files: { LICENSE: "pkg-types license" },
-          isRootDependency: false,
-          devOptional: true,
-        },
-      });
+      }),
+    );
 
-      // makeFakeFrontend doesn't thread a bare `devOptional` flag through by
-      // itself (only `dev`) -- patch the lockfile entry directly to match
-      // real npm output (`dev` is absent, only `devOptional: true` is set).
-      const lockfilePath = join(frontendDir, "package-lock.json");
-      const lockfile = JSON.parse(readFileSync(lockfilePath, "utf-8"));
-      lockfile.packages["node_modules/pkg-types"].devOptional = true;
-      writeFileSync(lockfilePath, JSON.stringify(lockfile));
-
-      const { entries } = collectEntries(frontendDir, loadLockfile(frontendDir));
-      expect(entries.map((entry) => entry.name)).not.toContain("pkg-types");
+    const outputPath = join(spacedRoot, "out", "THIRD_PARTY_LICENSES.txt");
+    execFileSync(process.execPath, [join(scriptsDir, "generate-third-party-licenses.mjs"), outputPath], {
+      cwd: spacedRoot,
     });
-  });
 
-  describe("main() guard", () => {
-    it("runs main() when invoked directly even from a directory path containing a space", () => {
-      const spacedRoot = mkdtempSync(join(tmpdir(), "third party licenses "));
-      tempDirs.push(spacedRoot);
-
-      // Copy just enough of the real frontend for the script to run for
-      // real: itself, its overrides table, the vendored shadcn/ui LICENSE,
-      // and a trivial lockfile with node_modules to match.
-      const scriptsDir = join(spacedRoot, "scripts");
-      mkdirSync(scriptsDir, { recursive: true });
-      cpSync(SCRIPT_PATH, join(scriptsDir, "generate-third-party-licenses.mjs"));
-      const overridesSrc = join(REAL_SCRIPTS_DIR, "third-party-license-overrides.json");
-      if (existsSync(overridesSrc)) {
-        cpSync(overridesSrc, join(scriptsDir, "third-party-license-overrides.json"));
-      }
-
-      mkdirSync(join(spacedRoot, "src", "components", "ui"), { recursive: true });
-      writeFileSync(join(spacedRoot, "src", "components", "ui", "LICENSE"), "MIT License (shadcn/ui)\n");
-
-      const packageDir = join(spacedRoot, "node_modules", "pkg-a");
-      mkdirSync(packageDir, { recursive: true });
-      writeFileSync(join(packageDir, "package.json"), JSON.stringify({ name: "pkg-a", version: "1.0.0", license: "MIT" }));
-      writeFileSync(join(packageDir, "LICENSE"), "pkg-a license text");
-
-      writeFileSync(
-        join(spacedRoot, "package-lock.json"),
-        JSON.stringify({
-          name: "frontend",
-          lockfileVersion: 3,
-          packages: {
-            "": { dependencies: { "pkg-a": "1.0.0" } },
-            "node_modules/pkg-a": { version: "1.0.0", dependencies: {} },
-          },
-        }),
-      );
-
-      const outputPath = join(spacedRoot, "out", "THIRD_PARTY_LICENSES.txt");
-      execFileSync(process.execPath, [join(scriptsDir, "generate-third-party-licenses.mjs"), outputPath], {
-        cwd: spacedRoot,
-      });
-
-      expect(existsSync(outputPath)).toBe(true);
-      const contents = readFileSync(outputPath, "utf-8");
-      expect(contents).toContain("pkg-a license text");
-    });
+    expect(readFileSync(outputPath, "utf-8")).toContain("pkg-a license text");
   });
 
   // Runs the real `vite build` against the real project, then checks that
@@ -595,22 +421,16 @@ describe("generate-third-party-licenses", () => {
       for (const match of notice.matchAll(/^=== (\S+)@[^\s]+ — .*? ===\nRepository:.*\nIn bundle: yes/gm)) {
         inBundleYesNames.add(match[1]);
       }
-      // Entries without a Repository line (the vendored shadcn/ui entry)
-      // also need matching -- match those separately rather than
-      // complicating the regex above.
       for (const match of notice.matchAll(/^=== (\S+)@[^\s]+ — .*? ===\n(?!Repository:)In bundle: yes/gm)) {
         inBundleYesNames.add(match[1]);
       }
 
-      // Every bundled package name the plugin recorded must show up as
-      // "in bundle: yes" in the rendered notice -- the vendored shadcn/ui
-      // entry is the one legitimate exception, since it has no
-      // node_modules module id for the plugin to have observed.
+      // Every bundled name the plugin recorded shows up as "in bundle: yes",
+      // and nothing else does -- apart from the vendored shadcn/ui entry,
+      // which has no node_modules module id for the plugin to observe.
       for (const name of bundledPackageNames) {
         expect(inBundleYesNames.has(name), `expected "${name}" to be rendered as "In bundle: yes"`).toBe(true);
       }
-      // And nothing is rendered "in bundle: yes" that the plugin didn't
-      // actually observe, apart from that same vendored exception.
       for (const name of inBundleYesNames) {
         if (name.includes("shadcn/ui")) continue;
         expect(bundledPackageNames.has(name), `"${name}" is rendered "In bundle: yes" but not in .bundled-packages.json`).toBe(

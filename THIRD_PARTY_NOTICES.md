@@ -9,12 +9,26 @@ found rather than asserting there are no others. Nothing here substitutes for
 the complete, machine-generated attribution each shipped artifact carries:
 
 - **Frontend.** `make build` (via `frontend/scripts/generate-third-party-licenses.mjs`,
-  run as `npm run licenses`) collects every production npm dependency's
-  license text from its installed `node_modules/<name>/` directory into
+  run as `npm run licenses`) attributes every package in the union of (a) the
+  production dependency closure walked from `package-lock.json` and (b) the
+  package names `frontend/vite.config.ts`'s `record-bundled-packages` plugin
+  observed actually contributing a module to the real build (this is how a
+  devDependency whose *output* still ships, like `tailwindcss`'s preflight
+  CSS reset, gets attributed too). Each entry is marked `In bundle: yes/no`
+  in the rendered notice. License text is taken from an installed
+  `LICENSE`/`COPYING` file when there is one; failing that, from
+  `package.json`'s `author` plus a substantive README `# License` section;
+  failing that, from a checked-in fallback entry in
+  `frontend/scripts/third-party-license-overrides.json` (used only when
+  upstream genuinely ships no LICENSE file for that exact version — see that
+  file's own header for the schema and citation convention). A package with
+  no usable text anywhere in that chain fails the build rather than shipping
+  unattributed. The result lands at
   `palmimo_portal/static/THIRD_PARTY_LICENSES.txt`, which ships inside the
   release tarball `.github/workflows/release.yml` attaches to each
-  GitHub Release (and, incidentally, becomes servable by the Portal itself at
-  `/THIRD_PARTY_LICENSES.txt`).
+  GitHub Release (verified present in that tarball by the same workflow step
+  that packages it) and, incidentally, becomes servable by the Portal itself
+  at `/THIRD_PARTY_LICENSES.txt`.
 - **Python.** The SD image build collects each installed package's license
   file from its venv's `*.dist-info/` directory; that step lives in the
   [palmimo-image](https://github.com/Jizai-inc/palmimo-image) repository, not

@@ -17,6 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 MAKEFILE_PATH = REPO_ROOT / "Makefile"
 PACKAGE_JSON_PATH = REPO_ROOT / "frontend" / "package.json"
 GENERATOR_SCRIPT_PATH = REPO_ROOT / "frontend" / "scripts" / "generate-third-party-licenses.mjs"
+RELEASE_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "release.yml"
 
 EXPECTED_OUTPUT_RELATIVE_TO_FRONTEND = "../palmimo_portal/static/THIRD_PARTY_LICENSES.txt"
 
@@ -62,4 +63,14 @@ def test_makefile_build_target_runs_licenses_after_frontend_build() -> None:
     assert licenses_index > build_index, (
         "the licenses script must run after the frontend build step, since it lands its output "
         "under the static/ directory the frontend build (re)creates"
+    )
+
+
+def test_release_workflow_verifies_the_license_file_is_in_the_tarball() -> None:
+    text = RELEASE_WORKFLOW_PATH.read_text(encoding="utf-8")
+    assert re.search(r"tar\s+-tzf\s+\"?\$asset\"?\s*\|\s*grep\s+-qx\s+'static/THIRD_PARTY_LICENSES\.txt'", text), (
+        f"{RELEASE_WORKFLOW_PATH} must verify the packaged release asset actually contains "
+        'static/THIRD_PARTY_LICENSES.txt (e.g. `tar -tzf "$asset" | grep -qx '
+        "'static/THIRD_PARTY_LICENSES.txt'`) so a release can never ship without third-party "
+        "attribution without CI catching it"
     )

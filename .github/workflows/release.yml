@@ -82,6 +82,11 @@ jobs:
           # palmimo_portal/adapters/static_asset.py's extractor refuses any
           # member not rooted under `static/`.
           tar -C palmimo_portal -czf "$asset" static
+          # Guard against a release shipping with no third-party attribution.
+          if ! tar -tzf "$asset" | grep -qx 'static/THIRD_PARTY_LICENSES.txt'; then
+            echo "release asset $asset is missing static/THIRD_PARTY_LICENSES.txt" >&2
+            exit 1
+          fi
           sha256sum "$asset" > "$asset.sha256"
 
       - name: Create or update the draft release

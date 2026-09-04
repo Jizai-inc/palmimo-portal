@@ -21,4 +21,6 @@ def test_makefile_build_runs_licenses_after_npm_run_build() -> None:
 
 def test_release_workflow_verifies_the_license_file_is_in_the_tarball() -> None:
     text = RELEASE_WORKFLOW_PATH.read_text(encoding="utf-8")
-    assert re.search(r"tar\s+-tzf\s+\"?\$asset\"?\s*\|\s*grep\s+-qx\s+'static/THIRD_PARTY_LICENSES\.txt'", text)
+    assert re.search(
+        r"tar\s+-tzf\s+\"?\$asset\"?\s*\|\s*grep\s+-x\s+'static/THIRD_PARTY_LICENSES\.txt'\s*>/dev/null", text
+    )

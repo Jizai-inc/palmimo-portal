@@ -1,6 +1,6 @@
 [project]
 name = "palmimo-portal"
-version = "0.1.0"
+version = "0.1.2"
 description = "Palmimo Portal — the device-hosted setup and dashboard web app"
 license = "Apache-2.0"
 requires-python = ">=3.12"

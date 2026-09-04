@@ -1,6 +1,6 @@
 [project]
 name = "palmimo-portal"
-version = "0.1.3"
+version = "0.1.4"
 description = "Palmimo Portal — the device-hosted setup and dashboard web app"
 license = "Apache-2.0"
 requires-python = ">=3.12"
@@ -18,6 +18,13 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["palmimo_portal"]
+
+[tool.uv]
+# The shipped image and the on-device Updater both run `uv sync`; a
+# uv-downloaded python-build-standalone runtime would ship OpenSSL, sqlite,
+# etc. with no license texts anywhere on the device. Use the apt python3.
+python-preference = "only-system"
+python-downloads = "never"
 
 [dependency-groups]
 dev = [

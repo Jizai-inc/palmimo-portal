@@ -22,7 +22,7 @@ packages = ["palmimo_portal"]
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
-    "mypy>=1.8,<2",
+    "mypy>=1.8,<3",
     "pytest>=9.0.3",
     "pytest-asyncio>=0.23",
     "ruff>=0.3,<1",

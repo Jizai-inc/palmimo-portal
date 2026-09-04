@@ -72,7 +72,6 @@ RUNTIME_TEXT_FILES: frozenset[str] = frozenset()
 # Shipped files exempt from every check, and why. A reason is required: it is
 # what a later reader weighs when deciding whether the exemption still holds.
 UNCHECKED_BY_DESIGN: Mapping[str, str] = {
-    ".python-version": "a bare interpreter version, with no room for prose",
     "frontend/.nvmrc": "a bare Node version, with no room for prose",
     "uv.lock": "resolved by uv — a failure here could not be fixed by translating",
     "LICENSE": "upstream Apache-2.0 text, reproduced verbatim and never edited here",

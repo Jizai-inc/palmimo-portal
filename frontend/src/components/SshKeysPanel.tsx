@@ -458,7 +458,9 @@ export function SshKeysPanel() {
                     <TriangleAlert />
                     <AlertTitle>{t("sshKeys.generatedNoteTitle")}</AlertTitle>
                     <AlertDescription className="flex flex-col gap-2">
-                      <span>{t("sshKeys.generatedNoteDownloaded", { filename: PRIVATE_KEY_FILENAME })}</span>
+                      <span className="whitespace-pre-line">
+                        {t("sshKeys.generatedNoteDownloaded", { filename: PRIVATE_KEY_FILENAME })}
+                      </span>
                       <span>{t("sshKeys.generatedNoteInstallIntro")}</span>
                       <code className="overflow-x-auto whitespace-pre rounded-md border border-input bg-muted px-3 py-2 font-mono text-xs text-foreground">
                         {INSTALL_COMMANDS}

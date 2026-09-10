@@ -29,6 +29,11 @@ vi.mock("@/lib/sshKeygen", async (importOriginal) => ({
 URL.createObjectURL = vi.fn(() => "blob:mock-url");
 URL.revokeObjectURL = vi.fn();
 
+// The two branch buttons carry their help text inside their accessible name, so they are matched
+// by prefix rather than by an exact string.
+const GENERATE_CHOICE = /^Create a key in this browser/;
+const REGISTER_CHOICE = /^Register a key you already have/;
+
 const ONE_KEY: SshKeyResponse[] = [
   { fingerprint: "SHA256:aaaa1111bbbb2222", key_type: "ssh-ed25519", comment: "user@laptop" },
 ];
@@ -40,6 +45,14 @@ const TWO_KEYS: SshKeyResponse[] = [
 
 function jsonError(status: number, code: string, params: Record<string, unknown> = {}) {
   return HttpResponse.json({ error: { code, params } }, { status });
+}
+
+async function chooseRegisterBranch(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: REGISTER_CHOICE }));
+}
+
+async function chooseGenerateBranch(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(await screen.findByRole("button", { name: GENERATE_CHOICE }));
 }
 
 describe("SshKeysPanel", () => {
@@ -86,6 +99,7 @@ describe("SshKeysPanel", () => {
     expect(screen.queryByText("No keys registered yet.")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add key" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Public key")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: REGISTER_CHOICE })).not.toBeInTheDocument();
   });
 
   it("posts the pasted key text and refreshes the list on success", async () => {
@@ -105,13 +119,14 @@ describe("SshKeysPanel", () => {
     renderWithProviders(<SshKeysPanel />);
 
     await screen.findByText("No keys registered yet.");
+    await chooseRegisterBranch(user);
     await user.type(screen.getByLabelText("Public key"), "ssh-ed25519 AAAAtest user@laptop");
     await user.click(screen.getByRole("button", { name: "Add key" }));
 
     await waitFor(() => expect(postedBody).toEqual({ public_key: "ssh-ed25519 AAAAtest user@laptop" }));
     expect(await screen.findByText("ssh-ed25519")).toBeInTheDocument();
     expect(listCallCount).toBeGreaterThanOrEqual(2);
-    expect(screen.getByLabelText("Public key")).toHaveValue("");
+    expect(screen.queryByLabelText("Public key")).not.toBeInTheDocument();
   });
 
   it("shows the translated error for an invalid key format", async () => {
@@ -123,6 +138,7 @@ describe("SshKeysPanel", () => {
     renderWithProviders(<SshKeysPanel />);
 
     await screen.findByText("No keys registered yet.");
+    await chooseRegisterBranch(user);
     await user.type(screen.getByLabelText("Public key"), "not a key");
     await user.click(screen.getByRole("button", { name: "Add key" }));
 
@@ -247,6 +263,7 @@ describe("SshKeysPanel", () => {
     renderWithProviders(<SshKeysPanel />);
 
     await screen.findByText("No keys registered yet.");
+    await chooseRegisterBranch(user);
     const file = new File(["ssh-ed25519 AAAAtest user@laptop\n"], "id_ed25519.pub", { type: "text/plain" });
     await user.upload(screen.getByLabelText("Choose a .pub file"), file);
 
@@ -275,14 +292,15 @@ describe("SshKeysPanel", () => {
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDisabled());
   });
 
-  it("renders the ready-to-copy ssh command once the hostname loads", async () => {
+  it("names the generated private key file in the ready-to-copy ssh command once the hostname loads", async () => {
     server.use(
       getListKeysApiV1SshKeysGetMockHandler([]),
       getGetStatusApiV1SystemStatusGetMockHandler(getGetStatusApiV1SystemStatusGetResponseMock({ hostname: "palmimo-406" })),
     );
     renderWithProviders(<SshKeysPanel />);
 
-    expect(await screen.findByText("ssh user@palmimo-406.local")).toBeInTheDocument();
+    expect(await screen.findByText("ssh -i ~/.ssh/palmimo_ed25519 user@palmimo-406.local")).toBeInTheDocument();
+    expect(screen.getByText("Using a key of your own? Replace the file name after -i.")).toBeInTheDocument();
   });
 
   it("renders no ssh command while the hostname has not loaded yet", async () => {
@@ -309,18 +327,168 @@ describe("SshKeysPanel", () => {
     );
     renderWithProviders(<SshKeysPanel />);
 
-    await screen.findByText("ssh user@palmimo-406.local");
+    await screen.findByText("ssh -i ~/.ssh/palmimo_ed25519 user@palmimo-406.local");
     await user.click(screen.getByRole("button", { name: "Copy" }));
 
-    expect(writeText).toHaveBeenCalledWith("ssh user@palmimo-406.local");
+    expect(writeText).toHaveBeenCalledWith("ssh -i ~/.ssh/palmimo_ed25519 user@palmimo-406.local");
     expect(await screen.findByRole("button", { name: "Copied" })).toBeInTheDocument();
 
     vi.unstubAllGlobals();
   });
 
+  describe("choosing how to add a key", () => {
+    it("offers both branches and shows neither one's fields until a branch is picked", async () => {
+      server.use(getListKeysApiV1SshKeysGetMockHandler([]));
+      renderWithProviders(<SshKeysPanel />);
+
+      expect(await screen.findByRole("button", { name: GENERATE_CHOICE })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: REGISTER_CHOICE })).toBeInTheDocument();
+      expect(screen.queryByLabelText("Public key")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Name (comment)")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Generate key" })).not.toBeInTheDocument();
+    });
+
+    it("shows no generate UI in the register branch", async () => {
+      const user = userEvent.setup();
+      server.use(getListKeysApiV1SshKeysGetMockHandler([]));
+      renderWithProviders(<SshKeysPanel />);
+
+      await chooseRegisterBranch(user);
+
+      expect(screen.getByLabelText("Public key")).toBeInTheDocument();
+      expect(screen.getByLabelText("Name (comment)")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Generate key" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: GENERATE_CHOICE })).not.toBeInTheDocument();
+    });
+
+    it("returns to the choice when the branch is backed out of", async () => {
+      const user = userEvent.setup();
+      server.use(getListKeysApiV1SshKeysGetMockHandler([]));
+      renderWithProviders(<SshKeysPanel />);
+
+      await chooseRegisterBranch(user);
+      await user.type(screen.getByLabelText("Public key"), "ssh-ed25519 AAAAtest user@laptop");
+      await user.click(screen.getByRole("button", { name: "Back" }));
+
+      expect(await screen.findByRole("button", { name: GENERATE_CHOICE })).toBeInTheDocument();
+      expect(screen.queryByLabelText("Public key")).not.toBeInTheDocument();
+
+      await chooseRegisterBranch(user);
+      expect(screen.getByLabelText("Public key")).toHaveValue("");
+    });
+
+    it("goes straight to the register branch, with no choice to make, when the browser cannot generate keys", async () => {
+      vi.mocked(sshKeygen.probeEd25519KeygenSupport).mockResolvedValue(false);
+      server.use(getListKeysApiV1SshKeysGetMockHandler([]));
+      renderWithProviders(<SshKeysPanel />);
+
+      expect(await screen.findByLabelText("Public key")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: GENERATE_CHOICE })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: REGISTER_CHOICE })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
+
+      vi.mocked(sshKeygen.probeEd25519KeygenSupport).mockResolvedValue(true);
+    });
+  });
+
+  describe("naming a key in the register branch", () => {
+    it("fills the name from the pasted key's own comment", async () => {
+      const user = userEvent.setup();
+      server.use(getListKeysApiV1SshKeysGetMockHandler([]));
+      renderWithProviders(<SshKeysPanel />);
+
+      await chooseRegisterBranch(user);
+      await user.type(screen.getByLabelText("Public key"), "ssh-ed25519 AAAAtest user@laptop");
+
+      expect(screen.getByLabelText("Name (comment)")).toHaveValue("user@laptop");
+    });
+
+    it("posts the key under the entered name instead of the pasted one", async () => {
+      const user = userEvent.setup();
+      let postedBody: unknown;
+      server.use(
+        getListKeysApiV1SshKeysGetMockHandler([]),
+        http.post("*/api/v1/ssh-keys", async ({ request }) => {
+          postedBody = await request.json();
+          return HttpResponse.json(ONE_KEY[0], { status: 201 });
+        }),
+      );
+      renderWithProviders(<SshKeysPanel />);
+
+      await chooseRegisterBranch(user);
+      await user.type(screen.getByLabelText("Public key"), "ssh-ed25519 AAAAtest user@laptop");
+      await user.clear(screen.getByLabelText("Name (comment)"));
+      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.click(screen.getByRole("button", { name: "Add key" }));
+
+      await waitFor(() => expect(postedBody).toEqual({ public_key: "ssh-ed25519 AAAAtest keisuke@macbook" }));
+    });
+
+    it("drops the pasted comment when the name is cleared", async () => {
+      const user = userEvent.setup();
+      let postedBody: unknown;
+      server.use(
+        getListKeysApiV1SshKeysGetMockHandler([]),
+        http.post("*/api/v1/ssh-keys", async ({ request }) => {
+          postedBody = await request.json();
+          return HttpResponse.json(ONE_KEY[0], { status: 201 });
+        }),
+      );
+      renderWithProviders(<SshKeysPanel />);
+
+      await chooseRegisterBranch(user);
+      await user.type(screen.getByLabelText("Public key"), "ssh-ed25519 AAAAtest user@laptop");
+      await user.clear(screen.getByLabelText("Name (comment)"));
+      await user.click(screen.getByRole("button", { name: "Add key" }));
+
+      await waitFor(() => expect(postedBody).toEqual({ public_key: "ssh-ed25519 AAAAtest" }));
+    });
+
+    it("posts a multi-line paste as it stands, rather than folding its extra keys into a comment", async () => {
+      const user = userEvent.setup();
+      const twoKeys = "ssh-ed25519 AAAAone one@laptop\nssh-ed25519 AAAAtwo two@laptop";
+      let postedBody: unknown;
+      server.use(
+        getListKeysApiV1SshKeysGetMockHandler([]),
+        http.post("*/api/v1/ssh-keys", async ({ request }) => {
+          postedBody = await request.json();
+          return jsonError(400, "invalid_key_format");
+        }),
+      );
+      renderWithProviders(<SshKeysPanel />);
+
+      await chooseRegisterBranch(user);
+      await user.type(screen.getByLabelText("Public key"), twoKeys);
+      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.click(screen.getByRole("button", { name: "Add key" }));
+
+      await waitFor(() => expect(postedBody).toEqual({ public_key: twoKeys }));
+      expect(await screen.findByText("That does not look like a valid public key.")).toBeInTheDocument();
+    });
+
+    it("keeps the pasted line as typed when no name is given", async () => {
+      const user = userEvent.setup();
+      let postedBody: unknown;
+      server.use(
+        getListKeysApiV1SshKeysGetMockHandler([]),
+        http.post("*/api/v1/ssh-keys", async ({ request }) => {
+          postedBody = await request.json();
+          return HttpResponse.json(ONE_KEY[0], { status: 201 });
+        }),
+      );
+      renderWithProviders(<SshKeysPanel />);
+
+      await chooseRegisterBranch(user);
+      await user.type(screen.getByLabelText("Public key"), "ssh-ed25519 AAAAtest");
+      await user.click(screen.getByRole("button", { name: "Add key" }));
+
+      await waitFor(() => expect(postedBody).toEqual({ public_key: "ssh-ed25519 AAAAtest" }));
+    });
+  });
+
   describe("browser key generation", () => {
     const publicKeyLine =
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdamAGCsQq31Uv+08lkBzoO4XLz2qYjJa8CGmj3B1Ea palmimo-portal";
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdamAGCsQq31Uv+08lkBzoO4XLz2qYjJa8CGmj3B1Ea keisuke@macbook";
     const privateKeyFile = "-----BEGIN OPENSSH PRIVATE KEY-----\nmock\n-----END OPENSSH PRIVATE KEY-----\n";
 
     afterEach(() => {
@@ -328,14 +496,33 @@ describe("SshKeysPanel", () => {
       vi.restoreAllMocks();
     });
 
-    it("hides the generate button when the browser has no real Ed25519 keygen support", async () => {
+    it("hides the generate branch when the browser has no real Ed25519 keygen support", async () => {
       vi.mocked(sshKeygen.probeEd25519KeygenSupport).mockResolvedValue(false);
       server.use(getListKeysApiV1SshKeysGetMockHandler([]));
       renderWithProviders(<SshKeysPanel />);
 
       await screen.findByText("No keys registered yet.");
       await waitFor(() => expect(vi.mocked(sshKeygen.probeEd25519KeygenSupport)).toHaveBeenCalled());
-      expect(screen.queryByRole("button", { name: "Generate a key in this browser" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: GENERATE_CHOICE })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Generate key" })).not.toBeInTheDocument();
+    });
+
+    it("cannot generate until the key is named, and names the key pair after that entry", async () => {
+      const user = userEvent.setup();
+      const generate = vi.spyOn(sshKeygen, "generateEd25519KeyPair").mockResolvedValue({ publicKeyLine, privateKeyFile });
+      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+      server.use(getListKeysApiV1SshKeysGetMockHandler([]));
+      renderWithProviders(<SshKeysPanel />);
+
+      await chooseGenerateBranch(user);
+      expect(screen.getByRole("button", { name: "Generate key" })).toBeDisabled();
+
+      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.click(screen.getByRole("button", { name: "Generate key" }));
+
+      expect(generate).toHaveBeenCalledWith("keisuke@macbook");
+      expect(screen.getByLabelText("Name (comment)")).toBeDisabled();
     });
 
     it("surfaces an error instead of failing silently when generation itself throws", async () => {
@@ -345,11 +532,13 @@ describe("SshKeysPanel", () => {
       server.use(getListKeysApiV1SshKeysGetMockHandler([]));
       renderWithProviders(<SshKeysPanel />);
 
-      await user.click(await screen.findByRole("button", { name: "Generate a key in this browser" }));
+      await chooseGenerateBranch(user);
+      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.click(screen.getByRole("button", { name: "Generate key" }));
 
       expect(await screen.findByText(/Key generation failed/)).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "I saved the private key" })).not.toBeInTheDocument();
-      expect(screen.getByLabelText("Public key")).toHaveValue("");
+      expect(screen.queryByLabelText("Public key")).not.toBeInTheDocument();
     });
 
     it("blocks registering the public key until the private key is explicitly confirmed saved", async () => {
@@ -360,15 +549,17 @@ describe("SshKeysPanel", () => {
       server.use(getListKeysApiV1SshKeysGetMockHandler([]));
       renderWithProviders(<SshKeysPanel />);
 
-      await user.click(await screen.findByRole("button", { name: "Generate a key in this browser" }));
+      await chooseGenerateBranch(user);
+      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.click(screen.getByRole("button", { name: "Generate key" }));
 
       // Auto-download was attempted (best-effort), but that alone must not register anything:
-      // the public key field stays empty and there is no way to submit it yet.
+      // there is no public key field on screen yet, so there is nothing to submit.
       expect(clickSpy).toHaveBeenCalledTimes(1);
-      expect(screen.getByLabelText("Public key")).toHaveValue("");
-      expect(screen.getByRole("button", { name: "Add key" })).toBeDisabled();
+      expect(screen.queryByLabelText("Public key")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Add key" })).not.toBeInTheDocument();
       expect(screen.getByText("Save your private key now — this is the only copy")).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Generate a key in this browser" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Generate key" })).not.toBeInTheDocument();
 
       await user.click(screen.getByRole("button", { name: "I saved the private key" }));
 
@@ -376,6 +567,28 @@ describe("SshKeysPanel", () => {
       expect(screen.getByRole("button", { name: "Add key" })).toBeEnabled();
       expect(screen.queryByText("Save your private key now — this is the only copy")).not.toBeInTheDocument();
       expect(screen.getByText(/matching public key has been filled in below/)).toBeInTheDocument();
+    });
+
+    it("offers no way out from under a generated private key, saved or not", async () => {
+      const user = userEvent.setup();
+      vi.spyOn(sshKeygen, "generateEd25519KeyPair").mockResolvedValue({ publicKeyLine, privateKeyFile });
+      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+      server.use(getListKeysApiV1SshKeysGetMockHandler([]));
+      renderWithProviders(<SshKeysPanel />);
+
+      await chooseGenerateBranch(user);
+      expect(screen.getByRole("button", { name: "Back" })).toBeInTheDocument();
+
+      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.click(screen.getByRole("button", { name: "Generate key" }));
+
+      expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
+
+      // Backing out here would strand the saved private key: its public half is only on screen.
+      await user.click(screen.getByRole("button", { name: "I saved the private key" }));
+
+      expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
     });
 
     it("re-downloading reuses the same private-key file without generating a new key", async () => {
@@ -386,7 +599,9 @@ describe("SshKeysPanel", () => {
       server.use(getListKeysApiV1SshKeysGetMockHandler([]));
       renderWithProviders(<SshKeysPanel />);
 
-      await user.click(await screen.findByRole("button", { name: "Generate a key in this browser" }));
+      await chooseGenerateBranch(user);
+      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.click(screen.getByRole("button", { name: "Generate key" }));
       await user.click(screen.getByRole("button", { name: "Download again" }));
       await user.click(screen.getByRole("button", { name: "Download again" }));
 
@@ -394,7 +609,7 @@ describe("SshKeysPanel", () => {
       expect(clickSpy).toHaveBeenCalledTimes(3); // 1 automatic + 2 manual re-downloads
     });
 
-    it("clears the confirmation note after the generated public key is successfully added", async () => {
+    it("returns to the branch choice after the generated public key is successfully added", async () => {
       const user = userEvent.setup();
       vi.spyOn(sshKeygen, "generateEd25519KeyPair").mockResolvedValue({ publicKeyLine, privateKeyFile });
       vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
@@ -409,13 +624,16 @@ describe("SshKeysPanel", () => {
       );
       renderWithProviders(<SshKeysPanel />);
 
-      await user.click(await screen.findByRole("button", { name: "Generate a key in this browser" }));
+      await chooseGenerateBranch(user);
+      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.click(screen.getByRole("button", { name: "Generate key" }));
       await user.click(screen.getByRole("button", { name: "I saved the private key" }));
       await user.click(screen.getByRole("button", { name: "Add key" }));
 
       await waitFor(() =>
         expect(screen.queryByText(/matching public key has been filled in below/)).not.toBeInTheDocument(),
       );
+      expect(await screen.findByRole("button", { name: GENERATE_CHOICE })).toBeInTheDocument();
     });
   });
 });

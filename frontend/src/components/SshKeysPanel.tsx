@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, Download, KeyRound, TriangleAlert, Trash2, Upload } from "lucide-react";
+import { ArrowLeft, Check, Copy, Download, KeyRound, TriangleAlert, Trash2, Upload } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -25,17 +25,46 @@ import {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { generateEd25519KeyPair, probeEd25519KeygenSupport } from "@/lib/sshKeygen";
 
 const LAST_KEY_CONFIRMATION = "last-key";
 const PRIVATE_KEY_FILENAME = "palmimo_ed25519";
-const GENERATED_KEY_COMMENT = "palmimo-portal";
 // How long an unconfirmed download's Blob URL stays alive: long enough for a slow
 // download-start to land, short enough not to leak indefinitely if the user never
 // confirms. Confirming revokes it immediately instead of waiting this out.
 const PENDING_KEY_URL_LIFETIME_MS = 10_000;
+
+/** Which of the two ways of adding a key the user picked; `null` while the choice is still open. */
+type AddMode = "generate" | "register";
+
+/** Folds away everything the server's `parse_authorized_key` would reject or read as a smuggled second line. */
+function sanitizeComment(comment: string): string {
+  return comment.replace(/\s+/g, " ").trim();
+}
+
+/** The comment carried by a single-line `authorized_keys` entry: everything past the type and the blob. */
+function commentOf(publicKeyLine: string): string {
+  const line = publicKeyLine.trim();
+  if (/[\r\n]/.test(line)) return "";
+  return line.split(/\s+/).slice(2).join(" ");
+}
+
+/**
+ * `publicKeyLine` with its comment replaced by `comment`.
+ *
+ * Anything that is not one parseable `type blob ...` line is passed through untouched, leaving
+ * the verdict to the server: rebuilding a multi-line paste from its first two fields would turn
+ * the server's rejection of it into a silent registration of only its first key.
+ */
+function withComment(publicKeyLine: string, comment: string): string {
+  const line = publicKeyLine.trim();
+  const parts = line.split(/\s+/);
+  if (parts.length < 2 || /[\r\n]/.test(line)) return line;
+  return `${parts[0]} ${parts[1]} ${sanitizeComment(comment)}`.trim();
+}
 
 /** Triggers a browser download of `content` at `url`. Re-clickable: does not revoke the URL, so a retry can call this again with the same one. */
 function triggerDownload(url: string, filename: string) {
@@ -57,6 +86,9 @@ const COPIED_RESET_MS = 2000;
 /**
  * The ready-to-run SSH command, built from the device's own hostname. Renders nothing until
  * the hostname loads, so it never flashes `ssh user@undefined.local`.
+ *
+ * It names the private key explicitly: a key generated here lands under a non-default file
+ * name, which bare `ssh user@host` never offers and the server then rejects as `publickey`.
  */
 function SshCommandHint() {
   const { t } = useTranslation();
@@ -65,7 +97,7 @@ function SshCommandHint() {
 
   if (!systemStatus?.hostname) return null;
 
-  const command = `ssh user@${systemStatus.hostname}.local`;
+  const command = `ssh -i ~/.ssh/${PRIVATE_KEY_FILENAME} user@${systemStatus.hostname}.local`;
 
   async function handleCopy() {
     await navigator.clipboard.writeText(command);
@@ -74,18 +106,21 @@ function SshCommandHint() {
   }
 
   return (
-    <div className="flex items-center gap-2 text-sm">
-      <span className="text-muted-foreground">{t("sshKeys.sshCommandLabel")}</span>
-      <code className="rounded-md border border-input bg-muted px-2 py-1 font-mono text-xs">{command}</code>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        aria-label={copied ? t("sshKeys.copiedCommand") : t("sshKeys.copyCommand")}
-        onClick={() => void handleCopy()}
-      >
-        {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-      </Button>
+    <div className="flex flex-col gap-1">
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <span className="text-muted-foreground">{t("sshKeys.sshCommandLabel")}</span>
+        <code className="rounded-md border border-input bg-muted px-2 py-1 font-mono text-xs break-all">{command}</code>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          aria-label={copied ? t("sshKeys.copiedCommand") : t("sshKeys.copyCommand")}
+          onClick={() => void handleCopy()}
+        >
+          {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground">{t("sshKeys.sshCommandNote")}</p>
     </div>
   );
 }
@@ -103,9 +138,12 @@ interface DeleteDialogState {
 export function SshKeysPanel() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const [canGenerateKey, setCanGenerateKey] = useState(false);
+  const [canGenerateKey, setCanGenerateKey] = useState<boolean | null>(null);
   const { data: keys, isLoading, error: listError } = useListKeysApiV1SshKeysGet();
+  const [mode, setMode] = useState<AddMode | null>(null);
   const [publicKey, setPublicKey] = useState("");
+  const [comment, setComment] = useState("");
+  const [commentEdited, setCommentEdited] = useState(false);
   const [dialog, setDialog] = useState<DeleteDialogState | null>(null);
   const [pendingKey, setPendingKey] = useState<PendingGeneratedKey | null>(null);
   const [justConfirmed, setJustConfirmed] = useState(false);
@@ -131,18 +169,23 @@ export function SshKeysPanel() {
     return () => window.clearTimeout(timeoutId);
   }, [pendingKey]);
 
+  function applyPublicKey(line: string) {
+    setPublicKey(line);
+    if (!commentEdited) setComment(commentOf(line));
+  }
+
   async function handleFileChosen(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
-    setPublicKey((await file.text()).trim());
+    applyPublicKey((await file.text()).trim());
   }
 
   async function handleGenerateKey() {
     setIsGenerating(true);
     setGenerateError(false);
     try {
-      const { publicKeyLine, privateKeyFile } = await generateEd25519KeyPair(GENERATED_KEY_COMMENT);
+      const { publicKeyLine, privateKeyFile } = await generateEd25519KeyPair(sanitizeComment(comment));
       const downloadUrl = URL.createObjectURL(new Blob([privateKeyFile], { type: "application/octet-stream" }));
       // Best-effort convenience: a browser can silently ignore or delay a synthetic click, so
       // this is never treated as proof the file was saved -- only the user's own confirmation
@@ -169,11 +212,19 @@ export function SshKeysPanel() {
     setJustConfirmed(true);
   }
 
+  function resetAddForm() {
+    setMode(null);
+    setPublicKey("");
+    setComment("");
+    setCommentEdited(false);
+    setJustConfirmed(false);
+    setGenerateError(false);
+  }
+
   const addKey = useAddKeyApiV1SshKeysPost({
     mutation: {
       onSuccess: () => {
-        setPublicKey("");
-        setJustConfirmed(false);
+        resetAddForm();
         void queryClient.invalidateQueries({ queryKey: getListKeysApiV1SshKeysGetQueryKey() });
       },
     },
@@ -198,10 +249,24 @@ export function SshKeysPanel() {
     },
   });
 
+  // Without keygen support there is nothing to choose between, so the register branch is the
+  // whole screen; `null` means the probe has not answered yet and neither branch can be drawn.
+  const activeMode: AddMode | null = canGenerateKey === null ? null : canGenerateKey ? mode : "register";
+  const namedComment = sanitizeComment(comment);
+  const generatedKeyExists = pendingKey !== null || justConfirmed;
+
+  function handleBack() {
+    resetAddForm();
+    addKey.reset();
+  }
+
   function handleAddSubmit(event: React.FormEvent) {
     event.preventDefault();
     if (!publicKey.trim() || addKey.isPending) return;
-    addKey.mutate({ data: { public_key: publicKey } });
+    // An untouched name field means the pasted line keeps its own comment; once the field has
+    // been edited its value wins, including an empty one that drops the comment entirely.
+    const line = activeMode === "register" && commentEdited ? withComment(publicKey, namedComment) : publicKey.trim();
+    addKey.mutate({ data: { public_key: line } });
   }
 
   function openDeleteDialog(key: SshKeyResponse) {
@@ -225,6 +290,102 @@ export function SshKeysPanel() {
     setDialog(null);
     deleteKey.reset(); // clears a stale 409 error so showDeleteError doesn't surface it later
   }
+
+  const keyNameField = (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor="ssh-key-comment">{t("sshKeys.commentLabel")}</Label>
+      <Input
+        id="ssh-key-comment"
+        autoComplete="off"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        placeholder={t("sshKeys.commentPlaceholder")}
+        value={comment}
+        disabled={activeMode === "generate" && generatedKeyExists}
+        onChange={(event) => {
+          setComment(event.target.value);
+          setCommentEdited(true);
+        }}
+      />
+      <p className="text-xs text-muted-foreground">{t("sshKeys.commentHelp")}</p>
+    </div>
+  );
+
+  const addForm = (
+    <form className="flex flex-col gap-2" onSubmit={handleAddSubmit}>
+      <Label htmlFor="ssh-public-key">{t("sshKeys.publicKeyLabel")}</Label>
+      {activeMode === "register" ? (
+        <>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()}>
+              <Upload className="size-4" />
+              <span className="font-semibold">{t("sshKeys.chooseFileButton")}</span>
+            </Button>
+            <span className="text-xs text-muted-foreground">{t("sshKeys.orPasteBelow")}</span>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pub,text/plain"
+            className="hidden"
+            onChange={(event) => void handleFileChosen(event)}
+            aria-label={t("sshKeys.chooseFileButton")}
+          />
+        </>
+      ) : null}
+      <Textarea
+        id="ssh-public-key"
+        placeholder={t("sshKeys.publicKeyPlaceholder")}
+        spellCheck={false}
+        autoComplete="off"
+        value={publicKey}
+        onChange={(event) => applyPublicKey(event.target.value)}
+      />
+      {activeMode === "register" ? (
+        <>
+          <p className="text-xs text-muted-foreground">{t("sshKeys.uploadHelp")}</p>
+          {keyNameField}
+        </>
+      ) : null}
+      <ApiErrorAlert error={addKey.error} />
+      <Button type="submit" disabled={addKey.isPending || !publicKey.trim()}>
+        {t("sshKeys.addSubmit")}
+      </Button>
+    </form>
+  );
+
+  const branchChoice = (
+    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
+      <p className="text-sm font-semibold">{t("sshKeys.addChoiceTitle")}</p>
+      <div className="flex flex-col gap-2 md:flex-row">
+        <Button
+          type="button"
+          variant="outline"
+          className="h-auto flex-1 flex-col items-start justify-start gap-1 whitespace-normal py-3 text-left"
+          onClick={() => setMode("generate")}
+        >
+          <span className="flex items-center gap-2 font-semibold">
+            <KeyRound className="size-4" />
+            {t("sshKeys.chooseGenerate")}
+          </span>
+          <span className="text-xs font-normal text-muted-foreground">{t("sshKeys.chooseGenerateHelp")}</span>
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-auto flex-1 flex-col items-start justify-start gap-1 whitespace-normal py-3 text-left"
+          onClick={() => setMode("register")}
+        >
+          <span className="flex items-center gap-2 font-semibold">
+            <Upload className="size-4" />
+            {t("sshKeys.chooseRegister")}
+          </span>
+          <span className="text-xs font-normal text-muted-foreground">{t("sshKeys.chooseRegisterHelp")}</span>
+        </Button>
+      </div>
+    </div>
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -273,78 +434,67 @@ export function SshKeysPanel() {
         </div>
       )}
 
-      {listError ? null : canGenerateKey ? (
-        <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
-          {pendingKey ? (
-            <>
-              <Alert>
-                <TriangleAlert />
-                <AlertTitle>{t("sshKeys.generatedNoteTitle")}</AlertTitle>
-                <AlertDescription>{t("sshKeys.generatedNoteBody", { filename: PRIVATE_KEY_FILENAME })}</AlertDescription>
-              </Alert>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" onClick={handleRedownloadPendingKey}>
-                  <Download className="size-4" />
-                  <span className="font-semibold">{t("sshKeys.downloadAgainButton")}</span>
-                </Button>
-                <Button type="button" onClick={handleConfirmSaved}>
-                  {t("sshKeys.confirmSavedButton")}
-                </Button>
-              </div>
-            </>
-          ) : (
-            <Button type="button" variant="outline" onClick={() => void handleGenerateKey()} disabled={isGenerating}>
-              <KeyRound className="size-4" />
-              <span className="font-semibold">{t("sshKeys.generateButton")}</span>
+      {listError || canGenerateKey === null ? null : activeMode === null ? (
+        branchChoice
+      ) : (
+        <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-4">
+          {/* No way back out once a private key exists: leaving would strand the file the user
+            just saved, its public half unregistered and unrecoverable. */}
+          {canGenerateKey && !isGenerating && !generatedKeyExists ? (
+            <Button type="button" variant="ghost" size="sm" className="-ml-2 w-fit" onClick={handleBack}>
+              <ArrowLeft className="size-4" />
+              {t("common.back")}
             </Button>
-          )}
-          {generateError ? (
-            <Alert variant="destructive">
-              <TriangleAlert />
-              <AlertDescription>{t("sshKeys.generateErrorMessage")}</AlertDescription>
-            </Alert>
           ) : null}
-          {justConfirmed ? (
-            <Alert>
-              <AlertDescription>{t("sshKeys.confirmedNoteBody")}</AlertDescription>
-            </Alert>
-          ) : null}
-        </div>
-      ) : null}
 
-      {listError ? null : (
-        <form className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4 md:p-0 md:border-0 md:bg-transparent" onSubmit={handleAddSubmit}>
-          <p className="hidden text-sm font-semibold md:block">{t("sshKeys.addCardTitle")}</p>
-          <Label htmlFor="ssh-public-key">{t("sshKeys.publicKeyLabel")}</Label>
-          <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" onClick={() => fileInputRef.current?.click()}>
-              <Upload className="size-4" />
-              <span className="font-semibold">{t("sshKeys.chooseFileButton")}</span>
-            </Button>
-            <span className="text-xs text-muted-foreground">{t("sshKeys.orPasteBelow")}</span>
-          </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pub,text/plain"
-            className="hidden"
-            onChange={(event) => void handleFileChosen(event)}
-            aria-label={t("sshKeys.chooseFileButton")}
-          />
-          <Textarea
-            id="ssh-public-key"
-            placeholder={t("sshKeys.publicKeyPlaceholder")}
-            spellCheck={false}
-            autoComplete="off"
-            value={publicKey}
-            onChange={(event) => setPublicKey(event.target.value)}
-          />
-          <p className="text-xs text-muted-foreground">{t("sshKeys.uploadHelp")}</p>
-          <ApiErrorAlert error={addKey.error} />
-          <Button type="submit" disabled={addKey.isPending || !publicKey.trim()}>
-            {t("sshKeys.addSubmit")}
-          </Button>
-        </form>
+          {activeMode === "generate" ? (
+            <>
+              {keyNameField}
+              {pendingKey ? (
+                <>
+                  <Alert>
+                    <TriangleAlert />
+                    <AlertTitle>{t("sshKeys.generatedNoteTitle")}</AlertTitle>
+                    <AlertDescription>{t("sshKeys.generatedNoteBody", { filename: PRIVATE_KEY_FILENAME })}</AlertDescription>
+                  </Alert>
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" variant="outline" onClick={handleRedownloadPendingKey}>
+                      <Download className="size-4" />
+                      <span className="font-semibold">{t("sshKeys.downloadAgainButton")}</span>
+                    </Button>
+                    <Button type="button" onClick={handleConfirmSaved}>
+                      {t("sshKeys.confirmSavedButton")}
+                    </Button>
+                  </div>
+                </>
+              ) : justConfirmed ? null : (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-fit"
+                  onClick={() => void handleGenerateKey()}
+                  disabled={isGenerating || !namedComment}
+                >
+                  <KeyRound className="size-4" />
+                  <span className="font-semibold">{t("sshKeys.generateButton")}</span>
+                </Button>
+              )}
+              {generateError ? (
+                <Alert variant="destructive">
+                  <TriangleAlert />
+                  <AlertDescription>{t("sshKeys.generateErrorMessage")}</AlertDescription>
+                </Alert>
+              ) : null}
+              {justConfirmed ? (
+                <Alert>
+                  <AlertDescription>{t("sshKeys.confirmedNoteBody")}</AlertDescription>
+                </Alert>
+              ) : null}
+            </>
+          ) : null}
+
+          {activeMode === "register" || justConfirmed ? addForm : null}
+        </div>
       )}
 
       <AlertDialog open={dialog !== null} onOpenChange={(open) => !open && closeDialog()}>

@@ -133,12 +133,15 @@ export function PowerPanel({
     <div className="flex flex-col gap-4">
       {state === "idle" ? (
         <>
-          <Alert>
-            <AlertTitle>{t("power.systemsNoteTitle")}</AlertTitle>
+          {/* role="note": these two are standing orientation, not events. Alert
+              defaults to the assertive role="alert", which would announce them
+              on every mount and blunt the real one below. */}
+          <Alert role="note">
+            <AlertTitle className="leading-snug">{t("power.systemsNoteTitle")}</AlertTitle>
             <AlertDescription>{t("power.systemsNoteBody")}</AlertDescription>
           </Alert>
-          <Alert>
-            <AlertTitle>{t("power.shutdownStepsTitle")}</AlertTitle>
+          <Alert role="note">
+            <AlertTitle className="leading-snug">{t("power.shutdownStepsTitle")}</AlertTitle>
             <AlertDescription>
               <ol className="list-decimal space-y-1 pl-4">
                 <li>{t("power.shutdownStep1")}</li>

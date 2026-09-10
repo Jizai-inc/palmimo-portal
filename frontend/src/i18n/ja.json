@@ -189,7 +189,7 @@
   },
   "power": {
     "title": "電源",
-    "systemsNoteTitle": "Palmimo DevKit には電源が2系統あります（サーボ電源と Raspberry Pi 電源）",
+    "systemsNoteTitle": "Palmimo DevKit には電源が 2 系統あります（サーボ電源と Raspberry Pi 電源）",
     "systemsNoteBody": "サーボ電源は、本体裏のサーボ電源スイッチで制御します。Raspberry Pi の電源は、この画面か SSH で制御してください（動作中に USB Type-C を抜くと、SD カードが壊れることがあります）。",
     "shutdownStepsTitle": "電源を切る手順",
     "shutdownStep1": "機体を台の上に載せる",

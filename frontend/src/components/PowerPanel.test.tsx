@@ -53,7 +53,9 @@ describe("PowerPanel", () => {
   it("orders the power-off steps posture-first, before the servo switch", async () => {
     renderWithProviders(<PowerPanel onRebooted={vi.fn()} pollIntervalMs={50} />);
 
-    const steps = (await screen.findByRole("list")).querySelectorAll("li");
+    const stepsPanel = (await screen.findByText("How to power off")).closest('[data-slot="alert"]');
+    expect(stepsPanel).not.toBeNull();
+    const steps = within(stepsPanel as HTMLElement).getByRole("list").querySelectorAll("li");
     expect([...steps].map((li) => li.textContent)).toEqual([
       "Put Palmimo on a stand",
       "Switch the servo power switch off (the servos stop holding too)",

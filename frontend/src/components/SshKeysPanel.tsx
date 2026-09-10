@@ -32,6 +32,8 @@ import { generateEd25519KeyPair, probeEd25519KeygenSupport } from "@/lib/sshKeyg
 
 const LAST_KEY_CONFIRMATION = "last-key";
 const PRIVATE_KEY_FILENAME = "palmimo_ed25519";
+// Kept identical to the quickstart guide's step 3, so the printed sheet and the screen agree.
+const INSTALL_COMMANDS = `mv ~/Downloads/${PRIVATE_KEY_FILENAME} ~/.ssh/\nchmod 600 ~/.ssh/${PRIVATE_KEY_FILENAME}`;
 // How long an unconfirmed download's Blob URL stays alive: long enough for a slow
 // download-start to land, short enough not to leak indefinitely if the user never
 // confirms. Confirming revokes it immediately instead of waiting this out.
@@ -455,7 +457,14 @@ export function SshKeysPanel() {
                   <Alert>
                     <TriangleAlert />
                     <AlertTitle>{t("sshKeys.generatedNoteTitle")}</AlertTitle>
-                    <AlertDescription>{t("sshKeys.generatedNoteBody", { filename: PRIVATE_KEY_FILENAME })}</AlertDescription>
+                    <AlertDescription className="flex flex-col gap-2">
+                      <span>{t("sshKeys.generatedNoteDownloaded", { filename: PRIVATE_KEY_FILENAME })}</span>
+                      <span>{t("sshKeys.generatedNoteInstallIntro")}</span>
+                      <code className="overflow-x-auto whitespace-pre rounded-md border border-input bg-muted px-3 py-2 font-mono text-xs text-foreground">
+                        {INSTALL_COMMANDS}
+                      </code>
+                      <span>{t("sshKeys.generatedNoteSafety")}</span>
+                    </AlertDescription>
                   </Alert>
                   <div className="flex flex-wrap gap-2">
                     <Button type="button" variant="outline" onClick={handleRedownloadPendingKey}>

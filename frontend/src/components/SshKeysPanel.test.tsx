@@ -558,14 +558,16 @@ describe("SshKeysPanel", () => {
       expect(clickSpy).toHaveBeenCalledTimes(1);
       expect(screen.queryByLabelText("Public key")).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Add key" })).not.toBeInTheDocument();
-      expect(screen.getByText("Save your private key now — this is the only copy")).toBeInTheDocument();
+      expect(screen.getByText("Save your private key. You cannot get it again later")).toBeInTheDocument();
+      expect(screen.getByText(/mv ~\/Downloads\/palmimo_ed25519 ~\/\.ssh\//)).toBeInTheDocument();
+      expect(screen.getByText(/chmod 600 ~\/\.ssh\/palmimo_ed25519/)).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Generate key" })).not.toBeInTheDocument();
 
       await user.click(screen.getByRole("button", { name: "I saved the private key" }));
 
       expect(screen.getByLabelText("Public key")).toHaveValue(publicKeyLine);
       expect(screen.getByRole("button", { name: "Add key" })).toBeEnabled();
-      expect(screen.queryByText("Save your private key now — this is the only copy")).not.toBeInTheDocument();
+      expect(screen.queryByText("Save your private key. You cannot get it again later")).not.toBeInTheDocument();
       expect(screen.getByText(/matching public key has been filled in below/)).toBeInTheDocument();
     });
 

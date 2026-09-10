@@ -32,6 +32,36 @@ describe("PowerPanel", () => {
     server.use(getGetStatusApiV1UpdateStatusGetMockHandler(IDLE_UPDATE_STATUS));
   });
 
+  it("opens the idle screen with the two power systems and how each is controlled", async () => {
+    renderWithProviders(<PowerPanel onRebooted={vi.fn()} pollIntervalMs={50} />);
+
+    expect(
+      await screen.findByText("Palmimo DevKit has two power systems (servo power and Raspberry Pi power)"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Servo power is controlled by the servo power switch on Palmimo's back. Control the Raspberry Pi's power from this screen or over SSH (unplugging the USB Type-C cable while it is running can corrupt the SD card).",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Safely stops the Raspberry Pi inside Palmimo (servos that are under torque keep holding). To start it again after a shutdown, unplug the USB Type-C cable and plug it back in.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("orders the power-off steps posture-first, before the servo switch", async () => {
+    renderWithProviders(<PowerPanel onRebooted={vi.fn()} pollIntervalMs={50} />);
+
+    const steps = (await screen.findByRole("list")).querySelectorAll("li");
+    expect([...steps].map((li) => li.textContent)).toEqual([
+      "Put Palmimo on a stand",
+      "Switch the servo power switch off (the servos stop holding too)",
+      "Shut down the Raspberry Pi from this screen",
+      "To cut power to the product completely, unplug the DC plug and the USB Type-C cable from Palmimo",
+    ]);
+  });
+
   it("reboots: dialog -> confirm -> POST called -> rebooting state shown", async () => {
     const user = userEvent.setup();
     let rebootCalled = false;

@@ -6,7 +6,7 @@ import { getStatusApiV1SystemStatusGet, useRebootApiV1SystemRebootPost, useShutd
 import { useGetStatusApiV1UpdateStatusGet } from "@/api/generated/update/update";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { CenteredState } from "@/components/CenteredState";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -133,7 +133,24 @@ export function PowerPanel({
     <div className="flex flex-col gap-4">
       {state === "idle" ? (
         <>
-          <p className="text-sm text-muted-foreground">{t("power.body")}</p>
+          {/* role="note": these two are standing orientation, not events. Alert
+              defaults to the assertive role="alert", which would announce them
+              on every mount and blunt the real one below. */}
+          <Alert role="note">
+            <AlertTitle className="leading-snug">{t("power.systemsNoteTitle")}</AlertTitle>
+            <AlertDescription>{t("power.systemsNoteBody")}</AlertDescription>
+          </Alert>
+          <Alert role="note">
+            <AlertTitle className="leading-snug">{t("power.shutdownStepsTitle")}</AlertTitle>
+            <AlertDescription>
+              <ol className="list-decimal space-y-1 pl-4">
+                <li>{t("power.shutdownStep1")}</li>
+                <li>{t("power.shutdownStep2")}</li>
+                <li>{t("power.shutdownStep3")}</li>
+                <li>{t("power.shutdownStep4")}</li>
+              </ol>
+            </AlertDescription>
+          </Alert>
           {updateInProgress ? (
             <Alert>
               <AlertDescription>{t("power.updateInProgress")}</AlertDescription>

@@ -571,7 +571,7 @@ describe("SshKeysPanel", () => {
       expect(screen.getByText(/matching public key has been filled in below/)).toBeInTheDocument();
     });
 
-    it("offers no way out from under a generated private key, saved or not", async () => {
+    it("withholds the way out only while an unconfirmed private key is on screen", async () => {
       const user = userEvent.setup();
       vi.spyOn(sshKeygen, "generateEd25519KeyPair").mockResolvedValue({ publicKeyLine, privateKeyFile });
       vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
@@ -585,12 +585,55 @@ describe("SshKeysPanel", () => {
       await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
       await user.click(screen.getByRole("button", { name: "Generate key" }));
 
+      // Leaving here would strand a private key the user has not decided about yet.
       expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
 
-      // Backing out here would strand the saved private key: its public half is only on screen.
       await user.click(screen.getByRole("button", { name: "I saved the private key" }));
 
-      expect(screen.queryByRole("button", { name: "Back" })).not.toBeInTheDocument();
+      // Starting over is the only escape left for a download that never actually landed.
+      expect(screen.getByRole("button", { name: "Back" })).toBeInTheDocument();
+    });
+
+    it("locks the name once generation starts, so the key cannot be renamed mid-flight", async () => {
+      const user = userEvent.setup();
+      let finishGeneration: (pair: { publicKeyLine: string; privateKeyFile: string }) => void = () => {};
+      vi.spyOn(sshKeygen, "generateEd25519KeyPair").mockReturnValue(
+        new Promise((resolve) => {
+          finishGeneration = resolve;
+        }),
+      );
+      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+      server.use(getListKeysApiV1SshKeysGetMockHandler([]));
+      renderWithProviders(<SshKeysPanel />);
+
+      await chooseGenerateBranch(user);
+      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.click(screen.getByRole("button", { name: "Generate key" }));
+
+      expect(screen.getByLabelText("Name (comment)")).toBeDisabled();
+
+      finishGeneration({ publicKeyLine, privateKeyFile });
+      expect(await screen.findByRole("button", { name: "I saved the private key" })).toBeInTheDocument();
+    });
+
+    it("mints a fresh download URL per press, so a retry works after the first has been revoked", async () => {
+      const user = userEvent.setup();
+      const createObjectURL = vi.mocked(URL.createObjectURL);
+      createObjectURL.mockClear();
+      const generate = vi.spyOn(sshKeygen, "generateEd25519KeyPair").mockResolvedValue({ publicKeyLine, privateKeyFile });
+      vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+
+      server.use(getListKeysApiV1SshKeysGetMockHandler([]));
+      renderWithProviders(<SshKeysPanel />);
+
+      await chooseGenerateBranch(user);
+      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.click(screen.getByRole("button", { name: "Generate key" }));
+      await user.click(screen.getByRole("button", { name: "Download again" }));
+
+      expect(createObjectURL).toHaveBeenCalledTimes(2);
+      expect(generate).toHaveBeenCalledTimes(1);
     });
 
     it("re-downloading reuses the same private-key file without generating a new key", async () => {

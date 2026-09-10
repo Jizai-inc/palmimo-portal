@@ -34,10 +34,9 @@ const LAST_KEY_CONFIRMATION = "last-key";
 const PRIVATE_KEY_FILENAME = "palmimo_ed25519";
 // Kept identical to the quickstart guide's step 3, so the printed sheet and the screen agree.
 const INSTALL_COMMANDS = `mv ~/Downloads/${PRIVATE_KEY_FILENAME} ~/.ssh/\nchmod 600 ~/.ssh/${PRIVATE_KEY_FILENAME}`;
-// How long an unconfirmed download's Blob URL stays alive: long enough for a slow
-// download-start to land, short enough not to leak indefinitely if the user never
-// confirms. Confirming revokes it immediately instead of waiting this out.
-const PENDING_KEY_URL_LIFETIME_MS = 10_000;
+// How long one download's Blob URL stays alive: long enough for a slow download-start to
+// land, short enough not to leak. Revoking any earlier would cancel the transfer itself.
+const DOWNLOAD_URL_LIFETIME_MS = 30_000;
 
 /** Which of the two ways of adding a key the user picked; `null` while the choice is still open. */
 type AddMode = "generate" | "register";
@@ -68,18 +67,26 @@ function withComment(publicKeyLine: string, comment: string): string {
   return `${parts[0]} ${parts[1]} ${sanitizeComment(comment)}`.trim();
 }
 
-/** Triggers a browser download of `content` at `url`. Re-clickable: does not revoke the URL, so a retry can call this again with the same one. */
-function triggerDownload(url: string, filename: string) {
+/**
+ * Offers `privateKeyFile` to the browser as a download of {@link PRIVATE_KEY_FILENAME}.
+ *
+ * Each call mints its own Blob URL rather than reusing one: the notice tells the user to go
+ * looking in their downloads folder, which routinely takes longer than any URL kept alive on a
+ * timer, and a retry against a revoked URL fails silently -- leaving no way to get the key.
+ */
+function downloadPrivateKey(privateKeyFile: string) {
+  const url = URL.createObjectURL(new Blob([privateKeyFile], { type: "application/octet-stream" }));
   const link = document.createElement("a");
   link.href = url;
-  link.download = filename;
+  link.download = PRIVATE_KEY_FILENAME;
   link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), DOWNLOAD_URL_LIFETIME_MS);
 }
 
 /** A generated key pair awaiting the user's explicit "I saved it" confirmation before its public half is filled in and made registerable. */
 interface PendingGeneratedKey {
   publicKeyLine: string;
-  downloadUrl: string;
+  privateKeyFile: string;
 }
 
 /** How long the copy button shows its "copied" checkmark before reverting. */
@@ -163,14 +170,6 @@ export function SshKeysPanel() {
     };
   }, []);
 
-  // A confirmed key revokes its URL immediately (see handleConfirmSaved); this is only the
-  // fallback for a key the user generated but never confirmed -- e.g. navigated away.
-  useEffect(() => {
-    if (!pendingKey) return;
-    const timeoutId = window.setTimeout(() => URL.revokeObjectURL(pendingKey.downloadUrl), PENDING_KEY_URL_LIFETIME_MS);
-    return () => window.clearTimeout(timeoutId);
-  }, [pendingKey]);
-
   function applyPublicKey(line: string) {
     setPublicKey(line);
     if (!commentEdited) setComment(commentOf(line));
@@ -188,12 +187,11 @@ export function SshKeysPanel() {
     setGenerateError(false);
     try {
       const { publicKeyLine, privateKeyFile } = await generateEd25519KeyPair(sanitizeComment(comment));
-      const downloadUrl = URL.createObjectURL(new Blob([privateKeyFile], { type: "application/octet-stream" }));
       // Best-effort convenience: a browser can silently ignore or delay a synthetic click, so
       // this is never treated as proof the file was saved -- only the user's own confirmation
       // below (handleConfirmSaved) unlocks registering the matching public key.
-      triggerDownload(downloadUrl, PRIVATE_KEY_FILENAME);
-      setPendingKey({ publicKeyLine, downloadUrl });
+      downloadPrivateKey(privateKeyFile);
+      setPendingKey({ publicKeyLine, privateKeyFile });
     } catch {
       setGenerateError(true);
     } finally {
@@ -203,13 +201,12 @@ export function SshKeysPanel() {
 
   function handleRedownloadPendingKey() {
     if (!pendingKey) return;
-    triggerDownload(pendingKey.downloadUrl, PRIVATE_KEY_FILENAME);
+    downloadPrivateKey(pendingKey.privateKeyFile);
   }
 
   function handleConfirmSaved() {
     if (!pendingKey) return;
     setPublicKey(pendingKey.publicKeyLine);
-    URL.revokeObjectURL(pendingKey.downloadUrl);
     setPendingKey(null);
     setJustConfirmed(true);
   }
@@ -293,6 +290,10 @@ export function SshKeysPanel() {
     deleteKey.reset(); // clears a stale 409 error so showDeleteError doesn't surface it later
   }
 
+  // The name is locked from the moment generation starts: handleGenerateKey has already captured
+  // it, so a later edit would name the key on screen something the key itself is not.
+  const nameIsLocked = activeMode === "generate" && (isGenerating || generatedKeyExists);
+
   const keyNameField = (
     <div className="flex flex-col gap-1.5">
       <Label htmlFor="ssh-key-comment">{t("sshKeys.commentLabel")}</Label>
@@ -304,7 +305,7 @@ export function SshKeysPanel() {
         spellCheck={false}
         placeholder={t("sshKeys.commentPlaceholder")}
         value={comment}
-        disabled={activeMode === "generate" && generatedKeyExists}
+        disabled={nameIsLocked}
         onChange={(event) => {
           setComment(event.target.value);
           setCommentEdited(true);
@@ -440,9 +441,10 @@ export function SshKeysPanel() {
         branchChoice
       ) : (
         <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-4">
-          {/* No way back out once a private key exists: leaving would strand the file the user
-            just saved, its public half unregistered and unrecoverable. */}
-          {canGenerateKey && !isGenerating && !generatedKeyExists ? (
+          {/* Withheld only while an unconfirmed private key is on screen, so leaving cannot strand
+            a file the user has not decided about yet. It comes back once they confirm: starting
+            over is then the only way out for a download that never actually landed. */}
+          {canGenerateKey && !isGenerating && pendingKey === null ? (
             <Button type="button" variant="ghost" size="sm" className="-ml-2 w-fit" onClick={handleBack}>
               <ArrowLeft className="size-4" />
               {t("common.back")}

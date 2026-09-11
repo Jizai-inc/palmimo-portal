@@ -179,7 +179,7 @@
     "chooseRegister": "Register a key you already have",
     "chooseRegisterHelp": "Choose this if you already have a file such as ~/.ssh/id_ed25519.pub.",
     "commentLabel": "Name (comment)",
-    "commentPlaceholder": "keisuke@macbook",
+    "commentPlaceholder": "user@laptop",
     "commentHelp": "Names this key in the list above, so several people can tell theirs apart.",
     "deleteDialogTitle": "Delete this key?",
     "deleteDialogBody": "This removes \"{{comment}}\" ({{fingerprint}}).",

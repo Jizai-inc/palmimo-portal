@@ -179,7 +179,7 @@
     "chooseRegister": "持っている鍵を登録する",
     "chooseRegisterHelp": "~/.ssh/id_ed25519.pub などが手元にある場合はこちら。",
     "commentLabel": "名前（コメント）",
-    "commentPlaceholder": "keisuke@macbook",
+    "commentPlaceholder": "user@laptop",
     "commentHelp": "上の一覧でどの鍵かを見分けるための名前です。",
     "deleteDialogTitle": "この鍵を削除しますか？",
     "deleteDialogBody": "「{{comment}}」({{fingerprint}}) を削除します。",

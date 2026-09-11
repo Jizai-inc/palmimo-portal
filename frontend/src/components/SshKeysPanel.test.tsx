@@ -418,10 +418,10 @@ describe("SshKeysPanel", () => {
       await chooseRegisterBranch(user);
       await user.type(screen.getByLabelText("Public key"), "ssh-ed25519 AAAAtest user@laptop");
       await user.clear(screen.getByLabelText("Name (comment)"));
-      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.type(screen.getByLabelText("Name (comment)"), "alice@laptop");
       await user.click(screen.getByRole("button", { name: "Add key" }));
 
-      await waitFor(() => expect(postedBody).toEqual({ public_key: "ssh-ed25519 AAAAtest keisuke@macbook" }));
+      await waitFor(() => expect(postedBody).toEqual({ public_key: "ssh-ed25519 AAAAtest alice@laptop" }));
     });
 
     it("drops the pasted comment when the name is cleared", async () => {
@@ -459,7 +459,7 @@ describe("SshKeysPanel", () => {
 
       await chooseRegisterBranch(user);
       await user.type(screen.getByLabelText("Public key"), twoKeys);
-      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.type(screen.getByLabelText("Name (comment)"), "alice@laptop");
       await user.click(screen.getByRole("button", { name: "Add key" }));
 
       await waitFor(() => expect(postedBody).toEqual({ public_key: twoKeys }));
@@ -488,7 +488,7 @@ describe("SshKeysPanel", () => {
 
   describe("browser key generation", () => {
     const publicKeyLine =
-      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdamAGCsQq31Uv+08lkBzoO4XLz2qYjJa8CGmj3B1Ea keisuke@macbook";
+      "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINdamAGCsQq31Uv+08lkBzoO4XLz2qYjJa8CGmj3B1Ea alice@laptop";
     const privateKeyFile = "-----BEGIN OPENSSH PRIVATE KEY-----\nmock\n-----END OPENSSH PRIVATE KEY-----\n";
 
     afterEach(() => {
@@ -518,10 +518,10 @@ describe("SshKeysPanel", () => {
       await chooseGenerateBranch(user);
       expect(screen.getByRole("button", { name: "Generate key" })).toBeDisabled();
 
-      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.type(screen.getByLabelText("Name (comment)"), "alice@laptop");
       await user.click(screen.getByRole("button", { name: "Generate key" }));
 
-      expect(generate).toHaveBeenCalledWith("keisuke@macbook");
+      expect(generate).toHaveBeenCalledWith("alice@laptop");
       expect(screen.getByLabelText("Name (comment)")).toBeDisabled();
     });
 
@@ -533,7 +533,7 @@ describe("SshKeysPanel", () => {
       renderWithProviders(<SshKeysPanel />);
 
       await chooseGenerateBranch(user);
-      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.type(screen.getByLabelText("Name (comment)"), "alice@laptop");
       await user.click(screen.getByRole("button", { name: "Generate key" }));
 
       expect(await screen.findByText(/Key generation failed/)).toBeInTheDocument();
@@ -550,7 +550,7 @@ describe("SshKeysPanel", () => {
       renderWithProviders(<SshKeysPanel />);
 
       await chooseGenerateBranch(user);
-      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.type(screen.getByLabelText("Name (comment)"), "alice@laptop");
       await user.click(screen.getByRole("button", { name: "Generate key" }));
 
       // Auto-download was attempted (best-effort), but that alone must not register anything:
@@ -582,7 +582,7 @@ describe("SshKeysPanel", () => {
       await chooseGenerateBranch(user);
       expect(screen.getByRole("button", { name: "Back" })).toBeInTheDocument();
 
-      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.type(screen.getByLabelText("Name (comment)"), "alice@laptop");
       await user.click(screen.getByRole("button", { name: "Generate key" }));
 
       // Leaving here would strand a private key the user has not decided about yet.
@@ -608,7 +608,7 @@ describe("SshKeysPanel", () => {
       renderWithProviders(<SshKeysPanel />);
 
       await chooseGenerateBranch(user);
-      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.type(screen.getByLabelText("Name (comment)"), "alice@laptop");
       await user.click(screen.getByRole("button", { name: "Generate key" }));
 
       expect(screen.getByLabelText("Name (comment)")).toBeDisabled();
@@ -628,7 +628,7 @@ describe("SshKeysPanel", () => {
       renderWithProviders(<SshKeysPanel />);
 
       await chooseGenerateBranch(user);
-      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.type(screen.getByLabelText("Name (comment)"), "alice@laptop");
       await user.click(screen.getByRole("button", { name: "Generate key" }));
       await user.click(screen.getByRole("button", { name: "Download again" }));
 
@@ -645,7 +645,7 @@ describe("SshKeysPanel", () => {
       renderWithProviders(<SshKeysPanel />);
 
       await chooseGenerateBranch(user);
-      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.type(screen.getByLabelText("Name (comment)"), "alice@laptop");
       await user.click(screen.getByRole("button", { name: "Generate key" }));
       await user.click(screen.getByRole("button", { name: "Download again" }));
       await user.click(screen.getByRole("button", { name: "Download again" }));
@@ -670,7 +670,7 @@ describe("SshKeysPanel", () => {
       renderWithProviders(<SshKeysPanel />);
 
       await chooseGenerateBranch(user);
-      await user.type(screen.getByLabelText("Name (comment)"), "keisuke@macbook");
+      await user.type(screen.getByLabelText("Name (comment)"), "alice@laptop");
       await user.click(screen.getByRole("button", { name: "Generate key" }));
       await user.click(screen.getByRole("button", { name: "I saved the private key" }));
       await user.click(screen.getByRole("button", { name: "Add key" }));

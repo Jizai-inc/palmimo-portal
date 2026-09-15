@@ -17,6 +17,8 @@ const BASE_SYSTEM_STATUS: SystemStatus = {
   last_wifi_attempt: null,
   adapters: "fake",
   state_dir: "/tmp",
+  disk_free_bytes: 5_000_000_000,
+  ntp_synchronized: true,
 };
 
 describe("DashboardStatusCard", () => {
@@ -67,5 +69,30 @@ describe("DashboardStatusCard", () => {
     renderWithProviders(<DashboardStatusCard portalBadge={<span>update badge</span>} />);
 
     expect(await screen.findByText("update badge")).toBeInTheDocument();
+  });
+
+  // Without these, a device stuck before NTP sync (GitHub/PyPI TLS failing, catalog looking
+  // empty -- design doc 3.6) or one about to hit ENOSPC mid-install would give the operator no
+  // warning until an install/update job failed with a much less obvious error.
+  it("shows a time-sync banner when the clock is not NTP-synchronized", async () => {
+    server.use(
+      getGetStatusApiV1WifiStatusGetMockHandler({ state: "connected", ssid: "Home Wi-Fi", ip_address: "10.0.0.42" }),
+      getGetStatusApiV1SystemStatusGetMockHandler({ ...BASE_SYSTEM_STATUS, ntp_synchronized: false }),
+    );
+
+    renderWithProviders(<DashboardStatusCard />);
+
+    expect(await screen.findByText("Waiting for time sync…")).toBeInTheDocument();
+  });
+
+  it("shows a low-disk warning under 1 GB free", async () => {
+    server.use(
+      getGetStatusApiV1WifiStatusGetMockHandler({ state: "connected", ssid: "Home Wi-Fi", ip_address: "10.0.0.42" }),
+      getGetStatusApiV1SystemStatusGetMockHandler({ ...BASE_SYSTEM_STATUS, disk_free_bytes: 500_000_000 }),
+    );
+
+    renderWithProviders(<DashboardStatusCard />);
+
+    expect(await screen.findByText("This device is low on disk space (0.5 GB free).")).toBeInTheDocument();
   });
 });

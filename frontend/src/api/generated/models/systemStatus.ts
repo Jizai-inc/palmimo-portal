@@ -11,8 +11,10 @@ export interface SystemStatus {
   adapters: string;
   auth_state: string;
   device_id: string | null;
+  disk_free_bytes: number;
   hostname: string;
   last_wifi_attempt: WifiAttemptInfo | null;
+  ntp_synchronized: boolean;
   state: string;
   state_dir: string;
   versions: VersionInfo;

@@ -99,6 +99,40 @@ def test_fetch_latest_raises_release_source_unavailable_on_other_http_errors(sta
     assert excinfo.value.code == "release_source_unavailable"
 
 
+def test_fetch_latest_raises_rate_limited_on_429() -> None:
+    error = urllib.error.HTTPError("url", 429, "Too Many Requests", email.message.Message(), io.BytesIO(b""))
+    source = GitHubReleaseSource(opener=_opener_raising(error))
+
+    with pytest.raises(ReleaseSourceError) as excinfo:
+        source.fetch_latest()
+
+    assert excinfo.value.code == "rate_limited"
+
+
+def test_fetch_latest_raises_rate_limited_on_403_with_remaining_quota_exhausted() -> None:
+    headers = email.message.Message()
+    headers["X-RateLimit-Remaining"] = "0"
+    error = urllib.error.HTTPError("url", 403, "Forbidden", headers, io.BytesIO(b""))
+    source = GitHubReleaseSource(opener=_opener_raising(error))
+
+    with pytest.raises(ReleaseSourceError) as excinfo:
+        source.fetch_latest()
+
+    assert excinfo.value.code == "rate_limited"
+
+
+def test_fetch_latest_raises_release_source_unavailable_on_403_without_the_rate_limit_header() -> None:
+    # A plain 403 (no quota header, or a nonzero remaining count) is a permissions problem,
+    # not rate limiting -- it must not be reported as retryable-after-a-wait.
+    error = urllib.error.HTTPError("url", 403, "Forbidden", email.message.Message(), io.BytesIO(b""))
+    source = GitHubReleaseSource(opener=_opener_raising(error))
+
+    with pytest.raises(ReleaseSourceError) as excinfo:
+        source.fetch_latest()
+
+    assert excinfo.value.code == "release_source_unavailable"
+
+
 def test_fetch_latest_raises_release_source_unavailable_on_a_url_error() -> None:
     source = GitHubReleaseSource(opener=_opener_raising(urllib.error.URLError("network unreachable")))
 

@@ -918,3 +918,18 @@ def test_prerelease_channel_allows_rolling_back_onto_a_prerelease_tag(
     assert response.status_code == 202
     assert response.json()["job"]["target"] == "v2.0.0-rc1"
     assert prerelease_adapters.updater.apply_calls == ["v2.0.0-rc1"]
+
+
+def test_apply_rejects_while_an_apps_job_holds_the_apps_lock(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    """Mutual exclusion with the app tab (api/apps.py): a Portal self-update must not start while
+    an install/update/delete job is in flight, since GitUvUpdater.apply would restart the process
+    mid-uv-sync and leave that app's .venv half-written."""
+    _log_in(client, adapters)
+    _check_v2(client, adapters)
+
+    with adapters.state.lock_apps():
+        response = client.post("/api/v1/update/apply", json={"tag": "v2.0.0"}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "app_job_in_progress"
+    assert adapters.updater.apply_calls == []

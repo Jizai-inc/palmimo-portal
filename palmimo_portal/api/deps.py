@@ -13,16 +13,25 @@ from typing import Any
 from fastapi import Depends, Request
 
 from palmimo_portal.api.errors import PortalError
+from palmimo_portal.core.apps_job_runner import AppsJobRunner
+from palmimo_portal.core.apps_jobs import AppsJobContext
+from palmimo_portal.core.apps_start import StartDeps
 from palmimo_portal.core.auth import LoginRateLimiter, ResetRateLimiter
 from palmimo_portal.core.identity import PortalAuthState, compute_auth_state
 from palmimo_portal.core.provisioning import NotProvisionedError, is_provisioned
 from palmimo_portal.core.provisioning import require_provisioned as _core_require_provisioned
 from palmimo_portal.core.wifi_access import WifiAccessDecision, decide_wifi_access
 from palmimo_portal.ports import (
+    AppUnitPort,
     AuthFileState,
+    ClockPort,
+    DiskPort,
     IdentityStore,
+    JournalPort,
     NetworkPort,
     ReleaseSource,
+    RunDirPort,
+    SecretsStore,
     SshKeyPort,
     StateStore,
     SystemPort,
@@ -42,6 +51,20 @@ def get_system_port(request: Request) -> SystemPort:
     adapters: Any = request.app.state.adapters
     system: SystemPort = adapters.system
     return system
+
+
+def get_clock_port(request: Request) -> ClockPort:
+    """Return the wired :class:`ClockPort` adapter."""
+    adapters: Any = request.app.state.adapters
+    clock: ClockPort = adapters.clock
+    return clock
+
+
+def get_disk_port(request: Request) -> DiskPort:
+    """Return the wired :class:`DiskPort` adapter."""
+    adapters: Any = request.app.state.adapters
+    disk: DiskPort = adapters.disk
+    return disk
 
 
 def get_ssh_key_port(request: Request) -> SshKeyPort:
@@ -94,6 +117,61 @@ def get_updater(request: Request) -> Updater:
     adapters: Any = request.app.state.adapters
     updater: Updater = adapters.updater
     return updater
+
+
+def get_secrets_store(request: Request) -> SecretsStore:
+    """Return the wired :class:`SecretsStore` adapter."""
+    adapters: Any = request.app.state.adapters
+    secrets: SecretsStore = adapters.secrets
+    return secrets
+
+
+def get_apps_job_context(request: Request) -> AppsJobContext:
+    """Return the app-wide :class:`AppsJobContext` built once at startup (also used by startup finalize)."""
+    ctx: AppsJobContext = request.app.state.apps_job_context
+    return ctx
+
+
+def get_apps_job_runner(request: Request) -> AppsJobRunner:
+    """Return the app-wide :class:`AppsJobRunner`.
+
+    One instance for the whole app's lifetime, same reasoning as
+    :func:`~palmimo_portal.api.update.get_update_lock`'s ``UpdateRunner``:
+    its lock-handoff-across-threads only makes sense shared.
+    """
+    runner: AppsJobRunner = request.app.state.apps_job_runner
+    return runner
+
+
+def get_app_unit_port(request: Request) -> AppUnitPort:
+    """Return the wired :class:`AppUnitPort` adapter."""
+    adapters: Any = request.app.state.adapters
+    app_unit: AppUnitPort = adapters.app_unit
+    return app_unit
+
+
+def get_run_dir_port(request: Request) -> RunDirPort:
+    """Return the wired :class:`RunDirPort` adapter."""
+    adapters: Any = request.app.state.adapters
+    run_dir: RunDirPort = adapters.run_dir
+    return run_dir
+
+
+def get_journal_port(request: Request) -> JournalPort:
+    """Return the wired :class:`JournalPort` adapter."""
+    adapters: Any = request.app.state.adapters
+    journal: JournalPort = adapters.journal
+    return journal
+
+
+def get_start_deps(request: Request) -> StartDeps:
+    """Return the app-wide :class:`~palmimo_portal.core.apps_start.StartDeps`, built once at startup.
+
+    Reused by startup finalize's autostart step (``api/app.py``), so both
+    share the exact same ``platform_ready`` gate and ports.
+    """
+    deps: StartDeps = request.app.state.start_deps
+    return deps
 
 
 def get_update_lock(request: Request) -> threading.Lock:

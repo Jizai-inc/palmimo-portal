@@ -273,7 +273,7 @@ function GithubTab({
         <Input id="github-subdir" value={subdir} onChange={(event) => { setSubdir(event.target.value); setPreview(null); }} />
       </div>
       <div className="flex flex-col gap-1">
-        <Label htmlFor="github-manifest">{t("appAdd.githubManifestLabel")}</Label>
+        <Label htmlFor="github-manifest">{t("appAdd.manifestLabel")}</Label>
         <Input
           id="github-manifest"
           value={manifest}
@@ -306,11 +306,18 @@ function ZipTab({
 }) {
   const { t } = useTranslation();
   const [file, setFile] = useState<File | null>(null);
+  const [manifest, setManifest] = useState("");
   const [preview, setPreview] = useState<ManifestPreviewResponse | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const sourceFor = (chosenFile: File): InstallSource => ({
+    type: "zip",
+    file: chosenFile,
+    ...(manifest ? { manifest } : {}),
+  });
+
   const previewMutation = useMutation({
-    mutationFn: (chosenFile: File) => previewApp({ type: "zip", file: chosenFile }),
+    mutationFn: (chosenFile: File) => previewApp(sourceFor(chosenFile)),
     onSuccess: setPreview,
   });
 
@@ -345,13 +352,22 @@ function ZipTab({
         />
         {file ? <p className="text-sm font-medium">{file.name}</p> : null}
       </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="zip-manifest">{t("appAdd.manifestLabel")}</Label>
+        <Input
+          id="zip-manifest"
+          value={manifest}
+          onChange={(event) => { setManifest(event.target.value); setPreview(null); }}
+          placeholder="palmimo.toml"
+        />
+      </div>
       <ApiErrorAlert error={previewMutation.error} />
       <div className="flex gap-2">
         <Button variant="outline" disabled={!file || previewMutation.isPending} onClick={() => file && previewMutation.mutate(file)}>
           {t("appAdd.previewButton")}
         </Button>
         {preview && file ? (
-          <Button disabled={installPending} onClick={() => onInstall({ type: "zip", file })}>
+          <Button disabled={installPending} onClick={() => onInstall(sourceFor(file))}>
             {t("appAdd.installButton")}
           </Button>
         ) : null}

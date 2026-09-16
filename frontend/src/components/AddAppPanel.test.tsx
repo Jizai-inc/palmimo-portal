@@ -107,6 +107,31 @@ describe("AddAppPanel", () => {
     expect(screen.getByRole("button", { name: "Install" })).toBeInTheDocument();
   });
 
+  it("sends the chosen manifest file with a zip preview and install", async () => {
+    const user = userEvent.setup();
+    const manifests: (FormDataEntryValue | null)[] = [];
+    server.use(
+      http.post("*/api/v1/apps/preview", async ({ request }) => {
+        manifests.push((await request.formData()).get("manifest"));
+        return HttpResponse.json({ name: "my-realtime", description: "d", devices: [], env: [] });
+      }),
+      http.post("*/api/v1/apps/install", async ({ request }) => {
+        manifests.push((await request.formData()).get("manifest"));
+        return HttpResponse.json({ job: { id: "job-1", app_name: null, kind: "install", state: "running", step: "fetch", error: null, started_at: 1, finished_at: null, dropped_bindings: [], dropped_params: [], lock_generated: false } }, { status: 202 });
+      }),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+    );
+    renderWithProviders(<AddAppPanel />);
+
+    await user.click(screen.getByRole("button", { name: "Zip" }));
+    await user.upload(screen.getByLabelText("Choose file"), new File(["z"], "app.zip", { type: "application/zip" }));
+    await user.type(screen.getByLabelText("Manifest file (optional)"), "palmimo.realtime.toml");
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    await user.click(await screen.findByRole("button", { name: "Install" }));
+
+    await waitFor(() => expect(manifests).toEqual(["palmimo.realtime.toml", "palmimo.realtime.toml"]));
+  });
+
   // Without this, a manifest whose help_url predates the backend's scheme validation (or a
   // future backend regression) could get a `javascript:` URL turned into a clickable link,
   // letting an installed app's manifest execute script in the operator's browser session.

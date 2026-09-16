@@ -410,7 +410,7 @@
     "githubRefKindTag": "タグ",
     "githubRefLabel": "ブランチまたはタグ",
     "githubSubdirLabel": "サブディレクトリ（任意）",
-    "githubManifestLabel": "マニフェストファイル（任意）",
+    "manifestLabel": "マニフェストファイル（任意）",
     "zipDropLabel": "ここに .zip ファイルをドロップ、または選択してください",
     "zipChooseFileButton": "ファイルを選択",
     "installingTitle": "{{name}} をインストール中…"

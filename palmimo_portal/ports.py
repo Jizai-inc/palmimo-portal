@@ -802,6 +802,10 @@ class AppSource:
     ref_kind: AppRefKind | None = None
     subdir: str | None = None
     commit: str | None = None
+    #: The manifest file this app was installed from, when it is not the default
+    #: ``palmimo.toml`` -- ``None`` means the default. Fixed at install time; ``update`` re-reads
+    #: this same file.
+    manifest: str | None = None
 
 
 @dataclass(frozen=True)

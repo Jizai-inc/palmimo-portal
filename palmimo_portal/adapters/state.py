@@ -751,6 +751,25 @@ class JsonFileStateStore(StateStore):
         )
 
     @staticmethod
+    def _source_payload(source: AppSource) -> dict[str, Any]:
+        """Serialize an :class:`AppSource`, omitting ``manifest`` when it is ``None`` (the default).
+
+        Keeps a ledger written before the manifest field existed byte-identical to one written
+        since, for every app installed from the default ``palmimo.toml``.
+        """
+        payload: dict[str, Any] = {
+            "type": source.type,
+            "url": source.url,
+            "ref": source.ref,
+            "ref_kind": source.ref_kind,
+            "subdir": source.subdir,
+            "commit": source.commit,
+        }
+        if source.manifest is not None:
+            payload["manifest"] = source.manifest
+        return payload
+
+    @staticmethod
     def _dump_app_job(job: AppJob) -> dict[str, Any]:
         return {
             "id": job.id,
@@ -793,6 +812,7 @@ class JsonFileStateStore(StateStore):
                 ref_kind=source_data.get("ref_kind"),
                 subdir=source_data.get("subdir"),
                 commit=source_data.get("commit"),
+                manifest=source_data.get("manifest"),
             )
             last_job_data = entry.get("last_job")
             last_job = (
@@ -849,14 +869,7 @@ class JsonFileStateStore(StateStore):
             "schema": 1,
             "apps": {
                 name: {
-                    "source": {
-                        "type": record.source.type,
-                        "url": record.source.url,
-                        "ref": record.source.ref,
-                        "ref_kind": record.source.ref_kind,
-                        "subdir": record.source.subdir,
-                        "commit": record.source.commit,
-                    },
+                    "source": self._source_payload(record.source),
                     "installed_at": record.installed_at,
                     "params": record.params,
                     "autostart": record.autostart,

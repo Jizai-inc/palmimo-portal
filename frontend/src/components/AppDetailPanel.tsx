@@ -482,6 +482,7 @@ function SourceSection({
         <KvRow label={t("appDetail.sourceTypeLabel")} value={app.source.type} />
         {app.source.url ? <KvRow label={t("appDetail.sourceRepoLabel")} value={app.source.url} /> : null}
         {app.source.subdir ? <KvRow label={t("appDetail.sourceSubdirLabel")} value={app.source.subdir} /> : null}
+        {app.source.manifest ? <KvRow label={t("appDetail.sourceManifestLabel")} value={app.source.manifest} /> : null}
         {app.source.ref ? <KvRow label={t("appDetail.sourceRefLabel")} value={app.source.ref} /> : null}
         {app.source.commit ? <KvRow label={t("appDetail.sourceCommitLabel")} value={app.source.commit} /> : null}
         {app.installed_at ? <KvRow label={t("appDetail.sourceInstalledAtLabel")} value={formatUtcTimestamp(app.installed_at)} /> : null}

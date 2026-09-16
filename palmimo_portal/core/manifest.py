@@ -15,6 +15,10 @@ from typing import Any, Literal, cast
 
 
 _NAME_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,39}$")
+#: A directory may ship several manifests, one app each: the default ``palmimo.toml`` or a
+#: variant ``palmimo.<variant>.toml`` with the same ``<variant>`` shape as an app ``name``.
+MANIFEST_FILENAME_RE = re.compile(r"^palmimo(\.[a-z][a-z0-9-]{0,39})?\.toml$")
+DEFAULT_MANIFEST_FILENAME = "palmimo.toml"
 _PARAM_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 _ENV_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 _RESERVED_ENV_PREFIX = "PALMIMO_"
@@ -53,6 +57,28 @@ _NESTED_QUANTIFIER_RE = re.compile(r"\([^()]*[+*][^()]*\)[+*]")
 _NO_DEFAULT = object()
 
 ParamType = Literal["string", "int", "float", "enum", "bool"]
+
+
+class InvalidManifestFilenameError(ValueError):
+    """Raised by :func:`validate_manifest_filename`.
+
+    A :class:`ValueError` subclass, like ``core.apps.InvalidGitSourceError``, so a pydantic
+    field validator can raise it directly and get an automatic 422.
+    """
+
+
+def validate_manifest_filename(name: str | None) -> str:
+    """Return ``name`` if it names a manifest a directory may ship, or :data:`DEFAULT_MANIFEST_FILENAME` for ``None``/``""``.
+
+    Raises:
+        InvalidManifestFilenameError: ``name`` is neither ``palmimo.toml`` nor
+            ``palmimo.<variant>.toml`` (``<variant>`` matching an app ``name``'s own shape).
+    """
+    if not name:
+        return DEFAULT_MANIFEST_FILENAME
+    if not MANIFEST_FILENAME_RE.fullmatch(name):
+        raise InvalidManifestFilenameError(f"manifest filename must match {MANIFEST_FILENAME_RE.pattern}, got {name!r}")
+    return name
 
 
 class ManifestValidationError(Exception):

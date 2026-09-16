@@ -46,7 +46,7 @@ from palmimo_portal.core.apps import host_owner_from_url, resolve_subdir
 from palmimo_portal.core.apps_layout import LayoutPaths, resolve_layout
 from palmimo_portal.core.apps_zip import UPLOAD_MAX_BYTES, extract_zip_to_staging
 from palmimo_portal.core.catalog import CatalogCache
-from palmimo_portal.core.manifest import Manifest, parse_manifest
+from palmimo_portal.core.manifest import DEFAULT_MANIFEST_FILENAME, Manifest, parse_manifest, validate_manifest_filename
 from palmimo_portal.core.os_group import apps_gid
 from palmimo_portal.core.secrets import mask_authorization_lines
 from palmimo_portal.ports import (
@@ -88,7 +88,6 @@ INSTALL_DISK_RESERVE_BYTES = 500 * 1024 * 1024
 #: revoked credential must fail fast, never hang on a prompt no one can answer.
 _GIT_BASE_ENV: dict[str, str] = {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "/bin/true"}
 
-_MANIFEST_FILENAME = "palmimo.toml"
 _PYPROJECT_FILENAME = "pyproject.toml"
 
 
@@ -226,11 +225,20 @@ def _check_disk_space(ctx: AppsJobContext, extra_bytes: int) -> None:
         raise DiskFullError(f"{free} bytes free, need at least {required} bytes")
 
 
-def _read_manifest(project_dir: Path) -> Manifest:
-    manifest_path = project_dir / _MANIFEST_FILENAME
+def _read_manifest(project_dir: Path, manifest_filename: str = DEFAULT_MANIFEST_FILENAME) -> Manifest:
+    manifest_path = project_dir / manifest_filename
     if not manifest_path.is_file():
-        raise InvalidManifestSourceError(f"{_MANIFEST_FILENAME} not found in {project_dir}")
+        raise InvalidManifestSourceError(f"{manifest_filename} not found in {project_dir}")
     return parse_manifest(manifest_path.read_text(encoding="utf-8"))
+
+
+def _manifest_filename_for(source: AppSource) -> str:
+    return source.manifest or DEFAULT_MANIFEST_FILENAME
+
+
+def _stored_manifest(resolved_manifest_filename: str) -> str | None:
+    """The value an :class:`AppSource` stores for a resolved manifest filename -- ``None`` for the default."""
+    return None if resolved_manifest_filename == DEFAULT_MANIFEST_FILENAME else resolved_manifest_filename
 
 
 def _check_pyproject(project_dir: Path) -> None:
@@ -376,14 +384,14 @@ def read_manifest_for_app(ctx: AppsJobContext, record: AppRecord) -> Manifest:
     """Read the current on-disk manifest for an installed app (design doc 3.3: never cached in the ledger)."""
     project_dir = ctx.app_dir(record.name)
     project_dir = resolve_subdir(project_dir, record.source.subdir)
-    return _read_manifest(project_dir)
+    return _read_manifest(project_dir, _manifest_filename_for(record.source))
 
 
 def _upload_size(upload: bytes | Path) -> int:
     return len(upload) if isinstance(upload, bytes) else upload.stat().st_size
 
 
-def preview_zip(ctx: AppsJobContext, upload: bytes | Path) -> Manifest:
+def preview_zip(ctx: AppsJobContext, upload: bytes | Path, manifest_filename: str | None = None) -> Manifest:
     """Fetch, extract, and validate a zip upload without installing it. Discards the staging tree.
 
     ``upload`` as a :class:`Path` (already streamed to disk by the API
@@ -391,10 +399,11 @@ def preview_zip(ctx: AppsJobContext, upload: bytes | Path) -> Manifest:
     """
     if _upload_size(upload) > UPLOAD_MAX_BYTES:
         raise InvalidManifestSourceError(f"upload exceeds the {UPLOAD_MAX_BYTES // (1024 * 1024)} MB size cap")
+    resolved_manifest = validate_manifest_filename(manifest_filename)
     staging_container = ctx.staging_dir / ctx.new_id()
     try:
-        install_root = extract_zip_to_staging(upload, staging_container)
-        manifest = _read_manifest(install_root)
+        install_root = extract_zip_to_staging(upload, staging_container, manifest_filename=resolved_manifest)
+        manifest = _read_manifest(install_root, resolved_manifest)
         _check_pyproject(install_root)
         return manifest
     finally:
@@ -402,14 +411,21 @@ def preview_zip(ctx: AppsJobContext, upload: bytes | Path) -> Manifest:
 
 
 def preview_git(
-    ctx: AppsJobContext, *, url: str, ref: str, ref_kind: AppRefKind, subdir: str | None = None
+    ctx: AppsJobContext,
+    *,
+    url: str,
+    ref: str,
+    ref_kind: AppRefKind,
+    subdir: str | None = None,
+    manifest_filename: str | None = None,
 ) -> Manifest:
     """Shallow-clone, then validate, a git source without installing it. Discards the staging tree."""
+    resolved_manifest = validate_manifest_filename(manifest_filename)
     staging_container = ctx.staging_dir / ctx.new_id()
     try:
         ctx.git.clone_shallow(url, ref, ref_kind, staging_container, env=git_env(ctx, url))
         project_dir = resolve_subdir(staging_container, subdir)
-        manifest = _read_manifest(project_dir)
+        manifest = _read_manifest(project_dir, resolved_manifest)
         _check_pyproject(project_dir)
         return manifest
     finally:
@@ -435,7 +451,9 @@ class PreparedInstall:
     commit: str | None
 
 
-def prepare_install_zip(ctx: AppsJobContext, upload: bytes | Path, job_id: str | None = None) -> PreparedInstall:
+def prepare_install_zip(
+    ctx: AppsJobContext, upload: bytes | Path, job_id: str | None = None, manifest_filename: str | None = None
+) -> PreparedInstall:
     """Fetch, extract, and validate a zip upload -- the fast half of :func:`install_zip`.
 
     ``upload`` as a :class:`Path` (already streamed to disk by the API
@@ -449,12 +467,13 @@ def prepare_install_zip(ctx: AppsJobContext, upload: bytes | Path, job_id: str |
     upload_size = _upload_size(upload)
     if upload_size > UPLOAD_MAX_BYTES:
         raise InvalidManifestSourceError(f"upload exceeds the {UPLOAD_MAX_BYTES // (1024 * 1024)} MB size cap")
+    resolved_manifest = validate_manifest_filename(manifest_filename)
     _check_disk_space(ctx, upload_size)
     job_id = job_id or ctx.new_id()
     staging_container = ctx.staging_dir / job_id
     try:
-        install_root = extract_zip_to_staging(upload, staging_container)
-        manifest = _read_manifest(install_root)
+        install_root = extract_zip_to_staging(upload, staging_container, manifest_filename=resolved_manifest)
+        manifest = _read_manifest(install_root, resolved_manifest)
         _check_pyproject(install_root)
     except BaseException:
         purge_path(ctx, staging_container)
@@ -465,7 +484,7 @@ def prepare_install_zip(ctx: AppsJobContext, upload: bytes | Path, job_id: str |
         install_root=install_root,
         project_dir=install_root,
         staging_container=staging_container,
-        source=AppSource(type="zip"),
+        source=AppSource(type="zip", manifest=_stored_manifest(resolved_manifest)),
         commit=None,
     )
 
@@ -478,6 +497,7 @@ def prepare_install_git(
     ref_kind: AppRefKind,
     subdir: str | None = None,
     job_id: str | None = None,
+    manifest_filename: str | None = None,
 ) -> PreparedInstall:
     """Shallow-clone and validate a git source -- the fast half of :func:`install_git`.
 
@@ -486,13 +506,14 @@ def prepare_install_git(
         InvalidManifestSourceError / ManifestValidationError: the clone
             fails validation.
     """
+    resolved_manifest = validate_manifest_filename(manifest_filename)
     _check_disk_space(ctx, 0)
     job_id = job_id or ctx.new_id()
     staging_container = ctx.staging_dir / job_id
     try:
         commit = ctx.git.clone_shallow(url, ref, ref_kind, staging_container, env=git_env(ctx, url))
         project_dir = resolve_subdir(staging_container, subdir)
-        manifest = _read_manifest(project_dir)
+        manifest = _read_manifest(project_dir, resolved_manifest)
         _check_pyproject(project_dir)
     except BaseException:
         purge_path(ctx, staging_container)
@@ -503,7 +524,9 @@ def prepare_install_git(
         install_root=staging_container,
         project_dir=project_dir,
         staging_container=staging_container,
-        source=AppSource(type="git", url=url, ref=ref, ref_kind=ref_kind, subdir=subdir),
+        source=AppSource(
+            type="git", url=url, ref=ref, ref_kind=ref_kind, subdir=subdir, manifest=_stored_manifest(resolved_manifest)
+        ),
         commit=commit,
     )
 
@@ -553,12 +576,16 @@ def commit_install(
 
 
 def install_zip(
-    ctx: AppsJobContext, state: AppsState, upload: bytes, on_step: Callable[[str], None] = _no_step
+    ctx: AppsJobContext,
+    state: AppsState,
+    upload: bytes,
+    manifest_filename: str | None = None,
+    on_step: Callable[[str], None] = _no_step,
 ) -> tuple[AppsState, AppRecord]:
     """Install an app from a zip upload, synchronously: :func:`prepare_install_zip` then :func:`commit_install`."""
     started = ctx.now()
     on_step("fetch")
-    prepared = prepare_install_zip(ctx, upload)
+    prepared = prepare_install_zip(ctx, upload, manifest_filename=manifest_filename)
     try:
         on_step("validate")
         return commit_install(ctx, state, prepared, started, on_step)
@@ -574,12 +601,15 @@ def install_git(
     ref: str,
     ref_kind: AppRefKind,
     subdir: str | None = None,
+    manifest_filename: str | None = None,
     on_step: Callable[[str], None] = _no_step,
 ) -> tuple[AppsState, AppRecord]:
     """Install an app from a git source, synchronously: :func:`prepare_install_git` then :func:`commit_install`."""
     started = ctx.now()
     on_step("fetch")
-    prepared = prepare_install_git(ctx, url=url, ref=ref, ref_kind=ref_kind, subdir=subdir)
+    prepared = prepare_install_git(
+        ctx, url=url, ref=ref, ref_kind=ref_kind, subdir=subdir, manifest_filename=manifest_filename
+    )
     try:
         on_step("validate")
         return commit_install(ctx, state, prepared, started, on_step)
@@ -633,7 +663,7 @@ def update_git(
         )
         on_step("validate")
         project_dir = resolve_subdir(staging_container, record.source.subdir)
-        manifest = _read_manifest(project_dir)
+        manifest = _read_manifest(project_dir, _manifest_filename_for(record.source))
         if manifest.name != name:
             raise InvalidManifestSourceError(f"fetched manifest name {manifest.name!r} does not match app {name!r}")
         _check_pyproject(project_dir)
@@ -799,7 +829,7 @@ def disk_state_checks(ctx: AppsJobContext, state: AppsState) -> tuple[Callable[[
         record = state.apps.get(name)
         if record is None:
             return False
-        return (_project_dir_for(ctx, record) / _MANIFEST_FILENAME).is_file()
+        return (_project_dir_for(ctx, record) / _manifest_filename_for(record.source)).is_file()
 
     def venv_exists(name: str) -> bool:
         record = state.apps.get(name)

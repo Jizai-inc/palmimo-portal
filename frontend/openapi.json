@@ -329,6 +329,17 @@
             ],
             "title": "Commit"
           },
+          "manifest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest"
+          },
           "ref": {
             "anyOf": [
               {
@@ -384,7 +395,8 @@
           "ref",
           "ref_kind",
           "subdir",
-          "commit"
+          "commit",
+          "manifest"
         ],
         "title": "AppSourceInfo",
         "type": "object"

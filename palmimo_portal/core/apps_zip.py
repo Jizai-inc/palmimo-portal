@@ -17,6 +17,7 @@ import stat
 import zipfile
 from pathlib import Path, PurePosixPath
 
+from palmimo_portal.core.manifest import DEFAULT_MANIFEST_FILENAME
 from palmimo_portal.ports import InvalidManifestSourceError
 
 
@@ -25,8 +26,6 @@ UPLOAD_MAX_BYTES = 200 * 1024 * 1024
 
 #: Cap on the combined uncompressed size of every extracted member (design doc 3.4).
 EXTRACTED_MAX_BYTES = 1024 * 1024 * 1024
-
-_MANIFEST_NAME = "palmimo.toml"
 
 
 def _is_symlink_entry(info: zipfile.ZipInfo) -> bool:
@@ -43,7 +42,7 @@ def _validate_member_path(name: str) -> PurePosixPath:
     return path
 
 
-def extract_zip_to_staging(source: bytes | Path, dest: Path) -> Path:
+def extract_zip_to_staging(source: bytes | Path, dest: Path, *, manifest_filename: str = DEFAULT_MANIFEST_FILENAME) -> Path:
     """Safely extract ``source`` (a zip file, in memory or already staged on disk) into fresh directory ``dest``.
 
     ``source`` as a :class:`Path` reads the archive straight off disk
@@ -52,13 +51,15 @@ def extract_zip_to_staging(source: bytes | Path, dest: Path) -> Path:
     3.4's "fetch" step.
 
     Returns the app root: ``dest`` itself, or its sole child directory when
-    the archive wraps everything in one top-level directory.
+    the archive wraps everything in one top-level directory -- located by
+    ``manifest_filename``, so an upload carrying several ``palmimo*.toml``
+    manifests (one app each) is rooted at the one the caller asked to install.
 
     Raises:
         InvalidManifestSourceError: any entry is unsafe, the archive is not
             a valid zip, the uncompressed total exceeds
-            :data:`EXTRACTED_MAX_BYTES`, or ``palmimo.toml`` is not found at
-            exactly one location at depth 0 or 1.
+            :data:`EXTRACTED_MAX_BYTES`, or ``manifest_filename`` is not
+            found at exactly one location at depth 0 or 1.
     """
     if dest.exists():
         shutil.rmtree(dest)
@@ -68,7 +69,7 @@ def extract_zip_to_staging(source: bytes | Path, dest: Path) -> Path:
     except BaseException:
         shutil.rmtree(dest, ignore_errors=True)
         raise
-    return _locate_app_root(dest)
+    return _locate_app_root(dest, manifest_filename)
 
 
 def _extract(source: bytes | Path, dest: Path) -> None:
@@ -131,15 +132,15 @@ def _apply_executable_bits(target: Path, mode: int) -> None:
         target.chmod(target.stat().st_mode | exec_bits)
 
 
-def _locate_app_root(dest: Path) -> Path:
-    if (dest / _MANIFEST_NAME).is_file():
+def _locate_app_root(dest: Path, manifest_filename: str) -> Path:
+    if (dest / manifest_filename).is_file():
         return dest
 
-    depth1_matches = [child for child in dest.iterdir() if child.is_dir() and (child / _MANIFEST_NAME).is_file()]
+    depth1_matches = [child for child in dest.iterdir() if child.is_dir() and (child / manifest_filename).is_file()]
     if len(depth1_matches) == 1:
         return depth1_matches[0]
     if len(depth1_matches) > 1:
         raise InvalidManifestSourceError(
-            f"multiple {_MANIFEST_NAME} files found at depth 1: {[str(p) for p in depth1_matches]}"
+            f"multiple {manifest_filename} files found at depth 1: {[str(p) for p in depth1_matches]}"
         )
-    raise InvalidManifestSourceError(f"no {_MANIFEST_NAME} found at depth 0 or 1")
+    raise InvalidManifestSourceError(f"no {manifest_filename} found at depth 0 or 1")

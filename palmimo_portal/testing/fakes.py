@@ -847,12 +847,18 @@ class FakeCatalogSource(CatalogSource):
         return self.asset
 
 
-def make_catalog_app(name: str = "palmimo-teleop") -> CatalogApp:
+def make_catalog_app(name: str = "palmimo-teleop", *, manifest: str | None = None) -> CatalogApp:
     """Build a minimal, valid :class:`CatalogApp` for scripting :class:`FakeCatalogSource`."""
     return CatalogApp(
         name=name,
         description="A teleop app.",
-        source=AppSource(type="git", url="https://github.com/Jizai-inc/palmimo-devkit", ref_kind="tag", ref="v1.0.0"),
+        source=AppSource(
+            type="git",
+            url="https://github.com/Jizai-inc/palmimo-devkit",
+            ref_kind="tag",
+            ref="v1.0.0",
+            manifest=manifest,
+        ),
         env={},
         devices=("camera",),
     )

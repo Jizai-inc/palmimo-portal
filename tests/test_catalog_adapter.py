@@ -77,14 +77,39 @@ def test_fetch_parses_a_valid_catalog_asset() -> None:
     )
 
 
+def test_fetch_parses_a_non_default_manifest_filename_on_source() -> None:
+    payload = json.loads(json.dumps(VALID_ASSET))
+    payload["apps"][0]["source"]["manifest"] = "palmimo.realtime.toml"
+    asset_bytes = json.dumps(payload).encode("utf-8")
+    source = GitHubCatalogSource(
+        catalog_repo="Jizai-inc/palmimo-devkit", release_source=_FakeReleaseSource(), opener=_opener_for(asset_bytes)
+    )
+
+    asset = source.fetch()
+
+    assert asset.apps[0].source.manifest == "palmimo.realtime.toml"
+
+
 @pytest.mark.parametrize(
     "payload",
     [
         {"schema": 2, "apps": []},
         {"schema": 1, "apps": "not-a-list"},
         {"schema": 1, "apps": [{"name": "x"}]},  # missing description/source/env/devices
+        {
+            "schema": 1,
+            "apps": [
+                {
+                    "name": "palmimo-teleop",
+                    "description": "d",
+                    "source": {"type": "git", "url": "https://x", "ref_kind": "tag", "ref": "v1.0.0", "manifest": "bad name"},
+                    "env": {},
+                    "devices": ["camera"],
+                }
+            ],
+        },
     ],
-    ids=["wrong_schema_version", "apps_not_a_list", "app_missing_required_field"],
+    ids=["wrong_schema_version", "apps_not_a_list", "app_missing_required_field", "app_invalid_manifest_filename"],
 )
 def test_fetch_rejects_an_asset_with_an_invalid_shape(payload: dict) -> None:
     asset_bytes = json.dumps(payload).encode("utf-8")

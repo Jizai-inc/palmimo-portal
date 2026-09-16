@@ -17,21 +17,23 @@ export interface GitInstallSource {
   ref: string;
   ref_kind: "branch" | "tag";
   subdir?: string;
+  manifest?: string;
 }
 
-export type InstallSource = GitInstallSource | { type: "zip"; file: File };
+export type InstallSource = GitInstallSource | { type: "zip"; file: File; manifest?: string };
 
 function toRequestInit(source: InstallSource): RequestInit {
   if (source.type === "zip") {
     const formData = new FormData();
     formData.append("file", source.file);
+    if (source.manifest) formData.append("manifest", source.manifest);
     return { method: "POST", body: formData };
   }
-  const { type, url, ref, ref_kind, subdir } = source;
+  const { type, url, ref, ref_kind, subdir, manifest } = source;
   return {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type, url, ref, ref_kind, ...(subdir ? { subdir } : {}) }),
+    body: JSON.stringify({ type, url, ref, ref_kind, ...(subdir ? { subdir } : {}), ...(manifest ? { manifest } : {}) }),
   };
 }
 

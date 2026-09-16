@@ -410,6 +410,7 @@
     "githubRefKindTag": "Tag",
     "githubRefLabel": "Branch or tag",
     "githubSubdirLabel": "Subdirectory (optional)",
+    "githubManifestLabel": "Manifest file (optional)",
     "zipDropLabel": "Drop a .zip file here, or choose one",
     "zipChooseFileButton": "Choose file",
     "installingTitle": "Installing {{name}}…"
@@ -447,6 +448,7 @@
     "sourceTypeLabel": "Type",
     "sourceRepoLabel": "Repository",
     "sourceSubdirLabel": "Subdirectory",
+    "sourceManifestLabel": "Manifest file",
     "sourceRefLabel": "Ref",
     "sourceCommitLabel": "Commit",
     "sourceInstalledAtLabel": "Installed",

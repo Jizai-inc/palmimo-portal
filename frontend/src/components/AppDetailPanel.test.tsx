@@ -33,7 +33,7 @@ function detail(overrides: Partial<AppDetailResponse> = {}): AppDetailResponse {
     },
     name: "palmimo-teleop",
     params: { port: 8765, verbose: false },
-    source: { type: "git", url: "https://github.com/x/y", subdir: null, ref_kind: "tag", ref: "v1", commit: "abc123" },
+    source: { type: "git", url: "https://github.com/x/y", subdir: null, manifest: null, ref_kind: "tag", ref: "v1", commit: "abc123" },
     status: "stopped",
     ...overrides,
   };

@@ -65,6 +65,7 @@ def get_catalog(request: Request) -> CatalogResponse:
                     ref_kind=a.source.ref_kind,
                     subdir=a.source.subdir,
                     commit=a.source.commit,
+                    manifest=a.source.manifest,
                 ),
                 env=[
                     EnvSpecInfo(name=name, required=spec.required, description=spec.description, help_url=None)

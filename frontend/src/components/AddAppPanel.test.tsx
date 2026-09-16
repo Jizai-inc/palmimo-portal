@@ -28,6 +28,7 @@ const CATALOG: CatalogResponse = {
         type: "git",
         url: "https://github.com/Jizai-inc/palmimo-devkit",
         subdir: "examples/teleop",
+        manifest: "palmimo.realtime.toml",
         ref_kind: "tag",
         ref: "v1.0.0",
         commit: null,
@@ -49,8 +50,8 @@ describe("AddAppPanel", () => {
   });
 
   // Without this, installing from the catalog card would silently fail to reach the backend
-  // with a correctly-shaped git source (name/ref/ref_kind/subdir), or the job dialog + the
-  // caller's completion callback would never fire once the job finishes.
+  // with a correctly-shaped git source (name/ref/ref_kind/subdir/manifest), or the job dialog +
+  // the caller's completion callback would never fire once the job finishes.
   //
   // `onInstalled` receiving the finished job's `app_name` is what routes/apps.add.tsx uses to
   // navigate straight to the new app's detail page instead of the plain list -- asserted here,
@@ -80,6 +81,7 @@ describe("AddAppPanel", () => {
         ref: "v1.0.0",
         ref_kind: "tag",
         subdir: "examples/teleop",
+        manifest: "palmimo.realtime.toml",
       }),
     );
     await waitFor(() => expect(onInstalled).toHaveBeenCalledWith("palmimo-teleop"));

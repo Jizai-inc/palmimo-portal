@@ -91,7 +91,13 @@ from palmimo_portal.core.apps_start import (
     stop_app,
 )
 from palmimo_portal.core.apps_zip import UPLOAD_MAX_BYTES
-from palmimo_portal.core.manifest import Manifest, ManifestValidationError, validate_param_values
+from palmimo_portal.core.manifest import (
+    InvalidManifestFilenameError,
+    Manifest,
+    ManifestValidationError,
+    validate_manifest_filename,
+    validate_param_values,
+)
 from palmimo_portal.core.platform import compute_status
 from palmimo_portal.core.secrets import collect_registered_secret_values, mask_known_values
 from palmimo_portal.ports import (
@@ -202,6 +208,7 @@ class AppSourceInfo(BaseModel):
     ref_kind: str | None
     subdir: str | None
     commit: str | None
+    manifest: str | None
 
 
 class AppJobInfo(BaseModel):
@@ -311,10 +318,12 @@ class GitSourceRequest(BaseModel):
     ref: str
     ref_kind: AppRefKind
     subdir: str | None = None
+    manifest: str | None = None
 
     _validate_url = field_validator("url")(validate_git_url)
     _validate_ref = field_validator("ref")(validate_git_ref)
     _validate_subdir = field_validator("subdir")(validate_git_subdir_shape)
+    _validate_manifest = field_validator("manifest")(validate_manifest_filename)
 
 
 class GitInstallRequest(BaseModel):
@@ -420,6 +429,7 @@ def _source_info(record: AppRecord) -> AppSourceInfo:
         ref_kind=record.source.ref_kind,
         subdir=record.source.subdir,
         commit=record.source.commit,
+        manifest=record.source.manifest,
     )
 
 
@@ -474,7 +484,7 @@ def _pending_install_summary(state: AppsState) -> AppSummary | None:
         return None
     return AppSummary(
         name=state.current_job_app,
-        source=AppSourceInfo(type="unknown", url=None, ref=None, ref_kind=None, subdir=None, commit=None),
+        source=AppSourceInfo(type="unknown", url=None, ref=None, ref_kind=None, subdir=None, commit=None, manifest=None),
         installed_at=None,
         autostart=False,
         status="installing",
@@ -592,14 +602,26 @@ async def _read_upload_bounded(upload: Any, max_bytes: int) -> Path:
     return tmp_path
 
 
-async def _read_zip_or_git(request: Request) -> tuple[Path | None, GitSourceRequest | None]:
+async def _read_zip_or_git(request: Request) -> tuple[Path | None, GitSourceRequest | None, str | None]:
+    """Returns ``(upload_path, git_source, zip_manifest)`` -- exactly one of the first two is set.
+
+    ``zip_manifest`` is the validated, optional ``manifest`` form field for a zip install/preview
+    (``None`` for a git request, whose own ``manifest`` rides on ``git_source`` instead).
+    """
     content_type = request.headers.get("content-type", "")
     if content_type.startswith("multipart/form-data"):
         form = await request.form()
         upload = form.get("file")
         if upload is None or not hasattr(upload, "read"):
             raise PortalError(422, "validation_error", errors=["a 'file' field is required for a zip install"])
-        return await _read_upload_bounded(upload, UPLOAD_MAX_BYTES), None
+        manifest_field = form.get("manifest")
+        try:
+            zip_manifest = validate_manifest_filename(
+                manifest_field if isinstance(manifest_field, str) else None
+            )
+        except InvalidManifestFilenameError as error:
+            raise PortalError(422, "validation_error", errors=[str(error)]) from error
+        return await _read_upload_bounded(upload, UPLOAD_MAX_BYTES), None, zip_manifest
     body = await request.json()
     try:
         parsed = GitInstallRequest.model_validate(body)
@@ -608,7 +630,7 @@ async def _read_zip_or_git(request: Request) -> tuple[Path | None, GitSourceRequ
         # `validate_git_url`) otherwise rides along in `ctx.error` as the raw exception
         # object, which `PortalError`'s JSON envelope cannot serialize.
         raise PortalError(422, "validation_error", errors=error.errors(include_context=False)) from error
-    return None, parsed.source
+    return None, parsed.source, None
 
 
 def _request_host(request: Request) -> str:
@@ -644,14 +666,19 @@ async def preview(request: Request, ctx: AppsJobContext = Depends(get_apps_job_c
             that fails validation; 422 ``preview_failed`` for any other
             fetch/extract failure.
     """
-    upload, git_source = await _read_zip_or_git(request)
+    upload, git_source, zip_manifest = await _read_zip_or_git(request)
     try:
         if upload is not None:
-            manifest = apps_jobs.preview_zip(ctx, upload)
+            manifest = apps_jobs.preview_zip(ctx, upload, zip_manifest)
         else:
             assert git_source is not None
             manifest = apps_jobs.preview_git(
-                ctx, url=git_source.url, ref=git_source.ref, ref_kind=git_source.ref_kind, subdir=git_source.subdir
+                ctx,
+                url=git_source.url,
+                ref=git_source.ref,
+                ref_kind=git_source.ref_kind,
+                subdir=git_source.subdir,
+                manifest_filename=git_source.manifest,
             )
     except ManifestValidationError as error:
         raise PortalError(422, "manifest_invalid", errors=error.errors) from error
@@ -695,14 +722,19 @@ async def install(
     _ensure_no_portal_update_in_progress(state_store)
     _ensure_no_platform_update_in_progress(state_store)
     _ensure_platform_ready(deps)
-    upload, git_source = await _read_zip_or_git(request)
+    upload, git_source, zip_manifest = await _read_zip_or_git(request)
     try:
         if upload is not None:
-            prepared = apps_jobs.prepare_install_zip(ctx, upload)
+            prepared = apps_jobs.prepare_install_zip(ctx, upload, manifest_filename=zip_manifest)
         else:
             assert git_source is not None
             prepared = apps_jobs.prepare_install_git(
-                ctx, url=git_source.url, ref=git_source.ref, ref_kind=git_source.ref_kind, subdir=git_source.subdir
+                ctx,
+                url=git_source.url,
+                ref=git_source.ref,
+                ref_kind=git_source.ref_kind,
+                subdir=git_source.subdir,
+                manifest_filename=git_source.manifest,
             )
     except ManifestValidationError as error:
         raise PortalError(422, "manifest_invalid", errors=error.errors) from error

@@ -20,6 +20,11 @@ from palmimo_portal.adapters.static_asset import (
     download,
     verify_checksum,
 )
+from palmimo_portal.core.manifest import (
+    DEFAULT_MANIFEST_FILENAME,
+    InvalidManifestFilenameError,
+    validate_manifest_filename,
+)
 from palmimo_portal.ports import (
     AppSource,
     CatalogApp,
@@ -42,8 +47,17 @@ _REQUIRED_ENV_KEYS = ("required", "description")
 def _parse_source(raw: Any, asset_name: str, index: int) -> AppSource:
     if not isinstance(raw, dict) or any(key not in raw for key in _REQUIRED_SOURCE_KEYS):
         raise CatalogSourceError(f"{asset_name}.apps[{index}].source is missing one of {_REQUIRED_SOURCE_KEYS}")
+    try:
+        manifest = validate_manifest_filename(raw.get("manifest"))
+    except InvalidManifestFilenameError as error:
+        raise CatalogSourceError(f"{asset_name}.apps[{index}].source.manifest is invalid: {error}") from error
     return AppSource(
-        type=raw["type"], url=raw["url"], ref=raw["ref"], ref_kind=raw["ref_kind"], subdir=raw.get("subdir")
+        type=raw["type"],
+        url=raw["url"],
+        ref=raw["ref"],
+        ref_kind=raw["ref_kind"],
+        subdir=raw.get("subdir"),
+        manifest=None if manifest == DEFAULT_MANIFEST_FILENAME else manifest,
     )
 
 

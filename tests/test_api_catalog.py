@@ -75,8 +75,21 @@ def test_get_catalog_returns_typed_source_and_env_objects(client: TestClient, ad
         "ref_kind": "tag",
         "subdir": None,
         "commit": None,
+        "manifest": None,
     }
     assert app["env"] == []
+
+
+def test_get_catalog_exposes_a_non_default_manifest_filename(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    adapters.catalog.asset = CatalogAsset(
+        tag="v1.0.0", apps=(make_catalog_app("palmimo-realtime", manifest="palmimo.realtime.toml"),)
+    )
+    _authenticated_client(client, adapters)
+
+    response = client.get("/api/v1/catalog")
+
+    [app] = response.json()["apps"]
+    assert app["source"]["manifest"] == "palmimo.realtime.toml"
 
 
 def test_get_catalog_reports_clock_unsynced_when_the_clock_is_not_ntp_synchronized(

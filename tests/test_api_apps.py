@@ -113,6 +113,38 @@ def _install_zip(client: TestClient, name: str = "palmimo-teleop") -> httpx.Resp
     )
 
 
+def _zip_bytes_with_two_manifests() -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("palmimo.toml", 'schema = 1\nname = "palmimo-default"\ndescription = "d"\ncommand = ["run"]\n')
+        archive.writestr(
+            "palmimo.realtime.toml", 'schema = 1\nname = "palmimo-realtime"\ndescription = "d"\ncommand = ["run"]\n'
+        )
+        archive.writestr("pyproject.toml", "[project]\nname='app'\nversion='0'\n")
+    return buffer.getvalue()
+
+
+def test_install_zip_with_a_manifest_field_installs_the_app_it_declares(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    # Without this, a zip shipping several manifests could only ever install whatever app
+    # palmimo.toml declares, no matter which manifest the 'manifest' form field named.
+    client = _authenticated_client(client, adapters)
+
+    response = client.post(
+        "/api/v1/apps/install",
+        files={"file": ("app.zip", _zip_bytes_with_two_manifests(), "application/zip")},
+        data={"manifest": "palmimo.realtime.toml"},
+        headers=CSRF_HEADERS,
+    )
+
+    assert response.status_code == 202
+    assert response.json()["job"]["app_name"] == "palmimo-realtime"
+    detail = client.get("/api/v1/apps/palmimo-realtime")
+    assert detail.status_code == 200
+    assert detail.json()["source"]["manifest"] == "palmimo.realtime.toml"
+
+
 def test_install_zip_then_list_shows_the_app(client: TestClient, adapters: FakeAdapterBundle) -> None:
     client = _authenticated_client(client, adapters)
 

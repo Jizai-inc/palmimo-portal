@@ -410,6 +410,7 @@
     "githubRefKindTag": "タグ",
     "githubRefLabel": "ブランチまたはタグ",
     "githubSubdirLabel": "サブディレクトリ（任意）",
+    "githubManifestLabel": "マニフェストファイル（任意）",
     "zipDropLabel": "ここに .zip ファイルをドロップ、または選択してください",
     "zipChooseFileButton": "ファイルを選択",
     "installingTitle": "{{name}} をインストール中…"
@@ -447,6 +448,7 @@
     "sourceTypeLabel": "種類",
     "sourceRepoLabel": "リポジトリ",
     "sourceSubdirLabel": "サブディレクトリ",
+    "sourceManifestLabel": "マニフェストファイル",
     "sourceRefLabel": "参照",
     "sourceCommitLabel": "コミット",
     "sourceInstalledAtLabel": "インストール日時",

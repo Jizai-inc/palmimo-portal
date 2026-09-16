@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -81,6 +83,55 @@ def test_write_then_read_apps_state_round_trips_periodic_check_fields(tmp_path: 
     store.write_apps_state(state)
 
     assert store.read_apps_state() == state
+
+
+def test_write_then_read_apps_state_round_trips_a_non_default_manifest(tmp_path: Path) -> None:
+    store = JsonFileStateStore(tmp_path / "state")
+    record = _record("palmimo-realtime")
+    record = replace(record, source=replace(record.source, manifest="palmimo.realtime.toml"))
+    state = AppsState(apps={"palmimo-realtime": record})
+
+    store.write_apps_state(state)
+
+    assert store.read_apps_state() == state
+
+
+def test_read_apps_state_treats_a_ledger_entry_without_a_manifest_key_as_the_default(tmp_path: Path) -> None:
+    # A ledger written before the manifest field existed must keep loading as "default
+    # manifest", not fail or silently drop the app.
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    (state_dir / "apps.json").write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "apps": {
+                    "palmimo-teleop": {
+                        "source": {
+                            "type": "git",
+                            "url": "https://example.com/repo",
+                            "ref": "main",
+                            "ref_kind": "branch",
+                            "subdir": None,
+                            "commit": None,
+                        },
+                        "installed_at": 1.0,
+                        "params": {},
+                        "autostart": False,
+                        "last_job": None,
+                    }
+                },
+                "current_job": None,
+                "current_job_app": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = JsonFileStateStore(state_dir)
+
+    state = store.read_apps_state()
+
+    assert state.apps["palmimo-teleop"].source.manifest is None
 
 
 def test_clear_credential_rejected_unmarks_only_apps_scoped_to_host_owner() -> None:

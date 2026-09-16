@@ -32,6 +32,20 @@ def test_extract_zip_to_staging_finds_manifest_at_depth_zero(tmp_path: Path) -> 
     assert (app_root / "palmimo.toml").is_file()
 
 
+def test_extract_zip_to_staging_locates_root_by_a_given_manifest_filename(tmp_path: Path) -> None:
+    # Without this, a directory shipping several manifests (one app each) could only ever
+    # install the app declared in palmimo.toml, no matter which manifest the caller asked for.
+    entries = {
+        "palmimo.toml": 'schema = 1\nname = "app-default"\n',
+        "palmimo.realtime.toml": 'schema = 1\nname = "app-realtime"\n',
+        "pyproject.toml": "[project]\nname='app'\n",
+    }
+    dest = tmp_path / "staged"
+    app_root = extract_zip_to_staging(_zip_bytes(entries), dest, manifest_filename="palmimo.realtime.toml")
+    assert app_root == dest
+    assert (app_root / "palmimo.realtime.toml").is_file()
+
+
 def test_extract_zip_to_staging_peels_single_top_level_directory(tmp_path: Path) -> None:
     wrapped = {f"myapp-1.0/{name}": content for name, content in _VALID_APP.items()}
     dest = tmp_path / "staged"

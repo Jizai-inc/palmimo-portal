@@ -323,6 +323,55 @@ def test_install_git_workspace_member_syncs_with_the_pyprojects_own_package_name
     assert captured["spec"]["package"] == "actual-package-name"
 
 
+def _seed_git_clone_with_two_manifests(dest: Path) -> None:
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "palmimo.toml").write_text('schema = 1\nname = "palmimo-default"\ndescription = "d"\ncommand = ["run"]\n')
+    (dest / "palmimo.realtime.toml").write_text(
+        'schema = 1\nname = "palmimo-realtime"\ndescription = "d"\ncommand = ["run"]\n'
+    )
+    (dest / "pyproject.toml").write_text("[project]\nname='app'\nversion='0'\n")
+
+
+def test_install_git_with_a_named_manifest_installs_the_app_it_declares(harness: Harness) -> None:
+    # Without this, a directory shipping several manifests could only ever install whatever
+    # app palmimo.toml declares, no matter which manifest file the caller asked for.
+    harness.git.on_clone = lambda dest, url, ref, ref_kind: _seed_git_clone_with_two_manifests(dest)
+
+    state, record = install_git(
+        harness.ctx,
+        AppsState(),
+        url="https://example.com/repo",
+        ref="main",
+        ref_kind="branch",
+        manifest_filename="palmimo.realtime.toml",
+    )
+
+    assert record.name == "palmimo-realtime"
+    assert record.source.manifest == "palmimo.realtime.toml"
+    assert "palmimo-default" not in state.apps
+
+
+def test_update_git_re_reads_the_records_own_non_default_manifest(harness: Harness) -> None:
+    # Without this, updating an app installed from a non-default manifest would silently fall
+    # back to reading palmimo.toml, either missing entirely or belonging to a different app.
+    harness.git.on_clone = lambda dest, url, ref, ref_kind: _seed_git_clone_with_two_manifests(dest)
+    state, _ = install_git(
+        harness.ctx,
+        AppsState(),
+        url="https://example.com/repo",
+        ref="main",
+        ref_kind="branch",
+        manifest_filename="palmimo.realtime.toml",
+    )
+
+    harness.git.next_commit = "v2"
+    _, new_record = update_git(harness.ctx, state, "palmimo-realtime")
+
+    assert new_record.name == "palmimo-realtime"
+    assert new_record.source.commit == "v2"
+    assert new_record.source.manifest == "palmimo.realtime.toml"
+
+
 def test_update_git_swaps_in_new_tree_and_updates_commit(harness: Harness) -> None:
     harness.git.next_commit = "v1"
     harness.git.on_clone = lambda dest, url, ref, ref_kind: _seed_git_clone(dest, "palmimo-teleop")

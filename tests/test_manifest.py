@@ -7,10 +7,12 @@ from pathlib import Path
 import pytest
 
 from palmimo_portal.core.manifest import (
+    InvalidManifestFilenameError,
     ManifestValidationError,
     parse_manifest,
     resolve_command,
     resolve_url,
+    validate_manifest_filename,
 )
 
 
@@ -225,6 +227,21 @@ def test_parse_manifest_rejects_pattern_with_nested_quantifier() -> None:
             pattern = "(a+)+"
             """
         )
+
+
+@pytest.mark.parametrize("name", [None, "", "palmimo.toml", "palmimo.realtime.toml"])
+def test_validate_manifest_filename_accepts_default_and_variant_names(name: str | None) -> None:
+    result = validate_manifest_filename(name)
+    assert result == (name if name else "palmimo.toml")
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["palmimo_backup.toml", "palmimo.TOML", "palmimo..toml", "../palmimo.toml", "palmimo.toml.bak", "not-palmimo.toml"],
+)
+def test_validate_manifest_filename_rejects_names_outside_the_shape(name: str) -> None:
+    with pytest.raises(InvalidManifestFilenameError):
+        validate_manifest_filename(name)
 
 
 def test_resolve_command_substitutes_app_dir() -> None:

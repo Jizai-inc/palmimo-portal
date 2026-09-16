@@ -228,9 +228,17 @@ function GithubTab({
   const [refKind, setRefKind] = useState<"branch" | "tag">("branch");
   const [ref, setRef] = useState("");
   const [subdir, setSubdir] = useState("");
+  const [manifest, setManifest] = useState("");
   const [preview, setPreview] = useState<ManifestPreviewResponse | null>(null);
 
-  const source: GitInstallSource = { type: "git", url, ref, ref_kind: refKind, ...(subdir ? { subdir } : {}) };
+  const source: GitInstallSource = {
+    type: "git",
+    url,
+    ref,
+    ref_kind: refKind,
+    ...(subdir ? { subdir } : {}),
+    ...(manifest ? { manifest } : {}),
+  };
   const canSubmit = url.trim() !== "" && ref.trim() !== "";
 
   const previewMutation = useMutation({
@@ -263,6 +271,15 @@ function GithubTab({
       <div className="flex flex-col gap-1">
         <Label htmlFor="github-subdir">{t("appAdd.githubSubdirLabel")}</Label>
         <Input id="github-subdir" value={subdir} onChange={(event) => { setSubdir(event.target.value); setPreview(null); }} />
+      </div>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="github-manifest">{t("appAdd.githubManifestLabel")}</Label>
+        <Input
+          id="github-manifest"
+          value={manifest}
+          onChange={(event) => { setManifest(event.target.value); setPreview(null); }}
+          placeholder="palmimo.toml"
+        />
       </div>
       <ApiErrorAlert error={previewMutation.error} />
       <div className="flex gap-2">

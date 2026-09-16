@@ -10,8 +10,15 @@ import type { GitInstallSource } from "@/lib/appInstall";
  * generated type enforces that at compile time, so this still checks it at runtime.
  */
 export function parseCatalogSource(source: AppSourceInfo): GitInstallSource | null {
-  const { type, url, ref, ref_kind, subdir } = source;
+  const { type, url, ref, ref_kind, subdir, manifest } = source;
   if (type !== "git" || typeof url !== "string" || typeof ref !== "string") return null;
   if (ref_kind !== "branch" && ref_kind !== "tag") return null;
-  return { type: "git", url, ref, ref_kind, ...(typeof subdir === "string" ? { subdir } : {}) };
+  return {
+    type: "git",
+    url,
+    ref,
+    ref_kind,
+    ...(typeof subdir === "string" ? { subdir } : {}),
+    ...(typeof manifest === "string" ? { manifest } : {}),
+  };
 }

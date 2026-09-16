@@ -30,7 +30,7 @@ function app(overrides: Partial<AppSummary>): AppSummary {
     last_job: null,
     latest_commit: null,
     name: "palmimo-teleop",
-    source: { type: "git", url: "https://github.com/x/y", subdir: null, ref_kind: "tag", ref: "v1", commit: "abc" },
+    source: { type: "git", url: "https://github.com/x/y", subdir: null, manifest: null, ref_kind: "tag", ref: "v1", commit: "abc" },
     status: "stopped",
     update_available: false,
     ...overrides,

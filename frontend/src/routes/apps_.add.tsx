@@ -5,7 +5,7 @@ import { AddAppPanel } from "@/components/AddAppPanel";
 import { AppShell } from "@/components/AppShell";
 
 /** The add-app screen: route + `AppShell` chrome only. Logic lives in `AddAppPanel`. */
-export const Route = createFileRoute("/apps/add")({
+export const Route = createFileRoute("/apps_/add")({
   component: AddAppScreen,
 });
 

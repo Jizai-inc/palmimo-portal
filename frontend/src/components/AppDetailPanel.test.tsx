@@ -179,6 +179,19 @@ describe("AppDetailPanel", () => {
     expect(await screen.findByText("Palmimo cannot read this app's logs right now.")).toBeInTheDocument();
   });
 
+  // Without this, an operator would see the raw manifest device id ("motor_display") instead of
+  // a readable label.
+  it("shows a human-readable label for a declared device instead of its raw id", async () => {
+    server.use(
+      getGetAppApiV1AppsNameGetMockHandler(detail({ devices: ["motor_display"] })),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+    );
+    renderWithRouter(<AppDetailPanel name="palmimo-teleop" />);
+
+    expect(await screen.findByText("Motors & display")).toBeInTheDocument();
+    expect(screen.queryByText("motor_display")).not.toBeInTheDocument();
+  });
+
   // Without this, an operator would see a param's name and type but not the manifest author's
   // explanation of what it does, even though the backend now sends it.
   it("shows a param's description as helper text, but not when it has none", async () => {
@@ -219,8 +232,7 @@ describe("AppDetailPanel", () => {
     );
     renderWithRouter(<AppDetailPanel name="palmimo-teleop" onDeleted={onDeleted} />);
 
-    const deleteButtons = await screen.findAllByRole("button", { name: "Delete" });
-    await user.click(deleteButtons[0]);
+    await user.click(await screen.findByRole("button", { name: "Delete this app" }));
     const dialog = screen.getByRole("alertdialog");
     await user.click(within(dialog).getByRole("button", { name: "Delete" }));
 

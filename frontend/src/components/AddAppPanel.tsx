@@ -18,6 +18,7 @@ import { Label } from "@/components/ui/label";
 import type { GitInstallSource, InstallSource } from "@/lib/appInstall";
 import { installApp, previewApp } from "@/lib/appInstall";
 import { parseCatalogSource } from "@/lib/catalogSource";
+import { deviceLabel } from "@/lib/deviceLabel";
 import { isHttpUrl } from "@/lib/isHttpUrl";
 
 type Tab = "catalog" | "github" | "zip";
@@ -204,7 +205,7 @@ function CatalogCard({
         <div className="flex flex-wrap gap-1">
           {app.devices.map((device) => (
             <Badge key={device} variant="outline">
-              {device}
+              {deviceLabel(t, device)}
             </Badge>
           ))}
         </div>
@@ -399,7 +400,7 @@ function PreviewCard({ preview }: { preview: ManifestPreviewResponse }) {
           <p className="text-xs font-medium text-muted-foreground">{t("appAdd.devicesTitle")}</p>
           {preview.devices.map((device) => (
             <Badge key={device} variant="outline">
-              {device}
+              {deviceLabel(t, device)}
             </Badge>
           ))}
         </div>

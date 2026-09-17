@@ -417,10 +417,6 @@
   },
   "appDetail": {
     "updateButton": "更新",
-    "deleteMenuItem": "削除",
-    "copyDiagnosticsButton": "診断情報をコピー",
-    "copyDiagnosticsCopied": "コピーしました",
-    "copyDiagnosticsFailed": "診断情報をコピーできませんでした",
     "bindingsTitle": "環境変数の割り当て",
     "bindingsNotBound": "未割り当て",
     "bindingsUnboundRequiredWarning": "この必須変数は割り当てられていません。",
@@ -435,12 +431,14 @@
     "logsInvocationCurrent": "今回の起動",
     "logsInvocationPrevious": "以前の起動（{{invocation}}）",
     "logsCopyButton": "ログをコピー",
+    "logsCopyFailed": "コピーできませんでした",
     "logsCopied": "コピーしました",
     "logsExpandButton": "拡大",
-    "logsCollapseButton": "折りたたむ",
     "logsEmptyState": "ログはまだありません。",
     "logsUnavailable": "現在このアプリのログを読み取れません。",
     "logsLoadMoreButton": "さらに読み込む",
+    "logsPageTitle": "{{name}} のログ",
+    "logsPageCloseButton": "閉じる",
     "devicesTitle": "デバイス",
     "autostartTitle": "自動起動",
     "autostartBody": "デバイスの起動時にこのアプリを自動的に開始します。ネットワークが立ち上がるまで、起動後最大30秒かかることがあります。",
@@ -458,10 +456,19 @@
     "checkForUpdatesButton": "更新を確認",
     "checkForUpdatesUpToDate": "更新はありません",
     "dangerZoneTitle": "危険な操作",
+    "deleteAppButton": "このアプリを削除",
     "deleteDialogTitle": "{{name}} を削除しますか？",
     "deleteDialogBody": "このアプリと、そのパラメータ・環境変数の割り当てが削除されます。登録済みのシークレット自体は削除されません。",
     "deleteDialogConfirm": "削除",
-    "brokenReasonTitle": "このアプリは破損しています"
+    "brokenReasonTitle": "このアプリは破損しています",
+    "logsPageSubtitleCurrentLive": "今回の起動分。2 秒ごとに更新。",
+    "logsPageSubtitleCurrent": "今回の起動分。",
+    "logsPageSubtitlePrevious": "以前の起動分。"
+  },
+  "devices": {
+    "camera": "カメラ",
+    "audio": "マイク・スピーカー",
+    "motor_display": "モーター・ディスプレイ"
   },
   "env": {
     "title": "環境変数",

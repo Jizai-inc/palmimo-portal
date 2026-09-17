@@ -49,6 +49,16 @@ describe("AddAppPanel", () => {
     expect(screen.getByText("Optional")).toBeInTheDocument();
   });
 
+  // Without this, an operator would see the raw manifest device id ("camera") instead of a
+  // readable label.
+  it("shows a human-readable label for a catalog app's declared device instead of its raw id", async () => {
+    server.use(getGetCatalogApiV1CatalogGetMockHandler(CATALOG));
+    renderWithProviders(<AddAppPanel />);
+
+    expect(await screen.findByText("Camera")).toBeInTheDocument();
+    expect(screen.queryByText("camera")).not.toBeInTheDocument();
+  });
+
   // Without this, installing from the catalog card would silently fail to reach the backend
   // with a correctly-shaped git source (name/ref/ref_kind/subdir/manifest), or the job dialog +
   // the caller's completion callback would never fire once the job finishes.

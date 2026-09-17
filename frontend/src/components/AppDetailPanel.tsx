@@ -1,4 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -7,8 +8,6 @@ import {
   getGetAppApiV1AppsNameGetQueryKey,
   useDeleteAppApiV1AppsNameDelete,
   useGetAppApiV1AppsNameGet,
-  useGetDiagnosticsApiV1AppsNameDiagnosticsGet,
-  useGetLogsApiV1AppsNameLogsGet,
   usePutAutostartApiV1AppsNameAutostartPut,
   usePutBindingsApiV1AppsNameBindingsPut,
   usePutParamsApiV1AppsNameParamsPut,
@@ -19,7 +18,7 @@ import {
   useUpdateCheckApiV1AppsNameUpdateCheckPost,
 } from "@/api/generated/apps/apps";
 import { useListSecretsApiV1SecretsGet } from "@/api/generated/secrets/secrets";
-import type { AppDetailResponse, JournalEntryInfo, ParamSpecInfo, SourceUpdateRequestRefKind } from "@/api/generated/models";
+import type { AppDetailResponse, ParamSpecInfo, SourceUpdateRequestRefKind } from "@/api/generated/models";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { AppJobDialog } from "@/components/AppJobDialog";
 import {
@@ -37,11 +36,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { appStatusLabel, appStatusTone, isAppStatusBusy } from "@/lib/appStatus";
+import { copyText } from "@/lib/copyText";
+import { deviceLabel } from "@/lib/deviceLabel";
 import { formatUtcTimestamp } from "@/lib/formatTimestamp";
-
-/** How often to re-poll logs while the app is running (design doc 3.7). */
-const LOG_POLL_INTERVAL_MS = 2_000;
-const DEFAULT_LOG_LINES = 200;
+import { useAppLogs } from "@/lib/useAppLogs";
 
 export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: string; onDeleted?: () => void }) {
   const { t } = useTranslation();
@@ -94,7 +92,6 @@ export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: st
           ) : app.status === "stopped" || app.status === "failed" ? (
             <Button onClick={() => startApp.mutate({ name })} disabled={startApp.isPending}>{t("apps.startButton")}</Button>
           ) : null}
-          <Button variant="outline" onClick={() => setDeleteOpen(true)}>{t("appDetail.deleteMenuItem")}</Button>
         </div>
       </div>
       <ApiErrorAlert error={startApp.error} />
@@ -117,7 +114,7 @@ export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: st
         <Section title={t("appDetail.devicesTitle")}>
           <div className="flex flex-wrap gap-1">
             {app.devices.map((device) => (
-              <Badge key={device} variant="outline">{device}</Badge>
+              <Badge key={device} variant="outline">{deviceLabel(t, device)}</Badge>
             ))}
           </div>
         </Section>
@@ -125,11 +122,10 @@ export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: st
 
       <AutostartSection name={name} app={app} onSaved={invalidate} />
       <SourceSection app={app} onUpdate={() => updateApp.mutate({ name })} updatePending={updateApp.isPending} />
-      <DiagnosticsButton name={name} />
 
       <Section title={t("appDetail.dangerZoneTitle")}>
         <Button variant="destructive" className="w-fit" onClick={() => setDeleteOpen(true)}>
-          {t("appDetail.deleteMenuItem")}
+          {t("appDetail.deleteAppButton")}
         </Button>
       </Section>
 
@@ -345,42 +341,11 @@ function ParamsSection({ app, onSaved }: { app: AppDetailResponse; onSaved: () =
 
 function LogsSection({ name, status }: { name: string; status: string }) {
   const { t } = useTranslation();
-  const [invocation, setInvocation] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [accumulated, setAccumulated] = useState<JournalEntryInfo[]>([]);
-  // The generated client serializes an explicit `null` param as the literal query string
-  // "null" rather than omitting it (`getGetLogsApiV1AppsNameLogsGetUrl`'s
-  // `value === null ? 'null' : String(value)`), which the backend would bind as that literal
-  // string, not "absent" -- so a null cursor/invocation is left out of the params object
-  // entirely instead of passed through.
-  const { data: logs, refetch } = useGetLogsApiV1AppsNameLogsGet(
-    name,
-    { lines: DEFAULT_LOG_LINES, ...(invocation !== null ? { invocation } : {}), ...(cursor !== null ? { cursor } : {}) },
-    { query: { refetchInterval: status === "running" ? LOG_POLL_INTERVAL_MS : false } },
-  );
+  const [copyFailed, setCopyFailed] = useState(false);
+  const { unavailable, invocations, invocation, setInvocation, accumulated, text, refetch } = useAppLogs(name, status);
 
-  // Switching invocations starts a fresh cursor/accumulation -- the previous invocation's
-  // entries are a different journal window, not a continuation.
-  useEffect(() => {
-    setCursor(null);
-    setAccumulated([]);
-  }, [invocation]);
-
-  // Cursor paging (design doc 3.2/3.8): each response's `next_cursor` tails forward from where
-  // the last one left off, so the next poll (or a manual "load more" while not polling) only
-  // carries the entries since then, appended rather than replacing what's already shown.
-  useEffect(() => {
-    if (!logs || logs.unavailable) return;
-    setAccumulated((current) => [...current, ...(logs.entries ?? [])]);
-    if (logs.next_cursor) {
-      setCursor(logs.next_cursor);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [logs]);
-
-  if (logs?.unavailable) {
+  if (unavailable) {
     return (
       <Section title={t("appDetail.logsTitle")}>
         <p className="text-sm text-muted-foreground">{t("appDetail.logsUnavailable")}</p>
@@ -388,13 +353,11 @@ function LogsSection({ name, status }: { name: string; status: string }) {
     );
   }
 
-  const invocations = logs?.invocations ?? [];
-  const text = accumulated.map((entry) => entry.message).join("\n");
-
   async function handleCopy() {
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    const ok = await copyText(text);
+    setCopied(ok);
+    setCopyFailed(!ok);
+    setTimeout(() => { setCopied(false); setCopyFailed(false); }, 2000);
   }
 
   return (
@@ -414,13 +377,13 @@ function LogsSection({ name, status }: { name: string; status: string }) {
           </select>
         ) : null}
         <Button type="button" variant="outline" size="sm" onClick={() => void handleCopy()}>
-          {copied ? t("appDetail.logsCopied") : t("appDetail.logsCopyButton")}
+          {copied ? t("appDetail.logsCopied") : copyFailed ? t("appDetail.logsCopyFailed") : t("appDetail.logsCopyButton")}
         </Button>
-        <Button type="button" variant="ghost" size="sm" onClick={() => setExpanded((value) => !value)}>
-          {expanded ? t("appDetail.logsCollapseButton") : t("appDetail.logsExpandButton")}
+        <Button type="button" variant="ghost" size="sm" asChild>
+          <Link to="/apps/$name/logs" params={{ name }}>{t("appDetail.logsExpandButton")}</Link>
         </Button>
         {status !== "running" ? (
-          <Button type="button" variant="ghost" size="sm" onClick={() => void refetch()}>
+          <Button type="button" variant="ghost" size="sm" onClick={refetch}>
             {t("appDetail.logsLoadMoreButton")}
           </Button>
         ) : null}
@@ -428,9 +391,7 @@ function LogsSection({ name, status }: { name: string; status: string }) {
       {accumulated.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t("appDetail.logsEmptyState")}</p>
       ) : (
-        <pre className={`overflow-auto rounded-md bg-muted p-2 font-mono text-xs ${expanded ? "max-h-[70vh]" : "max-h-64"}`}>
-          {text}
-        </pre>
+        <pre className="max-h-64 overflow-auto rounded-md bg-muted p-2 font-mono text-xs">{text}</pre>
       )}
     </Section>
   );
@@ -542,34 +503,6 @@ function SourceSection({
       ) : null}
       <ApiErrorAlert error={putSource.error} />
     </Section>
-  );
-}
-
-function DiagnosticsButton({ name }: { name: string }) {
-  const { t } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const { refetch } = useGetDiagnosticsApiV1AppsNameDiagnosticsGet(name, { query: { enabled: false } });
-
-  async function handleCopy() {
-    setFailed(false);
-    const result = await refetch();
-    if (result.data === undefined) {
-      setFailed(true);
-      return;
-    }
-    await navigator.clipboard.writeText(result.data);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
-  return (
-    <div className="flex flex-col gap-1">
-      <Button variant="outline" className="w-fit" onClick={() => void handleCopy()}>
-        {copied ? t("appDetail.copyDiagnosticsCopied") : t("appDetail.copyDiagnosticsButton")}
-      </Button>
-      {failed ? <p className="text-sm text-destructive">{t("appDetail.copyDiagnosticsFailed")}</p> : null}
-    </div>
   );
 }
 

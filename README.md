@@ -63,7 +63,8 @@ palmimo_portal/        FastAPI backend
 frontend/               React + TanStack Router/Query dashboard
   src/api/generated/       Typed client generated from openapi.json (orval)
 tests/                  Backend unit + integration tests
-tests/contracts/        Repository-wide contracts (import discipline, language, hygiene, release workflow)
+  test_import_contracts.py  Which module may import which (the layering above)
+tests/contracts/        Repository-wide contracts (language, hygiene, release workflow)
 doc/                    Design docs and the release guide
 .github/workflows/      CI and the release pipeline
 ```

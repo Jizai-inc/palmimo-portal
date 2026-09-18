@@ -178,7 +178,7 @@ def test_standalone_project_console_script_survives_a_directory_rename(tmp_path:
     staged_project = staging_root / instance
     _seed_standalone(staged_project, frozen=frozen)
     (staged_project / "sync.json").write_text(
-        json.dumps({"project": str(staged_project), "package": None, "frozen": frozen, "relocatable": True}),
+        json.dumps({"project": str(staged_project), "frozen": frozen, "relocatable": True}),
         encoding="utf-8",
     )
 
@@ -191,15 +191,19 @@ def test_standalone_project_console_script_survives_a_directory_rename(tmp_path:
     _assert_console_script_runs(final_project / ".venv")
 
 
-def test_workspace_member_console_script_survives_a_directory_rename_when_synced_with_package(tmp_path: Path) -> None:
+def test_workspace_member_synced_as_its_own_project_keeps_its_console_script_working_after_the_directory_rename(
+    tmp_path: Path,
+) -> None:
+    # `sync.json`'s `project` names the member directory itself, not the workspace root
+    # (design doc 3.3) -- this proves uv still resolves that member against the workspace
+    # root's own lock (found by discovery, not passed explicitly) and that its relocatable
+    # venv survives the outer clone directory being renamed into place.
     staging_root = tmp_path / "staging"
     instance = "j" + "1" * 31
     staged_project = staging_root / instance
-    _seed_workspace(staged_project, frozen=True)
+    member = _seed_workspace(staged_project, frozen=True)
     (staged_project / "sync.json").write_text(
-        json.dumps(
-            {"project": str(staged_project), "package": "sync-integration-member", "frozen": True, "relocatable": True}
-        ),
+        json.dumps({"project": str(member), "frozen": True, "relocatable": True}),
         encoding="utf-8",
     )
 
@@ -209,4 +213,4 @@ def test_workspace_member_console_script_survives_a_directory_rename_when_synced
     final_project = tmp_path / "final"
     staged_project.rename(final_project)
 
-    _assert_console_script_runs(final_project / ".venv")
+    _assert_console_script_runs(final_project / "member" / ".venv")

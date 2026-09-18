@@ -72,7 +72,6 @@ def _write_app(
     subdir: str | None = None,
     with_venv: bool = True,
     workspace: bool = False,
-    venv_root: Path | None = None,
 ) -> Path:
     root = apps_dir / name
     project_dir = root / subdir if subdir else root
@@ -82,7 +81,7 @@ def _write_app(
         (root / "pyproject.toml").write_text("[tool.uv.workspace]\nmembers = ['*']\n", encoding="utf-8")
         (project_dir / "pyproject.toml").write_text(f"[project]\nname = '{name}'\n", encoding="utf-8")
     if with_venv:
-        venv_bin = (venv_root or project_dir) / ".venv" / "bin"
+        venv_bin = project_dir / ".venv" / "bin"
         venv_bin.mkdir(parents=True)
         (venv_bin / "python").write_text("", encoding="utf-8")
     return root
@@ -330,11 +329,15 @@ def test_start_app_argv_json_for_a_plain_app_has_matching_cwd_and_project(deps: 
     assert written["project"] == expected
 
 
-def test_start_app_argv_json_for_a_subdir_app_has_matching_cwd_and_project_when_not_a_workspace(
-    deps: StartDeps, apps_dir: Path
+@pytest.mark.parametrize("workspace", [False, True])
+def test_start_app_argv_json_for_a_subdir_app_has_matching_cwd_and_project(
+    deps: StartDeps, apps_dir: Path, workspace: bool
 ) -> None:
+    # Whether `apps_dir/app` (the clone root) happens to be a uv workspace listing
+    # `examples/app` as a member makes no difference here -- membership is uv's
+    # decision at sync time, not this precheck's.
     source = AppSource(type="git", url="https://example/repo", ref="v1", ref_kind="tag", subdir="examples/app")
-    _write_app(apps_dir, "app", subdir="examples/app")
+    _write_app(apps_dir, "app", subdir="examples/app", workspace=workspace)
     _state(deps).write_apps_state(AppsState(apps={"app": _record("app", source=source)}))
     deps.apps_job_ctx.secrets.set_secret("MY_KEY", "sekrit")
     deps.apps_job_ctx.secrets.write_bindings("app", {"API_KEY": "MY_KEY"})
@@ -345,22 +348,6 @@ def test_start_app_argv_json_for_a_subdir_app_has_matching_cwd_and_project_when_
     expected = str(apps_dir / "app" / "examples" / "app")
     assert written["cwd"] == expected
     assert written["project"] == expected
-
-
-def test_start_app_argv_json_for_a_workspace_subdir_app_splits_cwd_from_project(
-    deps: StartDeps, apps_dir: Path
-) -> None:
-    source = AppSource(type="git", url="https://example/repo", ref="v1", ref_kind="tag", subdir="examples/app")
-    _write_app(apps_dir, "app", subdir="examples/app", workspace=True, venv_root=apps_dir / "app")
-    _state(deps).write_apps_state(AppsState(apps={"app": _record("app", source=source)}))
-    deps.apps_job_ctx.secrets.set_secret("MY_KEY", "sekrit")
-    deps.apps_job_ctx.secrets.write_bindings("app", {"API_KEY": "MY_KEY"})
-
-    start_app(deps, "app", host="host")
-
-    written = _run_dir(deps).written["app"]
-    assert written["cwd"] == str(apps_dir / "app" / "examples" / "app")
-    assert written["project"] == str(apps_dir / "app")
 
 
 def test_start_app_argv_substitutes_params_and_host(deps: StartDeps, apps_dir: Path) -> None:

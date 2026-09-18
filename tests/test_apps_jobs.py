@@ -228,6 +228,7 @@ def test_install_zip_starts_the_sync_unit_with_a_frozen_sync_request(harness: Ha
 
     assert record.last_job is not None
     assert captured["spec"]["frozen"] is True
+    assert "package" not in captured["spec"]
     assert harness.sync_unit.start_calls == [record.last_job.id]
 
 
@@ -293,12 +294,14 @@ def test_install_git_rejects_subdir_that_escapes_the_clone_root(harness: Harness
         )
 
 
-def test_install_git_workspace_member_syncs_with_the_pyprojects_own_package_name(harness: Harness) -> None:
-    # The manifest's declared app name and the workspace member's own pyproject.toml [project]
-    # name need not match -- uv sync --package must be given the latter.
+def test_install_git_workspace_member_is_frozen_when_uv_lock_is_at_the_workspace_root(harness: Harness) -> None:
+    # uv resolves a workspace member against the lock at the workspace root, not one
+    # inside the member's own directory -- `_sync_dependencies` must search up to the
+    # clone root, or it would wrongly decide no lock exists and regenerate one.
     def seed_workspace(dest: Path, *_: object) -> None:
         dest.mkdir(parents=True, exist_ok=True)
         (dest / "pyproject.toml").write_text("[tool.uv.workspace]\nmembers = ['member']\n")
+        (dest / "uv.lock").write_text("")
         member = dest / "member"
         member.mkdir()
         (member / "palmimo.toml").write_text(
@@ -317,11 +320,13 @@ def test_install_git_workspace_member_syncs_with_the_pyprojects_own_package_name
 
     harness.sync_unit.start = tracking_start  # type: ignore[method-assign]
 
-    install_git(
+    _, record = install_git(
         harness.ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch", subdir="member"
     )
 
-    assert captured["spec"]["package"] == "actual-package-name"
+    assert captured["spec"]["frozen"] is True
+    assert record.last_job is not None
+    assert record.last_job.lock_generated is False
 
 
 def _seed_git_clone_with_two_manifests(dest: Path) -> None:

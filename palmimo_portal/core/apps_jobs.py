@@ -158,7 +158,26 @@ def _prepare_staging_for_sync(staging_container: Path) -> None:
         staging_container.chmod(stat.S_ISGID | 0o775)
 
 
-def _sync_dependencies(ctx: AppsJobContext, instance: str, staging_container: Path, layout: LayoutPaths) -> bool:
+def _lock_exists(project: Path, clone_root: Path) -> bool:
+    """Whether ``project`` or an ancestor up to ``clone_root`` already has a ``uv.lock``.
+
+    uv resolves a workspace member against the lock at the workspace root,
+    which sits above ``project`` when ``clone_root`` turns out to be a
+    workspace and ``project`` one of its members.
+    """
+    candidate = project.resolve()
+    root = clone_root.resolve()
+    while True:
+        if (candidate / "uv.lock").is_file():
+            return True
+        if candidate == root:
+            return False
+        candidate = candidate.parent
+
+
+def _sync_dependencies(
+    ctx: AppsJobContext, instance: str, staging_container: Path, layout: LayoutPaths, clone_root: Path
+) -> bool:
     """Sync ``layout.project``'s dependencies through the ``palmimo-app-sync@<instance>`` unit (design doc 2.2b).
 
     Runs as ``palmimo-app``, never the Portal's own uid -- an untrusted
@@ -170,10 +189,9 @@ def _sync_dependencies(ctx: AppsJobContext, instance: str, staging_container: Pa
         SyncFailedError: the unit did not finish successfully.
     """
     _prepare_staging_for_sync(staging_container)
-    lock_generated = not (layout.project / "uv.lock").is_file()
+    lock_generated = not _lock_exists(layout.project, clone_root)
     sync_spec = {
         "project": str(layout.project),
-        "package": layout.package,
         "frozen": not lock_generated,
         "relocatable": True,
     }
@@ -547,8 +565,8 @@ def commit_install(
         raise AppExistsError(prepared.manifest.name)
     _chmod_group_rwx(prepared.install_root)
     on_step("sync")
-    layout = resolve_layout(prepared.install_root, prepared.source.subdir, name=prepared.manifest.name)
-    lock_generated = _sync_dependencies(ctx, prepared.job_id, prepared.staging_container, layout)
+    layout = resolve_layout(prepared.install_root, prepared.source.subdir)
+    lock_generated = _sync_dependencies(ctx, prepared.job_id, prepared.staging_container, layout, prepared.install_root)
     on_step("swap")
     dest = ctx.app_dir(prepared.manifest.name)
     prepared.install_root.rename(dest)
@@ -669,8 +687,8 @@ def update_git(
         _check_pyproject(project_dir)
         _chmod_group_rwx(staging_container)
         on_step("sync")
-        layout = resolve_layout(staging_container, record.source.subdir, name=name)
-        lock_generated = _sync_dependencies(ctx, job_id, staging_container, layout)
+        layout = resolve_layout(staging_container, record.source.subdir)
+        lock_generated = _sync_dependencies(ctx, job_id, staging_container, layout, staging_container)
 
         # Computed before the swap (the dropped set depends on the new manifest, fetched
         # above) but only ever written at "register", after a successful swap -- a failed
@@ -837,7 +855,7 @@ def disk_state_checks(ctx: AppsJobContext, state: AppsState) -> tuple[Callable[[
         if record is None:
             return False
         try:
-            layout = resolve_layout(ctx.app_dir(record.name), record.source.subdir, name=record.name)
+            layout = resolve_layout(ctx.app_dir(record.name), record.source.subdir)
         except InvalidManifestSourceError:
             return False
         return layout.venv_python.exists()

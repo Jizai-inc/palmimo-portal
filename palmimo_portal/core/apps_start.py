@@ -144,7 +144,7 @@ class StartDeps:
 
 
 def _layout_for(ctx: AppsJobContext, record: AppRecord) -> LayoutPaths:
-    return resolve_layout(ctx.app_dir(record.name), record.source.subdir, name=record.name)
+    return resolve_layout(ctx.app_dir(record.name), record.source.subdir)
 
 
 def _other_active_app(deps: StartDeps, name: str, apps_state: AppsState) -> str | None:

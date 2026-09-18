@@ -55,6 +55,29 @@ from palmimo_portal.ports import AppExistsError, AppJob, AppNotFoundError, AppRe
 logger = logging.getLogger("palmimo_portal")
 
 
+def _merge_job_record(current: AppRecord | None, job_record: AppRecord) -> AppRecord:
+    """Merge only the fields an install/update job owns onto ``current``, the freshly re-read record.
+
+    ``None`` for ``current`` (a fresh install, nothing to merge onto) returns ``job_record`` as-is.
+    Otherwise the job owns ``source`` (the ref/commit/manifest-file it just fetched),
+    ``installed_at``, and ``last_job`` -- everything else, notably ``autostart`` and any ``params``
+    edit, must come from ``current`` rather than the stale snapshot the job started with. A param
+    the job's new manifest no longer declares (``job_record.last_job.dropped_params``) is dropped
+    from ``current.params`` the same way the job itself would have dropped it.
+    """
+    if current is None:
+        return job_record
+    dropped_params = job_record.last_job.dropped_params if job_record.last_job is not None else ()
+    params = {key: value for key, value in current.params.items() if key not in dropped_params}
+    return replace(
+        current,
+        source=job_record.source,
+        installed_at=job_record.installed_at,
+        params=params,
+        last_job=job_record.last_job,
+    )
+
+
 class AppsJobRunner:
     def __init__(
         self, state_store: StateStore, ctx: AppsJobContext, app_unit: AppUnitPort, *, run_in_thread: bool = True
@@ -294,16 +317,22 @@ class AppsJobRunner:
         possibly-stale ``apps`` dict a job read before its unbounded step ran -- see the
         module docstring's lock-handoff note: a concurrent write to another app's record
         (e.g. ``PUT .../autostart``) landing while this job's ``uv sync`` was in flight
-        must not be lost when this job completes.
+        must not be lost when this job completes. This includes a concurrent write to
+        *this same app's* record: only the fields the job itself is authoritative for
+        (``source``, ``installed_at``, ``last_job`` -- see :func:`_merge_job_record`) are
+        taken from ``record``; everything else (``autostart``, ``params`` the job did not
+        itself drop) is taken from the freshly re-read entry, not this job's stale start-of-run
+        snapshot.
 
         ``clear_credential_for_host_owner`` (set for a successful ``update``, design doc
         3.6) also un-marks ``credential_rejected`` on every other app sharing this app's
         git host/owner -- a completed clone/fetch proves the credential works again.
         """
         final = self._state.read_apps_state()
-        apps = {**final.apps, name: record}
-        if clear_credential_for_host_owner and record.source.url is not None:
-            host_owner = apps_core.host_owner_from_url(record.source.url)
+        merged = _merge_job_record(final.apps.get(name), record)
+        apps = {**final.apps, name: merged}
+        if clear_credential_for_host_owner and merged.source.url is not None:
+            host_owner = apps_core.host_owner_from_url(merged.source.url)
             if host_owner is not None:
                 apps = apps_core.clear_credential_rejected(
                     AppsState(apps=apps, current_job=None, current_job_app=None), host_owner

@@ -394,6 +394,19 @@ def _ensure_no_platform_update_in_progress(state_store: StateStore) -> None:
         raise PortalError(409, "platform_update_in_progress")
 
 
+def _ensure_no_app_job_in_progress(state: AppsState, name: str) -> None:
+    """Refuse a settings write (params/autostart/source-ref) for ``name`` while its own install/update/delete job is running.
+
+    An install/update job completion merges the freshly re-read record back in (see
+    :func:`~palmimo_portal.core.apps_job_runner._merge_job_record`), but a delete drops the ledger
+    entry outright -- a settings write racing a delete would resurrect it. Mirrors
+    :class:`~palmimo_portal.core.apps_start.AppJobInProgressStartError`'s same ``current_job_app``
+    check for starting an app.
+    """
+    if state.current_job_app == name:
+        raise PortalError(409, "app_job_in_progress")
+
+
 def _ensure_platform_ready(deps: StartDeps) -> None:
     """Refuse an install/update while the platform bundle is not ready (design doc 2.7/3.5).
 
@@ -484,7 +497,9 @@ def _pending_install_summary(state: AppsState) -> AppSummary | None:
         return None
     return AppSummary(
         name=state.current_job_app,
-        source=AppSourceInfo(type="unknown", url=None, ref=None, ref_kind=None, subdir=None, commit=None, manifest=None),
+        source=AppSourceInfo(
+            type="unknown", url=None, ref=None, ref_kind=None, subdir=None, commit=None, manifest=None
+        ),
         installed_at=None,
         autostart=False,
         status="installing",
@@ -616,9 +631,7 @@ async def _read_zip_or_git(request: Request) -> tuple[Path | None, GitSourceRequ
             raise PortalError(422, "validation_error", errors=["a 'file' field is required for a zip install"])
         manifest_field = form.get("manifest")
         try:
-            zip_manifest = validate_manifest_filename(
-                manifest_field if isinstance(manifest_field, str) else None
-            )
+            zip_manifest = validate_manifest_filename(manifest_field if isinstance(manifest_field, str) else None)
         except InvalidManifestFilenameError as error:
             raise PortalError(422, "validation_error", errors=[str(error)]) from error
         return await _read_upload_bounded(upload, UPLOAD_MAX_BYTES), None, zip_manifest
@@ -832,14 +845,17 @@ def put_params(
     """Save an app's param values (design doc 1.2 validation, applied at next start).
 
     Raises:
-        PortalError: 404 ``app_not_found``; 422 ``params_invalid`` (with
-            every violation) if a value fails its declared type/min/max/pattern/choices.
+        PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while
+            an install/update/delete job targets this app; 422
+            ``params_invalid`` (with every violation) if a value fails its
+            declared type/min/max/pattern/choices.
     """
     _ensure_not_corrupt(state_store)
     state = state_store.read_apps_state()
     record = state.apps.get(name)
     if record is None:
         raise PortalError(404, "app_not_found")
+    _ensure_no_app_job_in_progress(state, name)
     try:
         manifest = apps_jobs.read_manifest_for_app(ctx, record)
     except (InvalidManifestSourceError, ManifestValidationError) as error:
@@ -1024,12 +1040,18 @@ def put_autostart(
     app_unit: AppUnitPort = Depends(get_app_unit_port),
     deps: StartDeps = Depends(get_start_deps),
 ) -> AppDetailResponse:
-    """Persist whether ``name`` should be started automatically at Portal boot (design doc 2.5/3.2)."""
+    """Persist whether ``name`` should be started automatically at Portal boot (design doc 2.5/3.2).
+
+    Raises:
+        PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while
+            an install/update/delete job targets this app.
+    """
     _ensure_not_corrupt(state_store)
     state = state_store.read_apps_state()
     record = state.apps.get(name)
     if record is None:
         raise PortalError(404, "app_not_found")
+    _ensure_no_app_job_in_progress(state, name)
     new_record = replace(record, autostart=body.enabled)
     new_state = AppsState(
         apps={**state.apps, name: new_record}, current_job=state.current_job, current_job_app=state.current_job_app
@@ -1053,14 +1075,16 @@ def put_source(
     """Change a git-sourced app's pinned ``ref``/``ref_kind``, applied by the next ``update`` (design doc 3.2).
 
     Raises:
-        PortalError: 404 ``app_not_found``; 409 ``source_update_git_only``
-            for a zip-sourced app.
+        PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while
+            an install/update/delete job targets this app; 409
+            ``source_update_git_only`` for a zip-sourced app.
     """
     _ensure_not_corrupt(state_store)
     state = state_store.read_apps_state()
     record = state.apps.get(name)
     if record is None:
         raise PortalError(404, "app_not_found")
+    _ensure_no_app_job_in_progress(state, name)
     if record.source.type != "git":
         raise PortalError(409, "source_update_git_only")
     new_record = replace(record, source=replace(record.source, ref=body.ref, ref_kind=body.ref_kind))

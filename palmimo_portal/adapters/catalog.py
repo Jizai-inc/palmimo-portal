@@ -23,6 +23,7 @@ from palmimo_portal.adapters.static_asset import (
 from palmimo_portal.core.manifest import (
     DEFAULT_MANIFEST_FILENAME,
     InvalidManifestFilenameError,
+    _is_http_url,
     validate_manifest_filename,
 )
 from palmimo_portal.ports import (
@@ -68,7 +69,14 @@ def _parse_env(raw: Any, asset_name: str, index: int) -> dict[str, CatalogEnvSpe
     for name, spec in raw.items():
         if not isinstance(spec, dict) or any(key not in spec for key in _REQUIRED_ENV_KEYS):
             raise CatalogSourceError(f"{asset_name}.apps[{index}].env.{name} is missing one of {_REQUIRED_ENV_KEYS}")
-        env[name] = CatalogEnvSpec(required=bool(spec["required"]), description=str(spec["description"]))
+        # A malformed help_url drops just that field rather than the whole catalog -- unlike the
+        # required keys above, it is decoration the app-detail UI can live without.
+        help_url = spec.get("help_url")
+        env[name] = CatalogEnvSpec(
+            required=bool(spec["required"]),
+            description=str(spec["description"]),
+            help_url=help_url if _is_http_url(help_url) else None,
+        )
     return env
 
 

@@ -21,6 +21,10 @@ logger = logging.getLogger("palmimo_portal")
 _JOURNAL_GROUP = "systemd-journal"
 _READ_TIMEOUT_SECONDS = 10.0
 
+#: Most recent invocation ids offered on "view a previous start" -- design doc 3.2 needs a short,
+#: bounded list, not every start the unit has ever had.
+_INVOCATION_LIST_LIMIT = 20
+
 
 class JournalctlPort(JournalPort):
     def can_read(self) -> bool:
@@ -44,8 +48,6 @@ class JournalctlPort(JournalPort):
 
         entries: list[JournalEntry] = []
         next_cursor = cursor
-        invocations: list[str] = []
-        seen_invocations: set[str] = set()
         for line in result.stdout.splitlines():
             try:
                 record = json.loads(line)
@@ -60,10 +62,41 @@ class JournalctlPort(JournalPort):
                     invocation_id=invocation_id,
                 )
             )
-            if invocation_id is not None and invocation_id not in seen_invocations:
-                seen_invocations.add(invocation_id)
-                invocations.append(invocation_id)
             cursor_value = record.get("__CURSOR")
             if cursor_value is not None:
                 next_cursor = cursor_value
-        return JournalPage(entries=entries, next_cursor=next_cursor, invocations=invocations)
+        return JournalPage(entries=entries, next_cursor=next_cursor, invocations=self._list_invocations(unit))
+
+    def _list_invocations(self, unit: str) -> list[str]:
+        """Return up to :data:`_INVOCATION_LIST_LIMIT` invocation ids for ``unit``, oldest first.
+
+        A separate, field-restricted ``journalctl`` call over the unit's whole journal --
+        :meth:`read`'s own ``-n lines`` tail only ever sees the *current* run once it has produced
+        more than ``lines`` entries, which would otherwise make an earlier run permanently
+        unreachable from "view a previous start" once the current one grows past the page size.
+        """
+        args = [
+            "journalctl",
+            "-u",
+            unit,
+            "-o",
+            "json",
+            "--no-pager",
+            "-q",
+            "--output-fields=_SYSTEMD_INVOCATION_ID",
+        ]
+        try:
+            result = subprocess.run(args, capture_output=True, text=True, timeout=_READ_TIMEOUT_SECONDS, check=False)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            logger.error("journal: journalctl invocation listing failed for unit=%s: %s", unit, error)
+            return []
+        invocations: dict[str, None] = {}
+        for line in result.stdout.splitlines():
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            invocation_id = record.get("_SYSTEMD_INVOCATION_ID")
+            if invocation_id is not None:
+                invocations[invocation_id] = None
+        return list(invocations)[-_INVOCATION_LIST_LIMIT:]

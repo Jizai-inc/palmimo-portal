@@ -694,6 +694,10 @@ export const getPutAutostartApiV1AppsNameAutostartPutUrl = (name: string,) => {
 
 /**
  * Persist whether ``name`` should be started automatically at Portal boot (design doc 2.5/3.2).
+ *
+ * Raises:
+ *     PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while
+ *         an install/update/delete job targets this app.
  * @summary Put Autostart
  */
 export const putAutostartApiV1AppsNameAutostartPut = async (name: string,
@@ -1076,8 +1080,10 @@ export const getPutParamsApiV1AppsNameParamsPutUrl = (name: string,) => {
  * Save an app's param values (design doc 1.2 validation, applied at next start).
  *
  * Raises:
- *     PortalError: 404 ``app_not_found``; 422 ``params_invalid`` (with
- *         every violation) if a value fails its declared type/min/max/pattern/choices.
+ *     PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while
+ *         an install/update/delete job targets this app; 422
+ *         ``params_invalid`` (with every violation) if a value fails its
+ *         declared type/min/max/pattern/choices.
  * @summary Put Params
  */
 export const putParamsApiV1AppsNameParamsPut = async (name: string,
@@ -1152,8 +1158,9 @@ export const usePutParamsApiV1AppsNameParamsPut = <TError = HTTPValidationError,
  * Change a git-sourced app's pinned ``ref``/``ref_kind``, applied by the next ``update`` (design doc 3.2).
  *
  * Raises:
- *     PortalError: 404 ``app_not_found``; 409 ``source_update_git_only``
- *         for a zip-sourced app.
+ *     PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while
+ *         an install/update/delete job targets this app; 409
+ *         ``source_update_git_only`` for a zip-sourced app.
  * @summary Put Source
  */
 export const putSourceApiV1AppsNameSourcePut = async (name: string,

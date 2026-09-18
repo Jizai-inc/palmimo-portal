@@ -971,10 +971,15 @@ class FakeJournalPort(JournalPort):
         start = int(cursor) if cursor is not None else 0
         page = entries[start : start + lines]
         next_cursor = str(start + len(page)) if start + len(page) < len(entries) else None
-        # Every invocation available to pick from, not just the current filter's -- the UI
-        # offer to view a previous start must list every start, not only the one selected.
-        invocations = sorted({entry.invocation_id for entry in all_entries if entry.invocation_id is not None})
-        return JournalPage(entries=page, next_cursor=next_cursor, invocations=invocations)
+        # Drawn from `all_entries`, not `page`/`entries` -- the UI's "view a previous start"
+        # list must survive the current run growing past `lines`, mirroring
+        # JournalctlPort._list_invocations's separate, whole-journal query. Capped and ordered
+        # like that method: oldest first, at most the most recent 20.
+        invocations: dict[str, None] = {}
+        for entry in all_entries:
+            if entry.invocation_id is not None:
+                invocations[entry.invocation_id] = None
+        return JournalPage(entries=page, next_cursor=next_cursor, invocations=list(invocations)[-20:])
 
     def can_read(self) -> bool:
         return self.readable

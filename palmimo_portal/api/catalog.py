@@ -68,7 +68,7 @@ def get_catalog(request: Request) -> CatalogResponse:
                     manifest=a.source.manifest,
                 ),
                 env=[
-                    EnvSpecInfo(name=name, required=spec.required, description=spec.description, help_url=None)
+                    EnvSpecInfo(name=name, required=spec.required, description=spec.description, help_url=spec.help_url)
                     for name, spec in sorted(a.env.items())
                 ],
                 devices=list(a.devices),

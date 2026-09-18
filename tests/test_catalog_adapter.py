@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 
 from palmimo_portal.adapters.catalog import GitHubCatalogSource
-from palmimo_portal.ports import AppSource, CatalogApp, CatalogSourceError, Release, ReleaseSource
+from palmimo_portal.ports import AppSource, CatalogApp, CatalogEnvSpec, CatalogSourceError, Release, ReleaseSource
 
 
 class _FakeResponse:
@@ -91,6 +91,24 @@ def test_fetch_parses_a_non_default_manifest_filename_on_source() -> None:
 
 
 @pytest.mark.parametrize(
+    ("help_url", "expected"),
+    [("https://docs.example.com/token", "https://docs.example.com/token"), ("javascript:alert(1)", None)],
+    ids=["valid_help_url_exposed", "invalid_scheme_dropped"],
+)
+def test_fetch_parses_env_help_url(help_url: str, expected: str | None) -> None:
+    payload = json.loads(json.dumps(VALID_ASSET))
+    payload["apps"][0]["env"] = {"TOKEN": {"required": True, "description": "d", "help_url": help_url}}
+    asset_bytes = json.dumps(payload).encode("utf-8")
+    source = GitHubCatalogSource(
+        catalog_repo="Jizai-inc/palmimo-devkit", release_source=_FakeReleaseSource(), opener=_opener_for(asset_bytes)
+    )
+
+    asset = source.fetch()
+
+    assert asset.apps[0].env == {"TOKEN": CatalogEnvSpec(required=True, description="d", help_url=expected)}
+
+
+@pytest.mark.parametrize(
     "payload",
     [
         {"schema": 2, "apps": []},
@@ -102,7 +120,13 @@ def test_fetch_parses_a_non_default_manifest_filename_on_source() -> None:
                 {
                     "name": "palmimo-teleop",
                     "description": "d",
-                    "source": {"type": "git", "url": "https://x", "ref_kind": "tag", "ref": "v1.0.0", "manifest": "bad name"},
+                    "source": {
+                        "type": "git",
+                        "url": "https://x",
+                        "ref_kind": "tag",
+                        "ref": "v1.0.0",
+                        "manifest": "bad name",
+                    },
                     "env": {},
                     "devices": ["camera"],
                 }

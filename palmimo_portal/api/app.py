@@ -53,7 +53,12 @@ from palmimo_portal.api import update as update_api
 from palmimo_portal.api import wifi as wifi_api
 from palmimo_portal.core.apps import finalize_apps_state
 from palmimo_portal.core.apps_job_runner import AppsJobRunner
-from palmimo_portal.core.apps_jobs import AppsJobContext, cleanup_staging_and_trash, disk_state_checks
+from palmimo_portal.core.apps_jobs import (
+    AppsJobContext,
+    cleanup_staging_and_trash,
+    disk_state_checks,
+    sweep_orphan_app_dirs,
+)
 from palmimo_portal.core.apps_start import (
     RUNNING_ACTIVE_STATES,
     AppStartError,
@@ -78,6 +83,7 @@ from palmimo_portal.core.update_runner import UpdateRunner
 from palmimo_portal.ports import (
     AdapterUnavailableError,
     AppNotFoundError,
+    AppsStateFileState,
     AuthFileState,
     Identity,
     IdentityStore,
@@ -413,6 +419,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             ctx.sync_unit.stop(instance)
         cleanup_staging_and_trash(ctx)
         apps_state = adapters.state.read_apps_state()
+        # A corrupt ledger reads as empty; sweeping against it would trash every app.
+        if adapters.state.apps_state_file_state() is not AppsStateFileState.CORRUPT:
+            sweep_orphan_app_dirs(ctx, apps_state)
+        else:
+            logger.error("apps: ledger corrupt; skipping the orphan app directory sweep")
         manifest_exists, venv_exists = disk_state_checks(ctx, apps_state)
         finalized_apps = finalize_apps_state(
             apps_state, manifest_exists=manifest_exists, venv_exists=venv_exists, now=time.time()

@@ -435,6 +435,7 @@
     "logsCopied": "Copied",
     "logsExpandButton": "Expand",
     "logsEmptyState": "No log entries yet.",
+    "logsTruncated": "Showing the latest {{count}} lines.",
     "logsUnavailable": "Palmimo cannot read this app's logs right now.",
     "logsLoadMoreButton": "Load more",
     "logsPageTitle": "{{name}} logs",

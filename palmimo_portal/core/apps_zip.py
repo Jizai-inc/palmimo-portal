@@ -42,7 +42,9 @@ def _validate_member_path(name: str) -> PurePosixPath:
     return path
 
 
-def extract_zip_to_staging(source: bytes | Path, dest: Path, *, manifest_filename: str = DEFAULT_MANIFEST_FILENAME) -> Path:
+def extract_zip_to_staging(
+    source: bytes | Path, dest: Path, *, manifest_filename: str = DEFAULT_MANIFEST_FILENAME
+) -> Path:
     """Safely extract ``source`` (a zip file, in memory or already staged on disk) into fresh directory ``dest``.
 
     ``source`` as a :class:`Path` reads the archive straight off disk

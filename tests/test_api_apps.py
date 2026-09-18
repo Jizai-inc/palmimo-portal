@@ -15,7 +15,7 @@ from starlette.testclient import TestClient
 from palmimo_portal.api.apps import _read_upload_bounded
 from palmimo_portal.api.errors import PortalError
 from palmimo_portal.core.periodic import run_git_check_sweep
-from palmimo_portal.ports import AppRecord, AppSource, AppsState, UpdateJob, UpdateState
+from palmimo_portal.ports import AppJob, AppRecord, AppSource, AppsState, UpdateJob, UpdateState
 from palmimo_portal.settings import Settings
 from palmimo_portal.testing.fakes import FakeAdapterBundle
 
@@ -814,6 +814,36 @@ def test_put_source_updates_ref_for_a_git_sourced_app(client: TestClient, adapte
     assert record.source.ref_kind == "tag"
 
 
+def _mark_job_in_progress(adapters: FakeAdapterBundle, name: str) -> None:
+    state = adapters.state.read_apps_state()
+    job = AppJob(id="j1", kind="update", state="running", step="fetch", error=None, started_at=0.0, finished_at=None)
+    adapters.state.write_apps_state(replace(state, current_job=job, current_job_app=name))
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        ("/api/v1/apps/palmimo-teleop/params", {"params": {}}),
+        ("/api/v1/apps/palmimo-teleop/autostart", {"enabled": True}),
+        ("/api/v1/apps/palmimo-teleop/source", {"ref": "v2", "ref_kind": "tag"}),
+    ],
+)
+def test_settings_write_refused_while_a_job_targets_the_app(
+    client: TestClient, adapters: FakeAdapterBundle, path: str, body: dict
+) -> None:
+    # Without this guard, a job completing after the write would overwrite it with its own
+    # stale snapshot (params/autostart), or a stale write during a delete could resurrect the
+    # app entirely.
+    client = _authenticated_client(client, adapters)
+    _install_zip(client)
+    _mark_job_in_progress(adapters, "palmimo-teleop")
+
+    response = client.put(path, json=body, headers=CSRF_HEADERS)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "app_job_in_progress"
+
+
 def test_logs_returns_journal_permission_when_unreadable(client: TestClient, adapters: FakeAdapterBundle) -> None:
     client = _authenticated_client(client, adapters)
     _install_zip(client)
@@ -866,4 +896,25 @@ def test_logs_filters_by_invocation(client: TestClient, adapters: FakeAdapterBun
     response = client.get("/api/v1/apps/palmimo-teleop/logs", params={"invocation": "inv-2"})
 
     assert [entry["message"] for entry in response.json()["entries"]] == ["new"]
+    assert response.json()["invocations"] == ["inv-1", "inv-2"]
+
+
+def test_logs_lists_a_previous_invocation_once_the_current_run_exceeds_the_page(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    from palmimo_portal.ports import JournalEntry
+
+    client = _authenticated_client(client, adapters)
+    _install_zip(client)
+    unit = "palmimo-app@palmimo-teleop.service"
+    adapters.journal.entries_by_unit[unit] = [
+        JournalEntry(message="old", timestamp=1.0, invocation_id="inv-1"),
+        *(JournalEntry(message=f"new-{i}", timestamp=float(i + 2), invocation_id="inv-2") for i in range(5)),
+    ]
+
+    # A page starting past the old run's one entry returns only current-run lines --
+    # `invocations` must still surface the old run, not just whatever this page's own entries carry.
+    response = client.get("/api/v1/apps/palmimo-teleop/logs", params={"lines": 3, "cursor": "1"})
+
+    assert [entry["message"] for entry in response.json()["entries"]] == ["new-0", "new-1", "new-2"]
     assert response.json()["invocations"] == ["inv-1", "inv-2"]

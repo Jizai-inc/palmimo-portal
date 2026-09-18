@@ -2228,7 +2228,7 @@
     },
     "/api/v1/apps/{name}/autostart": {
       "put": {
-        "description": "Persist whether ``name`` should be started automatically at Portal boot (design doc 2.5/3.2).",
+        "description": "Persist whether ``name`` should be started automatically at Portal boot (design doc 2.5/3.2).\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while\n        an install/update/delete job targets this app.",
         "operationId": "put_autostart_api_v1_apps__name__autostart_put",
         "parameters": [
           {
@@ -2464,7 +2464,7 @@
     },
     "/api/v1/apps/{name}/params": {
       "put": {
-        "description": "Save an app's param values (design doc 1.2 validation, applied at next start).\n\nRaises:\n    PortalError: 404 ``app_not_found``; 422 ``params_invalid`` (with\n        every violation) if a value fails its declared type/min/max/pattern/choices.",
+        "description": "Save an app's param values (design doc 1.2 validation, applied at next start).\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while\n        an install/update/delete job targets this app; 422\n        ``params_invalid`` (with every violation) if a value fails its\n        declared type/min/max/pattern/choices.",
         "operationId": "put_params_api_v1_apps__name__params_put",
         "parameters": [
           {
@@ -2517,7 +2517,7 @@
     },
     "/api/v1/apps/{name}/source": {
       "put": {
-        "description": "Change a git-sourced app's pinned ``ref``/``ref_kind``, applied by the next ``update`` (design doc 3.2).\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``source_update_git_only``\n        for a zip-sourced app.",
+        "description": "Change a git-sourced app's pinned ``ref``/``ref_kind``, applied by the next ``update`` (design doc 3.2).\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while\n        an install/update/delete job targets this app; 409\n        ``source_update_git_only`` for a zip-sourced app.",
         "operationId": "put_source_api_v1_apps__name__source_put",
         "parameters": [
           {

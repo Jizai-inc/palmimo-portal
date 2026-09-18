@@ -249,3 +249,24 @@ def test_create_app_wires_a_working_start_deps(tmp_path: Path) -> None:
     app: FastAPI = create_app(_settings(tmp_path))
 
     assert app.state.start_deps is not None
+
+
+def test_startup_keeps_app_directories_when_the_ledger_is_corrupt(tmp_path: Path) -> None:
+    # A corrupt apps.json reads as an empty ledger; the orphan sweep must not take that
+    # as "no apps are installed" and trash every installed app.
+    from palmimo_portal.core.apps_jobs import AppsJobContext
+    from palmimo_portal.testing.fakes import FakeStateStore
+
+    app = create_app(_settings(tmp_path))
+    ctx: AppsJobContext = app.state.apps_job_context
+    installed = ctx.apps_dir / "palmimo-teleop"
+    installed.mkdir(parents=True)
+    (installed / "palmimo.toml").write_text("schema = 1")
+    state_store = app.state.adapters.state
+    assert isinstance(state_store, FakeStateStore)
+    state_store.apps_state_corrupt = True
+
+    with TestClient(app):
+        pass
+
+    assert (installed / "palmimo.toml").is_file()

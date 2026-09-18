@@ -749,35 +749,36 @@ def delete_from_ledger(state: AppsState, name: str) -> tuple[AppsState, AppRecor
 
 
 def purge_app_files(ctx: AppsJobContext, name: str, on_step: Callable[[str], None] = _no_step) -> str | None:
-    """Second step of delete: drop ``name``'s secrets bindings, then rename its directory into
-    ``.trash/`` and remove it.
+    """Second step of delete: rename ``name``'s directory into ``.trash/``, then drop its secrets
+    bindings and run directory, then remove the trashed tree.
 
-    Bindings go first so a failure partway through file cleanup (caller
-    restores the ledger entry as ``failed`` in that case) never leaves a
-    binding pointing at an app whose files may already be gone. Safe to
-    call again if interrupted midway -- a missing app directory is a no-op,
-    not an error.
+    Bindings are dropped only once the directory move has succeeded: the
+    caller restores the ledger entry as ``failed`` if this raises, and a
+    restored (still-installed) app must keep its bindings, not lose them to a
+    move it never actually completed. Safe to call again if interrupted
+    midway -- a missing app directory is a no-op, not an error.
 
     Returns the trashed path (as a string) if it could not be removed even
     after escalating to :func:`purge_path`'s privileged fallback, or
     ``None`` once confirmed gone -- the caller surfaces a leftover on the
     job's ``error`` rather than silently swallowing it.
     """
+    dest = ctx.app_dir(name)
+    trash: Path | None = None
+    if dest.exists():
+        trash = ctx.trash_dir / ctx.new_id()
+        on_step("trash")
+        swap_lock = _ensure_not_running_before_swap(ctx, name)
+        try:
+            ctx.trash_dir.mkdir(parents=True, exist_ok=True)
+            dest.rename(trash)
+        finally:
+            swap_lock.__exit__(None, None, None)
     ctx.secrets.delete_bindings(name)
     if ctx.run_dir is not None:
         ctx.run_dir.remove(name)
-    dest = ctx.app_dir(name)
-    if not dest.exists():
+    if trash is None:
         return None
-    job_id = ctx.new_id()
-    trash = ctx.trash_dir / job_id
-    on_step("trash")
-    swap_lock = _ensure_not_running_before_swap(ctx, name)
-    try:
-        ctx.trash_dir.mkdir(parents=True, exist_ok=True)
-        dest.rename(trash)
-    finally:
-        swap_lock.__exit__(None, None, None)
     on_step("cleanup")
     return purge_path(ctx, trash)
 
@@ -856,3 +857,26 @@ def cleanup_staging_and_trash(ctx: AppsJobContext) -> None:
             continue
         for child in base.iterdir():
             purge_path(ctx, child)
+
+
+def sweep_orphan_app_dirs(ctx: AppsJobContext, state: AppsState) -> None:
+    """Trash any directory directly under ``apps_dir`` that the ledger does not name -- startup finalize.
+
+    ``commit_install`` renames a staged tree to ``apps/<name>`` before its ledger
+    record is written, and delete drops the ledger record before moving the
+    directory to ``.trash`` -- a crash or restart in either window leaves a
+    directory here that :func:`~palmimo_portal.core.apps.finalize_apps_state`
+    (ledger-driven) never looks at, permanently blocking a reinstall of the same
+    name. Safe to call every startup: a directory already in the ledger is left
+    alone.
+    """
+    if not ctx.apps_dir.is_dir():
+        return
+    for child in ctx.apps_dir.iterdir():
+        if child.name in (".staging", ".trash") or child.name in state.apps:
+            continue
+        logger.warning("apps: removing orphan app directory name=%s", child.name)
+        ctx.trash_dir.mkdir(parents=True, exist_ok=True)
+        trash = ctx.trash_dir / ctx.new_id()
+        child.rename(trash)
+        purge_path(ctx, trash)

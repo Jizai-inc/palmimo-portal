@@ -415,6 +415,9 @@ class CatalogEnvSpec:
 
     required: bool
     description: str
+    #: ``None`` if absent or not a plain ``http(s)://`` URL -- see
+    #: :func:`~palmimo_portal.adapters.catalog._parse_env`.
+    help_url: str | None = None
 
 
 @dataclass(frozen=True)

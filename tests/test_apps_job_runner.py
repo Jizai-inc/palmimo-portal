@@ -15,7 +15,7 @@ import pytest
 
 from palmimo_portal.core.apps import finalize_apps_state
 from palmimo_portal.core.apps_job_runner import AppsJobRunner
-from palmimo_portal.core.apps_jobs import AppsJobContext, disk_state_checks, prepare_install_zip
+from palmimo_portal.core.apps_jobs import AppsJobContext, disk_state_checks, install_git, prepare_install_zip
 from palmimo_portal.core.apps_start import AppRunningError
 from palmimo_portal.ports import AppExistsError, AppsLockTimeoutError, AppsState, UnitStatus
 from palmimo_portal.testing.fakes import (
@@ -207,6 +207,52 @@ def test_job_completion_does_not_clobber_a_concurrent_write_to_another_apps_reco
     assert "palmimo-teleop" in final.apps
 
 
+def test_update_completion_keeps_a_concurrent_autostart_change_to_the_same_app(ctx: AppsJobContext) -> None:
+    """The update job reads `apps.json` at the start of its fetch/sync -- a `PUT .../autostart`
+    landing on the *same* app while sync is in flight must survive the job's own write-back,
+    which must still apply the ref/commit/manifest the job itself fetched."""
+
+    def seed(dest: Path, url: str, ref: str, ref_kind: str) -> None:
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "palmimo.toml").write_text('schema = 1\nname = "palmimo-teleop"\ndescription = "d"\ncommand=["run"]\n')
+        (dest / "pyproject.toml").write_text("[project]\nname='app'\nversion='0'\n")
+
+    ctx.git.on_clone = seed  # type: ignore[attr-defined]
+    ctx.git.next_commit = "commit-1"  # type: ignore[attr-defined]
+    state_store = FakeStateStore()
+    initial_state, _ = install_git(ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")
+    state_store.write_apps_state(initial_state)
+
+    runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=True)
+    sync_started = threading.Event()
+    release_sync = threading.Event()
+
+    def blocking_wait(instance: str, timeout_s: float) -> UnitStatus:
+        sync_started.set()
+        release_sync.wait(timeout=5)
+        return UnitStatus(active_state="inactive", sub_state="dead", result="success", exec_main_status=0)
+
+    ctx.sync_unit.wait = blocking_wait  # type: ignore[method-assign]
+    ctx.git.next_commit = "commit-2"  # type: ignore[attr-defined]
+    runner.start_update("palmimo-teleop")
+    assert sync_started.wait(timeout=5)
+
+    state = state_store.read_apps_state()
+    record = state.apps["palmimo-teleop"]
+    state_store.write_apps_state(replace(state, apps={**state.apps, "palmimo-teleop": replace(record, autostart=True)}))
+
+    release_sync.set()
+    for _ in range(200):
+        job = state_store.read_apps_state().apps["palmimo-teleop"].last_job
+        if job is not None and job.kind == "update" and job.state == "done":
+            break
+        time.sleep(0.01)
+
+    final = state_store.read_apps_state().apps["palmimo-teleop"]
+    assert final.autostart is True
+    assert final.source.commit == "commit-2"
+
+
 def test_start_delete_failure_during_file_cleanup_restores_the_ledger_entry_as_failed(
     monkeypatch: pytest.MonkeyPatch, ctx: AppsJobContext
 ) -> None:
@@ -214,6 +260,8 @@ def test_start_delete_failure_during_file_cleanup_restores_the_ledger_entry_as_f
     runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
     prepared = prepare_install_zip(ctx, _zip_bytes())
     runner.start_install(prepared)
+    ctx.secrets.set_secret("TOKEN", "s3cr3t")
+    ctx.secrets.write_bindings("palmimo-teleop", {"TOKEN": "TOKEN"})
 
     def raise_on_rename(self: Path, target: object) -> Path:
         raise OSError("device busy")
@@ -226,6 +274,7 @@ def test_start_delete_failure_during_file_cleanup_restores_the_ledger_entry_as_f
     record = state_store.read_apps_state().apps["palmimo-teleop"]
     assert record.last_job is not None
     assert record.last_job.state == "failed"
+    assert ctx.secrets.read_bindings("palmimo-teleop") == {"TOKEN": "TOKEN"}
 
 
 def test_start_delete_removes_the_apps_run_directory(ctx: AppsJobContext) -> None:

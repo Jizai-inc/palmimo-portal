@@ -23,7 +23,7 @@ export function AppLogsPanel({ name }: { name: string }) {
     query: { refetchInterval: (query) => (query.state.data && isAppStatusBusy(query.state.data.status) ? 3_000 : false) },
   });
   const status = app?.status ?? "stopped";
-  const { unavailable, invocations, invocation, setInvocation, accumulated, text } = useAppLogs(name, status);
+  const { unavailable, invocations, invocation, setInvocation, accumulated, truncated, text } = useAppLogs(name, status);
 
   if (error) {
     return <ApiErrorAlert error={error} />;
@@ -85,6 +85,9 @@ export function AppLogsPanel({ name }: { name: string }) {
       ) : (
         <>
           <p className="text-sm text-muted-foreground">{subtitle}</p>
+          {truncated ? (
+            <p className="text-sm text-muted-foreground">{t("appDetail.logsTruncated", { count: accumulated.length })}</p>
+          ) : null}
           {accumulated.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t("appDetail.logsEmptyState")}</p>
           ) : (

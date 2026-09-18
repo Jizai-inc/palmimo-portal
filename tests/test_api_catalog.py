@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-from palmimo_portal.ports import CatalogAsset
+from palmimo_portal.ports import CatalogAsset, CatalogEnvSpec
 from palmimo_portal.settings import Settings
 from palmimo_portal.testing.fakes import FakeAdapterBundle, make_catalog_app
 
@@ -78,6 +79,18 @@ def test_get_catalog_returns_typed_source_and_env_objects(client: TestClient, ad
         "manifest": None,
     }
     assert app["env"] == []
+
+
+def test_get_catalog_exposes_an_envs_help_url(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    app = make_catalog_app("palmimo-teleop")
+    app = replace(app, env={"TOKEN": CatalogEnvSpec(required=True, description="d", help_url="https://x/help")})
+    adapters.catalog.asset = CatalogAsset(tag="v1.0.0", apps=(app,))
+    _authenticated_client(client, adapters)
+
+    response = client.get("/api/v1/catalog")
+
+    [env] = response.json()["apps"][0]["env"]
+    assert env["help_url"] == "https://x/help"
 
 
 def test_get_catalog_exposes_a_non_default_manifest_filename(client: TestClient, adapters: FakeAdapterBundle) -> None:

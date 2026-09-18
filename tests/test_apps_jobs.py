@@ -20,6 +20,7 @@ from palmimo_portal.core.apps_jobs import (
     install_zip,
     prepare_install_zip,
     purge_app_files,
+    sweep_orphan_app_dirs,
     sync_unit_name,
     update_git,
 )
@@ -527,9 +528,52 @@ def test_purge_app_files_fails_at_trash_when_a_start_slips_in_after_prechecks(ha
     assert (harness.ctx.apps_dir / "palmimo-teleop").exists()
 
 
+def test_purge_app_files_keeps_bindings_when_the_directory_move_fails(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    install_zip(harness.ctx, AppsState(), _zip_bytes("palmimo-teleop"))
+    harness.secrets.set_secret("TOKEN", "s3cr3t")
+    harness.secrets.write_bindings("palmimo-teleop", {"TOKEN": "TOKEN"})
+    dest = harness.ctx.app_dir("palmimo-teleop")
+    original_rename = Path.rename
+
+    def failing_rename(self: Path, target: str | Path) -> Path:
+        if self == dest:
+            raise OSError("simulated rename failure")
+        return original_rename(self, target)
+
+    monkeypatch.setattr(Path, "rename", failing_rename)
+
+    with pytest.raises(OSError, match="simulated rename failure"):
+        purge_app_files(harness.ctx, "palmimo-teleop")
+
+    assert dest.exists()
+    assert harness.secrets.read_bindings("palmimo-teleop") == {"TOKEN": "TOKEN"}
+
+
 def test_delete_from_ledger_unknown_app_raises_not_found() -> None:
     with pytest.raises(AppNotFoundError):
         delete_from_ledger(AppsState(), "missing-app")
+
+
+def test_sweep_orphan_app_dirs_removes_unledgered_directory_and_allows_reinstall(harness: Harness) -> None:
+    orphan = harness.ctx.apps_dir / "orphan"
+    orphan.mkdir(parents=True)
+    (orphan / "palmimo.toml").write_text("stale")
+
+    sweep_orphan_app_dirs(harness.ctx, AppsState())
+
+    assert not orphan.exists()
+    _, record = install_zip(harness.ctx, AppsState(), _zip_bytes("orphan"))
+    assert record.name == "orphan"
+
+
+def test_sweep_orphan_app_dirs_leaves_ledgered_app_directory(harness: Harness) -> None:
+    state, _ = install_zip(harness.ctx, AppsState(), _zip_bytes("palmimo-teleop"))
+
+    sweep_orphan_app_dirs(harness.ctx, state)
+
+    assert (harness.ctx.apps_dir / "palmimo-teleop" / "palmimo.toml").is_file()
 
 
 def _tag_record(url: str, ref: str) -> AppRecord:

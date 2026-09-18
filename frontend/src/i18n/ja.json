@@ -435,6 +435,7 @@
     "logsCopied": "コピーしました",
     "logsExpandButton": "拡大",
     "logsEmptyState": "ログはまだありません。",
+    "logsTruncated": "最新 {{count}} 行を表示しています。",
     "logsUnavailable": "現在このアプリのログを読み取れません。",
     "logsLoadMoreButton": "さらに読み込む",
     "logsPageTitle": "{{name}} のログ",

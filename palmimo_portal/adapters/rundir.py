@@ -39,7 +39,10 @@ class TmpfsRunDirPort(RunDirPort):
     def write(self, name: str, *, env: dict[str, str], argv: list[str], cwd: str, project: str) -> None:
         app_dir = self._app_dir(name)
         shutil.rmtree(app_dir, ignore_errors=True)
-        app_dir.mkdir(parents=True, exist_ok=True, mode=0o750)
+        app_dir.mkdir(parents=True, exist_ok=True)
+        # Set explicitly: mkdir's mode is narrowed by the process umask, which
+        # another thread may have tightened at that moment (atomic_write did).
+        app_dir.chmod(0o750)
 
         env_path = app_dir / _ENV_FILENAME
         env_text = "".join(f"{key}={value}\n" for key, value in env.items())

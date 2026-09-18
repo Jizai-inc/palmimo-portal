@@ -167,9 +167,9 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         journal=JournalctlPort(),
         platform=SudoPlatformPort(installed_path=settings.platform_dir / "installed.json", sudo_bin=settings.sudo_bin),
         platform_bundle=GitHubPlatformBundleSource(platform_repo=settings.platform_repo),
-        platform_releases=GitHubReleaseSource(repo=settings.platform_repo),
+        platform_releases=GitHubReleaseSource(repo=settings.platform_repo, channel=settings.update_channel),
         clock=SystemClockPort(),
         catalog=GitHubCatalogSource(
-            catalog_repo=settings.catalog_repo, release_source=GitHubReleaseSource(repo=settings.catalog_repo)
+            catalog_repo=settings.catalog_repo, release_source=GitHubReleaseSource(repo=settings.catalog_repo, channel=settings.update_channel)
         ),
     )

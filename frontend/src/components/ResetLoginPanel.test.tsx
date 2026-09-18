@@ -23,6 +23,8 @@ function stubStatus(hostname = "palmimo-1234") {
         last_wifi_attempt: null,
         adapters: "fake",
         state_dir: "/tmp",
+        disk_free_bytes: 5_000_000_000,
+        ntp_synchronized: true,
       }),
     ),
   );

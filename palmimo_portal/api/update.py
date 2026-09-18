@@ -33,6 +33,7 @@ from palmimo_portal.api.deps import (
 from palmimo_portal.api.errors import PortalError
 from palmimo_portal.core import update as update_core
 from palmimo_portal.ports import (
+    AppsLockTimeoutError,
     InstalledVersion,
     ReleaseSource,
     ReleaseSourceError,
@@ -51,6 +52,30 @@ router = APIRouter(
     tags=["update"],
     dependencies=[Depends(require_provisioned), Depends(require_auth), Depends(require_full_session)],
 )
+
+
+def _ensure_no_apps_job_in_progress(state_store: StateStore) -> None:
+    """Refuse to start a Portal self-update while an app install/update/delete job holds ``apps.lock``.
+
+    Probes the lock rather than holding it: this call only needs to know
+    whether a job is *currently* in flight, not to block one from starting
+    the instant after. See ``api/apps.py``'s module docstring for the
+    symmetric check in the other direction.
+    """
+    try:
+        with state_store.lock_apps():
+            pass
+    except AppsLockTimeoutError as error:
+        raise PortalError(409, "app_job_in_progress") from error
+
+
+def _ensure_no_platform_update_in_progress(state_store: StateStore) -> None:
+    """Refuse a Portal self-update while a platform-bundle update (``api/platform.py``) is running.
+
+    Symmetric with :func:`_ensure_no_apps_job_in_progress`.
+    """
+    if state_store.read_platform_update_state().job.state == "running":
+        raise PortalError(409, "platform_update_in_progress")
 
 
 class InstalledInfo(BaseModel):
@@ -221,6 +246,8 @@ def apply(
     """
     settings: Settings = request.app.state.settings
     with lock:
+        _ensure_no_apps_job_in_progress(state_store)
+        _ensure_no_platform_update_in_progress(state_store)
         state = state_store.read_update_state()
         installed = updater.installed()
         try:
@@ -263,6 +290,8 @@ def rollback(
     """
     settings: Settings = request.app.state.settings
     with lock:
+        _ensure_no_apps_job_in_progress(state_store)
+        _ensure_no_platform_update_in_progress(state_store)
         state = state_store.read_update_state()
         installed = updater.installed()
         try:

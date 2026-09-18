@@ -15,6 +15,10 @@ export function navLabel(t: TFunction, labelKey: NavItem["labelKey"]): string {
   switch (labelKey) {
     case "nav.dashboard":
       return t("nav.dashboard");
+    case "nav.apps":
+      return t("nav.apps");
+    case "nav.env":
+      return t("nav.env");
     case "nav.wifi":
       return t("nav.wifi");
     case "nav.sshKeys":
@@ -30,6 +34,10 @@ export function navLabel(t: TFunction, labelKey: NavItem["labelKey"]): string {
 
 export function navDescription(t: TFunction, descriptionKey: NavItem["descriptionKey"]): string | undefined {
   switch (descriptionKey) {
+    case "nav.appsDescription":
+      return t("nav.appsDescription");
+    case "nav.envDescription":
+      return t("nav.envDescription");
     case "nav.wifiDescription":
       return t("nav.wifiDescription");
     case "nav.sshKeysDescription":

@@ -32,6 +32,8 @@ function stubStatuses({
         last_wifi_attempt: lastAttempt === undefined ? null : lastAttempt,
         adapters: "fake",
         state_dir: "/tmp",
+        disk_free_bytes: 5_000_000_000,
+        ntp_synchronized: true,
       }),
     ),
   );

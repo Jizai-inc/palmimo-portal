@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from palmimo_portal.api.deps import (
+    get_clock_port,
+    get_disk_port,
     get_identity_store,
     get_network_port,
     get_state_store,
@@ -20,7 +22,7 @@ from palmimo_portal.api.deps import (
 from palmimo_portal.api.errors import PortalError
 from palmimo_portal.core import update as update_core
 from palmimo_portal.core.identity import compute_auth_state
-from palmimo_portal.ports import Identity, IdentityStore, NetworkPort, StateStore, SystemPort
+from palmimo_portal.ports import ClockPort, DiskPort, Identity, IdentityStore, NetworkPort, StateStore, SystemPort
 from palmimo_portal.settings import Settings
 from palmimo_portal.version import package_version, portal_version
 
@@ -49,6 +51,8 @@ class SystemStatus(BaseModel):
     last_wifi_attempt: WifiAttemptInfo | None
     adapters: str
     state_dir: str
+    ntp_synchronized: bool
+    disk_free_bytes: int
 
 
 class StatusResponse(BaseModel):
@@ -61,6 +65,8 @@ def get_status(
     network: NetworkPort = Depends(get_network_port),
     state: StateStore = Depends(get_state_store),
     identity_store: IdentityStore = Depends(get_identity_store),
+    clock: ClockPort = Depends(get_clock_port),
+    disk: DiskPort = Depends(get_disk_port),
 ) -> SystemStatus:
     """Report provisioning state, hostname, auth state, device id, versions, and the last Wi-Fi attempt.
 
@@ -86,6 +92,9 @@ def get_status(
     ``adapters`` and ``state_dir`` expose what this process is actually
     running as, so a device on fake adapters or the wrong state directory
     is diagnosable from a client request.
+
+    ``ntp_synchronized`` and ``disk_free_bytes`` back the "clock not synced
+    yet" / "disk almost full" UI warnings (design doc 3.6).
     """
     wifi_status = network.get_status()
     # Uncached: an operator watches this endpoint while diagnosing a device;
@@ -112,6 +121,8 @@ def get_status(
         ),
         adapters=settings.adapters,
         state_dir=str(settings.state_dir),
+        ntp_synchronized=clock.ntp_synchronized(),
+        disk_free_bytes=disk.free_bytes(settings.state_dir),
     )
 
 

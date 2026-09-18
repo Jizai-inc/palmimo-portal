@@ -14,6 +14,523 @@
         "title": "AddKeyRequest",
         "type": "object"
       },
+      "AppDetailResponse": {
+        "properties": {
+          "autostart": {
+            "title": "Autostart",
+            "type": "boolean"
+          },
+          "bindings": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Bindings",
+            "type": "object"
+          },
+          "broken_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Broken Reason"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "devices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Devices",
+            "type": "array"
+          },
+          "env": {
+            "items": {
+              "$ref": "#/components/schemas/EnvSpecInfo"
+            },
+            "title": "Env",
+            "type": "array"
+          },
+          "exit_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Code"
+          },
+          "installed_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Installed At"
+          },
+          "last_job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppJobInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "manifest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppManifestInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "source": {
+            "$ref": "#/components/schemas/AppSourceInfo"
+          },
+          "status": {
+            "enum": [
+              "stopped",
+              "broken",
+              "installing",
+              "updating",
+              "deleting",
+              "running",
+              "starting",
+              "stopping",
+              "failed",
+              "needs_repair"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "name",
+          "source",
+          "installed_at",
+          "autostart",
+          "status",
+          "broken_reason",
+          "params",
+          "env",
+          "bindings",
+          "devices",
+          "description",
+          "manifest",
+          "last_job"
+        ],
+        "title": "AppDetailResponse",
+        "type": "object"
+      },
+      "AppJobAcceptedResponse": {
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/AppJobInfo"
+          }
+        },
+        "required": [
+          "job"
+        ],
+        "title": "AppJobAcceptedResponse",
+        "type": "object"
+      },
+      "AppJobInfo": {
+        "properties": {
+          "app_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Name"
+          },
+          "dropped_bindings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dropped Bindings",
+            "type": "array"
+          },
+          "dropped_params": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dropped Params",
+            "type": "array"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "lock_generated": {
+            "title": "Lock Generated",
+            "type": "boolean"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          }
+        },
+        "required": [
+          "id",
+          "app_name",
+          "kind",
+          "state",
+          "step",
+          "error",
+          "started_at",
+          "finished_at",
+          "lock_generated",
+          "dropped_bindings",
+          "dropped_params"
+        ],
+        "title": "AppJobInfo",
+        "type": "object"
+      },
+      "AppManifestInfo": {
+        "description": "The declared manifest shape driving one app's params/env/devices form -- current values live elsewhere.",
+        "properties": {
+          "devices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Devices",
+            "type": "array"
+          },
+          "env": {
+            "items": {
+              "$ref": "#/components/schemas/EnvSpecInfo"
+            },
+            "title": "Env",
+            "type": "array"
+          },
+          "params": {
+            "items": {
+              "$ref": "#/components/schemas/ParamSpecInfo"
+            },
+            "title": "Params",
+            "type": "array"
+          }
+        },
+        "required": [
+          "params",
+          "env",
+          "devices"
+        ],
+        "title": "AppManifestInfo",
+        "type": "object"
+      },
+      "AppSourceInfo": {
+        "properties": {
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          },
+          "manifest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref"
+          },
+          "ref_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref Kind"
+          },
+          "subdir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subdir"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "type",
+          "url",
+          "ref",
+          "ref_kind",
+          "subdir",
+          "commit",
+          "manifest"
+        ],
+        "title": "AppSourceInfo",
+        "type": "object"
+      },
+      "AppSummary": {
+        "description": "One app's ledger entry plus a coarse status.\n\n``status`` is one of ``stopped``/``broken`` (ledger-derived) or\n``installing``/``updating``/``deleting`` (this app is the target of the\none in-flight ``apps.lock`` job). The systemd-derived states\n(``running``, ``failed(exit_code)``) land with start/stop (design doc 3.5).",
+        "properties": {
+          "autostart": {
+            "title": "Autostart",
+            "type": "boolean"
+          },
+          "broken_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Broken Reason"
+          },
+          "credential_rejected": {
+            "title": "Credential Rejected",
+            "type": "boolean"
+          },
+          "exit_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exit Code"
+          },
+          "installed_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Installed At"
+          },
+          "last_job": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppJobInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latest_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Commit"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "source": {
+            "$ref": "#/components/schemas/AppSourceInfo"
+          },
+          "status": {
+            "enum": [
+              "stopped",
+              "broken",
+              "installing",
+              "updating",
+              "deleting",
+              "running",
+              "starting",
+              "stopping",
+              "failed",
+              "needs_repair"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "update_available": {
+            "title": "Update Available",
+            "type": "boolean"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "name",
+          "source",
+          "installed_at",
+          "autostart",
+          "status",
+          "broken_reason",
+          "credential_rejected",
+          "update_available",
+          "latest_commit",
+          "last_job"
+        ],
+        "title": "AppSummary",
+        "type": "object"
+      },
       "ApplyRequest": {
         "properties": {
           "tag": {
@@ -25,6 +542,146 @@
           "tag"
         ],
         "title": "ApplyRequest",
+        "type": "object"
+      },
+      "AppsListResponse": {
+        "properties": {
+          "apps": {
+            "items": {
+              "$ref": "#/components/schemas/AppSummary"
+            },
+            "title": "Apps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "apps"
+        ],
+        "title": "AppsListResponse",
+        "type": "object"
+      },
+      "AutostartRequest": {
+        "properties": {
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "AutostartRequest",
+        "type": "object"
+      },
+      "BindingsRequest": {
+        "properties": {
+          "bindings": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Bindings",
+            "type": "object"
+          }
+        },
+        "required": [
+          "bindings"
+        ],
+        "title": "BindingsRequest",
+        "type": "object"
+      },
+      "CatalogAppInfo": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "devices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Devices",
+            "type": "array"
+          },
+          "env": {
+            "items": {
+              "$ref": "#/components/schemas/EnvSpecInfo"
+            },
+            "title": "Env",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/AppSourceInfo"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "source",
+          "env",
+          "devices"
+        ],
+        "title": "CatalogAppInfo",
+        "type": "object"
+      },
+      "CatalogResponse": {
+        "properties": {
+          "apps": {
+            "items": {
+              "$ref": "#/components/schemas/CatalogAppInfo"
+            },
+            "title": "Apps",
+            "type": "array"
+          },
+          "fetched_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetched At"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag"
+          }
+        },
+        "required": [
+          "tag",
+          "apps",
+          "fetched_at",
+          "stale",
+          "reason"
+        ],
+        "title": "CatalogResponse",
         "type": "object"
       },
       "ChangePasswordRequest": {
@@ -96,6 +753,41 @@
         "title": "ConnectResponse",
         "type": "object"
       },
+      "EnvSpecInfo": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "help_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Help Url"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "required": {
+            "title": "Required",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "required",
+          "description",
+          "help_url"
+        ],
+        "title": "EnvSpecInfo",
+        "type": "object"
+      },
       "ForgetResponse": {
         "properties": {
           "status": {
@@ -105,6 +797,51 @@
           }
         },
         "title": "ForgetResponse",
+        "type": "object"
+      },
+      "GitCredentialRecordInfo": {
+        "properties": {
+          "host_owner": {
+            "title": "Host Owner",
+            "type": "string"
+          },
+          "rejected_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejected At"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "number"
+          }
+        },
+        "required": [
+          "host_owner",
+          "updated_at"
+        ],
+        "title": "GitCredentialRecordInfo",
+        "type": "object"
+      },
+      "GitCredentialsListResponse": {
+        "properties": {
+          "credentials": {
+            "items": {
+              "$ref": "#/components/schemas/GitCredentialRecordInfo"
+            },
+            "title": "Credentials",
+            "type": "array"
+          }
+        },
+        "required": [
+          "credentials"
+        ],
+        "title": "GitCredentialsListResponse",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -152,6 +889,43 @@
         "title": "InstalledInfo",
         "type": "object"
       },
+      "JournalEntryInfo": {
+        "properties": {
+          "invocation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invocation Id"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "timestamp": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timestamp"
+          }
+        },
+        "required": [
+          "message",
+          "timestamp",
+          "invocation_id"
+        ],
+        "title": "JournalEntryInfo",
+        "type": "object"
+      },
       "LoginResponse": {
         "properties": {
           "mode": {
@@ -170,6 +944,190 @@
         "title": "LoginResponse",
         "type": "object"
       },
+      "LogsResponse": {
+        "properties": {
+          "entries": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/JournalEntryInfo"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "invocations": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Invocations",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "unavailable": {
+            "anyOf": [
+              {
+                "const": "journal_permission",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable"
+          }
+        },
+        "title": "LogsResponse",
+        "type": "object"
+      },
+      "ManifestPreviewResponse": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "devices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Devices",
+            "type": "array"
+          },
+          "env": {
+            "items": {
+              "$ref": "#/components/schemas/EnvSpecInfo"
+            },
+            "title": "Env",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "devices",
+          "env"
+        ],
+        "title": "ManifestPreviewResponse",
+        "type": "object"
+      },
+      "ParamSpecInfo": {
+        "description": "One declared ``[params.*]`` entry's shape -- not its current stored value (see ``params``).",
+        "properties": {
+          "choices": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Choices"
+          },
+          "default": {
+            "title": "Default"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "flag": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Flag"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pattern": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pattern"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type"
+        ],
+        "title": "ParamSpecInfo",
+        "type": "object"
+      },
+      "ParamsRequest": {
+        "properties": {
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          }
+        },
+        "required": [
+          "params"
+        ],
+        "title": "ParamsRequest",
+        "type": "object"
+      },
       "PasswordRequest": {
         "properties": {
           "password": {
@@ -181,6 +1139,256 @@
           "password"
         ],
         "title": "PasswordRequest",
+        "type": "object"
+      },
+      "PlatformJobInfo": {
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "target_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Version"
+          }
+        },
+        "required": [
+          "state",
+          "target_version",
+          "step",
+          "error",
+          "started_at",
+          "finished_at"
+        ],
+        "title": "PlatformJobInfo",
+        "type": "object"
+      },
+      "PlatformLatestInfo": {
+        "properties": {
+          "reflash_required": {
+            "title": "Reflash Required",
+            "type": "boolean"
+          },
+          "requires_portal": {
+            "title": "Requires Portal",
+            "type": "string"
+          },
+          "restart_portal": {
+            "title": "Restart Portal",
+            "type": "boolean"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "tag": {
+            "title": "Tag",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "tag",
+          "summary",
+          "requires_portal",
+          "restart_portal",
+          "reflash_required"
+        ],
+        "title": "PlatformLatestInfo",
+        "type": "object"
+      },
+      "PlatformStatusResponse": {
+        "properties": {
+          "installed_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Installed At"
+          },
+          "installed_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Installed Version"
+          },
+          "latest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlatformLatestInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "latest_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Error"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "required_version": {
+            "title": "Required Version",
+            "type": "integer"
+          },
+          "verify_diffs": {
+            "items": {
+              "$ref": "#/components/schemas/PlatformVerifyDiffInfo"
+            },
+            "title": "Verify Diffs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "installed_version",
+          "installed_at",
+          "required_version",
+          "ready",
+          "reason",
+          "verify_diffs",
+          "latest",
+          "latest_error"
+        ],
+        "title": "PlatformStatusResponse",
+        "type": "object"
+      },
+      "PlatformUpdateAcceptedResponse": {
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/PlatformJobInfo"
+          }
+        },
+        "required": [
+          "job"
+        ],
+        "title": "PlatformUpdateAcceptedResponse",
+        "type": "object"
+      },
+      "PlatformVerifyDiffInfo": {
+        "properties": {
+          "actual": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual"
+          },
+          "expected": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "kind",
+          "expected",
+          "actual"
+        ],
+        "title": "PlatformVerifyDiffInfo",
         "type": "object"
       },
       "ReleaseInfo": {
@@ -211,20 +1419,81 @@
         "title": "ReleaseInfo",
         "type": "object"
       },
-      "ResetResponse": {
+      "SecretRecordInfo": {
         "properties": {
-          "auth_state": {
-            "default": "initial",
-            "title": "Auth State",
+          "name": {
+            "title": "Name",
             "type": "string"
           },
-          "status": {
-            "default": "ok",
-            "title": "Status",
+          "updated_at": {
+            "title": "Updated At",
+            "type": "number"
+          },
+          "used_by": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Used By",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "updated_at",
+          "used_by"
+        ],
+        "title": "SecretRecordInfo",
+        "type": "object"
+      },
+      "SecretValueRequest": {
+        "properties": {
+          "value": {
+            "title": "Value",
             "type": "string"
           }
         },
-        "title": "ResetResponse",
+        "required": [
+          "value"
+        ],
+        "title": "SecretValueRequest",
+        "type": "object"
+      },
+      "SecretsListResponse": {
+        "properties": {
+          "secrets": {
+            "items": {
+              "$ref": "#/components/schemas/SecretRecordInfo"
+            },
+            "title": "Secrets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "secrets"
+        ],
+        "title": "SecretsListResponse",
+        "type": "object"
+      },
+      "SourceUpdateRequest": {
+        "properties": {
+          "ref": {
+            "title": "Ref",
+            "type": "string"
+          },
+          "ref_kind": {
+            "enum": [
+              "branch",
+              "tag"
+            ],
+            "title": "Ref Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref",
+          "ref_kind"
+        ],
+        "title": "SourceUpdateRequest",
         "type": "object"
       },
       "SshKeyResponse": {
@@ -250,6 +1519,20 @@
         "title": "SshKeyResponse",
         "type": "object"
       },
+      "StartResponse": {
+        "properties": {
+          "status": {
+            "const": "activating",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "StartResponse",
+        "type": "object"
+      },
       "StatusResponse": {
         "properties": {
           "status": {
@@ -259,6 +1542,20 @@
           }
         },
         "title": "StatusResponse",
+        "type": "object"
+      },
+      "StopResponse": {
+        "properties": {
+          "status": {
+            "const": "stopping",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "StopResponse",
         "type": "object"
       },
       "SystemStatus": {
@@ -282,6 +1579,10 @@
             ],
             "title": "Device Id"
           },
+          "disk_free_bytes": {
+            "title": "Disk Free Bytes",
+            "type": "integer"
+          },
           "hostname": {
             "title": "Hostname",
             "type": "string"
@@ -295,6 +1596,10 @@
                 "type": "null"
               }
             ]
+          },
+          "ntp_synchronized": {
+            "title": "Ntp Synchronized",
+            "type": "boolean"
           },
           "state": {
             "title": "State",
@@ -316,9 +1621,36 @@
           "versions",
           "last_wifi_attempt",
           "adapters",
-          "state_dir"
+          "state_dir",
+          "ntp_synchronized",
+          "disk_free_bytes"
         ],
         "title": "SystemStatus",
+        "type": "object"
+      },
+      "UpdateCheckResponse": {
+        "properties": {
+          "remote_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remote Commit"
+          },
+          "update_available": {
+            "title": "Update Available",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "update_available",
+          "remote_commit"
+        ],
+        "title": "UpdateCheckResponse",
         "type": "object"
       },
       "UpdateJobInfo": {
@@ -630,6 +1962,46 @@
         ],
         "title": "WifiStatusResponse",
         "type": "object"
+      },
+      "palmimo_portal__api__apps__ResetResponse": {
+        "properties": {
+          "leftover_paths": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Leftover Paths",
+            "type": "array"
+          },
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Paths",
+            "type": "array"
+          }
+        },
+        "required": [
+          "paths",
+          "leftover_paths"
+        ],
+        "title": "ResetResponse",
+        "type": "object"
+      },
+      "palmimo_portal__api__auth__ResetResponse": {
+        "properties": {
+          "auth_state": {
+            "default": "initial",
+            "title": "Auth State",
+            "type": "string"
+          },
+          "status": {
+            "default": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "ResetResponse",
+        "type": "object"
       }
     }
   },
@@ -639,6 +2011,735 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/apps": {
+      "get": {
+        "description": "List every installed app (plus an in-flight install with no ledger entry yet) and its status.",
+        "operationId": "list_apps_api_v1_apps_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppsListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Apps",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/install": {
+      "post": {
+        "description": "Start installing an app from a zip upload (multipart, field ``file``) or a git source (JSON body).\n\n``uv sync`` runs in the background; only the fast fetch+validate half\nruns before this returns. Once accepted, a sync/swap failure surfaces on\n``GET /apps/jobs/{id}`` or the app's own ``last_job``, not here.\n\nRaises:\n    PortalError: 422 ``manifest_invalid`` / 422 ``install_failed`` /\n        422 ``zip_too_large`` / 507 ``disk_full`` for the synchronous\n        fetch+validate half; 409 ``app_exists`` if the manifest's name\n        is already installed; 409 ``update_in_progress`` / 409\n        ``app_job_in_progress`` / 409 ``platform_not_ready`` for the\n        mutual-exclusion and platform-readiness refusals; 503\n        ``platform_not_ready`` if ``apps_dir`` itself is unavailable.",
+        "operationId": "install_api_v1_apps_install_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppJobAcceptedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Install",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/jobs/{job_id}": {
+      "get": {
+        "description": "Look up one install/update/delete job by id: in flight (``current_job``) or finished (an app's ``last_job``).",
+        "operationId": "get_job_api_v1_apps_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppJobInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Job",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/preview": {
+      "post": {
+        "description": "Fetch and validate a source without installing it, returning its manifest.\n\nRaises:\n    PortalError: 422 ``validation_error`` for a malformed request body;\n        422 ``manifest_invalid`` (with every violation) for a manifest\n        that fails validation; 422 ``preview_failed`` for any other\n        fetch/extract failure.",
+        "operationId": "preview_api_v1_apps_preview_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManifestPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Preview",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/reset": {
+      "post": {
+        "description": "Stop every running app and erase the app platform back to its just-installed state (design doc 3.2).\n\nThe only SSH-free recovery from a corrupt/unreadable app ledger.\nRefuses while any app job, Portal self-update, or platform-bundle\nupdate is running, or while a start/stop is in flight -- serialized by\ntaking both ``apps.lock`` and ``run.lock`` for the whole operation.\n\nRaises:\n    PortalError: 409 ``app_job_in_progress`` (an app job is running, or\n        ``apps.lock`` is otherwise held); 409 ``app_busy`` (a\n        start/stop/autostart holds ``run.lock``); 409\n        ``update_in_progress`` / 409 ``platform_update_in_progress``.",
+        "operationId": "reset_apps_api_v1_apps_reset_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/palmimo_portal__api__apps__ResetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Reset Apps",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/{name}": {
+      "delete": {
+        "description": "Start deleting an app: remove it from the ledger, then move its files to ``.trash/`` and remove them.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``update_in_progress`` /\n        409 ``app_job_in_progress`` / 409 ``app_running`` (the app must\n        be stopped first).",
+        "operationId": "delete_app_api_v1_apps__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppJobAcceptedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete App",
+        "tags": [
+          "apps"
+        ]
+      },
+      "get": {
+        "description": "Return one app's ledger entry, current manifest, params, and env-binding status.",
+        "operationId": "get_app_api_v1_apps__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get App",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/{name}/autostart": {
+      "put": {
+        "description": "Persist whether ``name`` should be started automatically at Portal boot (design doc 2.5/3.2).\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while\n        an install/update/delete job targets this app.",
+        "operationId": "put_autostart_api_v1_apps__name__autostart_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AutostartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Autostart",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/{name}/bindings": {
+      "put": {
+        "description": "Replace an app's ``{request_name: registered_secret_name}`` bindings wholesale.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 422 ``unknown_secret_name`` if a\n        value names a secret that is not registered.",
+        "operationId": "put_bindings_api_v1_apps__name__bindings_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BindingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Bindings",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/{name}/diagnostics": {
+      "get": {
+        "description": "Return one flat support document for ``name`` (design doc 3.2): versions, source, prechecks, logs.\n\nNever contains a secret value or git token, even if an app printed one\nto its own journal -- the whole document is run through the same\nmasking pass every registered secret value and git credential token\ngoes through.\n\nRaises:\n    PortalError: 404 ``app_not_found``.",
+        "operationId": "get_diagnostics_api_v1_apps__name__diagnostics_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Diagnostics",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/{name}/logs": {
+      "get": {
+        "description": "Return up to ``lines`` journal entries for ``name``'s unit, cursor-paginated (design doc 3.2/3.8).\n\n``invocations`` lists every distinct systemd invocation id seen, so the\nUI can offer \"view a previous start\". Answers ``{\"unavailable\":\n\"journal_permission\"}`` rather than an error when this process cannot\nread the journal at all (design doc 3.6). Every entry's ``message`` is\nmasked the same way ``GET /apps/{name}/diagnostics`` is -- an app can\nprint a registered secret or git credential to its own journal.",
+        "operationId": "get_logs_api_v1_apps__name__logs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "lines",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Lines",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "invocation",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Invocation"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Logs",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/{name}/params": {
+      "put": {
+        "description": "Save an app's param values (design doc 1.2 validation, applied at next start).\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while\n        an install/update/delete job targets this app; 422\n        ``params_invalid`` (with every violation) if a value fails its\n        declared type/min/max/pattern/choices.",
+        "operationId": "put_params_api_v1_apps__name__params_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParamsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Params",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/{name}/source": {
+      "put": {
+        "description": "Change a git-sourced app's pinned ``ref``/``ref_kind``, applied by the next ``update`` (design doc 3.2).\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while\n        an install/update/delete job targets this app; 409\n        ``source_update_git_only`` for a zip-sourced app.",
+        "operationId": "put_source_api_v1_apps__name__source_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Source",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/{name}/start": {
+      "post": {
+        "description": "Run the design doc 3.5 prechecks and start ``name``, changing nothing on any failure.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 for every precheck refusal\n        (``app_busy``, ``app_running``, ``manifest_invalid``,\n        ``env_unbound``, ``params_missing``, ``params_invalid``,\n        ``venv_missing``, ``platform_not_ready``); 503 ``polkit_denied``\n        if systemd itself refuses the ``set-property``/``start`` verb;\n        500 ``start_failed`` (with a ``journal_tail``) for any other\n        error the unit start itself raises.",
+        "operationId": "start_app_endpoint_api_v1_apps__name__start_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start App Endpoint",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/{name}/stop": {
+      "post": {
+        "description": "Stop ``name`` and remove its run directory once ``StopUnit`` completes.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``app_busy`` if another\n        start/stop/autostart already holds ``run.lock``; 503\n        ``polkit_denied`` if systemd refuses the ``stop`` verb.",
+        "operationId": "stop_app_endpoint_api_v1_apps__name__stop_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stop App Endpoint",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/{name}/update": {
+      "post": {
+        "description": "Start re-fetching a git-sourced app at its pinned ref and swapping it in.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``update_in_progress`` /\n        409 ``app_job_in_progress`` / 409 ``platform_not_ready`` / 409\n        ``app_running`` (the app must be stopped first). A failure\n        after the job starts (bad manifest, disk full, sync failure)\n        surfaces on the app's ``last_job``, not here.",
+        "operationId": "update_app_api_v1_apps__name__update_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppJobAcceptedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update App",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/{name}/update/check": {
+      "post": {
+        "description": "Check a git-sourced app for a new commit/tag upstream (design doc 3.2).\n\nA successful branch-pinned check clears\n:attr:`~palmimo_portal.ports.AppRecord.credential_rejected` for every\napp sharing this app's ``host/owner`` credential -- a live ``git\nls-remote`` that succeeds proves the credential is valid again,\nsame as design doc 3.6's PUT-based clearing path.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 502 ``git_check_failed``.",
+        "operationId": "update_check_api_v1_apps__name__update_check_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateCheckResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Check",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
     "/api/v1/auth/change-password": {
       "post": {
         "description": "Change the Portal password, from either an initial or a full session.\n\nThis and ``POST /logout`` are the only authenticated endpoints reachable\nwhile the session's mode is ``\"initial\"`` --\n:func:`~palmimo_portal.api.deps.require_full_session`, applied\neverywhere else, is deliberately not applied here.\n\n- **From an initial session**: no ``current_password`` check --\n  ``auth.json`` is *created* for the first time\n  (:func:`~palmimo_portal.core.auth.change_password_from_initial`, same\n  exclusive-create machinery as ``POST /setup``, so two concurrent\n  requests from two initial sessions cannot both win). The login rate\n  limiter is not touched on this path: an initial session already\n  proved sticker-password knowledge at login, the sticker password\n  crosses the same plain-HTTP LAN hop either way, and this endpoint is\n  the only action an initial session can take -- re-verifying here\n  would only let a stolen initial-mode cookie burn the shared login\n  budget.\n- **From a full session**: ``current_password`` checks against the\n  stored hash and shares :class:`~palmimo_portal.core.auth.LoginRateLimiter`\n  with ``POST /login`` (same instance, budget, lockout) -- a stolen\n  full session cookie must not hand an attacker an unlimited oracle to\n  brute-force the current password; ``auth.json`` is rotated in place\n  (:func:`~palmimo_portal.core.auth.change_password_from_full`).\n\nEither way a fresh full-mode session is issued, so the caller need not\nlog in again -- required for the initial-to-full transition, since\nWi-Fi endpoints are session-gated even while unprovisioned on an\nidentity-carrying device (see\n:func:`~palmimo_portal.api.deps.require_wifi_access`).\n\nRaises:\n    PortalError: 409 ``auth_state_corrupt`` if ``auth.json`` is corrupt,\n        or (initial session only) if the identity file backing the\n        session has since disappeared; 503 ``identity_unavailable`` if\n        the identity file could not be read (initial session only);\n        409 ``auth_change_conflict`` if a concurrent change from\n        another initial session already won the race to create\n        ``auth.json`` (initial session only); 401\n        ``invalid_current_password`` (full session only) if\n        ``current_password`` is missing or wrong -- checked before\n        ``try_attempt()`` when missing, so a malformed request doesn't\n        spend budget; 429 ``auth_rate_limited`` while locked out (full\n        session only); 409 ``auth_not_set`` (full session only) if\n        ``auth.json`` is deleted between the mode check and the verify\n        call running (a race, not reachable from a normal request);\n        409 ``auth_change_in_progress`` (full session only) if a\n        concurrent full-mode change is already holding\n        :meth:`~palmimo_portal.ports.StateStore.lock_auth` past its\n        timeout.",
@@ -754,7 +2855,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ResetResponse"
+                  "$ref": "#/components/schemas/palmimo_portal__api__auth__ResetResponse"
                 }
               }
             },
@@ -806,6 +2907,364 @@
         "summary": "Setup",
         "tags": [
           "auth"
+        ]
+      }
+    },
+    "/api/v1/catalog": {
+      "get": {
+        "description": "Report the official app catalog, refreshing it first if the cached copy is stale.\n\n``stale`` is true whenever the answer is not a fresh (< 1 hour old)\nfetch -- either the last-known-good copy after a failed refresh\n(``reason: \"offline\"``), or nothing has ever been fetched and the\nclock is not yet NTP-synchronized (``reason: \"clock_unsynced\"``, design\ndoc 3.6 -- a fetch attempted before sync would just fail on TLS).",
+        "operationId": "get_catalog_api_v1_catalog_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Catalog",
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/api/v1/git-credentials": {
+      "get": {
+        "description": "List every registered ``host/owner`` credential's metadata. Never returns a token.",
+        "operationId": "list_git_credentials_api_v1_git_credentials_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitCredentialsListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Git Credentials",
+        "tags": [
+          "secrets"
+        ]
+      }
+    },
+    "/api/v1/git-credentials/{host_owner}": {
+      "delete": {
+        "description": "Remove a registered git credential. A no-op if none exists for ``host_owner``.\n\nRaises:\n    PortalError: 422 ``invalid_host_owner`` if ``host_owner`` does not\n        normalize to ``host/owner`` shape.",
+        "operationId": "delete_git_credential_api_v1_git_credentials__host_owner__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host_owner",
+            "required": true,
+            "schema": {
+              "title": "Host Owner",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Git Credential",
+        "tags": [
+          "secrets"
+        ]
+      },
+      "put": {
+        "description": "Register or overwrite a GitHub ``host/owner`` credential token (design doc 4.2). Never returned by any endpoint.\n\n``host_owner`` is normalized (lowercase host, trimmed) before storage --\nsee :func:`~palmimo_portal.core.secrets.normalize_host_owner` -- so\n``GitHub.com/Foo/`` and ``github.com/Foo`` land on the same entry.\n\nAlso clears :attr:`~palmimo_portal.ports.AppRecord.credential_rejected`\non every app scoped to ``host_owner`` -- a rewritten credential must\nresume periodic update checks (design doc 3.6), not stay skipped until\none happens to succeed. Skipped when ``apps.json`` is corrupt: writing\n``clear_credential_rejected``'s result back would replace the corrupt\nfile with a fresh empty ledger, destroying whatever ``POST\n/apps/reset`` was meant to recover instead of the credential save.\n\nRaises:\n    PortalError: 422 ``invalid_host_owner`` if ``host_owner`` does not\n        normalize to ``host/owner`` shape; 422 ``invalid_secret_value``\n        if the token contains a newline.",
+        "operationId": "put_git_credential_api_v1_git_credentials__host_owner__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "host_owner",
+            "required": true,
+            "schema": {
+              "title": "Host Owner",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecretValueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitCredentialRecordInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Git Credential",
+        "tags": [
+          "secrets"
+        ]
+      }
+    },
+    "/api/v1/platform": {
+      "get": {
+        "description": "Report the installed platform bundle's version, readiness, and the latest available release.\n\n``?verify=true`` re-runs ``install.sh verify`` against the cached\nbundle before answering (design doc 2.8); otherwise the last verify\nresult (from startup, the last periodic check, or the last applied\njob) is reused.",
+        "operationId": "get_platform_api_v1_platform_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "verify",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Verify",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Platform",
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/api/v1/platform/check": {
+      "post": {
+        "description": "Bypass the latest-release cache and fetch it now, then report the same payload as ``GET /platform``.\n\nMirrors ``POST /api/v1/update/check``: same auth/gating (the router's\ndependencies), same rate limit (:data:`~palmimo_portal.core.update.CHECK_RATE_LIMIT_SECONDS`),\nand a fetch failure is reported the same way ``GET /platform`` reports\none -- as ``latest_error`` in the body, not an HTTP error.\n\nRaises:\n    PortalError: 429 ``platform_check_rate_limited`` (with\n        ``retry_after_seconds``) if the last successful check was\n        under a minute ago.",
+        "operationId": "check_platform_api_v1_platform_check_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Check Platform",
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/api/v1/platform/update": {
+      "get": {
+        "description": "Report the current (or last finished) platform-bundle update job.",
+        "operationId": "get_update_job_api_v1_platform_update_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformUpdateAcceptedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Update Job",
+        "tags": [
+          "platform"
+        ]
+      },
+      "post": {
+        "description": "Fetch and apply the latest platform bundle release in the background.\n\nRaises:\n    PortalError: 409 ``update_in_progress`` / 409 ``app_job_in_progress``\n        for the two mutual-exclusion directions with a Portal\n        self-update and an app job; 409 ``platform_update_in_progress``\n        if a platform update is already running; 502\n        ``release_source_unavailable`` if the latest release cannot be\n        discovered right now.",
+        "operationId": "start_update_api_v1_platform_update_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformUpdateAcceptedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Start Update",
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/api/v1/secrets": {
+      "get": {
+        "description": "List every registered secret's name and last-update time. Never returns a value.",
+        "operationId": "list_secrets_api_v1_secrets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretsListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Secrets",
+        "tags": [
+          "secrets"
+        ]
+      }
+    },
+    "/api/v1/secrets/{name}": {
+      "delete": {
+        "description": "Delete a registered secret.\n\nRaises:\n    PortalError: 404 ``secret_not_found``; 409 ``secret_in_use`` (with\n        the apps/request-names still bound to it) if a binding\n        references it.",
+        "operationId": "delete_secret_api_v1_secrets__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Secret",
+        "tags": [
+          "secrets"
+        ]
+      },
+      "put": {
+        "description": "Register or overwrite a secret value.\n\nRaises:\n    PortalError: 422 ``invalid_secret_name`` if ``name`` does not match\n        ``^[A-Z][A-Z0-9_]{0,63}$``; 422 ``invalid_secret_value`` if the\n        value contains a newline.",
+        "operationId": "put_secret_api_v1_secrets__name__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecretValueRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SecretRecordInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Secret",
+        "tags": [
+          "secrets"
         ]
       }
     },
@@ -980,7 +3439,7 @@
     },
     "/api/v1/system/status": {
       "get": {
-        "description": "Report provisioning state, hostname, auth state, device id, versions, and the last Wi-Fi attempt.\n\nAlways unauthenticated and always served, even while unprovisioned \u2014\nthis is the one endpoint every client (including the setup flow itself)\npolls to decide what to show.\n\n``auth_state`` is one of ``\"open_setup\"`` (DIY, no identity file --\nlegacy open ``/auth/setup`` available), ``\"initial\"`` (identity file\npresent, no owner yet -- login with the sticker password), ``\"set\"``\n(normal operation), ``\"corrupt\"`` (``auth.json`` exists but cannot be\nread -- login and setup both refuse until an operator deletes it over\nSSH), or ``\"unavailable\"`` (identity file could not be read at all --\na transient error, not clean absence -- so ``/auth/setup`` and\n``/auth/login`` refuse with 503 until it clears) -- see\n:func:`~palmimo_portal.core.identity.compute_auth_state`.\n\n``device_id`` is the number printed on the device's sticker (also its\nhostname suffix) -- public, reported whenever the identity file was\nsuccessfully read, independent of ``auth_state``. ``None`` both when\nthere is no identity file and when the read is currently unavailable.\n\n``adapters`` and ``state_dir`` expose what this process is actually\nrunning as, so a device on fake adapters or the wrong state directory\nis diagnosable from a client request.",
+        "description": "Report provisioning state, hostname, auth state, device id, versions, and the last Wi-Fi attempt.\n\nAlways unauthenticated and always served, even while unprovisioned \u2014\nthis is the one endpoint every client (including the setup flow itself)\npolls to decide what to show.\n\n``auth_state`` is one of ``\"open_setup\"`` (DIY, no identity file --\nlegacy open ``/auth/setup`` available), ``\"initial\"`` (identity file\npresent, no owner yet -- login with the sticker password), ``\"set\"``\n(normal operation), ``\"corrupt\"`` (``auth.json`` exists but cannot be\nread -- login and setup both refuse until an operator deletes it over\nSSH), or ``\"unavailable\"`` (identity file could not be read at all --\na transient error, not clean absence -- so ``/auth/setup`` and\n``/auth/login`` refuse with 503 until it clears) -- see\n:func:`~palmimo_portal.core.identity.compute_auth_state`.\n\n``device_id`` is the number printed on the device's sticker (also its\nhostname suffix) -- public, reported whenever the identity file was\nsuccessfully read, independent of ``auth_state``. ``None`` both when\nthere is no identity file and when the read is currently unavailable.\n\n``adapters`` and ``state_dir`` expose what this process is actually\nrunning as, so a device on fake adapters or the wrong state directory\nis diagnosable from a client request.\n\n``ntp_synchronized`` and ``disk_free_bytes`` back the \"clock not synced\nyet\" / \"disk almost full\" UI warnings (design doc 3.6).",
         "operationId": "get_status_api_v1_system_status_get",
         "responses": {
           "200": {

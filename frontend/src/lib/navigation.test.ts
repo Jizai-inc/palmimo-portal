@@ -4,8 +4,16 @@ import { isPathAllowedForGate } from "@/lib/authGate";
 import { NAV_ITEMS, isActive } from "@/lib/navigation";
 
 describe("NAV_ITEMS", () => {
-  it("includes the dashboard, wifi-settings, ssh-keys, power, and update routes, in that order", () => {
-    expect(NAV_ITEMS.map((item) => item.to)).toEqual(["/dashboard", "/wifi-settings", "/ssh-keys", "/power", "/update"]);
+  it("includes the dashboard, apps, env, wifi-settings, ssh-keys, power, and update routes, in that order", () => {
+    expect(NAV_ITEMS.map((item) => item.to)).toEqual([
+      "/dashboard",
+      "/apps",
+      "/env",
+      "/wifi-settings",
+      "/ssh-keys",
+      "/power",
+      "/update",
+    ]);
   });
 
   // Checks reachability under the dashboard gate directly, not via a raw

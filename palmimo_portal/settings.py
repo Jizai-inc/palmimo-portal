@@ -32,6 +32,15 @@ DEFAULT_PORTAL_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_UPDATE_REPO = "Jizai-inc/palmimo-portal"
 DEFAULT_PORTAL_UNIT = "palmimo-portal.service"
 DEFAULT_UV_BIN = "uv"
+DEFAULT_APPS_DIR = Path("/var/lib/palmimo/apps")
+DEFAULT_SECRETS_DIR = Path("/var/lib/palmimo/secrets")
+DEFAULT_RUN_DIR = Path("/run/palmimo/apps")
+DEFAULT_UV_CACHE_DIR = Path("/var/lib/palmimo/uv-cache")
+DEFAULT_PLATFORM_REPO = "Jizai-inc/palmimo-image"
+DEFAULT_CATALOG_REPO = "Jizai-inc/palmimo-devkit"
+DEFAULT_REQUIRED_PLATFORM_VERSION = 2
+DEFAULT_SUDO_BIN = "sudo"
+DEFAULT_PLATFORM_DIR = Path("/var/lib/palmimo/platform")
 
 AdapterMode = Literal["fake", "real"]
 UpdateChannel = Literal["stable", "prerelease"]
@@ -83,6 +92,42 @@ class Settings:
     #: SystemPort.restart_portal -- long enough for the HTTP response that triggered the
     #: restart to finish flushing before systemd kills this process. Tests set this to 0.
     update_restart_delay_seconds: float = 1.0
+    #: Where installed apps live (design doc 2.1's apps/ tree). Env PALMIMO_APPS_DIR.
+    apps_dir: Path = DEFAULT_APPS_DIR
+    #: Where the secret value store / bindings / git credentials live. Env PALMIMO_SECRETS_DIR.
+    secrets_dir: Path = DEFAULT_SECRETS_DIR
+    #: Where a running app's env/argv.json live (tmpfiles.d, gone on reboot). Env PALMIMO_RUN_DIR.
+    run_dir: Path = DEFAULT_RUN_DIR
+    #: uv's UV_CACHE_DIR for app installs/updates -- distinct from the Portal's own uv cache.
+    #: Env PALMIMO_UV_CACHE_DIR.
+    uv_cache_dir: Path = DEFAULT_UV_CACHE_DIR
+    #: owner/repo GET /platform checks for the realtime platform bundle (design doc 2.8).
+    #: Env PALMIMO_PLATFORM_REPO.
+    platform_repo: str = DEFAULT_PLATFORM_REPO
+    #: owner/repo GET /catalog reads the official app catalog asset from (design doc 4.1).
+    #: Env PALMIMO_CATALOG_REPO.
+    catalog_repo: str = DEFAULT_CATALOG_REPO
+    #: The platform bundle version this Portal build requires (design doc 2.8) -- below this,
+    #: install/start refuse with 409 platform_not_ready. Env PALMIMO_REQUIRED_PLATFORM_VERSION.
+    required_platform_version: int = DEFAULT_REQUIRED_PLATFORM_VERSION
+    #: sudo executable POST /platform/update's install.sh runs through -- the one place in the
+    #: Portal that calls sudo (design doc 2.8). Env PALMIMO_SUDO_BIN.
+    sudo_bin: str = DEFAULT_SUDO_BIN
+    #: Where installed.json lives and where a fetched platform bundle is staged/cached for verify
+    #: (design doc 2.8's /var/lib/palmimo/platform/). Env PALMIMO_PLATFORM_DIR.
+    platform_dir: Path = DEFAULT_PLATFORM_DIR
+    #: Whether AppsJobRunner runs an install/update/delete job on a background thread (the real
+    #: default) or inline before the triggering request returns. A test seam, not read from the
+    #: environment -- mirrors update_run_in_thread.
+    apps_run_in_thread: bool = True
+    #: Whether startup finalize starts an `autostart: true` app (design doc 2.5). A test seam,
+    #: not read from the environment -- default True so a real device always attempts it.
+    autostart_enabled: bool = True
+    #: Whether the periodic scheduler (git update checks, catalog/platform-latest refresh --
+    #: design doc 3.2/3.6) runs its background thread. A test seam, not read from the
+    #: environment -- default True so a real device always runs it; tests set it False and
+    #: drive `PeriodicScheduler.tick()` directly instead of racing a real thread.
+    periodic_enabled: bool = True
 
 
 _TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
@@ -121,6 +166,23 @@ def get_settings() -> Settings:
     update_channel: UpdateChannel = update_channel_raw  # type: ignore[assignment]
     portal_unit = os.environ.get("PALMIMO_PORTAL_UNIT", DEFAULT_PORTAL_UNIT)
     uv_bin = os.environ.get("PALMIMO_UV_BIN", DEFAULT_UV_BIN)
+    apps_dir = Path(os.environ.get("PALMIMO_APPS_DIR", str(DEFAULT_APPS_DIR)))
+    secrets_dir = Path(os.environ.get("PALMIMO_SECRETS_DIR", str(DEFAULT_SECRETS_DIR)))
+    run_dir = Path(os.environ.get("PALMIMO_RUN_DIR", str(DEFAULT_RUN_DIR)))
+    uv_cache_dir = Path(os.environ.get("PALMIMO_UV_CACHE_DIR", str(DEFAULT_UV_CACHE_DIR)))
+    platform_repo = os.environ.get("PALMIMO_PLATFORM_REPO", DEFAULT_PLATFORM_REPO)
+    catalog_repo = os.environ.get("PALMIMO_CATALOG_REPO", DEFAULT_CATALOG_REPO)
+    required_platform_version_raw = os.environ.get(
+        "PALMIMO_REQUIRED_PLATFORM_VERSION", str(DEFAULT_REQUIRED_PLATFORM_VERSION)
+    )
+    try:
+        required_platform_version = int(required_platform_version_raw)
+    except ValueError as error:
+        raise ValueError(
+            f"PALMIMO_REQUIRED_PLATFORM_VERSION must be an integer, got {required_platform_version_raw!r}"
+        ) from error
+    sudo_bin = os.environ.get("PALMIMO_SUDO_BIN", DEFAULT_SUDO_BIN)
+    platform_dir = Path(os.environ.get("PALMIMO_PLATFORM_DIR", str(DEFAULT_PLATFORM_DIR)))
     return Settings(
         state_dir=state_dir,
         port=port,
@@ -133,4 +195,13 @@ def get_settings() -> Settings:
         update_channel=update_channel,
         portal_unit=portal_unit,
         uv_bin=uv_bin,
+        apps_dir=apps_dir,
+        secrets_dir=secrets_dir,
+        run_dir=run_dir,
+        uv_cache_dir=uv_cache_dir,
+        platform_repo=platform_repo,
+        catalog_repo=catalog_repo,
+        required_platform_version=required_platform_version,
+        sudo_bin=sudo_bin,
+        platform_dir=platform_dir,
     )

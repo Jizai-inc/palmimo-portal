@@ -46,6 +46,18 @@ def _default_opener(request: urllib.request.Request, timeout: float) -> Any:
     return urllib.request.urlopen(request, timeout=timeout)
 
 
+def _is_rate_limited(error: urllib.error.HTTPError) -> bool:
+    """GitHub signals API rate limiting as 429, or 403 with ``X-RateLimit-Remaining: 0``.
+
+    A plain 403 (no such header, or a nonzero remaining count) is a
+    permissions/auth problem, not rate limiting -- reported as the generic
+    ``release_source_unavailable`` instead.
+    """
+    if error.code == 429:
+        return True
+    return error.code == 403 and error.headers is not None and error.headers.get("X-RateLimit-Remaining") == "0"
+
+
 def _release_from_payload(payload: Any) -> Release:
     try:
         return Release(
@@ -91,6 +103,11 @@ class GitHubReleaseSource(ReleaseSource):
         except urllib.error.HTTPError as error:
             if error.code == 404:
                 raise ReleaseSourceError("no_release", f"no releases found for {self.repo}") from error
+            if _is_rate_limited(error):
+                reset = error.headers.get("X-RateLimit-Reset") if error.headers is not None else None
+                if reset is not None:
+                    logger.warning("github: rate limited for %s, resets at epoch=%s", self.repo, reset)
+                raise ReleaseSourceError("rate_limited", f"GitHub API rate limit exceeded for {self.repo}") from error
             raise ReleaseSourceError(
                 "release_source_unavailable", f"GitHub API returned HTTP {error.code} for {self.repo}"
             ) from error

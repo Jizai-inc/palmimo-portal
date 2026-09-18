@@ -1,6 +1,6 @@
 [project]
 name = "palmimo-portal"
-version = "0.1.6"
+version = "0.2.0"
 description = "Palmimo Portal — the device-hosted setup and dashboard web app"
 license = "Apache-2.0"
 requires-python = ">=3.12"
@@ -9,6 +9,7 @@ dependencies = [
     "dbus-fast>=5.0.22",
     "fastapi>=0.141.1",
     "itsdangerous>=2.2.0",
+    "python-multipart>=0.0.32",
     "uvicorn[standard]>=0.52.0",
 ]
 
@@ -37,9 +38,10 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-addopts = "--import-mode=importlib"
+addopts = "--import-mode=importlib -m \"not integration\""
 markers = [
     "live: requires a real comitup D-Bus service on the system bus; skipped unless --live is passed (see tests/conftest.py)",
+    "integration: shells out to a real uv and takes tens of seconds; excluded from the default run -- pass -m integration to run it",
 ]
 testpaths = ["tests"]
 

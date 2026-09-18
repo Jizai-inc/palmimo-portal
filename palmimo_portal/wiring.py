@@ -170,6 +170,7 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         platform_releases=GitHubReleaseSource(repo=settings.platform_repo, channel=settings.update_channel),
         clock=SystemClockPort(),
         catalog=GitHubCatalogSource(
-            catalog_repo=settings.catalog_repo, release_source=GitHubReleaseSource(repo=settings.catalog_repo, channel=settings.update_channel)
+            catalog_repo=settings.catalog_repo,
+            release_source=GitHubReleaseSource(repo=settings.catalog_repo, channel=settings.update_channel),
         ),
     )

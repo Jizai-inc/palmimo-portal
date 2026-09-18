@@ -86,12 +86,14 @@ describe("AddAppPanel", () => {
 
     await waitFor(() =>
       expect(installedBody).toEqual({
-        type: "git",
-        url: "https://github.com/Jizai-inc/palmimo-devkit",
-        ref: "v1.0.0",
-        ref_kind: "tag",
-        subdir: "examples/teleop",
-        manifest: "palmimo.realtime.toml",
+        source: {
+          type: "git",
+          url: "https://github.com/Jizai-inc/palmimo-devkit",
+          ref: "v1.0.0",
+          ref_kind: "tag",
+          subdir: "examples/teleop",
+          manifest: "palmimo.realtime.toml",
+        },
       }),
     );
     await waitFor(() => expect(onInstalled).toHaveBeenCalledWith("palmimo-teleop"));

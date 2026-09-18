@@ -1005,6 +1005,7 @@ class FakeAdapterBundle:
     secrets: FakeSecretsStore
     git: FakeGitPort
     uv: FakeUvPort
+    sync_unit: FakeSyncUnitPort
     disk: FakeDiskPort
     app_unit: FakeAppUnitPort
     run_dir: FakeRunDirPort

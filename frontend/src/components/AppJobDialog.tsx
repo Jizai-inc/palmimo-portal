@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
 
 import { useGetJobApiV1AppsJobsJobIdGet } from "@/api/generated/apps/apps";
+import { PortalApiError } from "@/api/client";
 import type { AppJobInfo } from "@/api/generated/models";
 import {
   AlertDialog,
@@ -37,12 +38,17 @@ export function AppJobDialog({
   onDone: (job: AppJobInfo) => void;
 }) {
   const { t } = useTranslation();
-  const { data: job } = useGetJobApiV1AppsJobsJobIdGet(jobId ?? "", {
+  const { data: job, error } = useGetJobApiV1AppsJobsJobIdGet(jobId ?? "", {
     query: {
       enabled: jobId !== null,
-      refetchInterval: (query) => (query.state.data?.state === "running" ? JOB_POLL_INTERVAL_MS : false),
+      // A job unknown to the Portal (404) is terminal, the same as "failed" -- without also
+      // checking query status here, react-query keeps the last-seen "running" data around on a
+      // fetch error, and this callback (which only ever sees `query.state.data`) would poll it forever.
+      refetchInterval: (query) =>
+        query.state.status !== "error" && query.state.data?.state === "running" ? JOB_POLL_INTERVAL_MS : false,
     },
   });
+  const jobUnknown = error instanceof PortalApiError && error.code === "job_not_found";
 
   // Fires once per job reaching "done" (keyed on the job's own id, not just `state`, so a
   // second job reusing this same dialog instance fires again).
@@ -59,7 +65,11 @@ export function AppJobDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
         </AlertDialogHeader>
-        {job?.state === "failed" ? (
+        {jobUnknown ? (
+          <Alert variant="destructive">
+            <AlertDescription>{t("apps.jobUnknown")}</AlertDescription>
+          </Alert>
+        ) : job?.state === "failed" ? (
           <Alert variant="destructive">
             <AlertDescription>
               {job.step ? `${appJobStepLabel(t, job.step)}: ` : ""}

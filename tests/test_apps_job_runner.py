@@ -132,6 +132,48 @@ def test_install_over_existing_name_raises_before_spawning_a_thread(ctx: AppsJob
         runner.start_install(prepared_again)
 
 
+def test_start_install_keeps_the_failed_job_as_an_orphan_when_sync_fails(ctx: AppsJobContext) -> None:
+    # A fresh install's name is never in `apps` when sync fails, so
+    # `_fail_current_job` has no record to attach the failure to -- without the
+    # orphan slot the failed job would be dropped from state on this same write.
+    cast(FakeSyncUnitPort, ctx.sync_unit).default_status = UnitStatus(
+        active_state="failed", sub_state="failed", result="exit-code", exec_main_status=1
+    )
+    state_store = FakeStateStore()
+    runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
+    prepared = prepare_install_zip(ctx, _zip_bytes())
+
+    job = runner.start_install(prepared)
+
+    assert job.state == "failed"
+    state = state_store.read_apps_state()
+    assert state.current_job is None
+    assert "palmimo-teleop" not in state.apps
+    assert state.last_orphan_job is not None
+    assert state.last_orphan_job.id == job.id
+    assert state.last_orphan_job_app == "palmimo-teleop"
+
+
+def test_a_later_successful_install_clears_a_previous_orphan_job(ctx: AppsJobContext) -> None:
+    cast(FakeSyncUnitPort, ctx.sync_unit).default_status = UnitStatus(
+        active_state="failed", sub_state="failed", result="exit-code", exec_main_status=1
+    )
+    state_store = FakeStateStore()
+    runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
+    runner.start_install(prepare_install_zip(ctx, _zip_bytes("palmimo-teleop")))
+    assert state_store.read_apps_state().last_orphan_job is not None
+
+    cast(FakeSyncUnitPort, ctx.sync_unit).default_status = UnitStatus(
+        active_state="inactive", sub_state="dead", result="success", exec_main_status=0
+    )
+    runner.start_install(prepare_install_zip(ctx, _zip_bytes("palmimo-other")))
+
+    state = state_store.read_apps_state()
+    assert state.last_orphan_job is None
+    assert state.last_orphan_job_app is None
+    assert "palmimo-other" in state.apps
+
+
 def test_finalize_after_simulated_crash_mid_install_marks_interrupted_and_omits_the_app(ctx: AppsJobContext) -> None:
     # Simulate a process death right after `current_job`/`current_job_app` were persisted,
     # before commit_install ever ran -- the app must never appear half-installed.

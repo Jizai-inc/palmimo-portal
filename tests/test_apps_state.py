@@ -132,6 +132,17 @@ def test_read_apps_state_treats_a_ledger_entry_without_a_manifest_key_as_the_def
     state = store.read_apps_state()
 
     assert state.apps["palmimo-teleop"].source.manifest is None
+    assert state.last_orphan_job is None
+
+
+def test_write_then_read_apps_state_round_trips_the_orphan_job(tmp_path: Path) -> None:
+    store = JsonFileStateStore(tmp_path / "state")
+    job = AppJob(id="j1", kind="install", state="failed", step="sync", error="boom", started_at=1.0, finished_at=2.0)
+    state = AppsState(last_orphan_job=job, last_orphan_job_app="palmimo-teleop")
+
+    store.write_apps_state(state)
+
+    assert store.read_apps_state() == state
 
 
 def test_clear_credential_rejected_unmarks_only_apps_scoped_to_host_owner() -> None:

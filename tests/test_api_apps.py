@@ -15,7 +15,7 @@ from starlette.testclient import TestClient
 from palmimo_portal.api.apps import _read_upload_bounded
 from palmimo_portal.api.errors import PortalError
 from palmimo_portal.core.periodic import run_git_check_sweep
-from palmimo_portal.ports import AppJob, AppRecord, AppSource, AppsState, UpdateJob, UpdateState
+from palmimo_portal.ports import AppJob, AppRecord, AppSource, AppsState, UnitStatus, UpdateJob, UpdateState
 from palmimo_portal.settings import Settings
 from palmimo_portal.testing.fakes import FakeAdapterBundle
 
@@ -524,6 +524,28 @@ def test_get_job_returns_404_for_unknown_id(client: TestClient, adapters: FakeAd
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "job_not_found"
+
+
+def test_get_job_returns_the_failed_job_when_a_new_apps_dependency_sync_fails(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    # A fresh install has no app record yet (the manifest name is only added to the ledger on
+    # success), so the failed job has nowhere to attach -- without an orphan slot it would vanish
+    # from state entirely and this same GET would 404 even right after the failure.
+    client = _authenticated_client(client, adapters)
+    adapters.sync_unit.default_status = UnitStatus(
+        active_state="failed", sub_state="failed", result="exit-code", exec_main_status=2
+    )
+
+    install_response = _install_zip(client)
+    job_id = install_response.json()["job"]["id"]
+
+    response = client.get(f"/api/v1/apps/jobs/{job_id}")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["state"] == "failed"
+    assert "exec_main_status=2" in body["error"]
 
 
 def test_get_job_reports_the_target_app_and_kind_for_an_install(

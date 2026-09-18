@@ -843,7 +843,21 @@ class JsonFileStateStore(StateStore):
         )
         current_job_app = data.get("current_job_app")
         _require_optional_type(current_job_app, str, "apps.json current_job_app")
-        return AppsState(apps=apps, current_job=current_job, current_job_app=current_job_app)
+        last_orphan_job_data = data.get("last_orphan_job")
+        last_orphan_job = (
+            cls._parse_app_job(last_orphan_job_data, field_prefix="apps.json last_orphan_job")
+            if last_orphan_job_data is not None
+            else None
+        )
+        last_orphan_job_app = data.get("last_orphan_job_app")
+        _require_optional_type(last_orphan_job_app, str, "apps.json last_orphan_job_app")
+        return AppsState(
+            apps=apps,
+            current_job=current_job,
+            current_job_app=current_job_app,
+            last_orphan_job=last_orphan_job,
+            last_orphan_job_app=last_orphan_job_app,
+        )
 
     def read_apps_state(self) -> AppsState:
         if not self._apps_state_path.is_file():
@@ -883,6 +897,8 @@ class JsonFileStateStore(StateStore):
             },
             "current_job": self._dump_app_job(state.current_job) if state.current_job is not None else None,
             "current_job_app": state.current_job_app,
+            "last_orphan_job": self._dump_app_job(state.last_orphan_job) if state.last_orphan_job is not None else None,
+            "last_orphan_job_app": state.last_orphan_job_app,
         }
         try:
             atomic_write_text(self._apps_state_path, json.dumps(payload))

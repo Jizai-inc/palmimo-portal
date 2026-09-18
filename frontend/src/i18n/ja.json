@@ -377,6 +377,7 @@
     "platformActionDisabledTooltip": "先に実機の基盤を更新してください",
     "jobDialogTitle": "{{name}}",
     "jobDialogCloseNote": "このダイアログを閉じてもジョブはキャンセルされません（実行は継続します）。",
+    "jobUnknown": "このジョブは Portal に記録されていません",
     "jobStepFetch": "取得中",
     "jobStepExtract": "展開中",
     "jobStepValidate": "検証中",

@@ -861,11 +861,20 @@ class AppsState:
     ``current_job`` names the one app-job the ``apps.lock`` is guarding, if any --
     distinct from each :class:`AppRecord`'s own ``last_job``, which is that app's
     most recently *finished* (or interrupted) job, kept after ``current_job`` clears.
+
+    ``last_orphan_job``/``last_orphan_job_app`` hold the most recent finished job that has
+    no :class:`AppRecord` to live on as a ``last_job`` -- a fresh install's name is only
+    added to ``apps`` on success, so a failure before that has nowhere else to persist and
+    would otherwise vanish once ``current_job`` clears, leaving ``GET /apps/jobs/{id}``
+    404 for a job the caller was just told about. Cleared whenever a job of any kind
+    finishes and does attach to a record, and when a new job starts.
     """
 
     apps: dict[str, AppRecord] = field(default_factory=dict)
     current_job: AppJob | None = None
     current_job_app: str | None = None
+    last_orphan_job: AppJob | None = None
+    last_orphan_job_app: str | None = None
 
 
 class AppExistsError(Exception):

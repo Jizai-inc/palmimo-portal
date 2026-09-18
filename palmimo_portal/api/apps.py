@@ -782,6 +782,8 @@ def get_job(job_id: str, state_store: StateStore = Depends(get_state_store)) -> 
     for record in state.apps.values():
         if record.last_job is not None and record.last_job.id == job_id:
             return _job_info(record.last_job, record.name)
+    if state.last_orphan_job is not None and state.last_orphan_job.id == job_id:
+        return _job_info(state.last_orphan_job, state.last_orphan_job_app)
     raise PortalError(404, "job_not_found")
 
 

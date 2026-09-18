@@ -167,7 +167,7 @@ class AppsJobRunner:
                         last_step,
                         mask_authorization_lines(str(error)),
                     )
-                    failed = self._fail_current_job(error, finished_at=time.time())
+                    failed = self._fail_current_job(error, finished_at=time.time(), attach_to=name)
                     result["job"] = failed
             finally:
                 self._safe_cleanup(prepared)
@@ -304,7 +304,17 @@ class AppsJobRunner:
                     # that fails midway must leave a visible, retryable app, not
                     # a silent hole in the ledger.
                     final_apps[name] = replace(original_record, last_job=failed)
-                self._state.write_apps_state(AppsState(apps=final_apps, current_job=None, current_job_app=None))
+                    self._state.write_apps_state(AppsState(apps=final_apps, current_job=None, current_job_app=None))
+                else:
+                    self._state.write_apps_state(
+                        AppsState(
+                            apps=final_apps,
+                            current_job=None,
+                            current_job_app=None,
+                            last_orphan_job=failed,
+                            last_orphan_job_app=name,
+                        )
+                    )
                 result["job"] = failed
             finally:
                 lock_cm.__exit__(None, None, None)
@@ -347,6 +357,13 @@ class AppsJobRunner:
             )
 
     def _fail_current_job(self, error: Exception, *, finished_at: float, attach_to: str | None = None) -> AppJob:
+        """Persist ``current_job`` as failed, attached to ``attach_to``'s record when it has one.
+
+        A fresh install's name is never in ``apps`` yet, so ``attach_to`` names an app with
+        no record to write ``last_job`` onto -- the failure is kept as ``last_orphan_job``
+        instead (see :class:`~palmimo_portal.ports.AppsState`), or the caller's ``GET
+        /apps/jobs/{id}`` for this job would 404 the moment this write lands.
+        """
         current = self._state.read_apps_state()
         job = current.current_job
         assert job is not None
@@ -354,7 +371,17 @@ class AppsJobRunner:
         apps = dict(current.apps)
         if attach_to is not None and attach_to in apps:
             apps[attach_to] = replace(apps[attach_to], last_job=failed)
-        self._state.write_apps_state(AppsState(apps=apps, current_job=None, current_job_app=None))
+            self._state.write_apps_state(AppsState(apps=apps, current_job=None, current_job_app=None))
+        else:
+            self._state.write_apps_state(
+                AppsState(
+                    apps=apps,
+                    current_job=None,
+                    current_job_app=None,
+                    last_orphan_job=failed,
+                    last_orphan_job_app=attach_to,
+                )
+            )
         return failed
 
     def _safe_cleanup(self, prepared: PreparedInstall) -> None:

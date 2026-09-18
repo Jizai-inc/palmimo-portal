@@ -377,6 +377,7 @@
     "platformActionDisabledTooltip": "Update the device platform first",
     "jobDialogTitle": "{{name}}",
     "jobDialogCloseNote": "Closing this dialog does not cancel the job — it keeps running.",
+    "jobUnknown": "This job is no longer known to the Portal",
     "jobStepFetch": "Fetching",
     "jobStepExtract": "Extracting",
     "jobStepValidate": "Validating",

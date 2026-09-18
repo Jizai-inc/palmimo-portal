@@ -140,6 +140,29 @@ def get_platform(
     return _status_response(request, state_store, force_verify=verify)
 
 
+@router.post("/check")
+def check_platform(request: Request, state_store: StateStore = Depends(get_state_store)) -> PlatformStatusResponse:
+    """Bypass the latest-release cache and fetch it now, then report the same payload as ``GET /platform``.
+
+    Mirrors ``POST /api/v1/update/check``: same auth/gating (the router's
+    dependencies), same rate limit (:data:`~palmimo_portal.core.update.CHECK_RATE_LIMIT_SECONDS`),
+    and a fetch failure is reported the same way ``GET /platform`` reports
+    one -- as ``latest_error`` in the body, not an HTTP error.
+
+    Raises:
+        PortalError: 429 ``platform_check_rate_limited`` (with
+            ``retry_after_seconds``) if the last successful check was
+            under a minute ago.
+    """
+    cache = request.app.state.platform_latest_cache
+    ntp_synchronized = request.app.state.adapters.clock.ntp_synchronized()
+    try:
+        cache.check_now(ntp_synchronized=ntp_synchronized)
+    except platform_core.PlatformCheckRateLimitedError as error:
+        raise PortalError(429, "platform_check_rate_limited", retry_after_seconds=error.retry_after_seconds) from error
+    return _status_response(request, state_store, force_verify=False)
+
+
 @router.post("/update", status_code=202)
 def start_update(
     request: Request, state_store: StateStore = Depends(get_state_store)

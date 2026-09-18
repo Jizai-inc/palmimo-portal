@@ -3090,6 +3090,28 @@
         ]
       }
     },
+    "/api/v1/platform/check": {
+      "post": {
+        "description": "Bypass the latest-release cache and fetch it now, then report the same payload as ``GET /platform``.\n\nMirrors ``POST /api/v1/update/check``: same auth/gating (the router's\ndependencies), same rate limit (:data:`~palmimo_portal.core.update.CHECK_RATE_LIMIT_SECONDS`),\nand a fetch failure is reported the same way ``GET /platform`` reports\none -- as ``latest_error`` in the body, not an HTTP error.\n\nRaises:\n    PortalError: 429 ``platform_check_rate_limited`` (with\n        ``retry_after_seconds``) if the last successful check was\n        under a minute ago.",
+        "operationId": "check_platform_api_v1_platform_check_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Check Platform",
+        "tags": [
+          "platform"
+        ]
+      }
+    },
     "/api/v1/platform/update": {
       "get": {
         "description": "Report the current (or last finished) platform-bundle update job.",

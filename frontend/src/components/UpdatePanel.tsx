@@ -305,7 +305,10 @@ export function UpdatePanel({
             rollbackError={rollback.error}
           />
         ) : null}
-        <PlatformUpdateCard installedPortalVersion={status.installed.tag ?? undefined} />
+        <PlatformUpdateCard
+          installedPortalVersion={status.installed.tag ?? undefined}
+          portalUpdateRunning={job?.state === "running" || job?.state === "restarting"}
+        />
       </div>
     </div>
   );

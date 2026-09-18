@@ -2,11 +2,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 
 import {
+  useCheckPlatformApiV1PlatformCheckPost,
   getGetPlatformApiV1PlatformGetQueryKey,
   useGetPlatformApiV1PlatformGet,
   useGetUpdateJobApiV1PlatformUpdateGet,
   useStartUpdateApiV1PlatformUpdatePost,
 } from "@/api/generated/platform/platform";
+import type { PlatformStatusResponse } from "@/api/generated/models";
 
 /** How often to re-poll `GET /platform/update` while a bundle apply is running (design doc 2.8). */
 const PLATFORM_JOB_POLL_INTERVAL_MS = 2_000;
@@ -35,6 +37,15 @@ export function usePlatformUpdate() {
       },
     },
   });
+  // Writes straight into the `GET /platform` query's cache, same as UpdatePanel's `adoptStatus`,
+  // so the card reflects a bypassed-cache fetch immediately rather than waiting on a refetch.
+  const checkNow = useCheckPlatformApiV1PlatformCheckPost({
+    mutation: {
+      onSuccess: (data: PlatformStatusResponse) => {
+        queryClient.setQueryData(getGetPlatformApiV1PlatformGetQueryKey(), data);
+      },
+    },
+  });
 
   const job = jobData?.job ?? null;
   // Stop polling once the job settles; re-fetch `GET /platform` so `ready`/`installed_version`
@@ -54,5 +65,8 @@ export function usePlatformUpdate() {
     startUpdate: () => startUpdate.mutate(),
     starting: startUpdate.isPending,
     startError: startUpdate.error,
+    checkNow: () => checkNow.mutate(undefined, { onError: () => undefined }),
+    checking: checkNow.isPending,
+    checkError: checkNow.error,
   };
 }

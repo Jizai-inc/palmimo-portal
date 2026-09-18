@@ -11,7 +11,7 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-from palmimo_portal.ports import PlatformJob, PlatformUpdateState, Release, UpdateJob, UpdateState
+from palmimo_portal.ports import PlatformJob, PlatformUpdateState, Release, ReleaseSourceError, UpdateJob, UpdateState
 from palmimo_portal.settings import Settings
 from palmimo_portal.testing.fakes import FakeAdapterBundle
 
@@ -106,7 +106,7 @@ def test_get_platform_reports_ready_when_installed_meets_the_required_version(
     assert response.status_code == 200
     body = response.json()
     assert body["ready"] is True
-    assert body["installed_version"] == 1  # FakePlatformPort's default
+    assert body["installed_version"] == 2  # FakePlatformPort's default
 
 
 def test_get_platform_reports_not_ready_when_no_bundle_is_installed(
@@ -136,6 +136,35 @@ def test_get_platform_reports_clock_unsynced_latest_error_without_fetching(
     assert body["latest"] is None
     assert body["latest_error"] == "clock_unsynced"
     assert adapters.platform_releases.fetch_calls == 0
+
+
+def test_post_platform_check_is_rate_limited_within_a_minute_of_the_last_check(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    client = _authenticated_client(client, adapters)
+    _set_available_release(adapters)
+    first = client.post("/api/v1/platform/check", headers=CSRF_HEADERS)
+    assert first.status_code == 200
+
+    response = client.post("/api/v1/platform/check", headers=CSRF_HEADERS)
+
+    assert response.status_code == 429
+    assert response.json()["error"]["code"] == "platform_check_rate_limited"
+    assert response.json()["error"]["params"]["retry_after_seconds"] > 0
+
+
+def test_post_platform_check_maps_a_fetch_failure_the_same_way_get_does(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    client = _authenticated_client(client, adapters)
+    adapters.platform_releases.raise_on_fetch = ReleaseSourceError("release_source_unavailable", "DNS failure")
+
+    get_response = client.get("/api/v1/platform")
+    check_response = client.post("/api/v1/platform/check", headers=CSRF_HEADERS)
+
+    assert check_response.status_code == 200
+    assert check_response.json()["latest"] is None
+    assert check_response.json()["latest_error"] == get_response.json()["latest_error"]
 
 
 def test_post_platform_update_runs_the_full_pipeline_and_flips_readiness(

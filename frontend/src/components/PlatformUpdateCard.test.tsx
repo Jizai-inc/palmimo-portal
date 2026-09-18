@@ -68,4 +68,28 @@ describe("PlatformUpdateCard", () => {
 
     await waitFor(() => expect(started).toBe(true));
   });
+
+  it("checks now and shows the freshly returned latest version", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/v1/platform", () =>
+        HttpResponse.json({
+          ...BASE_PLATFORM,
+          latest: { version: 2, tag: "v2", summary: "adds camera support", requires_portal: "0.1.0", restart_portal: false, reflash_required: false },
+        }),
+      ),
+      http.post("*/api/v1/platform/check", () =>
+        HttpResponse.json({
+          ...BASE_PLATFORM,
+          latest: { version: 3, tag: "v3", summary: "adds a device class", requires_portal: "0.1.0", restart_portal: false, reflash_required: false },
+        }),
+      ),
+    );
+    renderWithProviders(<PlatformUpdateCard installedPortalVersion="0.1.0" />);
+    await screen.findByText("2 (v2)");
+
+    await user.click(await screen.findByRole("button", { name: "Check now" }));
+
+    expect(await screen.findByText("3 (v3)")).toBeInTheDocument();
+  });
 });

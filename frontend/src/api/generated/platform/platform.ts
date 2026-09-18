@@ -163,7 +163,88 @@ export function useGetPlatformApiV1PlatformGet<TData = Awaited<ReturnType<typeof
 
 
 
-export const getGetUpdateJobApiV1PlatformUpdateGetUrl = () => {
+export const getCheckPlatformApiV1PlatformCheckPostUrl = () => {
+
+
+
+
+  return `/api/v1/platform/check`
+}
+
+/**
+ * Bypass the latest-release cache and fetch it now, then report the same payload as ``GET /platform``.
+ *
+ * Mirrors ``POST /api/v1/update/check``: same auth/gating (the router's
+ * dependencies), same rate limit (:data:`~palmimo_portal.core.update.CHECK_RATE_LIMIT_SECONDS`),
+ * and a fetch failure is reported the same way ``GET /platform`` reports
+ * one -- as ``latest_error`` in the body, not an HTTP error.
+ *
+ * Raises:
+ *     PortalError: 429 ``platform_check_rate_limited`` (with
+ *         ``retry_after_seconds``) if the last successful check was
+ *         under a minute ago.
+ * @summary Check Platform
+ */
+export const checkPlatformApiV1PlatformCheckPost = async ( options?: RequestInit): Promise<PlatformStatusResponse> => {
+
+  return customFetch<PlatformStatusResponse>(getCheckPlatformApiV1PlatformCheckPostUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getCheckPlatformApiV1PlatformCheckPostMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof checkPlatformApiV1PlatformCheckPost>>, TError,void, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof checkPlatformApiV1PlatformCheckPost>>, TError,void, TContext> => {
+
+const mutationKey = ['checkPlatformApiV1PlatformCheckPost'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof checkPlatformApiV1PlatformCheckPost>>, void> = () => {
+
+
+          return  checkPlatformApiV1PlatformCheckPost()
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CheckPlatformApiV1PlatformCheckPostMutationResult = NonNullable<Awaited<ReturnType<typeof checkPlatformApiV1PlatformCheckPost>>>
+
+    export type CheckPlatformApiV1PlatformCheckPostMutationError = unknown
+
+    /**
+ * @summary Check Platform
+ */
+export const useCheckPlatformApiV1PlatformCheckPost = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof checkPlatformApiV1PlatformCheckPost>>, TError,void, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof checkPlatformApiV1PlatformCheckPost>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getCheckPlatformApiV1PlatformCheckPostMutationOptions(options), queryClient);
+    }
+    export const getGetUpdateJobApiV1PlatformUpdateGetUrl = () => {
 
 
 

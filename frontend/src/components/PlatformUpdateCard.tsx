@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 
+import { PortalApiError } from "@/api/client";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -9,14 +10,27 @@ import { isVersionAtLeast } from "@/lib/compareVersions";
 import { formatUtcTimestamp } from "@/lib/formatTimestamp";
 import { usePlatformUpdate } from "@/lib/usePlatformUpdate";
 
+/** A 429 rate limit is not actionable, so it stays silent, matching UpdatePanel's own check button. */
+function isSilentRateLimit(error: unknown): boolean {
+  return error instanceof PortalApiError && error.status === 429;
+}
+
 /**
  * The update screen's "device platform" row (design doc 2.8/3.7): installed vs. latest bundle
  * version, a verify-diff warning, and the same update job the apps-tab banner triggers (shared
  * via `usePlatformUpdate`).
  */
-export function PlatformUpdateCard({ installedPortalVersion }: { installedPortalVersion?: string }) {
+export function PlatformUpdateCard({
+  installedPortalVersion,
+  portalUpdateRunning = false,
+}: {
+  installedPortalVersion?: string;
+  /** Disables "Check now" while a Portal self-update job is running, mirroring the platform job's own gate. */
+  portalUpdateRunning?: boolean;
+}) {
   const { t } = useTranslation();
-  const { platform, platformError, job, startUpdate, starting, startError } = usePlatformUpdate();
+  const { platform, platformError, job, startUpdate, starting, startError, checkNow, checking, checkError } =
+    usePlatformUpdate();
 
   if (!platform) {
     return <ApiErrorAlert error={platformError} />;
@@ -44,7 +58,19 @@ export function PlatformUpdateCard({ installedPortalVersion }: { installedPortal
         {platform.latest ? (
           <div className="flex items-center justify-between gap-2">
             <dt className="text-muted-foreground">{t("update.platformLatestVersionLabel")}</dt>
-            <dd className="font-medium">{platform.latest.version} ({platform.latest.tag})</dd>
+            <dd className="flex items-center gap-2 font-medium">
+              <span>
+                {platform.latest.version} ({platform.latest.tag})
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={checkNow}
+                disabled={checking || starting || job?.state === "running" || portalUpdateRunning}
+              >
+                {t("update.platformCheckNowButton")}
+              </Button>
+            </dd>
           </div>
         ) : null}
         {platform.latest?.summary ? (
@@ -78,6 +104,7 @@ export function PlatformUpdateCard({ installedPortalVersion }: { installedPortal
       ) : null}
 
       <ApiErrorAlert error={startError} />
+      <ApiErrorAlert error={isSilentRateLimit(checkError) ? undefined : checkError} />
 
       {platform.latest?.reflash_required ? (
         <Alert>

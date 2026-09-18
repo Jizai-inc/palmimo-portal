@@ -38,7 +38,7 @@ DEFAULT_RUN_DIR = Path("/run/palmimo/apps")
 DEFAULT_UV_CACHE_DIR = Path("/var/lib/palmimo/uv-cache")
 DEFAULT_PLATFORM_REPO = "Jizai-inc/palmimo-image"
 DEFAULT_CATALOG_REPO = "Jizai-inc/palmimo-devkit"
-DEFAULT_REQUIRED_PLATFORM_VERSION = 1
+DEFAULT_REQUIRED_PLATFORM_VERSION = 2
 DEFAULT_SUDO_BIN = "sudo"
 DEFAULT_PLATFORM_DIR = Path("/var/lib/palmimo/platform")
 

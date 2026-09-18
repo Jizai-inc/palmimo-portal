@@ -463,3 +463,18 @@ class TestLatestCache:
         clock[0] = 301.0  # past the backoff window
         cache.get(ntp_synchronized=True)
         assert release_source.fetch_calls == 2
+
+    def test_check_now_bypasses_the_ttl_and_returns_fresh_data_when_the_cache_is_stale(self, tmp_path: Path) -> None:
+        release_source = FakeReleaseSource(latest=_LATEST_RELEASE)
+        bundle_source = FakePlatformBundleSource(manifest_asset=dict(READY_MANIFEST, version=3))
+        clock = [0.0]
+        cache = PlatformLatestCache(release_source, bundle_source, FakeStateStore(), tmp_path, now=lambda: clock[0])
+        cache.get(ntp_synchronized=True)  # warm the cache, inside the 1h TTL
+
+        clock[0] = 120.0  # past the 60s check rate limit, well inside the 1h TTL
+        bundle_source.manifest_asset = dict(READY_MANIFEST, version=4)  # a new release was published between calls
+        stale_manifest, _tag, _error = cache.get(ntp_synchronized=True)
+        fresh_manifest, _tag, _error = cache.check_now(ntp_synchronized=True)
+
+        assert stale_manifest is not None and stale_manifest.version == 3
+        assert fresh_manifest is not None and fresh_manifest.version == 4

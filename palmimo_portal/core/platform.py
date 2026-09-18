@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from palmimo_portal.core.platform_update import advance, mark_done, mark_failed, start_update
+from palmimo_portal.core.update import CHECK_RATE_LIMIT_SECONDS
 from palmimo_portal.ports import (
     AdapterUnavailableError,
     PlatformBundleFetchError,
@@ -196,6 +197,17 @@ def run_verify(platform_port: PlatformPort, platform_dir: Path) -> list[Platform
 LATEST_BACKOFF_SECONDS = 300.0
 
 
+class PlatformCheckRateLimitedError(Exception):
+    """Raised by :meth:`PlatformLatestCache.check_now` when the last successful forced check
+    was under :data:`~palmimo_portal.core.update.CHECK_RATE_LIMIT_SECONDS` ago -- the same
+    cadence ``POST /api/v1/update/check`` enforces for a Portal self-update check.
+    """
+
+    def __init__(self, retry_after_seconds: float) -> None:
+        self.retry_after_seconds = retry_after_seconds
+        super().__init__(f"retry after {retry_after_seconds:.0f}s")
+
+
 class PlatformLatestCache:
     """In-process, TTL'd cache of the latest platform release's manifest (design doc 2.8).
 
@@ -237,6 +249,25 @@ class PlatformLatestCache:
             return self._manifest, self._tag, self._error
         self._refresh(ntp_synchronized=ntp_synchronized)
         return self._manifest, self._tag, self._error
+
+    def check_now(self, *, ntp_synchronized: bool) -> tuple[PlatformManifest | None, str | None, str | None]:
+        """Bypass the TTL and fetch the latest release now, for a user-initiated "check now".
+
+        Rate-limited against ``_fetched_at`` the same way
+        :func:`~palmimo_portal.core.update.start_check` rate-limits against
+        ``UpdateState.checked_at``: only a *successful* fetch resets the
+        window, so a failed attempt (network error, rate limit) never
+        blocks an immediate retry.
+
+        Raises:
+            PlatformCheckRateLimitedError: the last successful fetch was under
+                :data:`~palmimo_portal.core.update.CHECK_RATE_LIMIT_SECONDS` ago.
+        """
+        if self._fetched_at is not None:
+            elapsed = self._now() - self._fetched_at
+            if 0 <= elapsed < CHECK_RATE_LIMIT_SECONDS:
+                raise PlatformCheckRateLimitedError(CHECK_RATE_LIMIT_SECONDS - elapsed)
+        return self.get(ntp_synchronized=ntp_synchronized, force=True)
 
     def _recently_attempted(self) -> bool:
         if self._fetched_at is not None and self._now() - self._fetched_at < self._ttl_seconds:

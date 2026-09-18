@@ -272,6 +272,7 @@
     "platformLatestVersionLabel": "最新バージョン",
     "platformSummaryLabel": "概要",
     "platformUpdateButton": "更新",
+    "platformCheckNowButton": "今すぐ確認",
     "platformReflashRequired": "この更新には SD カードの再書き込みが必要で、そのままでは適用できません。",
     "platformPortalTooOld": "実機の基盤を更新する前に、Portal 自体を先に更新してください。",
     "platformVerifyDiffBanner": "実機の基盤が記録上のバージョンからずれています。再適用して修正してください。"
@@ -321,6 +322,7 @@
     "not_provisioned": "先に Palmimo を Wi-Fi に接続してください。",
     "params_invalid": "パラメータの値が無効です。",
     "params_missing": "このアプリに必要なパラメータがまだ設定されていません。",
+    "platform_check_rate_limited": "更新の確認は先ほど行いました。{{retry_after_seconds}} 秒後に再試行してください。",
     "platform_not_ready": "このアプリを起動する前に、デバイスのソフトウェア基盤の更新が必要です。",
     "platform_state_corrupt": "アプリ台帳が壊れていて読み込めません。サポートにリセットを依頼してください。",
     "platform_update_in_progress": "ソフトウェア基盤の更新が既に進行中です。",

@@ -272,6 +272,7 @@
     "platformLatestVersionLabel": "Latest version",
     "platformSummaryLabel": "Summary",
     "platformUpdateButton": "Update",
+    "platformCheckNowButton": "Check now",
     "platformReflashRequired": "This update requires reflashing the SD card; it cannot be applied in place.",
     "platformPortalTooOld": "Update the Portal itself before updating the device platform.",
     "platformVerifyDiffBanner": "The device platform has drifted from its recorded version. Reapply the update to fix it."
@@ -321,6 +322,7 @@
     "not_provisioned": "Finish connecting Palmimo to Wi-Fi first.",
     "params_invalid": "One or more parameter values are invalid.",
     "params_missing": "This app needs parameter values that have not been set yet.",
+    "platform_check_rate_limited": "You just checked for updates. Try again in {{retry_after_seconds}} seconds.",
     "platform_not_ready": "This device's software platform needs an update before this app can start.",
     "platform_state_corrupt": "The app ledger is corrupt and could not be read. Contact support to reset it.",
     "platform_update_in_progress": "A software platform update is already in progress.",

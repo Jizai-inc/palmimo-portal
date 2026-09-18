@@ -24,6 +24,8 @@ import type {
 
 export const getGetPlatformApiV1PlatformGetResponseMock = (overrideResponse: Partial<Extract<PlatformStatusResponse, object>> = {}): PlatformStatusResponse => ({installed_at: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), installed_version: faker.helpers.arrayElement([faker.number.int(),null,]), latest: faker.helpers.arrayElement([{reflash_required: faker.datatype.boolean(), requires_portal: faker.string.alpha({length: {min: 10, max: 20}}), restart_portal: faker.datatype.boolean(), summary: faker.string.alpha({length: {min: 10, max: 20}}), tag: faker.string.alpha({length: {min: 10, max: 20}}), version: faker.number.int()},null,]), latest_error: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), ready: faker.datatype.boolean(), reason: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), required_version: faker.number.int(), verify_diffs: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({actual: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), expected: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), kind: faker.string.alpha({length: {min: 10, max: 20}}), path: faker.string.alpha({length: {min: 10, max: 20}})})), ...overrideResponse})
 
+export const getCheckPlatformApiV1PlatformCheckPostResponseMock = (overrideResponse: Partial<Extract<PlatformStatusResponse, object>> = {}): PlatformStatusResponse => ({installed_at: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), installed_version: faker.helpers.arrayElement([faker.number.int(),null,]), latest: faker.helpers.arrayElement([{reflash_required: faker.datatype.boolean(), requires_portal: faker.string.alpha({length: {min: 10, max: 20}}), restart_portal: faker.datatype.boolean(), summary: faker.string.alpha({length: {min: 10, max: 20}}), tag: faker.string.alpha({length: {min: 10, max: 20}}), version: faker.number.int()},null,]), latest_error: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), ready: faker.datatype.boolean(), reason: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), required_version: faker.number.int(), verify_diffs: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({actual: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), expected: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), kind: faker.string.alpha({length: {min: 10, max: 20}}), path: faker.string.alpha({length: {min: 10, max: 20}})})), ...overrideResponse})
+
 export const getGetUpdateJobApiV1PlatformUpdateGetResponseMock = (overrideResponse: Partial<Extract<PlatformUpdateAcceptedResponse, object>> = {}): PlatformUpdateAcceptedResponse => ({job: {error: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), finished_at: faker.helpers.arrayElement([faker.number.float({fractionDigits: 2}),null,]), started_at: faker.helpers.arrayElement([faker.number.float({fractionDigits: 2}),null,]), state: faker.string.alpha({length: {min: 10, max: 20}}), step: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), target_version: faker.helpers.arrayElement([faker.number.int(),null,])}, ...overrideResponse})
 
 export const getStartUpdateApiV1PlatformUpdatePostResponseMock = (overrideResponse: Partial<Extract<PlatformUpdateAcceptedResponse, object>> = {}): PlatformUpdateAcceptedResponse => ({job: {error: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), finished_at: faker.helpers.arrayElement([faker.number.float({fractionDigits: 2}),null,]), started_at: faker.helpers.arrayElement([faker.number.float({fractionDigits: 2}),null,]), state: faker.string.alpha({length: {min: 10, max: 20}}), step: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), target_version: faker.helpers.arrayElement([faker.number.int(),null,])}, ...overrideResponse})
@@ -36,6 +38,18 @@ export const getGetPlatformApiV1PlatformGetMockHandler = (overrideResponse?: Pla
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getGetPlatformApiV1PlatformGetResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getCheckPlatformApiV1PlatformCheckPostMockHandler = (overrideResponse?: PlatformStatusResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PlatformStatusResponse> | PlatformStatusResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/platform/check', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getCheckPlatformApiV1PlatformCheckPostResponseMock(),
       { status: 200
       })
   }, options)
@@ -66,6 +80,7 @@ export const getStartUpdateApiV1PlatformUpdatePostMockHandler = (overrideRespons
 }
 export const getPlatformMock = () => [
   getGetPlatformApiV1PlatformGetMockHandler(),
+  getCheckPlatformApiV1PlatformCheckPostMockHandler(),
   getGetUpdateJobApiV1PlatformUpdateGetMockHandler(),
   getStartUpdateApiV1PlatformUpdatePostMockHandler()
 ]

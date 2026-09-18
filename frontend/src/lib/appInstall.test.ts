@@ -38,7 +38,9 @@ describe("installApp/previewApp", () => {
       manifest: "palmimo.realtime.toml",
     });
 
-    expect(body).toMatchObject({ manifest: "palmimo.realtime.toml" });
+    expect(body).toEqual({
+      source: { type: "git", url: "https://example.com/repo", ref: "main", ref_kind: "branch", manifest: "palmimo.realtime.toml" },
+    });
   });
 
   it("omits manifest from the JSON body when not given", async () => {
@@ -52,7 +54,7 @@ describe("installApp/previewApp", () => {
 
     await previewApp({ type: "git", url: "https://example.com/repo", ref: "main", ref_kind: "branch" });
 
-    expect(body).not.toHaveProperty("manifest");
+    expect((body as { source: object }).source).not.toHaveProperty("manifest");
   });
 
   it("appends manifest to the zip upload's form data when given", async () => {

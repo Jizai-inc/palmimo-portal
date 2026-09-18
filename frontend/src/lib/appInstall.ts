@@ -33,7 +33,9 @@ function toRequestInit(source: InstallSource): RequestInit {
   return {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ type, url, ref, ref_kind, ...(subdir ? { subdir } : {}), ...(manifest ? { manifest } : {}) }),
+    body: JSON.stringify({
+      source: { type, url, ref, ref_kind, ...(subdir ? { subdir } : {}), ...(manifest ? { manifest } : {}) },
+    }),
   };
 }
 

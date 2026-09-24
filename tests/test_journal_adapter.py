@@ -92,6 +92,68 @@ def test_read_includes_pid1s_own_line_about_the_unit_when_filtering_by_invocatio
     assert all(entry.invocation_id == invocation_id for entry in page.entries)
 
 
+def _matches_group(record: dict[str, str], group: list[str]) -> bool:
+    return all(record.get(term.partition("=")[0]) == term.partition("=")[2] for term in group)
+
+
+def test_read_excludes_another_units_line_with_the_same_invocation_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A 128-bit invocation id is unique in practice, but the match expression must not rely on
+    # that alone -- this fake genuinely applies the AND-within-group/OR-across-`+`-groups
+    # semantics of the args `read()` builds, over fixture lines from two different units that
+    # happen to share one invocation id, so a regression that drops the unit fields would leak
+    # the other unit's lines into this result.
+    invocation_id = "c" * 32
+    unit = "palmimo-app@teleop.service"
+    other_unit = "palmimo-app@other.service"
+    records = [
+        {
+            "MESSAGE": "our line",
+            "_SYSTEMD_UNIT": unit,
+            "_SYSTEMD_INVOCATION_ID": invocation_id,
+            "__REALTIME_TIMESTAMP": "1",
+        },
+        {
+            "MESSAGE": "other app's own line",
+            "_SYSTEMD_UNIT": other_unit,
+            "_SYSTEMD_INVOCATION_ID": invocation_id,
+            "__REALTIME_TIMESTAMP": "2",
+        },
+        {
+            "MESSAGE": "our pid1 line",
+            "_PID": "1",
+            "UNIT": unit,
+            "INVOCATION_ID": invocation_id,
+            "__REALTIME_TIMESTAMP": "3",
+        },
+        {
+            "MESSAGE": "other unit's pid1 line",
+            "_PID": "1",
+            "UNIT": other_unit,
+            "INVOCATION_ID": invocation_id,
+            "__REALTIME_TIMESTAMP": "4",
+        },
+    ]
+
+    def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if any(arg.startswith("--output-fields=") for arg in args):
+            return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+        match_args = [arg for arg in args if arg == "+" or "=" in arg]
+        groups: list[list[str]] = [[]]
+        for arg in match_args:
+            if arg == "+":
+                groups.append([])
+            else:
+                groups[-1].append(arg)
+        lines = [json.dumps(record) for record in records if any(_matches_group(record, group) for group in groups)]
+        return subprocess.CompletedProcess(args, 0, stdout="\n".join(lines), stderr="")
+
+    monkeypatch.setattr("palmimo_portal.adapters.journal.subprocess.run", fake_run)
+
+    page = JournalctlPort().read(unit, cursor=None, lines=10, invocation=invocation_id)
+
+    assert [entry.message for entry in page.entries] == ["our line", "our pid1 line"]
+
+
 def test_list_invocations_includes_a_run_with_only_pid1s_line(monkeypatch: pytest.MonkeyPatch) -> None:
     # A run that has just started has produced no output of its own yet -- only PID1's own
     # "Started …" line (INVOCATION_ID, no _SYSTEMD_INVOCATION_ID) exists for it.

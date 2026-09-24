@@ -38,11 +38,21 @@ class JournalctlPort(JournalPort):
         args = ["journalctl", "-o", "json", "--no-pager", "-n", str(lines)]
         if invocation is not None:
             # PID1's own lines about this unit ("Started …", "Main process exited …") carry
-            # INVOCATION_ID, not _SYSTEMD_INVOCATION_ID (that field is only set on lines the
-            # unit's own process logged) -- `-u <unit>` ANDs with what follows, which would drop
-            # PID1's lines here, so filter on the invocation id alone (128-bit, already unique)
-            # with `+` (journalctl's OR) instead of also scoping by unit.
-            args += [f"_SYSTEMD_INVOCATION_ID={invocation}", "+", f"INVOCATION_ID={invocation}"]
+            # _PID=1, UNIT=<unit>, and INVOCATION_ID -- never _SYSTEMD_INVOCATION_ID (only the
+            # unit's own process sets that field) and never _SYSTEMD_UNIT (that identifies PID1's
+            # own unit, init.scope, not the unit it is logging about). Two AND-groups joined by
+            # `+` (journalctl's OR), one per line shape, each still scoped to this unit -- an
+            # invocation id alone is unique, but not scoping by unit would let a request for one
+            # app's invocation id read another unit's journal if that id ever collided or was
+            # guessed.
+            args += [
+                f"_SYSTEMD_UNIT={unit}",
+                f"_SYSTEMD_INVOCATION_ID={invocation}",
+                "+",
+                "_PID=1",
+                f"UNIT={unit}",
+                f"INVOCATION_ID={invocation}",
+            ]
         else:
             args += ["-u", unit]
         if cursor is not None:

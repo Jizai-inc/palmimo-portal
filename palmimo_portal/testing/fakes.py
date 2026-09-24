@@ -491,7 +491,7 @@ class FakeUpdater(Updater):
 class FakePlatformPort(PlatformPort):
     """Scriptable :class:`PlatformPort`. Records every call so a test can assert none happened.
 
-    Reports platform version 2 installed and clean by default -- matches
+    Reports platform version 9 installed and clean by default -- matches
     ``Settings.required_platform_version``'s own default, so every
     pre-existing test that never mentions the platform channel (app
     install/start, autostart, ...) keeps seeing ``platform_ready`` as
@@ -500,7 +500,7 @@ class FakePlatformPort(PlatformPort):
 
     installed: PlatformInstalled | None = field(
         default_factory=lambda: PlatformInstalled(
-            version=2, installed_at="2026-01-01T00:00:00Z", bundle_sha256="0" * 64
+            version=9, installed_at="2026-01-01T00:00:00Z", bundle_sha256="0" * 64
         )
     )
     verify_diffs: list[PlatformVerifyDiff] = field(default_factory=list)

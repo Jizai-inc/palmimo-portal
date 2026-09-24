@@ -12,14 +12,14 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from palmimo_portal.ports import PlatformJob, PlatformUpdateState, Release, ReleaseSourceError, UpdateJob, UpdateState
-from palmimo_portal.settings import Settings
+from palmimo_portal.settings import DEFAULT_REQUIRED_PLATFORM_VERSION, Settings
 from palmimo_portal.testing.fakes import FakeAdapterBundle
 
 
 CSRF_HEADERS = {"X-Requested-With": "PalmimoPortal"}
 
 READY_MANIFEST = {
-    "version": 2,
+    "version": DEFAULT_REQUIRED_PLATFORM_VERSION,
     "requires_portal": "0.0.0",
     "restart_portal": False,
     "summary": "adds a device class",
@@ -106,7 +106,7 @@ def test_get_platform_reports_ready_when_installed_meets_the_required_version(
     assert response.status_code == 200
     body = response.json()
     assert body["ready"] is True
-    assert body["installed_version"] == 2  # FakePlatformPort's default
+    assert body["installed_version"] == DEFAULT_REQUIRED_PLATFORM_VERSION  # FakePlatformPort's default
 
 
 def test_get_platform_reports_not_ready_when_no_bundle_is_installed(
@@ -172,7 +172,7 @@ def test_post_platform_update_runs_the_full_pipeline_and_flips_readiness(
 ) -> None:
     client = _authenticated_client(client, adapters)
     adapters.platform.installed = None
-    adapters.platform.next_version = 2
+    adapters.platform.next_version = DEFAULT_REQUIRED_PLATFORM_VERSION
     _set_available_release(adapters)
 
     response = client.post("/api/v1/platform/update", headers=CSRF_HEADERS)
@@ -181,7 +181,7 @@ def test_post_platform_update_runs_the_full_pipeline_and_flips_readiness(
     assert response.json()["job"]["state"] == "done"
     status = client.get("/api/v1/platform").json()
     assert status["ready"] is True
-    assert status["installed_version"] == 2
+    assert status["installed_version"] == DEFAULT_REQUIRED_PLATFORM_VERSION
 
 
 def test_platform_readiness_gates_app_install_and_start(client: TestClient, adapters: FakeAdapterBundle) -> None:

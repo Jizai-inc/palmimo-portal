@@ -5,7 +5,7 @@
 recent non-prerelease, non-draft release", so this adapter never filters a
 release list itself for that channel. A tag prefix or ``channel == "prerelease"`` (the
 dev-machine opt-in -- see ``PALMIMO_UPDATE_CHANNEL`` in ``settings.py``)
-instead lists the 10 most recent releases and picks the first non-draft
+instead lists the 100 most recent releases and picks the first non-draft
 one, prereleases included, so a published rc is discoverable without
 disturbing ``releases/latest`` for every other device. Uses ``urllib``
 (stdlib), not ``httpx``/``requests``: one occasional request doesn't need
@@ -30,9 +30,11 @@ logger = logging.getLogger("palmimo_portal")
 
 DEFAULT_TIMEOUT_SECONDS = 10.0
 
-#: How many of the most recent releases the list-based selection fetches.
+#: How many of the most recent releases the list-based selection fetches: the
+#: API maximum, because a tag prefix must see past a run of other releases
+#: (devkit interleaves SDK releases and rcs with the examples releases).
 #: GitHub orders this endpoint by created date descending.
-PRERELEASE_LIST_PAGE_SIZE = 10
+PRERELEASE_LIST_PAGE_SIZE = 100
 
 #: What :attr:`GitHubReleaseSource.opener` is called with: a fully-built
 #: :class:`urllib.request.Request` and the timeout in seconds. Must return a

@@ -260,7 +260,7 @@ def test_fetch_latest_on_the_prerelease_channel_uses_the_release_list_url() -> N
     source.fetch_latest()
 
     request = captured["request"]
-    assert request.full_url == "https://api.github.com/repos/Jizai-inc/palmimo-portal/releases?per_page=10"
+    assert request.full_url == "https://api.github.com/repos/Jizai-inc/palmimo-portal/releases?per_page=100"
 
 
 def test_fetch_latest_on_the_prerelease_channel_raises_no_release_when_only_drafts_exist() -> None:

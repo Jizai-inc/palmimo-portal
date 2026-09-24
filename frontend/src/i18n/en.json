@@ -306,6 +306,7 @@
     "invalid_credentials": "Incorrect password.",
     "invalid_current_password": "Incorrect current password.",
     "invalid_host_owner": "That is not a valid host/owner (e.g. github.com/your-org).",
+    "invalid_invocation": "That start is not valid anymore.",
     "invalid_key_format": "That does not look like a valid public key.",
     "invalid_release_tag": "That is not a valid version to update to.",
     "invalid_secret_name": "Secret names must be uppercase letters, digits, and underscores, starting with a letter.",

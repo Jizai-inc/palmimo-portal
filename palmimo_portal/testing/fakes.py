@@ -976,8 +976,10 @@ class FakeJournalPort(JournalPort):
         for entry in all_entries:
             if entry.invocation_id is not None:
                 invocations.setdefault(entry.invocation_id, entry.timestamp)
+        # Newest-appearance-first, matching JournalctlPort._list_invocations -- see its
+        # docstring for why appearance order, not started_at, is the sort key.
         starts = [JournalInvocation(id=id, started_at=started_at) for id, started_at in invocations.items()]
-        starts.sort(key=lambda start: (start.started_at is not None, start.started_at or 0), reverse=True)
+        starts.reverse()
         return JournalPage(entries=page, next_cursor=next_cursor, invocations=starts[:20])
 
     def can_read(self) -> bool:

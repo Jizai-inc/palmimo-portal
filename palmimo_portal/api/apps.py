@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import socket
 import tempfile
@@ -376,6 +377,10 @@ class LogsResponse(BaseModel):
     next_cursor: str | None = None
     invocations: list[JournalInvocationInfo] = []
     unavailable: Literal["journal_permission"] | None = None
+
+
+#: A systemd invocation id is a 128-bit UUID rendered as 32 lowercase hex digits.
+_INVOCATION_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 
 
 def _ensure_not_corrupt(state_store: StateStore) -> None:
@@ -1120,11 +1125,16 @@ def get_logs(
     read the journal at all (design doc 3.6). Every entry's ``message`` is
     masked the same way ``GET /apps/{name}/diagnostics`` is -- an app can
     print a registered secret or git credential to its own journal.
+
+    PortalError: 400 ``invalid_invocation`` if ``invocation`` is not a
+    32-hex-digit systemd invocation id; 404 ``app_not_found``.
     """
     _ensure_not_corrupt(state_store)
     state = state_store.read_apps_state()
     if name not in state.apps:
         raise PortalError(404, "app_not_found")
+    if invocation is not None and not _INVOCATION_ID_PATTERN.fullmatch(invocation):
+        raise PortalError(400, "invalid_invocation")
     if not journal.can_read():
         return LogsResponse(unavailable="journal_permission")
     page = journal.read(app_unit_name(name), cursor=cursor, lines=lines, invocation=invocation)

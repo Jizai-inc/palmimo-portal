@@ -904,6 +904,10 @@ def test_logs_pages_with_a_cursor(client: TestClient, adapters: FakeAdapterBundl
     assert [entry["message"] for entry in second.json()["entries"]] == ["line 2", "line 3"]
 
 
+_INV_1 = "1" * 32
+_INV_2 = "2" * 32
+
+
 def test_logs_filters_by_invocation(client: TestClient, adapters: FakeAdapterBundle) -> None:
     from palmimo_portal.ports import JournalEntry
 
@@ -911,17 +915,29 @@ def test_logs_filters_by_invocation(client: TestClient, adapters: FakeAdapterBun
     _install_zip(client)
     unit = "palmimo-app@palmimo-teleop.service"
     adapters.journal.entries_by_unit[unit] = [
-        JournalEntry(message="old", timestamp=1.0, invocation_id="inv-1"),
-        JournalEntry(message="new", timestamp=2.0, invocation_id="inv-2"),
+        JournalEntry(message="old", timestamp=1.0, invocation_id=_INV_1),
+        JournalEntry(message="new", timestamp=2.0, invocation_id=_INV_2),
     ]
 
-    response = client.get("/api/v1/apps/palmimo-teleop/logs", params={"invocation": "inv-2"})
+    response = client.get("/api/v1/apps/palmimo-teleop/logs", params={"invocation": _INV_2})
 
     assert [entry["message"] for entry in response.json()["entries"]] == ["new"]
     assert response.json()["invocations"] == [
-        {"id": "inv-2", "started_at": 2.0},
-        {"id": "inv-1", "started_at": 1.0},
+        {"id": _INV_2, "started_at": 2.0},
+        {"id": _INV_1, "started_at": 1.0},
     ]
+
+
+def test_logs_rejects_a_malformed_invocation_id(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    # journal.py builds a journalctl match expression directly from this value -- a shape check
+    # here is the only guard against a hand-crafted, non-invocation-id string reaching it.
+    client = _authenticated_client(client, adapters)
+    _install_zip(client)
+
+    response = client.get("/api/v1/apps/palmimo-teleop/logs", params={"invocation": "not-an-invocation-id"})
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "invalid_invocation"
 
 
 def test_logs_lists_a_previous_invocation_once_the_current_run_exceeds_the_page(
@@ -933,8 +949,8 @@ def test_logs_lists_a_previous_invocation_once_the_current_run_exceeds_the_page(
     _install_zip(client)
     unit = "palmimo-app@palmimo-teleop.service"
     adapters.journal.entries_by_unit[unit] = [
-        JournalEntry(message="old", timestamp=1.0, invocation_id="inv-1"),
-        *(JournalEntry(message=f"new-{i}", timestamp=float(i + 2), invocation_id="inv-2") for i in range(5)),
+        JournalEntry(message="old", timestamp=1.0, invocation_id=_INV_1),
+        *(JournalEntry(message=f"new-{i}", timestamp=float(i + 2), invocation_id=_INV_2) for i in range(5)),
     ]
 
     # A page starting past the old run's one entry returns only current-run lines --
@@ -943,6 +959,6 @@ def test_logs_lists_a_previous_invocation_once_the_current_run_exceeds_the_page(
 
     assert [entry["message"] for entry in response.json()["entries"]] == ["new-0", "new-1", "new-2"]
     assert response.json()["invocations"] == [
-        {"id": "inv-2", "started_at": 2.0},
-        {"id": "inv-1", "started_at": 1.0},
+        {"id": _INV_2, "started_at": 2.0},
+        {"id": _INV_1, "started_at": 1.0},
     ]

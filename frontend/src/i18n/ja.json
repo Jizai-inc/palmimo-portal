@@ -306,6 +306,7 @@
     "invalid_credentials": "パスワードが正しくありません。",
     "invalid_current_password": "現在のパスワードが正しくありません。",
     "invalid_host_owner": "host/owner の形式が正しくありません（例: github.com/your-org）。",
+    "invalid_invocation": "その起動はもう有効ではありません。",
     "invalid_key_format": "有効な公開鍵の形式ではないようです。",
     "invalid_release_tag": "更新先として有効なバージョンではありません。",
     "invalid_secret_name": "シークレット名は大文字・数字・アンダースコアのみで、先頭は大文字にしてください。",

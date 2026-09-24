@@ -2402,7 +2402,7 @@
     },
     "/api/v1/apps/{name}/logs": {
       "get": {
-        "description": "Return up to ``lines`` journal entries for ``name``'s unit, cursor-paginated (design doc 3.2/3.8).\n\n``invocations`` lists every distinct systemd invocation id seen, so the\nUI can offer \"view a previous start\". Answers ``{\"unavailable\":\n\"journal_permission\"}`` rather than an error when this process cannot\nread the journal at all (design doc 3.6). Every entry's ``message`` is\nmasked the same way ``GET /apps/{name}/diagnostics`` is -- an app can\nprint a registered secret or git credential to its own journal.",
+        "description": "Return up to ``lines`` journal entries for ``name``'s unit, cursor-paginated (design doc 3.2/3.8).\n\n``invocations`` lists every distinct systemd invocation id seen, so the\nUI can offer \"view a previous start\". Answers ``{\"unavailable\":\n\"journal_permission\"}`` rather than an error when this process cannot\nread the journal at all (design doc 3.6). Every entry's ``message`` is\nmasked the same way ``GET /apps/{name}/diagnostics`` is -- an app can\nprint a registered secret or git credential to its own journal.\n\nPortalError: 400 ``invalid_invocation`` if ``invocation`` is not a\n32-hex-digit systemd invocation id; 404 ``app_not_found``.",
         "operationId": "get_logs_api_v1_apps__name__logs_get",
         "parameters": [
           {

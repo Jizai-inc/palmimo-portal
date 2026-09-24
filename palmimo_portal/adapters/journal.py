@@ -35,11 +35,18 @@ class JournalctlPort(JournalPort):
         return journal_gid in os.getgroups()
 
     def read(self, unit: str, *, cursor: str | None, lines: int, invocation: str | None = None) -> JournalPage:
-        args = ["journalctl", "-u", unit, "-o", "json", "--no-pager", "-n", str(lines)]
+        args = ["journalctl", "-o", "json", "--no-pager", "-n", str(lines)]
+        if invocation is not None:
+            # PID1's own lines about this unit ("Started …", "Main process exited …") carry
+            # INVOCATION_ID, not _SYSTEMD_INVOCATION_ID (that field is only set on lines the
+            # unit's own process logged) -- `-u <unit>` ANDs with what follows, which would drop
+            # PID1's lines here, so filter on the invocation id alone (128-bit, already unique)
+            # with `+` (journalctl's OR) instead of also scoping by unit.
+            args += [f"_SYSTEMD_INVOCATION_ID={invocation}", "+", f"INVOCATION_ID={invocation}"]
+        else:
+            args += ["-u", unit]
         if cursor is not None:
             args += ["--after-cursor", cursor]
-        if invocation is not None:
-            args += [f"_SYSTEMD_INVOCATION_ID={invocation}"]
         try:
             result = subprocess.run(args, capture_output=True, text=True, timeout=_READ_TIMEOUT_SECONDS, check=False)
         except (OSError, subprocess.TimeoutExpired) as error:
@@ -54,7 +61,7 @@ class JournalctlPort(JournalPort):
             except json.JSONDecodeError:
                 continue
             timestamp_us = record.get("__REALTIME_TIMESTAMP")
-            invocation_id = record.get("_SYSTEMD_INVOCATION_ID")
+            invocation_id = record.get("_SYSTEMD_INVOCATION_ID") or record.get("INVOCATION_ID")
             entries.append(
                 JournalEntry(
                     message=str(record.get("MESSAGE", "")),
@@ -74,6 +81,10 @@ class JournalctlPort(JournalPort):
         :meth:`read`'s own ``-n lines`` tail only ever sees the *current* run once it has produced
         more than ``lines`` entries, which would otherwise make an earlier run permanently
         unreachable from "view a previous start" once the current one grows past the page size.
+
+        Ordered by appearance in the journal stream, not by ``started_at``: a Pi with no RTC can
+        report a wall-clock time for a fresh boot that sorts before an earlier run's real time,
+        which would otherwise put that run in the wrong place (or hide it) until NTP catches up.
         """
         args = [
             "journalctl",
@@ -83,7 +94,7 @@ class JournalctlPort(JournalPort):
             "json",
             "--no-pager",
             "-q",
-            "--output-fields=_SYSTEMD_INVOCATION_ID,__REALTIME_TIMESTAMP",
+            "--output-fields=_SYSTEMD_INVOCATION_ID,INVOCATION_ID,__REALTIME_TIMESTAMP",
         ]
         try:
             result = subprocess.run(args, capture_output=True, text=True, timeout=_READ_TIMEOUT_SECONDS, check=False)
@@ -96,10 +107,13 @@ class JournalctlPort(JournalPort):
                 record = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            invocation_id = record.get("_SYSTEMD_INVOCATION_ID")
+            # PID1's "Started <unit>" line (INVOCATION_ID) is the first line of a run and lands
+            # before the unit's own process has logged anything (_SYSTEMD_INVOCATION_ID) -- a run
+            # with no output of its own yet would otherwise be invisible here.
+            invocation_id = record.get("_SYSTEMD_INVOCATION_ID") or record.get("INVOCATION_ID")
             if invocation_id is not None and invocation_id not in invocations:
                 timestamp_us = record.get("__REALTIME_TIMESTAMP")
                 invocations[invocation_id] = (float(timestamp_us) / 1_000_000) if timestamp_us is not None else None
         starts = [JournalInvocation(id=id, started_at=started_at) for id, started_at in invocations.items()]
-        starts.sort(key=lambda start: (start.started_at is not None, start.started_at or 0), reverse=True)
+        starts.reverse()
         return starts[:_INVOCATION_LIST_LIMIT]

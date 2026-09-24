@@ -970,6 +970,9 @@ export const getGetLogsApiV1AppsNameLogsGetUrl = (name: string,
  * read the journal at all (design doc 3.6). Every entry's ``message`` is
  * masked the same way ``GET /apps/{name}/diagnostics`` is -- an app can
  * print a registered secret or git credential to its own journal.
+ *
+ * PortalError: 400 ``invalid_invocation`` if ``invocation`` is not a
+ * 32-hex-digit systemd invocation id; 404 ``app_not_found``.
  * @summary Get Logs
  */
 export const getLogsApiV1AppsNameLogsGet = async (name: string,

@@ -7,6 +7,7 @@
     "unexpectedErrorBody": "Reconnecting to the robot… if you just submitted Wi-Fi settings, rejoin your home network and reopen this page."
   },
   "common": {
+    "breadcrumb": "Breadcrumb",
     "loading": "Loading…",
     "retry": "Retry",
     "back": "Back",
@@ -386,7 +387,8 @@
     "jobStepSync": "Syncing dependencies",
     "jobStepSwap": "Installing",
     "jobStepRegister": "Registering",
-    "jobClose": "Close"
+    "jobClose": "Close",
+    "jobCompleted": "Completed"
   },
   "appAdd": {
     "title": "Add app",
@@ -462,8 +464,10 @@
     "dangerZoneTitle": "Danger zone",
     "deleteAppButton": "Delete this app",
     "deleteDialogTitle": "Delete {{name}}?",
-    "deleteDialogBody": "This removes the app, its parameters, and its environment variable bindings. Registered secrets themselves are not deleted.",
-    "deleteDialogConfirm": "Delete",
+    "deleteDialogBody": "This permanently deletes the app, its parameters, and its environment variable bindings. Registered secrets are not deleted.",
+    "deleteDialogConfirm": "Delete app",
+    "deleteProgressTitle": "Deleting {{name}}…",
+    "deleteCompleted": "{{name}} was deleted.",
     "brokenReasonTitle": "This app is broken",
     "logsPageSubtitleCurrentLive": "Current run. Updates every 2 seconds.",
     "logsPageSubtitleCurrent": "Current run.",

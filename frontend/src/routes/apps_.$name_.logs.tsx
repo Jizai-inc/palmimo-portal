@@ -1,4 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 
 import { AppLogsPanel } from "@/components/AppLogsPanel";
 import { AppShell } from "@/components/AppShell";
@@ -15,8 +16,9 @@ export const Route = createFileRoute("/apps_/$name_/logs")({
 
 function AppLogsScreen() {
   const { name } = Route.useParams();
+  const { t } = useTranslation();
   return (
-    <AppShell title={name}>
+    <AppShell title={name} breadcrumbs={[<Link key="apps" to="/apps">{t("apps.title")}</Link>, <Link key="app" to="/apps/$name" params={{ name }}>{name}</Link>, <span key="logs">{t("appDetail.logsTitle")}</span>]}>
       <AppLogsPanel name={name} />
     </AppShell>
   );

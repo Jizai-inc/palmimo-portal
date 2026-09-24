@@ -1,6 +1,6 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -103,5 +103,29 @@ describe("apps child routes through the real route tree", () => {
     await user.click(screen.getByRole("link", { name: "Close" }));
 
     expect(await screen.findByRole("button", { name: "Delete this app" })).toBeInTheDocument();
+  });
+
+  it("returns to the apps list from an app detail breadcrumb", async () => {
+    const app: AppDetailResponse = {
+      autostart: false, bindings: {}, broken_reason: null, description: "A test app.", devices: [], env: [], installed_at: 1_700_000_000,
+      last_job: null, manifest: { devices: [], env: [], params: [] }, name: "palmimo-teleop", params: {},
+      source: { type: "git", url: "https://github.com/x/y", subdir: null, manifest: null, ref_kind: "tag", ref: "v1", commit: "abc123" }, status: "stopped",
+    };
+    server.use(
+      getGetStatusApiV1SystemStatusGetMockHandler(SYSTEM_STATUS),
+      getGetStatusApiV1WifiStatusGetMockHandler({ ssid: "Home", ip_address: null, state: "connected" }),
+      getGetAppApiV1AppsNameGetMockHandler(app),
+      getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+      getListAppsApiV1AppsGetMockHandler({ apps: [] }),
+      getGetPlatformApiV1PlatformGetMockHandler(),
+    );
+    const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ["/apps/palmimo-teleop"] }) });
+    render(<QueryClientProvider client={queryClient}><RouterProvider router={router} /></QueryClientProvider>);
+    const user = userEvent.setup();
+
+    await user.click(within(await screen.findByRole("navigation", { name: "Breadcrumb" })).getByRole("link", { name: "Apps" }));
+
+    expect(await screen.findByText("No apps installed yet.")).toBeInTheDocument();
   });
 });

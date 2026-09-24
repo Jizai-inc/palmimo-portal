@@ -37,10 +37,9 @@ export function AddAppPanel({ onInstalled = () => undefined }: { onInstalled?: (
   const [installJob, setInstallJob] = useState<{ jobId: string; name: string } | null>(null);
 
   const install = useMutation({
-    mutationFn: (source: InstallSource) => installApp(source),
-    onSuccess: (data, source) => {
-      const name = source.type === "zip" ? source.file.name.replace(/\.zip$/i, "") : source.url;
-      setInstallJob({ jobId: data.job.id, name });
+    mutationFn: ({ source }: { source: InstallSource; displayName: string }) => installApp(source),
+    onSuccess: (data, { displayName }) => {
+      setInstallJob({ jobId: data.job.id, name: displayName });
     },
   });
 
@@ -67,11 +66,11 @@ export function AddAppPanel({ onInstalled = () => undefined }: { onInstalled?: (
       <ApiErrorAlert error={install.error} />
 
       {tab === "catalog" ? (
-        <CatalogTab onInstall={(source) => install.mutate(source)} installPending={install.isPending} />
+        <CatalogTab onInstall={(source, displayName) => install.mutate({ source, displayName })} installPending={install.isPending} />
       ) : tab === "github" ? (
-        <GithubTab onInstall={(source) => install.mutate(source)} installPending={install.isPending} />
+        <GithubTab onInstall={(source, displayName) => install.mutate({ source, displayName })} installPending={install.isPending} />
       ) : (
-        <ZipTab onInstall={(source) => install.mutate(source)} installPending={install.isPending} />
+        <ZipTab onInstall={(source, displayName) => install.mutate({ source, displayName })} installPending={install.isPending} />
       )}
 
       <AppJobDialog
@@ -146,7 +145,7 @@ function CatalogTab({
   onInstall,
   installPending,
 }: {
-  onInstall: (source: GitInstallSource) => void;
+  onInstall: (source: GitInstallSource, displayName: string) => void;
   installPending: boolean;
 }) {
   const { t } = useTranslation();
@@ -180,7 +179,7 @@ function CatalogCard({
   installPending,
 }: {
   app: CatalogAppInfo;
-  onInstall: (source: GitInstallSource) => void;
+  onInstall: (source: GitInstallSource, displayName: string) => void;
   installPending: boolean;
 }) {
   const { t } = useTranslation();
@@ -210,7 +209,7 @@ function CatalogCard({
           ))}
         </div>
       ) : null}
-      <Button className="w-fit" disabled={!source || installPending} onClick={() => source && onInstall(source)}>
+      <Button className="w-fit" disabled={!source || installPending} onClick={() => source && onInstall(source, app.name)}>
         {t("appAdd.installButton")}
       </Button>
     </div>
@@ -221,7 +220,7 @@ function GithubTab({
   onInstall,
   installPending,
 }: {
-  onInstall: (source: GitInstallSource) => void;
+  onInstall: (source: GitInstallSource, displayName: string) => void;
   installPending: boolean;
 }) {
   const { t } = useTranslation();
@@ -288,7 +287,7 @@ function GithubTab({
           {t("appAdd.previewButton")}
         </Button>
         {preview ? (
-          <Button disabled={installPending} onClick={() => onInstall(source)}>
+          <Button disabled={installPending} onClick={() => onInstall(source, preview.name)}>
             {t("appAdd.installButton")}
           </Button>
         ) : null}
@@ -302,7 +301,7 @@ function ZipTab({
   onInstall,
   installPending,
 }: {
-  onInstall: (source: InstallSource) => void;
+  onInstall: (source: InstallSource, displayName: string) => void;
   installPending: boolean;
 }) {
   const { t } = useTranslation();
@@ -368,7 +367,7 @@ function ZipTab({
           {t("appAdd.previewButton")}
         </Button>
         {preview && file ? (
-          <Button disabled={installPending} onClick={() => onInstall(sourceFor(file))}>
+          <Button disabled={installPending} onClick={() => onInstall(sourceFor(file), preview.name)}>
             {t("appAdd.installButton")}
           </Button>
         ) : null}

@@ -10,6 +10,7 @@ import { useGetStatusApiV1SystemStatusGet } from "@/api/generated/system/system"
 import { useGetStatusApiV1UpdateStatusGet } from "@/api/generated/update/update";
 import { useLogoutApiV1AuthLogoutPost } from "@/api/generated/auth/auth";
 import { AppHeader } from "@/components/AppHeader";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { UpdateDot } from "@/components/UpdateDot";
 import { Button } from "@/components/ui/button";
 import { isActive, NAV_ITEMS, type NavItem } from "@/lib/navigation";
@@ -34,11 +35,13 @@ const DESKTOP_QUERY = "(min-width: 768px)";
 export function AppShell({
   title,
   subtitle,
+  breadcrumbs,
   mobileHeaderAction,
   children,
 }: {
   title: string;
   subtitle?: string;
+  breadcrumbs?: React.ReactNode[];
   /** Rendered beside the title, mobile only -- the dashboard's own "log out" button (see routes/dashboard.tsx). */
   mobileHeaderAction?: React.ReactNode;
   children: React.ReactNode;
@@ -210,6 +213,7 @@ export function AppShell({
           <div className="mx-auto flex max-w-[960px] flex-col gap-6">
             <div className="flex items-center justify-between gap-2">
               <div className="flex flex-col gap-1">
+                {breadcrumbs ? <Breadcrumbs items={breadcrumbs} label={t("common.breadcrumb")} /> : null}
                 <h1 className="text-2xl font-semibold">{title}</h1>
                 {subtitle ? <p className="text-sm text-muted-foreground">{subtitle}</p> : null}
               </div>

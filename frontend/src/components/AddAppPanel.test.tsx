@@ -70,19 +70,23 @@ describe("AddAppPanel", () => {
     const user = userEvent.setup();
     const onInstalled = vi.fn();
     let installedBody: unknown;
+    let jobPolls = 0;
     server.use(
       getGetCatalogApiV1CatalogGetMockHandler(CATALOG),
       http.post("*/api/v1/apps/install", async ({ request }) => {
         installedBody = await request.json();
         return HttpResponse.json({ job: { id: "job-1", app_name: "palmimo-teleop", kind: "install", state: "running", step: "fetch", error: null, started_at: 1, finished_at: null, dropped_bindings: [], dropped_params: [], lock_generated: false } }, { status: 202 });
       }),
-      http.get("*/api/v1/apps/jobs/job-1", () =>
-        HttpResponse.json({ id: "job-1", app_name: "palmimo-teleop", kind: "install", state: "done", step: "register", error: null, started_at: 1, finished_at: 2, dropped_bindings: [], dropped_params: [], lock_generated: false }),
-      ),
+      http.get("*/api/v1/apps/jobs/job-1", () => {
+        jobPolls += 1;
+        return HttpResponse.json({ id: "job-1", app_name: "palmimo-teleop", kind: "install", state: jobPolls === 1 ? "running" : "done", step: "register", error: null, started_at: 1, finished_at: jobPolls === 1 ? null : 2, dropped_bindings: [], dropped_params: [], lock_generated: false });
+      }),
     );
     renderWithProviders(<AddAppPanel onInstalled={onInstalled} />);
 
     await user.click(await screen.findByRole("button", { name: "Install" }));
+
+    expect(await screen.findByRole("heading", { name: /palmimo-teleop/ })).toBeInTheDocument();
 
     await waitFor(() =>
       expect(installedBody).toEqual({

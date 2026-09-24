@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 
 import { AddAppPanel } from "@/components/AddAppPanel";
@@ -13,7 +13,7 @@ function AddAppScreen() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   return (
-    <AppShell title={t("appAdd.title")}>
+    <AppShell title={t("appAdd.title")} breadcrumbs={[<Link key="apps" to="/apps">{t("apps.title")}</Link>, <span key="add">{t("appAdd.title")}</span>]}>
       <AddAppPanel
         onInstalled={(appName) =>
           void (appName ? navigate({ to: "/apps/$name", params: { name: appName } }) : navigate({ to: "/apps" }))

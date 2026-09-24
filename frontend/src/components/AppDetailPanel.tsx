@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 
 import {
   getGetAppApiV1AppsNameGetQueryKey,
+  getListAppsApiV1AppsGetQueryKey,
   useDeleteAppApiV1AppsNameDelete,
   useGetAppApiV1AppsNameGet,
   usePutAutostartApiV1AppsNameAutostartPut,
@@ -52,6 +53,8 @@ export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: st
 
   const [job, setJob] = useState<{ id: string; kind: "update" | "delete" } | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteFinished, setDeleteFinished] = useState(false);
+  const [updateCompleted, setUpdateCompleted] = useState(0);
 
   const startApp = useStartAppEndpointApiV1AppsNameStartPost({ mutation: { onSuccess: invalidate } });
   const stopApp = useStopAppEndpointApiV1AppsNameStopPost({ mutation: { onSuccess: invalidate } });
@@ -121,7 +124,7 @@ export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: st
       ) : null}
 
       <AutostartSection name={name} app={app} onSaved={invalidate} />
-      <SourceSection app={app} onUpdate={() => updateApp.mutate({ name })} updatePending={updateApp.isPending} />
+      <SourceSection app={app} onUpdate={() => updateApp.mutate({ name })} updatePending={updateApp.isPending} updateCompleted={updateCompleted} />
 
       <Section title={t("appDetail.dangerZoneTitle")}>
         <Button variant="destructive" className="w-fit" onClick={() => setDeleteOpen(true)}>
@@ -147,15 +150,21 @@ export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: st
 
       <AppJobDialog
         jobId={job?.id ?? null}
-        title={t("apps.jobDialogTitle", { name })}
-        onClose={() => setJob(null)}
+        title={job?.kind === "delete" ? t("appDetail.deleteProgressTitle", { name: app.name }) : t("apps.jobDialogTitle", { name })}
+        completedMessage={job?.kind === "delete" ? t("appDetail.deleteCompleted", { name: app.name }) : undefined}
+        onClose={() => {
+          setJob(null);
+          if (deleteFinished) onDeleted();
+        }}
         onDone={() => {
           const wasDelete = job?.kind === "delete";
-          setJob(null);
           if (wasDelete) {
-            onDeleted();
+            setDeleteFinished(true);
           } else {
+            setJob(null);
             invalidate();
+            void queryClient.invalidateQueries({ queryKey: getListAppsApiV1AppsGetQueryKey() });
+            setUpdateCompleted((value) => value + 1);
           }
         }}
       />
@@ -423,10 +432,12 @@ function SourceSection({
   app,
   onUpdate,
   updatePending,
+  updateCompleted,
 }: {
   app: AppDetailResponse;
   onUpdate: () => void;
   updatePending: boolean;
+  updateCompleted: number;
 }) {
   const { t } = useTranslation();
   const [editingRef, setEditingRef] = useState(false);
@@ -434,6 +445,11 @@ function SourceSection({
   const [ref, setRef] = useState("");
   const putSource = usePutSourceApiV1AppsNameSourcePut();
   const updateCheck = useUpdateCheckApiV1AppsNameUpdateCheckPost();
+  const { reset: resetUpdateCheck } = updateCheck;
+
+  useEffect(() => {
+    resetUpdateCheck();
+  }, [resetUpdateCheck, updateCompleted]);
 
   const isGit = app.source.type === "git";
 

@@ -7,6 +7,7 @@
     "unexpectedErrorBody": "ロボットに再接続しています…。Wi-Fi 設定を送信した直後であれば、自宅の Wi-Fi に接続し直してからこのページを開き直してください。"
   },
   "common": {
+    "breadcrumb": "パンくず",
     "loading": "読み込み中…",
     "retry": "再試行",
     "back": "戻る",
@@ -386,7 +387,8 @@
     "jobStepSync": "依存関係を同期中",
     "jobStepSwap": "インストール中",
     "jobStepRegister": "登録中",
-    "jobClose": "閉じる"
+    "jobClose": "閉じる",
+    "jobCompleted": "完了しました"
   },
   "appAdd": {
     "title": "アプリを追加",
@@ -462,8 +464,10 @@
     "dangerZoneTitle": "危険な操作",
     "deleteAppButton": "このアプリを削除",
     "deleteDialogTitle": "{{name}} を削除しますか？",
-    "deleteDialogBody": "このアプリと、そのパラメータ・環境変数の割り当てが削除されます。登録済みのシークレット自体は削除されません。",
-    "deleteDialogConfirm": "削除",
+    "deleteDialogBody": "このアプリ、パラメータ、環境変数の割り当てを完全に削除します。登録済みのシークレットは削除されません。",
+    "deleteDialogConfirm": "アプリを削除",
+    "deleteProgressTitle": "{{name}} を削除中…",
+    "deleteCompleted": "{{name}} を削除しました。",
     "brokenReasonTitle": "このアプリは破損しています",
     "logsPageSubtitleCurrentLive": "今回の起動分。2 秒ごとに更新。",
     "logsPageSubtitleCurrent": "今回の起動分。",

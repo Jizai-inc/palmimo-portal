@@ -28,11 +28,13 @@ const JOB_POLL_INTERVAL_MS = 1_000;
 export function AppJobDialog({
   jobId,
   title,
+  completedMessage,
   onClose,
   onDone,
 }: {
   jobId: string | null;
   title: string;
+  completedMessage?: string;
   onClose: () => void;
   /** Called once, the first render the job is observed `done`. */
   onDone: (job: AppJobInfo) => void;
@@ -76,6 +78,8 @@ export function AppJobDialog({
               {job.error ?? t("errors.install_failed")}
             </AlertDescription>
           </Alert>
+        ) : job?.state === "done" ? (
+          <p role="status" className="text-sm">{completedMessage ?? t("apps.jobCompleted")}</p>
         ) : (
           <div className="flex flex-col gap-2">
             <p className="text-sm">{appJobStepLabel(t, job?.step ?? null)}</p>

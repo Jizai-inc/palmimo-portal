@@ -234,8 +234,32 @@ describe("AppDetailPanel", () => {
 
     await user.click(await screen.findByRole("button", { name: "Delete this app" }));
     const dialog = screen.getByRole("alertdialog");
-    await user.click(within(dialog).getByRole("button", { name: "Delete" }));
+    await user.click(within(dialog).getByRole("button", { name: "Delete app" }));
 
+    await screen.findByRole("status");
+    await user.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(onDeleted).toHaveBeenCalled());
+  });
+
+  it("shows the updated source and removes the update action when an update job finishes", async () => {
+    const user = userEvent.setup();
+    let updated = false;
+    server.use(
+      http.get("*/api/v1/apps/palmimo-teleop", () => HttpResponse.json(detail({ source: { type: "git", url: "https://github.com/x/y", subdir: null, manifest: null, ref_kind: "tag", ref: updated ? "v2" : "v1", commit: updated ? "def456" : "abc123" } }))),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+      http.post("*/api/v1/apps/palmimo-teleop/update/check", () => HttpResponse.json({ update_available: true, latest_ref: "v2", latest_commit: "def456" })),
+      http.post("*/api/v1/apps/palmimo-teleop/update", () => HttpResponse.json({ job: { id: "job-update", kind: "update", state: "running", step: "sync", error: null, started_at: 1, finished_at: null, dropped_bindings: [], dropped_params: [], lock_generated: false } }, { status: 202 })),
+      http.get("*/api/v1/apps/jobs/job-update", () => {
+        updated = true;
+        return HttpResponse.json({ id: "job-update", kind: "update", state: "done", step: "register", error: null, started_at: 1, finished_at: 2, dropped_bindings: [], dropped_params: [], lock_generated: false });
+      }),
+    );
+    renderWithRouter(<AppDetailPanel name="palmimo-teleop" />);
+
+    await user.click(await screen.findByRole("button", { name: "Check for updates" }));
+    await user.click(await screen.findByRole("button", { name: "Update" }));
+
+    await waitFor(() => expect(screen.getByText("v2")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Update" })).not.toBeInTheDocument();
   });
 });

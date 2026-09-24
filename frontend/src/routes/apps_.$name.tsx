@@ -1,4 +1,5 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useTranslation } from "react-i18next";
 
 import { AppDetailPanel } from "@/components/AppDetailPanel";
 import { AppShell } from "@/components/AppShell";
@@ -10,9 +11,10 @@ export const Route = createFileRoute("/apps_/$name")({
 
 function AppDetailScreen() {
   const { name } = Route.useParams();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   return (
-    <AppShell title={name}>
+    <AppShell title={name} breadcrumbs={[<Link key="apps" to="/apps">{t("apps.title")}</Link>, <span key="app">{name}</span>]}>
       <AppDetailPanel name={name} onDeleted={() => void navigate({ to: "/apps" })} />
     </AppShell>
   );

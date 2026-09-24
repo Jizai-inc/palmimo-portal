@@ -108,7 +108,7 @@ def _parse_catalog(asset_bytes: bytes, asset_name: str) -> tuple[CatalogApp, ...
 
 @dataclass
 class GitHubCatalogSource(CatalogSource):
-    """Fetches ``catalog_repo``'s latest release's catalog asset (design doc 4.1)."""
+    """Fetches the selected ``catalog_repo`` release's catalog asset (design doc 4.1)."""
 
     catalog_repo: str
     release_source: ReleaseSource

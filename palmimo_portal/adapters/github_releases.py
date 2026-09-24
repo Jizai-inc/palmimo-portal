@@ -1,9 +1,9 @@
 """Real :class:`~palmimo_portal.ports.ReleaseSource`: GitHub's Releases API.
 
-``channel == "stable"`` (default) calls ``GET
+``channel == "stable"`` (default, without a tag prefix) calls ``GET
 /repos/<repo>/releases/latest`` -- GitHub's own endpoint for "the most
 recent non-prerelease, non-draft release", so this adapter never filters a
-release list itself for that channel. ``channel == "prerelease"`` (the
+release list itself for that channel. A tag prefix or ``channel == "prerelease"`` (the
 dev-machine opt-in -- see ``PALMIMO_UPDATE_CHANNEL`` in ``settings.py``)
 instead lists the 10 most recent releases and picks the first non-draft
 one, prereleases included, so a published rc is discoverable without
@@ -30,9 +30,8 @@ logger = logging.getLogger("palmimo_portal")
 
 DEFAULT_TIMEOUT_SECONDS = 10.0
 
-#: How many of the most recent releases the "prerelease" channel lists to
-#: find the newest non-draft one. GitHub orders this endpoint by created
-#: date descending, so the first non-draft entry is always the newest.
+#: How many of the most recent releases the list-based selection fetches.
+#: GitHub orders this endpoint by created date descending.
 PRERELEASE_LIST_PAGE_SIZE = 10
 
 #: What :attr:`GitHubReleaseSource.opener` is called with: a fully-built
@@ -81,11 +80,12 @@ class GitHubReleaseSource(ReleaseSource):
 
     repo: str = "Jizai-inc/palmimo-portal"
     channel: str = "stable"
+    tag_prefix: str | None = None
     timeout: float = DEFAULT_TIMEOUT_SECONDS
     opener: Opener = field(default=_default_opener)
 
     def fetch_latest(self) -> Release:
-        if self.channel == "prerelease":
+        if self.channel == "prerelease" or self.tag_prefix is not None:
             return self._fetch_latest_from_list()
         return self._fetch_latest_from_latest_endpoint()
 
@@ -125,6 +125,11 @@ class GitHubReleaseSource(ReleaseSource):
         if not isinstance(payload, list):
             raise ReleaseSourceError("release_source_unavailable", f"unexpected response shape: {payload!r}")
         for entry in payload:
-            if isinstance(entry, dict) and not entry.get("draft", False):
-                return _release_from_payload(entry)
+            if not isinstance(entry, dict) or entry.get("draft", False):
+                continue
+            if self.channel != "prerelease" and entry.get("prerelease", False):
+                continue
+            if self.tag_prefix is not None and not str(entry.get("tag_name", "")).startswith(self.tag_prefix):
+                continue
+            return _release_from_payload(entry)
         raise ReleaseSourceError("no_release", f"no releases found for {self.repo}")

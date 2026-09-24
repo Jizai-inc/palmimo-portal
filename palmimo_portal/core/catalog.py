@@ -1,4 +1,4 @@
-"""The official app catalog cache (design doc 4.1): devkit's latest release, 1-hour cached.
+"""The official app catalog cache (design doc 4.1): devkit's latest examples release, 1-hour cached.
 
 :class:`CatalogCache` mirrors :class:`~palmimo_portal.core.platform.PlatformLatestCache`'s
 TTL shape, with two differences the catalog's own contract needs: a

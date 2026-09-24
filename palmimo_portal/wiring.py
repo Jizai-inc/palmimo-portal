@@ -78,6 +78,8 @@ from palmimo_portal.testing.fakes import (
 # the rest of this process's own persisted state -- see
 # palmimo_portal.adapters.comitup's module docstring for why it exists.
 KNOWN_NETWORK_MARKER_FILENAME = "network_known.marker"
+# GitHub exposes one releases/latest per repository; devkit mixes SDK and examples releases.
+CATALOG_RELEASE_TAG_PREFIX = "examples-v"
 
 
 @dataclass(frozen=True)
@@ -171,6 +173,10 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         clock=SystemClockPort(),
         catalog=GitHubCatalogSource(
             catalog_repo=settings.catalog_repo,
-            release_source=GitHubReleaseSource(repo=settings.catalog_repo, channel=settings.update_channel),
+            release_source=GitHubReleaseSource(
+                repo=settings.catalog_repo,
+                channel=settings.update_channel,
+                tag_prefix=CATALOG_RELEASE_TAG_PREFIX,
+            ),
         ),
     )

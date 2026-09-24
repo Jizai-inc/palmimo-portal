@@ -191,6 +191,48 @@ PRERELEASE_PAYLOAD = {
 }
 
 
+@pytest.mark.parametrize(
+    ("channel", "expected_tag"),
+    [
+        ("stable", "examples-v0.1.0"),
+        ("prerelease", "examples-v0.2.0-rc1"),
+    ],
+)
+def test_fetch_latest_with_a_tag_prefix_selects_the_newest_matching_release(
+    channel: str, expected_tag: str
+) -> None:
+    payload = [
+        {**VALID_PAYLOAD, "tag_name": "v0.1.1", "draft": False, "prerelease": False},
+        {**PRERELEASE_PAYLOAD, "tag_name": "examples-v0.2.0-rc1", "prerelease": True},
+        {**VALID_PAYLOAD, "tag_name": "examples-v0.1.0", "draft": False, "prerelease": False},
+    ]
+    source = GitHubReleaseSource(
+        channel=channel, tag_prefix="examples-v", opener=_opener_returning(payload)
+    )
+
+    release = source.fetch_latest()
+
+    assert release.tag == expected_tag
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [],
+        [{**VALID_PAYLOAD, "tag_name": "v0.1.1", "draft": False, "prerelease": False}],
+        [{**VALID_PAYLOAD, "tag_name": "examples-v0.1.0", "draft": True, "prerelease": False}],
+    ],
+    ids=["empty", "no_matching_tag", "matching_draft"],
+)
+def test_fetch_latest_with_a_tag_prefix_raises_no_release_when_nothing_matches(payload: list[dict[str, Any]]) -> None:
+    source = GitHubReleaseSource(channel="stable", tag_prefix="examples-v", opener=_opener_returning(payload))
+
+    with pytest.raises(ReleaseSourceError) as excinfo:
+        source.fetch_latest()
+
+    assert excinfo.value.code == "no_release"
+
+
 def test_fetch_latest_on_the_prerelease_channel_resolves_the_newest_non_draft_entry() -> None:
     payload = [
         {**PRERELEASE_PAYLOAD, "draft": True, "tag_name": "v2.0.0-rc2-draft"},

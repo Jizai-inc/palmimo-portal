@@ -456,7 +456,7 @@ class CatalogSourceError(Exception):
 class CatalogSource(Protocol):
     """Fetches and validates the official app catalog. See :class:`~palmimo_portal.adapters.catalog.GitHubCatalogSource`.
 
-    One call does the whole pipeline (find the latest devkit release,
+    One call does the whole pipeline (find the selected devkit examples release,
     download the catalog asset and its ``.sha256``, verify, parse, and
     validate) -- unlike :class:`PlatformBundleSource`, there is no
     multi-step job to report progress for.

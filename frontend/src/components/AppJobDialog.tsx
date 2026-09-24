@@ -31,6 +31,7 @@ export function AppJobDialog({
   completedMessage,
   onClose,
   onDone,
+  onFailed,
 }: {
   jobId: string | null;
   title: string;
@@ -38,6 +39,8 @@ export function AppJobDialog({
   onClose: () => void;
   /** Called once, the first render the job is observed `done`. */
   onDone: (job: AppJobInfo) => void;
+  /** Called once, the first render the job is observed `failed`. */
+  onFailed?: (job: AppJobInfo) => void;
 }) {
   const { t } = useTranslation();
   const { data: job, error } = useGetJobApiV1AppsJobsJobIdGet(jobId ?? "", {
@@ -52,11 +55,13 @@ export function AppJobDialog({
   });
   const jobUnknown = error instanceof PortalApiError && error.code === "job_not_found";
 
-  // Fires once per job reaching "done" (keyed on the job's own id, not just `state`, so a
-  // second job reusing this same dialog instance fires again).
+  // Fires once per job reaching "done"/"failed" (keyed on the job's own id, not just `state`, so
+  // a second job reusing this same dialog instance fires again).
   useEffect(() => {
     if (job?.state === "done") {
       onDone(job);
+    } else if (job?.state === "failed") {
+      onFailed?.(job);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [job?.id, job?.state]);

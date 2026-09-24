@@ -50,21 +50,41 @@ export interface UseAppLogsResult {
  * section and the full-page logs view so the cursor-paging and invocation-switching logic
  * (design doc 3.2/3.8) exists in exactly one place.
  */
+/** A cursor is only valid for the invocation it was issued against -- pairing them stops a
+ * cursor from a just-abandoned invocation from ever being sent alongside a new one. */
+interface CursorState {
+  invocation: string | null;
+  cursor: string | null;
+}
+
 export function useAppLogs(name: string, status: string): UseAppLogsResult {
   // `null` means "follow the newest run" -- re-derived from the latest response's `invocations`
   // on every render, not captured once, so a run that starts or restarts while this is open is
   // picked up on the next poll instead of leaving the view pinned to whatever was newest at
-  // mount/selection time. Only an explicit pick from the invocation dropdown fixes this to an id.
+  // mount/selection time. Only an explicit pick from the invocation dropdown fixes this to an id
+  // -- picking the run that is already the newest known one is the same as following it, so that
+  // case clears the pin instead of fixing it.
   const [pinnedInvocation, setPinnedInvocation] = useState<string | null>(null);
-  const [cursor, setCursor] = useState<string | null>(null);
+  const [cursorState, setCursorState] = useState<CursorState>({ invocation: null, cursor: null });
   const [history, setHistory] = useState<LogHistory>({ entries: [], truncated: false });
   // Mirrors the query's own `data.invocations`, one render behind: computing this render's
   // `invocation` (which the query below is parameterized on) from this render's own query result
   // would be circular, so "follow" reads the previous response's list instead. An effect syncing
   // this after each response converges within one extra poll of a run starting or restarting.
+  // Never synced to an empty list: `_list_invocations` answers `[]` when its own journalctl call
+  // fails, which would otherwise make "follow" lose the run it was already showing over a single
+  // transient failure.
   const [knownInvocations, setKnownInvocations] = useState<JournalInvocationInfo[]>([]);
 
   const invocation = pinnedInvocation ?? knownInvocations[0]?.id ?? null;
+  // A cursor from a different invocation is stale the moment `invocation` changes -- computed
+  // rather than cleared by an effect, so the very next request (not one render later) already
+  // omits it instead of pairing a new invocation with an old cursor.
+  const cursor = cursorState.invocation === invocation ? cursorState.cursor : null;
+
+  const setInvocation = (id: string | null) => {
+    setPinnedInvocation(id !== null && id === (knownInvocations[0]?.id ?? null) ? null : id);
+  };
 
   // The generated client serializes an explicit `null` param as the literal query string
   // "null" rather than omitting it (`getGetLogsApiV1AppsNameLogsGetUrl`'s
@@ -78,7 +98,7 @@ export function useAppLogs(name: string, status: string): UseAppLogsResult {
   );
 
   useEffect(() => {
-    if (logs?.invocations) setKnownInvocations(logs.invocations);
+    if (logs?.invocations && logs.invocations.length > 0) setKnownInvocations(logs.invocations);
   }, [logs?.invocations]);
 
   // A pinned invocation that falls out of the last 20 (`invocations`) would otherwise leave the
@@ -91,30 +111,37 @@ export function useAppLogs(name: string, status: string): UseAppLogsResult {
     }
   }, [pinnedInvocation, logs?.invocations]);
 
-  // Switching invocations starts a fresh cursor/accumulation -- the previous invocation's
-  // entries are a different journal window, not a continuation.
+  // Switching invocations starts a fresh accumulation -- the previous invocation's entries are a
+  // different journal window, not a continuation.
   useEffect(() => {
-    setCursor(null);
     setHistory({ entries: [], truncated: false });
   }, [invocation]);
 
   // Cursor paging: each response's `next_cursor` tails forward from where the last one left
   // off, so the next poll (or a manual "load more" while not polling) only carries the entries
   // since then, appended (capped at LOG_HISTORY_CAP) rather than replacing what's already shown.
+  //
+  // A response fetched with no invocation filter (mount, before the first `invocations` list has
+  // arrived) can mix several runs' tails together -- committed only when it in fact carries at
+  // most one distinct invocation, which covers the ordinary single-run case without ever
+  // rendering a mixed batch.
   useEffect(() => {
-    if (!logs || logs.unavailable || (invocation !== null && (logs.entries ?? []).some((entry) => entry.invocation_id !== invocation))) return;
-    setHistory((current) => appendCapped(current, logs.entries ?? [], LOG_HISTORY_CAP));
-    if (logs.next_cursor) {
-      setCursor(logs.next_cursor);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!logs || logs.unavailable) return;
+    const entries = logs.entries ?? [];
+    const mixed =
+      invocation !== null
+        ? entries.some((entry) => entry.invocation_id !== invocation)
+        : new Set(entries.map((entry) => entry.invocation_id)).size > 1;
+    if (mixed) return;
+    setHistory((current) => appendCapped(current, entries, LOG_HISTORY_CAP));
+    setCursorState({ invocation, cursor: logs.next_cursor ?? null });
   }, [logs, invocation]);
 
   return {
     unavailable: logs?.unavailable,
     invocations: logs?.invocations ?? [],
     invocation,
-    setInvocation: setPinnedInvocation,
+    setInvocation,
     isCurrentInvocation: pinnedInvocation === null,
     accumulated: history.entries,
     truncated: history.truncated,

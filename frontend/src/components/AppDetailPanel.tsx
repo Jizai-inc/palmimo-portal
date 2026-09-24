@@ -4,6 +4,7 @@ import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { PortalApiError } from "@/api/client";
 import {
   getGetAppApiV1AppsNameGetQueryKey,
   getListAppsApiV1AppsGetQueryKey,
@@ -49,19 +50,43 @@ export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: st
 
   const [job, setJob] = useState<{ id: string; kind: "update" | "delete" } | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteFinished, setDeleteFinished] = useState(false);
+  // Set once a delete is confirmed and never cleared for this mount -- unlike `job` (cleared when
+  // the dialog closes), this is what keeps the app-detail query disabled for the rest of a delete
+  // even after "Close" (closing does not cancel the job).
+  const [deleting, setDeleting] = useState(false);
+  const [deleteOutcome, setDeleteOutcome] = useState<"done" | "failed" | null>(null);
+  const [redirectedAfterDelete, setRedirectedAfterDelete] = useState(false);
   const [updateCompleted, setUpdateCompleted] = useState(0);
 
   const { data: app, error } = useGetAppApiV1AppsNameGet(name, {
     query: {
-      // Once a delete job has started, the app is gone or going -- any further fetch (including
-      // the window-focus refetch while the job dialog is still open) would 404 and, since that
-      // error would otherwise unmount this whole panel below, strand the dialog's "Close" button
-      // (and the onDeleted it triggers) unreachable.
-      enabled: job?.kind !== "delete",
-      refetchInterval: (query) => (query.state.data && isAppStatusBusy(query.state.data.status) ? 3_000 : false),
+      // While the delete job's dialog is open, its own state (not this query) is the source of
+      // truth for "done" -- disabling here avoids a race where this 404s (the app already
+      // dropped from state) before the job's own poll has caught up to "done", which would
+      // otherwise render a raw error while the dialog still claims to be in progress and strand
+      // its "Close" button. Once the dialog is closed the job is no longer polled by anything, so
+      // this re-enables: its eventual 404 (see `deletedAfterClose` below) is the only signal left
+      // that the deletion, which "Close" does not cancel, has actually finished.
+      enabled: !(deleting && job !== null),
+      refetchInterval: (query) => {
+        // Re-enabling alone does not refetch a query whose cached data is not otherwise due for
+        // a refresh -- poll until the eventual 404 resolves the flow, since nothing else is
+        // watching the job once its dialog is gone.
+        if (deleting && job === null) return 3_000;
+        return query.state.data && isAppStatusBusy(query.state.data.status) ? 3_000 : false;
+      },
     },
   });
+
+  const deletedAfterClose = deleting && job === null && error instanceof PortalApiError && error.code === "app_not_found";
+
+  useEffect(() => {
+    if (deletedAfterClose && !redirectedAfterDelete) {
+      setRedirectedAfterDelete(true);
+      onDeleted();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deletedAfterClose, redirectedAfterDelete]);
 
   const startApp = useStartAppEndpointApiV1AppsNameStartPost({ mutation: { onSuccess: invalidate } });
   const stopApp = useStopAppEndpointApiV1AppsNameStopPost({ mutation: { onSuccess: invalidate } });
@@ -69,9 +94,19 @@ export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: st
     mutation: { onSuccess: (data) => setJob({ id: data.job.id, kind: "update" }) },
   });
   const deleteApp = useDeleteAppApiV1AppsNameDelete({
-    mutation: { onSuccess: (data) => { setDeleteOpen(false); setJob({ id: data.job.id, kind: "delete" }); } },
+    mutation: {
+      onSuccess: (data) => {
+        setDeleteOpen(false);
+        setDeleting(true);
+        setDeleteOutcome(null);
+        setJob({ id: data.job.id, kind: "delete" });
+      },
+    },
   });
 
+  if (deletedAfterClose) {
+    return null;
+  }
   if (error) {
     return <ApiErrorAlert error={error} />;
   }
@@ -157,22 +192,25 @@ export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: st
 
       <AppJobDialog
         jobId={job?.id ?? null}
-        title={job?.kind === "delete" && !deleteFinished ? t("appDetail.deleteProgressTitle", { name: app.name }) : t("apps.jobDialogTitle", { name })}
+        title={job?.kind === "delete" && deleteOutcome === null ? t("appDetail.deleteProgressTitle", { name: app.name }) : t("apps.jobDialogTitle", { name })}
         completedMessage={job?.kind === "delete" ? t("appDetail.deleteCompleted", { name: app.name }) : undefined}
         onClose={() => {
           setJob(null);
-          if (deleteFinished) onDeleted();
+          if (deleteOutcome === "done") onDeleted();
         }}
         onDone={() => {
           const wasDelete = job?.kind === "delete";
           if (wasDelete) {
-            setDeleteFinished(true);
+            setDeleteOutcome("done");
           } else {
             setJob(null);
             invalidate();
             void queryClient.invalidateQueries({ queryKey: getListAppsApiV1AppsGetQueryKey() });
             setUpdateCompleted((value) => value + 1);
           }
+        }}
+        onFailed={() => {
+          if (job?.kind === "delete") setDeleteOutcome("failed");
         }}
       />
     </div>

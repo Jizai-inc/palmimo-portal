@@ -133,13 +133,13 @@ describe("AppDetailPanel", () => {
         const raw = url.searchParams.get("invocation");
         lastInvocationParam = raw && raw !== "null" ? raw : null;
         return HttpResponse.json({
-          entries: lastInvocationParam === "inv-0"
-            ? [{ message: "old start line", timestamp: 1, invocation_id: "inv-0" }]
+          entries: lastInvocationParam === "00000000000000000000000000000000"
+            ? [{ message: "old start line", timestamp: 1, invocation_id: "00000000000000000000000000000000" }]
             : [
-                { message: "old start line", timestamp: 1, invocation_id: "inv-0" },
-                { message: "current start line", timestamp: 2, invocation_id: "inv-1" },
+                { message: "old start line", timestamp: 1, invocation_id: "00000000000000000000000000000000" },
+                { message: "current start line", timestamp: 2, invocation_id: "11111111111111111111111111111111" },
               ],
-          invocations: [{ id: "inv-1", started_at: 2 }, { id: "inv-0", started_at: 1 }],
+          invocations: [{ id: "11111111111111111111111111111111", started_at: 2 }, { id: "00000000000000000000000000000000", started_at: 1 }],
           next_cursor: null,
         });
       }),
@@ -147,10 +147,10 @@ describe("AppDetailPanel", () => {
     renderWithRouter(<AppDetailPanel name="palmimo-teleop" />);
 
     const startSelect = await screen.findByLabelText("Start");
-    await waitFor(() => expect(startSelect).toHaveValue("inv-1"));
-    await user.selectOptions(startSelect, "inv-0");
+    await waitFor(() => expect(startSelect).toHaveValue("11111111111111111111111111111111"));
+    await user.selectOptions(startSelect, "00000000000000000000000000000000");
 
-    await waitFor(() => expect(lastInvocationParam).toBe("inv-0"));
+    await waitFor(() => expect(lastInvocationParam).toBe("00000000000000000000000000000000"));
     expect(await screen.findByText("old start line")).toBeInTheDocument();
     expect(screen.queryByText("current start line")).not.toBeInTheDocument();
   });
@@ -252,11 +252,11 @@ describe("AppDetailPanel", () => {
           const raw = url.searchParams.get("invocation");
           const requested = raw && raw !== "null" ? raw : null;
           const invocations = running
-            ? [{ id: "inv-2", started_at: 2 }, { id: "inv-1", started_at: 1 }]
-            : [{ id: "inv-1", started_at: 1 }];
+            ? [{ id: "22222222222222222222222222222222", started_at: 2 }, { id: "11111111111111111111111111111111", started_at: 1 }]
+            : [{ id: "11111111111111111111111111111111", started_at: 1 }];
           const allEntries = [
-            { message: "old run line", timestamp: 1, invocation_id: "inv-1" },
-            ...(running ? [{ message: "new run line", timestamp: 2, invocation_id: "inv-2" }] : []),
+            { message: "old run line", timestamp: 1, invocation_id: "11111111111111111111111111111111" },
+            ...(running ? [{ message: "new run line", timestamp: 2, invocation_id: "22222222222222222222222222222222" }] : []),
           ];
           const entries = requested ? allEntries.filter((entry) => entry.invocation_id === requested) : allEntries;
           return HttpResponse.json({ entries, invocations, next_cursor: null });
@@ -311,6 +311,71 @@ describe("AppDetailPanel", () => {
 
     await user.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(onDeleted).toHaveBeenCalled());
+  });
+
+  // Closing the job dialog does not cancel the job (its own note says so) -- clicking Close
+  // before the delete job ever reports "done" must not strand the app-detail query disabled
+  // forever, nor crash once the app is actually gone.
+  it("returns to the list once the app disappears after Close is clicked mid-delete", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const user = userEvent.setup();
+    const onDeleted = vi.fn();
+    let appGone = false;
+    server.use(
+      http.get("*/api/v1/apps/palmimo-teleop", () =>
+        appGone
+          ? HttpResponse.json({ error: { code: "app_not_found", params: {} } }, { status: 404 })
+          : HttpResponse.json(detail()),
+      ),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+      http.delete("*/api/v1/apps/palmimo-teleop", () =>
+        HttpResponse.json({ job: { id: "job-del", kind: "delete", state: "running", step: "register", error: null, started_at: 1, finished_at: null, dropped_bindings: [], dropped_params: [], lock_generated: false } }, { status: 202 }),
+      ),
+      // Still running when Close is clicked -- the job never reaches "done" from this
+      // component's point of view.
+      http.get("*/api/v1/apps/jobs/job-del", () =>
+        HttpResponse.json({ id: "job-del", kind: "delete", state: "running", step: "register", error: null, started_at: 1, finished_at: null, dropped_bindings: [], dropped_params: [], lock_generated: false }),
+      ),
+    );
+    renderWithRouter(<AppDetailPanel name="palmimo-teleop" onDeleted={onDeleted} />);
+
+    await user.click(await screen.findByRole("button", { name: "Delete this app" }));
+    const dialog = screen.getByRole("alertdialog");
+    await user.click(within(dialog).getByRole("button", { name: "Delete app" }));
+
+    await user.click(await screen.findByRole("button", { name: "Close" }));
+    expect(onDeleted).not.toHaveBeenCalled();
+
+    appGone = true;
+    await act(() => vi.advanceTimersByTimeAsync(3_000));
+    vi.useRealTimers();
+
+    await waitFor(() => expect(onDeleted).toHaveBeenCalled());
+  });
+
+  // AppDetailPanel.tsx:189's title condition used to be "not yet reported done", which left a
+  // failed delete still titled "Deleting palmimo-teleop…" even though the body below it was
+  // already showing the failure.
+  it("stops claiming to still be deleting once the delete job fails", async () => {
+    const user = userEvent.setup();
+    server.use(
+      getGetAppApiV1AppsNameGetMockHandler(detail()),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+      http.delete("*/api/v1/apps/palmimo-teleop", () =>
+        HttpResponse.json({ job: { id: "job-del", kind: "delete", state: "running", step: "register", error: null, started_at: 1, finished_at: null, dropped_bindings: [], dropped_params: [], lock_generated: false } }, { status: 202 }),
+      ),
+      http.get("*/api/v1/apps/jobs/job-del", () =>
+        HttpResponse.json({ id: "job-del", kind: "delete", state: "failed", step: "register", error: "disk full", started_at: 1, finished_at: 2, dropped_bindings: [], dropped_params: [], lock_generated: false }),
+      ),
+    );
+    renderWithRouter(<AppDetailPanel name="palmimo-teleop" />);
+
+    await user.click(await screen.findByRole("button", { name: "Delete this app" }));
+    const dialog = screen.getByRole("alertdialog");
+    await user.click(within(dialog).getByRole("button", { name: "Delete app" }));
+
+    await screen.findByText(/disk full/);
+    expect(screen.queryByText("Deleting palmimo-teleop…")).not.toBeInTheDocument();
   });
 
   it("deletes the app after confirming the dialog, then reports completion once the job finishes", async () => {

@@ -82,7 +82,7 @@ describe("apps child routes through the real route tree", () => {
       getGetAppApiV1AppsNameGetMockHandler(app),
       getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
       getGetLogsApiV1AppsNameLogsGetMockHandler({
-        entries: [{ message: "server started", timestamp: 1_700_000_000, invocation_id: "inv-1" }],
+        entries: [{ message: "server started", timestamp: 1_700_000_000, invocation_id: "11111111111111111111111111111111" }],
         invocations: [],
         next_cursor: null,
       }),

@@ -198,17 +198,13 @@ PRERELEASE_PAYLOAD = {
         ("prerelease", "examples-v0.2.0-rc1"),
     ],
 )
-def test_fetch_latest_with_a_tag_prefix_selects_the_newest_matching_release(
-    channel: str, expected_tag: str
-) -> None:
+def test_fetch_latest_with_a_tag_prefix_selects_the_newest_matching_release(channel: str, expected_tag: str) -> None:
     payload = [
         {**VALID_PAYLOAD, "tag_name": "v0.1.1", "draft": False, "prerelease": False},
         {**PRERELEASE_PAYLOAD, "tag_name": "examples-v0.2.0-rc1", "prerelease": True},
         {**VALID_PAYLOAD, "tag_name": "examples-v0.1.0", "draft": False, "prerelease": False},
     ]
-    source = GitHubReleaseSource(
-        channel=channel, tag_prefix="examples-v", opener=_opener_returning(payload)
-    )
+    source = GitHubReleaseSource(channel=channel, tag_prefix="examples-v", opener=_opener_returning(payload))
 
     release = source.fetch_latest()
 
@@ -231,6 +227,25 @@ def test_fetch_latest_with_a_tag_prefix_raises_no_release_when_nothing_matches(p
         source.fetch_latest()
 
     assert excinfo.value.code == "no_release"
+
+
+def test_fetch_latest_with_a_tag_prefix_looks_past_a_full_page_of_other_releases() -> None:
+    # devkit keeps cutting SDK releases after an examples release; once more
+    # than a page of them pile up, the catalog release is on page two.
+    import urllib.parse
+
+    sdk_page = [
+        {**VALID_PAYLOAD, "tag_name": f"v0.1.{n}", "draft": False, "prerelease": False} for n in range(100, 0, -1)
+    ]
+    pages = {1: sdk_page, 2: [{**VALID_PAYLOAD, "tag_name": "examples-v0.1.0", "draft": False, "prerelease": False}]}
+
+    def opener(request: urllib.request.Request, timeout: float) -> _FakeResponse:
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(request.full_url).query)
+        return _FakeResponse(pages.get(int(query.get("page", ["1"])[0]), []))
+
+    source = GitHubReleaseSource(channel="stable", tag_prefix="examples-v", opener=opener)
+
+    assert source.fetch_latest().tag == "examples-v0.1.0"
 
 
 def test_fetch_latest_on_the_prerelease_channel_resolves_the_newest_non_draft_entry() -> None:
@@ -260,7 +275,7 @@ def test_fetch_latest_on_the_prerelease_channel_uses_the_release_list_url() -> N
     source.fetch_latest()
 
     request = captured["request"]
-    assert request.full_url == "https://api.github.com/repos/Jizai-inc/palmimo-portal/releases?per_page=100"
+    assert request.full_url == "https://api.github.com/repos/Jizai-inc/palmimo-portal/releases?per_page=100&page=1"
 
 
 def test_fetch_latest_on_the_prerelease_channel_raises_no_release_when_only_drafts_exist() -> None:

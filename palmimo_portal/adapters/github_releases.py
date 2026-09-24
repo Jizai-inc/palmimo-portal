@@ -1,15 +1,17 @@
 """Real :class:`~palmimo_portal.ports.ReleaseSource`: GitHub's Releases API.
 
-``channel == "stable"`` (default, without a tag prefix) calls ``GET
+``channel == "stable"`` without a tag prefix calls ``GET
 /repos/<repo>/releases/latest`` -- GitHub's own endpoint for "the most
-recent non-prerelease, non-draft release", so this adapter never filters a
-release list itself for that channel. A tag prefix or ``channel == "prerelease"`` (the
-dev-machine opt-in -- see ``PALMIMO_UPDATE_CHANNEL`` in ``settings.py``)
-instead lists the 100 most recent releases and picks the first non-draft
-one, prereleases included, so a published rc is discoverable without
-disturbing ``releases/latest`` for every other device. Uses ``urllib``
-(stdlib), not ``httpx``/``requests``: one occasional request doesn't need
-an HTTP client.
+recent non-prerelease, non-draft release". With a tag prefix, or with
+``channel == "prerelease"`` (the dev-machine opt-in -- see
+``PALMIMO_UPDATE_CHANNEL`` in ``settings.py``), it instead walks the release
+list newest first, a page at a time, and picks the first non-draft release
+the channel admits (prereleases only on the prerelease channel) whose tag
+has the prefix. That keeps a published rc discoverable without disturbing
+``releases/latest`` for every other device, and lets the catalog pick its
+own releases out of a repository that also publishes others. Uses
+``urllib`` (stdlib), not ``httpx``/``requests``: one occasional request
+doesn't need an HTTP client.
 """
 
 from __future__ import annotations
@@ -30,11 +32,14 @@ logger = logging.getLogger("palmimo_portal")
 
 DEFAULT_TIMEOUT_SECONDS = 10.0
 
-#: How many of the most recent releases the list-based selection fetches: the
-#: API maximum, because a tag prefix must see past a run of other releases
-#: (devkit interleaves SDK releases and rcs with the examples releases).
-#: GitHub orders this endpoint by created date descending.
+#: Page size for the list-based selection: the API maximum. GitHub orders
+#: this endpoint by created date descending.
 PRERELEASE_LIST_PAGE_SIZE = 100
+
+#: Pages the list-based selection walks before giving up. A tag prefix has to
+#: see past runs of other releases (devkit interleaves SDK releases and rcs
+#: with its examples releases); each page costs one unauthenticated API call.
+RELEASE_LIST_MAX_PAGES = 10
 
 #: What :attr:`GitHubReleaseSource.opener` is called with: a fully-built
 #: :class:`urllib.request.Request` and the timeout in seconds. Must return a
@@ -121,17 +126,20 @@ class GitHubReleaseSource(ReleaseSource):
         return _release_from_payload(payload)
 
     def _fetch_latest_from_list(self) -> Release:
-        payload = self._request(
-            f"https://api.github.com/repos/{self.repo}/releases?per_page={PRERELEASE_LIST_PAGE_SIZE}"
-        )
-        if not isinstance(payload, list):
-            raise ReleaseSourceError("release_source_unavailable", f"unexpected response shape: {payload!r}")
-        for entry in payload:
-            if not isinstance(entry, dict) or entry.get("draft", False):
-                continue
-            if self.channel != "prerelease" and entry.get("prerelease", False):
-                continue
-            if self.tag_prefix is not None and not str(entry.get("tag_name", "")).startswith(self.tag_prefix):
-                continue
-            return _release_from_payload(entry)
+        for page in range(1, RELEASE_LIST_MAX_PAGES + 1):
+            payload = self._request(
+                f"https://api.github.com/repos/{self.repo}/releases?per_page={PRERELEASE_LIST_PAGE_SIZE}&page={page}"
+            )
+            if not isinstance(payload, list):
+                raise ReleaseSourceError("release_source_unavailable", f"unexpected response shape: {payload!r}")
+            for entry in payload:
+                if not isinstance(entry, dict) or entry.get("draft", False):
+                    continue
+                if self.channel != "prerelease" and entry.get("prerelease", False):
+                    continue
+                if self.tag_prefix is not None and not str(entry.get("tag_name", "")).startswith(self.tag_prefix):
+                    continue
+                return _release_from_payload(entry)
+            if len(payload) < PRERELEASE_LIST_PAGE_SIZE:
+                break
         raise ReleaseSourceError("no_release", f"no releases found for {self.repo}")

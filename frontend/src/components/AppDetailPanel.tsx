@@ -39,7 +39,7 @@ import { Label } from "@/components/ui/label";
 import { appStatusLabel, appStatusTone, isAppStatusBusy } from "@/lib/appStatus";
 import { copyText } from "@/lib/copyText";
 import { deviceLabel } from "@/lib/deviceLabel";
-import { formatUtcTimestamp } from "@/lib/formatTimestamp";
+import { formatLocalTimestamp, formatUtcTimestamp } from "@/lib/formatTimestamp";
 import { useAppLogs } from "@/lib/useAppLogs";
 
 export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: string; onDeleted?: () => void }) {
@@ -372,16 +372,15 @@ function LogsSection({ name, status }: { name: string; status: string }) {
   return (
     <Section title={t("appDetail.logsTitle")}>
       <div className="flex flex-wrap items-center gap-2">
-        {invocations.length > 1 ? (
+        {invocations.length > 1 && invocation !== null ? (
           <select
             aria-label={t("appDetail.logsInvocationLabel")}
             className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
             value={invocation ?? ""}
-            onChange={(event) => setInvocation(event.target.value || null)}
+            onChange={(event) => setInvocation(event.target.value)}
           >
-            <option value="">{t("appDetail.logsInvocationCurrent")}</option>
-            {invocations.map((id) => (
-              <option key={id} value={id}>{t("appDetail.logsInvocationPrevious", { invocation: id })}</option>
+            {invocations.map((start) => (
+              <option key={start.id} value={start.id}>{t("appDetail.logsInvocationAt", { time: formatLocalTimestamp(start.started_at) })}</option>
             ))}
           </select>
         ) : null}

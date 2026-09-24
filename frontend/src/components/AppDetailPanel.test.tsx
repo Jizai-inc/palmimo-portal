@@ -119,7 +119,7 @@ describe("AppDetailPanel", () => {
     expect(within(select).getByRole("option", { name: "trot" })).toBeInTheDocument();
   });
 
-  it("shows a previous-start option in the invocation select and refetches logs for it", async () => {
+  it("shows only the selected invocation's logs", async () => {
     const user = userEvent.setup();
     let lastInvocationParam: string | null = null;
     server.use(
@@ -132,19 +132,26 @@ describe("AppDetailPanel", () => {
         const raw = url.searchParams.get("invocation");
         lastInvocationParam = raw && raw !== "null" ? raw : null;
         return HttpResponse.json({
-          entries: [{ message: lastInvocationParam ? "old start line" : "current start line", timestamp: 1, invocation_id: "inv-1" }],
-          invocations: ["inv-1", "inv-0"],
+          entries: lastInvocationParam === "inv-0"
+            ? [{ message: "old start line", timestamp: 1, invocation_id: "inv-0" }]
+            : [
+                { message: "old start line", timestamp: 1, invocation_id: "inv-0" },
+                { message: "current start line", timestamp: 2, invocation_id: "inv-1" },
+              ],
+          invocations: [{ id: "inv-1", started_at: 2 }, { id: "inv-0", started_at: 1 }],
           next_cursor: null,
         });
       }),
     );
     renderWithRouter(<AppDetailPanel name="palmimo-teleop" />);
 
-    await screen.findByText("current start line");
-    await user.selectOptions(screen.getByLabelText("Start"), "inv-0");
+    const startSelect = await screen.findByLabelText("Start");
+    await waitFor(() => expect(startSelect).toHaveValue("inv-1"));
+    await user.selectOptions(startSelect, "inv-0");
 
     await waitFor(() => expect(lastInvocationParam).toBe("inv-0"));
     expect(await screen.findByText("old start line")).toBeInTheDocument();
+    expect(screen.queryByText("current start line")).not.toBeInTheDocument();
   });
 
   it("toggles autostart with a PUT of {enabled: true}", async () => {

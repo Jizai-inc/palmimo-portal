@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from palmimo_portal.adapters.journal import JournalctlPort
+from palmimo_portal.ports import JournalInvocation
 
 
 def _journal_line(message: str, invocation_id: str, timestamp_us: int) -> str:
@@ -33,7 +34,7 @@ def test_read_lists_a_previous_invocation_once_the_current_run_exceeds_the_page(
     tail = new_lines[-3:]
 
     def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        if "--output-fields=_SYSTEMD_INVOCATION_ID" in args:
+        if any(arg.startswith("--output-fields=_SYSTEMD_INVOCATION_ID") for arg in args):
             return subprocess.CompletedProcess(args, 0, stdout="\n".join(old_lines + new_lines), stderr="")
         return subprocess.CompletedProcess(args, 0, stdout="\n".join(tail), stderr="")
 
@@ -42,12 +43,15 @@ def test_read_lists_a_previous_invocation_once_the_current_run_exceeds_the_page(
     page = JournalctlPort().read("palmimo-app@teleop.service", cursor=None, lines=3)
 
     assert [entry.message for entry in page.entries] == ["new-2", "new-3", "new-4"]
-    assert page.invocations == ["inv-old", "inv-new"]
+    assert page.invocations == [
+        JournalInvocation(id="inv-new", started_at=2.0),
+        JournalInvocation(id="inv-old", started_at=1.0),
+    ]
 
 
 def test_read_returns_no_invocations_when_the_listing_call_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_run(args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
-        if "--output-fields=_SYSTEMD_INVOCATION_ID" in args:
+        if any(arg.startswith("--output-fields=_SYSTEMD_INVOCATION_ID") for arg in args):
             raise OSError("journalctl not found")
         return subprocess.CompletedProcess(args, 0, stdout=_journal_line("hello", "inv-1", 1_000_000), stderr="")
 

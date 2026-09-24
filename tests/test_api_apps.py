@@ -918,7 +918,10 @@ def test_logs_filters_by_invocation(client: TestClient, adapters: FakeAdapterBun
     response = client.get("/api/v1/apps/palmimo-teleop/logs", params={"invocation": "inv-2"})
 
     assert [entry["message"] for entry in response.json()["entries"]] == ["new"]
-    assert response.json()["invocations"] == ["inv-1", "inv-2"]
+    assert response.json()["invocations"] == [
+        {"id": "inv-2", "started_at": 2.0},
+        {"id": "inv-1", "started_at": 1.0},
+    ]
 
 
 def test_logs_lists_a_previous_invocation_once_the_current_run_exceeds_the_page(
@@ -939,4 +942,7 @@ def test_logs_lists_a_previous_invocation_once_the_current_run_exceeds_the_page(
     response = client.get("/api/v1/apps/palmimo-teleop/logs", params={"lines": 3, "cursor": "1"})
 
     assert [entry["message"] for entry in response.json()["entries"]] == ["new-0", "new-1", "new-2"]
-    assert response.json()["invocations"] == ["inv-1", "inv-2"]
+    assert response.json()["invocations"] == [
+        {"id": "inv-2", "started_at": 2.0},
+        {"id": "inv-1", "started_at": 1.0},
+    ]

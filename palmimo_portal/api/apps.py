@@ -366,10 +366,15 @@ class JournalEntryInfo(BaseModel):
     invocation_id: str | None
 
 
+class JournalInvocationInfo(BaseModel):
+    id: str
+    started_at: float | None
+
+
 class LogsResponse(BaseModel):
     entries: list[JournalEntryInfo] = []
     next_cursor: str | None = None
-    invocations: list[str] = []
+    invocations: list[JournalInvocationInfo] = []
     unavailable: Literal["journal_permission"] | None = None
 
 
@@ -1134,7 +1139,9 @@ def get_logs(
             for entry in page.entries
         ],
         next_cursor=page.next_cursor,
-        invocations=page.invocations,
+        invocations=[
+            JournalInvocationInfo(id=invocation.id, started_at=invocation.started_at) for invocation in page.invocations
+        ],
     )
 
 

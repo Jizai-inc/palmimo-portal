@@ -30,3 +30,10 @@ export function formatUtcTimestamp(timestampSeconds: number, { withYear = true, 
   }
   return `${datePart} ${pad2(date.getUTCHours())}:${pad2(date.getUTCMinutes())} UTC`;
 }
+
+export function formatLocalTimestamp(timestampSeconds: number | null): string {
+  if (timestampSeconds === null || !Number.isFinite(timestampSeconds)) {
+    return "--";
+  }
+  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestampSeconds * 1000);
+}

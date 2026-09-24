@@ -37,6 +37,7 @@ export * from './gitCredentialsListResponse';
 export * from './hTTPValidationError';
 export * from './installedInfo';
 export * from './journalEntryInfo';
+export * from './journalInvocationInfo';
 export * from './loginResponse';
 export * from './logsResponse';
 export * from './manifestPreviewResponse';

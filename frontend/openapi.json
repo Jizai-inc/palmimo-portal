@@ -926,6 +926,31 @@
         "title": "JournalEntryInfo",
         "type": "object"
       },
+      "JournalInvocationInfo": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          }
+        },
+        "required": [
+          "id",
+          "started_at"
+        ],
+        "title": "JournalInvocationInfo",
+        "type": "object"
+      },
       "LoginResponse": {
         "properties": {
           "mode": {
@@ -957,7 +982,7 @@
           "invocations": {
             "default": [],
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/JournalInvocationInfo"
             },
             "title": "Invocations",
             "type": "array"

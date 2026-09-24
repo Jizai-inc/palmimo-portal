@@ -54,6 +54,7 @@ from palmimo_portal.ports import (
     IdentityUnavailable,
     InstalledVersion,
     JournalEntry,
+    JournalInvocation,
     JournalPage,
     JournalPort,
     KeyNotFoundError,
@@ -971,15 +972,13 @@ class FakeJournalPort(JournalPort):
         start = int(cursor) if cursor is not None else 0
         page = entries[start : start + lines]
         next_cursor = str(start + len(page)) if start + len(page) < len(entries) else None
-        # Drawn from `all_entries`, not `page`/`entries` -- the UI's "view a previous start"
-        # list must survive the current run growing past `lines`, mirroring
-        # JournalctlPort._list_invocations's separate, whole-journal query. Capped and ordered
-        # like that method: oldest first, at most the most recent 20.
-        invocations: dict[str, None] = {}
+        invocations: dict[str, float | None] = {}
         for entry in all_entries:
             if entry.invocation_id is not None:
-                invocations[entry.invocation_id] = None
-        return JournalPage(entries=page, next_cursor=next_cursor, invocations=list(invocations)[-20:])
+                invocations.setdefault(entry.invocation_id, entry.timestamp)
+        starts = [JournalInvocation(id=id, started_at=started_at) for id, started_at in invocations.items()]
+        starts.sort(key=lambda start: (start.started_at is not None, start.started_at or 0), reverse=True)
+        return JournalPage(entries=page, next_cursor=next_cursor, invocations=starts[:20])
 
     def can_read(self) -> bool:
         return self.readable

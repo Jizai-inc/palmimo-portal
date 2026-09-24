@@ -1311,12 +1311,20 @@ class JournalEntry:
 
 
 @dataclass(frozen=True)
+class JournalInvocation:
+    """One systemd invocation and the time of its first journal entry."""
+
+    id: str
+    started_at: float | None
+
+
+@dataclass(frozen=True)
 class JournalPage:
     """One page of journal entries, plus a cursor for the next page and every invocation id seen so far."""
 
     entries: list[JournalEntry]
     next_cursor: str | None
-    invocations: list[str]
+    invocations: list[JournalInvocation]
 
 
 class JournalPort(Protocol):

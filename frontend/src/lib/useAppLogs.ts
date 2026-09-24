@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { useGetLogsApiV1AppsNameLogsGet } from "@/api/generated/apps/apps";
-import type { JournalEntryInfo } from "@/api/generated/models";
+import type { JournalEntryInfo, JournalInvocationInfo } from "@/api/generated/models";
 
 /** How often to re-poll logs while the app is running (design doc 3.7). */
 export const LOG_POLL_INTERVAL_MS = 2_000;
@@ -28,7 +28,7 @@ export function appendCapped(current: LogHistory, incoming: JournalEntryInfo[], 
 
 export interface UseAppLogsResult {
   unavailable: "journal_permission" | null | undefined;
-  invocations: string[];
+  invocations: JournalInvocationInfo[];
   invocation: string | null;
   setInvocation: (invocation: string | null) => void;
   accumulated: JournalEntryInfo[];
@@ -59,6 +59,13 @@ export function useAppLogs(name: string, status: string): UseAppLogsResult {
     { query: { refetchInterval: status === "running" ? LOG_POLL_INTERVAL_MS : false } },
   );
 
+  useEffect(() => {
+    const latest = logs?.invocations?.[0]?.id;
+    if (invocation === null && latest) {
+      setInvocation(latest);
+    }
+  }, [invocation, logs?.invocations]);
+
   // Switching invocations starts a fresh cursor/accumulation -- the previous invocation's
   // entries are a different journal window, not a continuation.
   useEffect(() => {
@@ -70,13 +77,13 @@ export function useAppLogs(name: string, status: string): UseAppLogsResult {
   // off, so the next poll (or a manual "load more" while not polling) only carries the entries
   // since then, appended (capped at LOG_HISTORY_CAP) rather than replacing what's already shown.
   useEffect(() => {
-    if (!logs || logs.unavailable) return;
+    if (!logs || logs.unavailable || (invocation !== null && (logs.entries ?? []).some((entry) => entry.invocation_id !== invocation))) return;
     setHistory((current) => appendCapped(current, logs.entries ?? [], LOG_HISTORY_CAP));
     if (logs.next_cursor) {
       setCursor(logs.next_cursor);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [logs]);
+  }, [logs, invocation]);
 
   return {
     unavailable: logs?.unavailable,

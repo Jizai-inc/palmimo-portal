@@ -5,10 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { JournalEntryInfo } from './journalEntryInfo';
+import type { JournalInvocationInfo } from './journalInvocationInfo';
 
 export interface LogsResponse {
   entries?: JournalEntryInfo[];
-  invocations?: string[];
+  invocations?: JournalInvocationInfo[];
   next_cursor?: string | null;
   unavailable?: 'journal_permission' | null;
 }

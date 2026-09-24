@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { appLogsSubtitle } from "@/lib/appLogsSubtitle";
 import { appStatusLabel, appStatusTone, isAppStatusBusy } from "@/lib/appStatus";
 import { copyText } from "@/lib/copyText";
-import { formatUtcTimestamp } from "@/lib/formatTimestamp";
+import { formatLocalTimestamp, formatUtcTimestamp } from "@/lib/formatTimestamp";
 import { useAppLogs } from "@/lib/useAppLogs";
 
 /** The full-page app logs view (design doc D18b). Route + `AppShell` chrome live in routes/apps_.$name_.logs.tsx. */
@@ -34,7 +34,10 @@ export function AppLogsPanel({ name }: { name: string }) {
 
   const tone = appStatusTone(app.status);
   const busy = isAppStatusBusy(app.status);
-  const isCurrentInvocation = invocation === null;
+  // `invocation` is auto-selected to `invocations[0]` once the list loads (see useAppLogs), so
+  // `null` (before that load) and a match against the newest entry both mean "showing the
+  // current run" -- a stale match against an older list order would otherwise never occur here.
+  const isCurrentInvocation = invocation === null || invocation === invocations[0]?.id;
   const subtitle = appLogsSubtitle(t, {
     isCurrentInvocation,
     isLive: isCurrentInvocation && app.status === "running",
@@ -58,16 +61,15 @@ export function AppLogsPanel({ name }: { name: string }) {
           </Badge>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {invocations.length > 1 ? (
+          {invocations.length > 1 && invocation !== null ? (
             <select
               aria-label={t("appDetail.logsInvocationLabel")}
               className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
               value={invocation ?? ""}
-              onChange={(event) => setInvocation(event.target.value || null)}
+              onChange={(event) => setInvocation(event.target.value)}
             >
-              <option value="">{t("appDetail.logsInvocationCurrent")}</option>
-              {invocations.map((id) => (
-                <option key={id} value={id}>{t("appDetail.logsInvocationPrevious", { invocation: id })}</option>
+              {invocations.map((start) => (
+                <option key={start.id} value={start.id}>{t("appDetail.logsInvocationAt", { time: formatLocalTimestamp(start.started_at) })}</option>
               ))}
             </select>
           ) : null}

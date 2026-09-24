@@ -13,7 +13,7 @@ import logging
 import os
 import subprocess
 
-from palmimo_portal.ports import JournalEntry, JournalPage, JournalPort
+from palmimo_portal.ports import JournalEntry, JournalInvocation, JournalPage, JournalPort
 
 
 logger = logging.getLogger("palmimo_portal")
@@ -67,8 +67,8 @@ class JournalctlPort(JournalPort):
                 next_cursor = cursor_value
         return JournalPage(entries=entries, next_cursor=next_cursor, invocations=self._list_invocations(unit))
 
-    def _list_invocations(self, unit: str) -> list[str]:
-        """Return up to :data:`_INVOCATION_LIST_LIMIT` invocation ids for ``unit``, oldest first.
+    def _list_invocations(self, unit: str) -> list[JournalInvocation]:
+        """Return up to :data:`_INVOCATION_LIST_LIMIT` invocation starts for ``unit``, newest first.
 
         A separate, field-restricted ``journalctl`` call over the unit's whole journal --
         :meth:`read`'s own ``-n lines`` tail only ever sees the *current* run once it has produced
@@ -83,20 +83,23 @@ class JournalctlPort(JournalPort):
             "json",
             "--no-pager",
             "-q",
-            "--output-fields=_SYSTEMD_INVOCATION_ID",
+            "--output-fields=_SYSTEMD_INVOCATION_ID,__REALTIME_TIMESTAMP",
         ]
         try:
             result = subprocess.run(args, capture_output=True, text=True, timeout=_READ_TIMEOUT_SECONDS, check=False)
         except (OSError, subprocess.TimeoutExpired) as error:
             logger.error("journal: journalctl invocation listing failed for unit=%s: %s", unit, error)
             return []
-        invocations: dict[str, None] = {}
+        invocations: dict[str, float | None] = {}
         for line in result.stdout.splitlines():
             try:
                 record = json.loads(line)
             except json.JSONDecodeError:
                 continue
             invocation_id = record.get("_SYSTEMD_INVOCATION_ID")
-            if invocation_id is not None:
-                invocations[invocation_id] = None
-        return list(invocations)[-_INVOCATION_LIST_LIMIT:]
+            if invocation_id is not None and invocation_id not in invocations:
+                timestamp_us = record.get("__REALTIME_TIMESTAMP")
+                invocations[invocation_id] = (float(timestamp_us) / 1_000_000) if timestamp_us is not None else None
+        starts = [JournalInvocation(id=id, started_at=started_at) for id, started_at in invocations.items()]
+        starts.sort(key=lambda start: (start.started_at is not None, start.started_at or 0), reverse=True)
+        return starts[:_INVOCATION_LIST_LIMIT]

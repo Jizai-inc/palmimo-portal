@@ -10,12 +10,12 @@ import { Button } from "@/components/ui/button";
 import { appLogsSubtitle } from "@/lib/appLogsSubtitle";
 import { appStatusLabel, appStatusTone, isAppStatusBusy } from "@/lib/appStatus";
 import { copyText } from "@/lib/copyText";
-import { formatLocalTimestamp, formatUtcTimestamp } from "@/lib/formatTimestamp";
+import { formatLocalTimestamp } from "@/lib/formatTimestamp";
 import { useAppLogs } from "@/lib/useAppLogs";
 
 /** The full-page app logs view (design doc D18b). Route + `AppShell` chrome live in routes/apps_.$name_.logs.tsx. */
 export function AppLogsPanel({ name }: { name: string }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
 
@@ -23,7 +23,7 @@ export function AppLogsPanel({ name }: { name: string }) {
     query: { refetchInterval: (query) => (query.state.data && isAppStatusBusy(query.state.data.status) ? 3_000 : false) },
   });
   const status = app?.status ?? "stopped";
-  const { unavailable, invocations, invocation, setInvocation, accumulated, truncated, text } = useAppLogs(name, status);
+  const { unavailable, invocations, invocation, setInvocation, isCurrentInvocation, accumulated, truncated, text } = useAppLogs(name, status);
 
   if (error) {
     return <ApiErrorAlert error={error} />;
@@ -34,10 +34,6 @@ export function AppLogsPanel({ name }: { name: string }) {
 
   const tone = appStatusTone(app.status);
   const busy = isAppStatusBusy(app.status);
-  // `invocation` is auto-selected to `invocations[0]` once the list loads (see useAppLogs), so
-  // `null` (before that load) and a match against the newest entry both mean "showing the
-  // current run" -- a stale match against an older list order would otherwise never occur here.
-  const isCurrentInvocation = invocation === null || invocation === invocations[0]?.id;
   const subtitle = appLogsSubtitle(t, {
     isCurrentInvocation,
     isLive: isCurrentInvocation && app.status === "running",
@@ -69,7 +65,9 @@ export function AppLogsPanel({ name }: { name: string }) {
               onChange={(event) => setInvocation(event.target.value)}
             >
               {invocations.map((start) => (
-                <option key={start.id} value={start.id}>{t("appDetail.logsInvocationAt", { time: formatLocalTimestamp(start.started_at) })}</option>
+                <option key={start.id} value={start.id}>
+                  {t("appDetail.logsInvocationAt", { time: formatLocalTimestamp(start.started_at, { locale: i18n.language }) })}
+                </option>
               ))}
             </select>
           ) : null}
@@ -97,7 +95,7 @@ export function AppLogsPanel({ name }: { name: string }) {
               {accumulated.map((entry, index) => (
                 <div key={index} className="flex gap-3">
                   <span className="shrink-0 text-muted-foreground">
-                    {entry.timestamp !== null ? formatUtcTimestamp(entry.timestamp, { withYear: false }) : "--"}
+                    {entry.timestamp !== null ? formatLocalTimestamp(entry.timestamp, { withYear: false, locale: i18n.language }) : "--"}
                   </span>
                   <span className="whitespace-pre-wrap">{entry.message}</span>
                 </div>

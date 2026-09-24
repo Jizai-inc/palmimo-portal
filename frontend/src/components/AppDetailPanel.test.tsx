@@ -1,7 +1,8 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { focusManager } from "@tanstack/react-query";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getGetAppApiV1AppsNameGetMockHandler, getGetLogsApiV1AppsNameLogsGetMockHandler } from "@/api/generated/apps/apps.msw";
 import { getListSecretsApiV1SecretsGetMockHandler } from "@/api/generated/secrets/secrets.msw";
@@ -222,6 +223,94 @@ describe("AppDetailPanel", () => {
 
     await screen.findByLabelText("port");
     expect(screen.getByText("The port to serve on.")).toBeInTheDocument();
+  });
+
+  describe("following a newly started invocation", () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    // Without following `invocations[0]` on every poll rather than fixing the choice once
+    // (auto-selected from the stopped app's last run), starting the app would keep polling the
+    // old, stale invocation and never surface the new run's own logs.
+    it("shows the new run's logs once a stopped app is started", async () => {
+      const user = userEvent.setup();
+      let running = false;
+      server.use(
+        http.get("*/api/v1/apps/palmimo-teleop", () => HttpResponse.json(detail({ status: running ? "running" : "stopped" }))),
+        getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+        http.post("*/api/v1/apps/palmimo-teleop/start", () => {
+          running = true;
+          return HttpResponse.json({ status: "activating" }, { status: 202 });
+        }),
+        http.get("*/api/v1/apps/palmimo-teleop/logs", ({ request }) => {
+          const url = new URL(request.url);
+          const raw = url.searchParams.get("invocation");
+          const requested = raw && raw !== "null" ? raw : null;
+          const invocations = running
+            ? [{ id: "inv-2", started_at: 2 }, { id: "inv-1", started_at: 1 }]
+            : [{ id: "inv-1", started_at: 1 }];
+          const allEntries = [
+            { message: "old run line", timestamp: 1, invocation_id: "inv-1" },
+            ...(running ? [{ message: "new run line", timestamp: 2, invocation_id: "inv-2" }] : []),
+          ];
+          const entries = requested ? allEntries.filter((entry) => entry.invocation_id === requested) : allEntries;
+          return HttpResponse.json({ entries, invocations, next_cursor: null });
+        }),
+      );
+      renderWithRouter(<AppDetailPanel name="palmimo-teleop" />);
+
+      await waitFor(() => expect(screen.getByText("old run line")).toBeInTheDocument());
+
+      await user.click(await screen.findByRole("button", { name: "Start" }));
+      await act(() => vi.advanceTimersByTimeAsync(2_000));
+
+      await waitFor(() => expect(screen.getByText("new run line")).toBeInTheDocument());
+    });
+  });
+
+  // AppJobDialog's `onDone` fires the moment the delete job is observed done, but the operator
+  // may not click "Close" right away -- any other fetch of the now-deleted app in that window
+  // (e.g. a window-focus refetch) must not take the whole panel down with it.
+  it("stays answerable after a stray app refetch 404s once the delete has finished", async () => {
+    const user = userEvent.setup();
+    const onDeleted = vi.fn();
+    server.use(
+      getGetAppApiV1AppsNameGetMockHandler(detail()),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+      http.delete("*/api/v1/apps/palmimo-teleop", () =>
+        HttpResponse.json({ job: { id: "job-del", kind: "delete", state: "running", step: "register", error: null, started_at: 1, finished_at: null, dropped_bindings: [], dropped_params: [], lock_generated: false } }, { status: 202 }),
+      ),
+      http.get("*/api/v1/apps/jobs/job-del", () =>
+        HttpResponse.json({ id: "job-del", kind: "delete", state: "done", step: "register", error: null, started_at: 1, finished_at: 2, dropped_bindings: [], dropped_params: [], lock_generated: false }),
+      ),
+    );
+    renderWithRouter(<AppDetailPanel name="palmimo-teleop" onDeleted={onDeleted} />);
+
+    await user.click(await screen.findByRole("button", { name: "Delete this app" }));
+    const dialog = screen.getByRole("alertdialog");
+    await user.click(within(dialog).getByRole("button", { name: "Delete app" }));
+    await screen.findByRole("status");
+
+    server.use(
+      http.get("*/api/v1/apps/palmimo-teleop", () =>
+        HttpResponse.json({ error: { code: "app_not_found", params: {} } }, { status: 404 }),
+      ),
+    );
+    // Regains window focus, the real trigger the report described -- react-query's own
+    // `refetchOnWindowFocus` refetch, which (unlike a manual `refetchQueries` call) respects the
+    // app query being disabled for the duration of the delete job.
+    await act(async () => {
+      focusManager.setFocused(false);
+      focusManager.setFocused(true);
+    });
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(onDeleted).toHaveBeenCalled());
   });
 
   it("deletes the app after confirming the dialog, then reports completion once the job finishes", async () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatUtcTimestamp } from "@/lib/formatTimestamp";
+import { formatLocalTimestamp, formatUtcTimestamp } from "@/lib/formatTimestamp";
 
 describe("formatUtcTimestamp", () => {
   it("renders a fixed epoch as an exact UTC string, regardless of the runner's local timezone", () => {
@@ -34,5 +34,28 @@ describe("formatUtcTimestamp", () => {
     expect(formatUtcTimestamp(NaN)).toBe("--");
     expect(formatUtcTimestamp(Infinity)).toBe("--");
     expect(formatUtcTimestamp(-Infinity)).toBe("--");
+  });
+});
+
+describe("formatLocalTimestamp", () => {
+  // Without a `locale` parameter this falls back to the runtime's own locale, which can differ
+  // from the language the UI is actually showing (i18n) -- passing it explicitly is what keeps
+  // the two in sync.
+  it("formats using the given locale instead of the runtime default", () => {
+    const timestamp = Date.UTC(2026, 7, 20, 10, 31, 0) / 1000;
+
+    expect(formatLocalTimestamp(timestamp, { locale: "ja-JP" })).toContain("年");
+    expect(formatLocalTimestamp(timestamp, { locale: "en-US" })).not.toContain("年");
+  });
+
+  it("omits the year when withYear is false", () => {
+    const timestamp = Date.UTC(2026, 7, 20, 10, 31, 0) / 1000;
+
+    expect(formatLocalTimestamp(timestamp, { withYear: false, locale: "en-US" })).not.toMatch(/2026/);
+  });
+
+  it("renders a placeholder for a null or non-finite timestamp", () => {
+    expect(formatLocalTimestamp(null)).toBe("--");
+    expect(formatLocalTimestamp(NaN)).toBe("--");
   });
 });

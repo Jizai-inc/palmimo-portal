@@ -86,7 +86,11 @@ export function AppJobDialog({
             <ProgressBar label={t("common.inProgress")} />
           </div>
         )}
-        <p className="text-xs text-muted-foreground">{t("apps.jobDialogCloseNote")}</p>
+        {/* Nothing left to cancel once the job has settled (or was never found) -- the note only
+            applies while it is still running. */}
+        {!jobUnknown && job?.state !== "done" && job?.state !== "failed" ? (
+          <p className="text-xs text-muted-foreground">{t("apps.jobDialogCloseNote")}</p>
+        ) : null}
         <AlertDialogFooter>
           <Button variant="outline" onClick={onClose}>
             {t("apps.jobClose")}

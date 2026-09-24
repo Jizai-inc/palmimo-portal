@@ -31,12 +31,18 @@ export interface UseAppLogsResult {
   invocations: JournalInvocationInfo[];
   invocation: string | null;
   setInvocation: (invocation: string | null) => void;
+  /**
+   * True while showing the unit's newest known run rather than one the caller pinned by picking
+   * an older entry from `invocations`. The backend exposes no "this is the unit's current
+   * invocation" field, so this is inferred: not pinned == following the newest id `invocations`
+   * reports, which is also the id a running app is presumed to be on.
+   */
+  isCurrentInvocation: boolean;
   accumulated: JournalEntryInfo[];
   /** True once older entries have been dropped to stay under `LOG_HISTORY_CAP`. */
   truncated: boolean;
   text: string;
   refetch: () => void;
-  /** Earliest known timestamp among the shown invocation's loaded entries, or `null` if none carry one yet. */
 }
 
 /**
@@ -45,9 +51,21 @@ export interface UseAppLogsResult {
  * (design doc 3.2/3.8) exists in exactly one place.
  */
 export function useAppLogs(name: string, status: string): UseAppLogsResult {
-  const [invocation, setInvocation] = useState<string | null>(null);
+  // `null` means "follow the newest run" -- re-derived from the latest response's `invocations`
+  // on every render, not captured once, so a run that starts or restarts while this is open is
+  // picked up on the next poll instead of leaving the view pinned to whatever was newest at
+  // mount/selection time. Only an explicit pick from the invocation dropdown fixes this to an id.
+  const [pinnedInvocation, setPinnedInvocation] = useState<string | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [history, setHistory] = useState<LogHistory>({ entries: [], truncated: false });
+  // Mirrors the query's own `data.invocations`, one render behind: computing this render's
+  // `invocation` (which the query below is parameterized on) from this render's own query result
+  // would be circular, so "follow" reads the previous response's list instead. An effect syncing
+  // this after each response converges within one extra poll of a run starting or restarting.
+  const [knownInvocations, setKnownInvocations] = useState<JournalInvocationInfo[]>([]);
+
+  const invocation = pinnedInvocation ?? knownInvocations[0]?.id ?? null;
+
   // The generated client serializes an explicit `null` param as the literal query string
   // "null" rather than omitting it (`getGetLogsApiV1AppsNameLogsGetUrl`'s
   // `value === null ? 'null' : String(value)`), which the backend would bind as that literal
@@ -60,11 +78,18 @@ export function useAppLogs(name: string, status: string): UseAppLogsResult {
   );
 
   useEffect(() => {
-    const latest = logs?.invocations?.[0]?.id;
-    if (invocation === null && latest) {
-      setInvocation(latest);
+    if (logs?.invocations) setKnownInvocations(logs.invocations);
+  }, [logs?.invocations]);
+
+  // A pinned invocation that falls out of the last 20 (`invocations`) would otherwise leave the
+  // dropdown showing a selection that no longer matches any option -- fall back to following.
+  useEffect(() => {
+    if (pinnedInvocation !== null && logs?.invocations && logs.invocations.length > 0) {
+      if (!logs.invocations.some((candidate) => candidate.id === pinnedInvocation)) {
+        setPinnedInvocation(null);
+      }
     }
-  }, [invocation, logs?.invocations]);
+  }, [pinnedInvocation, logs?.invocations]);
 
   // Switching invocations starts a fresh cursor/accumulation -- the previous invocation's
   // entries are a different journal window, not a continuation.
@@ -89,7 +114,8 @@ export function useAppLogs(name: string, status: string): UseAppLogsResult {
     unavailable: logs?.unavailable,
     invocations: logs?.invocations ?? [],
     invocation,
-    setInvocation,
+    setInvocation: setPinnedInvocation,
+    isCurrentInvocation: pinnedInvocation === null,
     accumulated: history.entries,
     truncated: history.truncated,
     text: history.entries.map((entry) => entry.message).join("\n"),

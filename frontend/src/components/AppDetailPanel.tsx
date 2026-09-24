@@ -47,14 +47,21 @@ export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: st
   const queryClient = useQueryClient();
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: getGetAppApiV1AppsNameGetQueryKey(name) });
 
-  const { data: app, error } = useGetAppApiV1AppsNameGet(name, {
-    query: { refetchInterval: (query) => (query.state.data && isAppStatusBusy(query.state.data.status) ? 3_000 : false) },
-  });
-
   const [job, setJob] = useState<{ id: string; kind: "update" | "delete" } | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteFinished, setDeleteFinished] = useState(false);
   const [updateCompleted, setUpdateCompleted] = useState(0);
+
+  const { data: app, error } = useGetAppApiV1AppsNameGet(name, {
+    query: {
+      // Once a delete job has started, the app is gone or going -- any further fetch (including
+      // the window-focus refetch while the job dialog is still open) would 404 and, since that
+      // error would otherwise unmount this whole panel below, strand the dialog's "Close" button
+      // (and the onDeleted it triggers) unreachable.
+      enabled: job?.kind !== "delete",
+      refetchInterval: (query) => (query.state.data && isAppStatusBusy(query.state.data.status) ? 3_000 : false),
+    },
+  });
 
   const startApp = useStartAppEndpointApiV1AppsNameStartPost({ mutation: { onSuccess: invalidate } });
   const stopApp = useStopAppEndpointApiV1AppsNameStopPost({ mutation: { onSuccess: invalidate } });
@@ -150,7 +157,7 @@ export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: st
 
       <AppJobDialog
         jobId={job?.id ?? null}
-        title={job?.kind === "delete" ? t("appDetail.deleteProgressTitle", { name: app.name }) : t("apps.jobDialogTitle", { name })}
+        title={job?.kind === "delete" && !deleteFinished ? t("appDetail.deleteProgressTitle", { name: app.name }) : t("apps.jobDialogTitle", { name })}
         completedMessage={job?.kind === "delete" ? t("appDetail.deleteCompleted", { name: app.name }) : undefined}
         onClose={() => {
           setJob(null);
@@ -349,7 +356,7 @@ function ParamsSection({ app, onSaved }: { app: AppDetailResponse; onSaved: () =
 }
 
 function LogsSection({ name, status }: { name: string; status: string }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
   const { unavailable, invocations, invocation, setInvocation, accumulated, text, refetch } = useAppLogs(name, status);
@@ -380,7 +387,9 @@ function LogsSection({ name, status }: { name: string; status: string }) {
             onChange={(event) => setInvocation(event.target.value)}
           >
             {invocations.map((start) => (
-              <option key={start.id} value={start.id}>{t("appDetail.logsInvocationAt", { time: formatLocalTimestamp(start.started_at) })}</option>
+              <option key={start.id} value={start.id}>
+                {t("appDetail.logsInvocationAt", { time: formatLocalTimestamp(start.started_at, { locale: i18n.language }) })}
+              </option>
             ))}
           </select>
         ) : null}

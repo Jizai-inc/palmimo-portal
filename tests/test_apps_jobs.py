@@ -494,6 +494,44 @@ def test_prepare_install_git_rejects_an_official_catalog_tag_at_the_wrong_commit
     assert excinfo.value.reason == "git_commit_mismatch"
 
 
+def test_prepare_install_git_uses_blobless_sparse_clone_for_an_official_catalog_subdir(harness: Harness) -> None:
+    catalog = CatalogCache(
+        FakeCatalogSource(asset=CatalogAsset(tag="v1.0.0", apps=(make_catalog_app(subdir="examples/teleop"),))),
+        FakeStateStore(),
+    )
+    catalog.get(ntp_synchronized=True)
+    ctx = replace(harness.ctx, catalog_cache=catalog, catalog_repo="Jizai-inc/palmimo-devkit")
+
+    def seed(dest: Path, *_: object) -> None:
+        _seed_git_clone(dest / "examples" / "teleop", "palmimo-teleop")
+
+    harness.git.on_clone = seed
+    prepare_install_git(
+        ctx,
+        url="https://github.com/Jizai-inc/palmimo-devkit",
+        ref="v1.0.0",
+        ref_kind="tag",
+        subdir="examples/teleop",
+    )
+
+    assert harness.git.clone_options == [(True, "examples/teleop")]
+
+
+def test_install_git_ignores_a_symlink_outside_a_nonofficial_app_subdir(harness: Harness) -> None:
+    def seed(dest: Path, *_: object) -> None:
+        _seed_git_clone(dest / "app", "palmimo-teleop")
+        dest.mkdir(exist_ok=True)
+        (dest / "outside-link").symlink_to(dest / "does-not-exist")
+
+    harness.git.on_clone = seed
+
+    _, record = install_git(
+        harness.ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch", subdir="app"
+    )
+
+    assert record.source.subdir == "app"
+
+
 def test_update_git_leaves_bindings_intact_when_the_swap_fails(
     harness: Harness, monkeypatch: pytest.MonkeyPatch
 ) -> None:

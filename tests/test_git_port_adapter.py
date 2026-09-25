@@ -32,6 +32,19 @@ def test_clone_shallow_places_a_double_dash_before_the_untrusted_url(tmp_path: P
     assert argv[argv.index("--") + 1] == "https://example.com/repo"
 
 
+def test_clone_shallow_uses_blobless_sparse_checkout_only_when_requested(tmp_path: Path) -> None:
+    runner = _RecordingRunner()
+    port = SubprocessGitPort(runner=runner)
+
+    port.clone_shallow(
+        "https://example.com/repo", "v1.0.0", "tag", tmp_path / "dest", blobless=True, sparse_subdir="examples/app"
+    )
+
+    assert "--filter=blob:none" in runner.calls[0]
+    assert "--no-checkout" in runner.calls[0]
+    assert runner.calls[1] == ["git", "sparse-checkout", "set", "--cone", "--", "examples/app"]
+
+
 def test_fetch_commit_places_a_double_dash_before_the_untrusted_url() -> None:
     runner = _RecordingRunner()
     port = SubprocessGitPort(runner=runner)

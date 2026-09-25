@@ -694,6 +694,7 @@ class FakeGitPort(GitPort):
     #: (url, ref, ref_kind) -> commit SHA, for `fetch_commit`'s per-app scripting.
     remote_commits: dict[tuple[str, str, str], str] = field(default_factory=dict)
     clone_calls: list[tuple[str, str, str]] = field(default_factory=list)
+    clone_options: list[tuple[bool, str | None]] = field(default_factory=list)
     fetch_commit_calls: list[tuple[str, str, str]] = field(default_factory=list)
     raise_on_clone: Exception | None = None
     raise_on_fetch_commit: Exception | None = None
@@ -705,9 +706,18 @@ class FakeGitPort(GitPort):
     on_clone: Callable[[Path, str, str, str], None] | None = None
 
     def clone_shallow(
-        self, url: str, ref: str, ref_kind: AppRefKind, dest: Path, *, env: Mapping[str, str] | None = None
+        self,
+        url: str,
+        ref: str,
+        ref_kind: AppRefKind,
+        dest: Path,
+        *,
+        env: Mapping[str, str] | None = None,
+        blobless: bool = False,
+        sparse_subdir: str | None = None,
     ) -> str:
         self.clone_calls.append((url, ref, ref_kind))
+        self.clone_options.append((blobless, sparse_subdir))
         if self.raise_on_clone is not None:
             raise self.raise_on_clone
         if self.on_clone is not None:
@@ -864,7 +874,7 @@ class FakeCatalogSource(CatalogSource):
 
 
 def make_catalog_app(
-    name: str = "palmimo-teleop", *, manifest: str | None = None, commit: str = "deadbeef"
+    name: str = "palmimo-teleop", *, manifest: str | None = None, commit: str = "deadbeef", subdir: str | None = None
 ) -> CatalogApp:
     """Build a minimal, valid :class:`CatalogApp` for scripting :class:`FakeCatalogSource`."""
     return CatalogApp(
@@ -877,6 +887,7 @@ def make_catalog_app(
             ref="v1.0.0",
             commit=commit,
             manifest=manifest,
+            subdir=subdir,
         ),
         env={},
         devices=("camera",),

@@ -585,12 +585,20 @@ def prepare_install_git(
     job_id = job_id or ctx.new_id()
     staging_container = ctx.staging_dir / job_id
     try:
-        commit = ctx.git.clone_shallow(url, ref, ref_kind, staging_container, env=git_env(ctx, url))
+        expected_commit = _catalog_commit_for_source(
+            ctx, url=url, ref=ref, ref_kind=ref_kind, subdir=subdir, manifest=_stored_manifest(resolved_manifest)
+        )
+        commit = ctx.git.clone_shallow(
+            url,
+            ref,
+            ref_kind,
+            staging_container,
+            env=git_env(ctx, url),
+            blobless=expected_commit is not None,
+            sparse_subdir=subdir if expected_commit is not None else None,
+        )
         _verify_catalog_commit(
-            _catalog_commit_for_source(
-                ctx, url=url, ref=ref, ref_kind=ref_kind, subdir=subdir, manifest=_stored_manifest(resolved_manifest)
-            ),
-            commit,
+            expected_commit, commit
         )
         project_dir = resolve_subdir(staging_container, subdir)
         manifest = _read_manifest(project_dir, resolved_manifest)
@@ -629,9 +637,9 @@ def commit_install(
         app_id = f"{namespace}.{suggest_app_name(namespace, prepared.manifest.name, state)}"
     if app_id in state.apps:
         raise AppExistsError(app_id)
-    _chmod_group_rwx(prepared.install_root)
     on_step("sync")
     layout = resolve_layout(prepared.install_root, prepared.source.subdir)
+    _chmod_group_rwx(prepared.project_dir)
     lock_generated = _sync_dependencies(ctx, prepared.job_id, prepared.staging_container, layout, prepared.install_root)
     on_step("swap")
     dest = ctx.app_dir(app_id)
@@ -740,29 +748,31 @@ def update_git(
     staging_container = ctx.staging_dir / job_id
     try:
         on_step("fetch")
+        expected_commit = _catalog_commit_for_source(
+            ctx,
+            url=record.source.url,
+            ref=record.source.ref,
+            ref_kind=record.source.ref_kind,
+            subdir=record.source.subdir,
+            manifest=record.source.manifest,
+        )
         commit = ctx.git.clone_shallow(
             record.source.url,
             record.source.ref,
             record.source.ref_kind,
             staging_container,
             env=git_env(ctx, record.source.url),
+            blobless=expected_commit is not None,
+            sparse_subdir=record.source.subdir if expected_commit is not None else None,
         )
         _verify_catalog_commit(
-            _catalog_commit_for_source(
-                ctx,
-                url=record.source.url,
-                ref=record.source.ref,
-                ref_kind=record.source.ref_kind,
-                subdir=record.source.subdir,
-                manifest=record.source.manifest,
-            ),
-            commit,
+            expected_commit, commit
         )
         on_step("validate")
         project_dir = resolve_subdir(staging_container, record.source.subdir)
         manifest = _read_manifest(project_dir, _manifest_filename_for(record.source))
         _check_pyproject(project_dir)
-        _chmod_group_rwx(staging_container)
+        _chmod_group_rwx(project_dir)
         on_step("sync")
         layout = resolve_layout(staging_container, record.source.subdir)
         lock_generated = _sync_dependencies(ctx, job_id, staging_container, layout, staging_container)

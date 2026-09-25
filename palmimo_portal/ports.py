@@ -1107,13 +1107,22 @@ class GitPort(Protocol):
     """
 
     def clone_shallow(
-        self, url: str, ref: str, ref_kind: AppRefKind, dest: Path, *, env: Mapping[str, str] | None = None
+        self,
+        url: str,
+        ref: str,
+        ref_kind: AppRefKind,
+        dest: Path,
+        *,
+        env: Mapping[str, str] | None = None,
+        blobless: bool = False,
+        sparse_subdir: str | None = None,
     ) -> str:
         """Shallow-clone ``url`` at ``ref`` into ``dest`` (created fresh). Returns the resulting commit SHA.
 
         ``env`` carries git-credential ``GIT_CONFIG_*`` variables (design
         doc 4.2) -- never passed as argv, which ``/proc/<pid>/cmdline``
-        exposes to every UID on the device.
+        exposes to every UID on the device. ``blobless``/``sparse_subdir``
+        are only used for verified official catalog sources.
 
         Raises:
             GitCommandError: the clone failed, timed out, or the ref does not exist.

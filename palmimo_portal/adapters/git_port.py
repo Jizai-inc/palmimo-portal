@@ -67,13 +67,31 @@ class SubprocessGitPort(GitPort):
     runner: object = field(default=subprocess.run)
 
     def clone_shallow(
-        self, url: str, ref: str, ref_kind: AppRefKind, dest: Path, *, env: Mapping[str, str] | None = None
+        self,
+        url: str,
+        ref: str,
+        ref_kind: AppRefKind,
+        dest: Path,
+        *,
+        env: Mapping[str, str] | None = None,
+        blobless: bool = False,
+        sparse_subdir: str | None = None,
     ) -> str:
         # `--` stops option parsing before `url`/`dest` -- both are untrusted (see
         # `palmimo_portal.core.apps.validate_git_url`/`validate_git_ref`, which already
         # reject a leading `-`); this is the defense-in-depth half at the argv boundary.
-        argv = ["git", "clone", "--depth", "1", "--branch", ref, "--", url, str(dest)]
+        argv = ["git", "clone", "--depth", "1"]
+        if blobless:
+            argv.extend(["--filter=blob:none", "--no-checkout"])
+        argv.extend(["--branch", ref, "--", url, str(dest)])
         self._run(argv, cwd=None, timeout=CLONE_TIMEOUT_SECONDS, env=env)
+        if sparse_subdir is not None:
+            self._run(
+                ["git", "sparse-checkout", "set", "--cone", "--", sparse_subdir],
+                cwd=dest,
+                timeout=CLONE_TIMEOUT_SECONDS,
+                env=env,
+            )
         return self._rev_parse(dest, env=env)
 
     def fetch_commit(self, url: str, ref: str, ref_kind: AppRefKind, *, env: Mapping[str, str] | None = None) -> str:

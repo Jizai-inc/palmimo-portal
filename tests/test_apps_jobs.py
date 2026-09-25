@@ -151,6 +151,34 @@ def test_purge_path_moves_an_undeletable_staging_directory_to_trash_before_escal
     assert leftover is None or Path(leftover).parent == harness.ctx.trash_dir
 
 
+def test_purge_path_continues_removing_portal_owned_files_after_a_permission_denied_child(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from palmimo_portal.core import apps_jobs
+
+    path = harness.ctx.staging_dir / "mixed-owners"
+    locked = path / "app-owned" / "locked"
+    git_file = path / ".git" / "config"
+    locked.parent.mkdir(parents=True)
+    git_file.parent.mkdir()
+    locked.write_text("x")
+    git_file.write_text("x")
+    locked.parent.chmod(0o700)
+    harness.sync_unit.staging_dir = harness.ctx.staging_dir
+    original_unlink = apps_jobs.os.unlink
+
+    def deny_app_owned_file(name: str, *, dir_fd: int | None = None) -> None:
+        if name == locked.name:
+            raise PermissionError("owned by palmimo-app")
+        original_unlink(name, dir_fd=dir_fd)
+
+    monkeypatch.setattr(apps_jobs.os, "unlink", deny_app_owned_file)
+
+    purge_path(harness.ctx, path)
+
+    assert not (harness.ctx.trash_dir / "mixed-owners" / ".git").exists()
+
+
 def test_install_zip_chmods_the_fetched_tree_before_sync_unit_starts(harness: Harness) -> None:
     modes: list[int] = []
     original_start = harness.sync_unit.start

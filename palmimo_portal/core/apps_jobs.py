@@ -535,7 +535,18 @@ def _ensure_not_running_before_swap(ctx: AppsJobContext, name: str) -> AbstractC
 
 def _remove(path: Path) -> None:
     if path.is_dir() and not path.is_symlink():
-        shutil.rmtree(path)
+        errors: list[OSError] = []
+
+        def onerror(function: Callable[..., object], name: str, error: tuple[object, object, object]) -> None:
+            try:
+                Path(name).chmod(0o770)
+                function(name)
+            except OSError as retry_error:
+                errors.append(retry_error)
+
+        shutil.rmtree(path, onerror=onerror)
+        if path.exists() or path.is_symlink():
+            raise errors[0] if errors else OSError(f"could not remove {path}")
     else:
         path.unlink()
 

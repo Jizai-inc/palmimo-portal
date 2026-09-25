@@ -241,9 +241,16 @@ class AppsJobRunner:
                 latest = self._state.read_apps_state()
                 try:
                     _new_state, record = update_git(
-                        self._ctx, latest, name, job_id=job_id, started=started, on_step=on_step
+                        self._ctx,
+                        latest,
+                        name,
+                        job_id=job_id,
+                        started=started,
+                        on_step=on_step,
+                        on_registered=lambda updated: self._write_own_record(
+                            name, updated, clear_credential_for_host_owner=True
+                        ),
                     )
-                    self._write_own_record(name, record, clear_credential_for_host_owner=True)
                     result["job"] = record.last_job or job
                 except Exception as error:
                     logger.warning(

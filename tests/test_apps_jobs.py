@@ -458,6 +458,31 @@ def test_update_git_swaps_in_new_tree_and_updates_commit(harness: Harness) -> No
     assert not marker.exists()  # the old tree was replaced, not merged into
 
 
+def test_update_git_registers_the_new_record_before_purging_the_old_tree(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    harness.git.next_commit = "v1"
+    harness.git.on_clone = lambda dest, *_: _seed_git_clone(dest, "palmimo-teleop")
+    state, record = install_git(harness.ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")
+    harness.git.next_commit = "v2"
+    registered: list[AppRecord] = []
+    from palmimo_portal.core import apps_jobs
+
+    original_purge = apps_jobs.purge_path
+
+    def delayed_purge(ctx: AppsJobContext, path: Path) -> str | None:
+        if path.parent == ctx.trash_dir:
+            assert registered[-1].source.commit == "v2"
+            assert registered[-1].manifest is not None
+            assert registered[-1].requires_python is None
+        return original_purge(ctx, path)
+
+    monkeypatch.setattr(apps_jobs, "purge_path", delayed_purge)
+    update_git(harness.ctx, state, record.id, on_registered=registered.append)
+
+    assert registered[-1].source.commit == "v2"
+
+
 def test_update_git_follows_the_catalog_to_its_latest_tag_for_an_official_devkit_app(harness: Harness) -> None:
     old_source = AppSource(
         type="git",

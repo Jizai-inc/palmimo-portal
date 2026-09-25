@@ -95,6 +95,10 @@ def _no_step(step: str) -> None:
     pass
 
 
+def _no_record(record: AppRecord) -> None:
+    pass
+
+
 #: Reserved headroom beyond whatever a job is about to write, before a
 #: precheck refuses with 507 `disk_full` (design doc 3.4).
 INSTALL_DISK_RESERVE_BYTES = 500 * 1024 * 1024
@@ -877,6 +881,7 @@ def update_git(
     job_id: str | None = None,
     started: float | None = None,
     on_step: Callable[[str], None] = _no_step,
+    on_registered: Callable[[AppRecord], None] = _no_record,
 ) -> tuple[AppsState, AppRecord]:
     """Re-clone a git-sourced app at its pinned ref and swap it in.
 
@@ -942,8 +947,6 @@ def update_git(
             staging_container.rename(dest)
         finally:
             swap_lock.__exit__(None, None, None)
-        leftover = purge_path(ctx, trash)
-
         on_step("register")
         if dropped_bindings:
             ctx.secrets.write_bindings(name, kept_bindings)
@@ -961,7 +964,7 @@ def update_git(
             kind="update",
             state="done",
             step="register",
-            error=(f"could not remove old app files at {leftover}" if leftover else None),
+            error=None,
             started_at=started,
             finished_at=ctx.now(),
             lock_generated=lock_generated,
@@ -979,6 +982,14 @@ def update_git(
             requires_python=requires_python,
             id=record.id,
         )
+        on_registered(new_record)
+        leftover = purge_path(ctx, trash)
+        if leftover is not None:
+            new_record = replace(
+                new_record,
+                last_job=replace(new_record.last_job, error=f"could not remove old app files at {leftover}"),
+            )
+            on_registered(new_record)
         new_state = AppsState(apps={**state.apps, name: new_record})
         return new_state, new_record
     finally:

@@ -597,9 +597,7 @@ def prepare_install_git(
             blobless=expected_commit is not None,
             sparse_subdir=subdir if expected_commit is not None else None,
         )
-        _verify_catalog_commit(
-            expected_commit, commit
-        )
+        _verify_catalog_commit(expected_commit, commit)
         project_dir = resolve_subdir(staging_container, subdir)
         manifest = _read_manifest(project_dir, resolved_manifest)
         _check_pyproject(project_dir)
@@ -765,9 +763,7 @@ def update_git(
             blobless=expected_commit is not None,
             sparse_subdir=record.source.subdir if expected_commit is not None else None,
         )
-        _verify_catalog_commit(
-            expected_commit, commit
-        )
+        _verify_catalog_commit(expected_commit, commit)
         on_step("validate")
         project_dir = resolve_subdir(staging_container, record.source.subdir)
         manifest = _read_manifest(project_dir, _manifest_filename_for(record.source))

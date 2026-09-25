@@ -15,7 +15,13 @@ import pytest
 
 from palmimo_portal.core.apps import finalize_apps_state
 from palmimo_portal.core.apps_job_runner import AppsJobRunner
-from palmimo_portal.core.apps_jobs import AppsJobContext, disk_state_checks, install_git, prepare_install_zip
+from palmimo_portal.core.apps_jobs import (
+    AppsJobContext,
+    PreparedInstall,
+    disk_state_checks,
+    install_git,
+    prepare_install_zip,
+)
 from palmimo_portal.core.apps_start import AppRunningError
 from palmimo_portal.ports import AppExistsError, AppsLockTimeoutError, AppsState, GitCommandError, UnitStatus
 from palmimo_portal.testing.fakes import (
@@ -130,6 +136,43 @@ def test_second_install_while_a_job_is_running_returns_lock_timeout(ctx: AppsJob
     with pytest.raises(AppsLockTimeoutError):
         runner.start_install(prepared_b)
 
+    release_sync.set()
+
+
+def test_concurrent_install_starts_admit_exactly_one_job(ctx: AppsJobContext) -> None:
+    """Two simultaneous starts must not both pass the pre-worker lock handoff."""
+    state_store = FakeStateStore()
+    runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=True)
+    prepared = [prepare_install_zip(ctx, _zip_bytes(f"palmimo-teleop-{index}")) for index in range(2)]
+    start_barrier = threading.Barrier(3)
+    sync_started = threading.Event()
+    release_sync = threading.Event()
+    outcomes: list[str] = []
+
+    def blocking_wait(instance: str, timeout_s: float) -> UnitStatus:
+        sync_started.set()
+        release_sync.wait(timeout=5)
+        return UnitStatus(active_state="inactive", sub_state="dead", result="success", exec_main_status=0)
+
+    def attempt(item: PreparedInstall) -> None:
+        start_barrier.wait(timeout=5)
+        try:
+            runner.start_install(item)
+            outcomes.append("accepted")
+        except AppsLockTimeoutError:
+            outcomes.append("locked")
+
+    ctx.sync_unit.wait = blocking_wait  # type: ignore[method-assign]
+    threads = [threading.Thread(target=attempt, args=(item,)) for item in prepared]
+    for thread in threads:
+        thread.start()
+    start_barrier.wait(timeout=5)
+    assert sync_started.wait(timeout=5)
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert sorted(outcomes) == ["accepted", "locked"]
+    assert state_store.read_apps_state().current_job is not None
     release_sync.set()
 
 

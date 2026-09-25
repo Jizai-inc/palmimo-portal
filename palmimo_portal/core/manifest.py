@@ -204,8 +204,10 @@ def manifest_from_snapshot(snapshot: Any) -> Manifest:
 
 def _snapshot_toml(snapshot: dict[str, Any]) -> str:
     """Encode the small manifest schema as TOML so normal validation is authoritative."""
+
     def scalar(value: Any) -> str:
         return json.dumps(value, ensure_ascii=False)
+
     lines = [
         f"schema = {scalar(snapshot.get('schema'))}",
         f"name = {scalar(snapshot.get('name'))}",

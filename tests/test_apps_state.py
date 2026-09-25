@@ -17,9 +17,7 @@ from palmimo_portal.ports import AppJob, AppRecord, AppSource, AppsState, AppsSt
 
 APP_ID = "palmimo.teleop"
 
-_MANIFEST = manifest_snapshot(
-    parse_manifest('schema = 1\nname = "app"\ndescription = "app"\ncommand = ["run"]')
-)
+_MANIFEST = manifest_snapshot(parse_manifest('schema = 1\nname = "app"\ndescription = "app"\ncommand = ["run"]'))
 
 
 def _record(

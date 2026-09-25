@@ -232,7 +232,7 @@ def test_parse_manifest_rejects_pattern_with_nested_quantifier() -> None:
 def test_parse_manifest_rejects_pattern_with_alternation() -> None:
     with pytest.raises(ManifestValidationError):
         parse_manifest(
-            '''
+            """
             schema = 1
             name = "app"
             description = "x"
@@ -241,7 +241,7 @@ def test_parse_manifest_rejects_pattern_with_alternation() -> None:
             [params.value]
             type = "string"
             pattern = "(a|aa)+$"
-            '''
+            """
         )
 
 

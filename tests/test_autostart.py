@@ -27,7 +27,13 @@ def _settings(tmp_path: Path, **overrides: object) -> Settings:
 
 def _record(name: str, *, autostart: bool) -> AppRecord:
     return AppRecord(
-        name=name, source=AppSource(type="zip"), installed_at=0.0, params={}, autostart=autostart, last_job=None
+        name=name,
+        source=AppSource(type="zip"),
+        installed_at=0.0,
+        params={},
+        autostart=autostart,
+        last_job=None,
+        id=name,
     )
 
 
@@ -121,6 +127,27 @@ def test_startup_stops_an_orphan_sync_unit_before_cleaning_staging_and_trash(
 
     assert "jstuck" in sync_unit.stop_calls
     assert _messages(caplog, "apps: stopped orphan sync unit instance=jstuck")
+
+
+def test_startup_does_not_sweep_orphan_app_dirs_when_the_ledger_is_corrupt(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A legacy (pre-3.9) name-keyed ledger reads as corrupt (design doc 3.9); running the
+    # orphan sweep against it anyway would read as "nothing is installed" and delete every
+    # app's directory before the operator ever gets a chance to reset or recover the ledger.
+    settings = _settings(tmp_path)
+    orphan = settings.apps_dir / "not-an-id"
+    orphan.mkdir(parents=True)
+    app = create_app(settings)
+    adapters: FakeAdapterBundle = app.state.adapters
+    adapters.state.apps_state_corrupt = True
+    caplog.set_level(logging.ERROR, logger="palmimo_portal")
+
+    with TestClient(app):
+        pass
+
+    assert orphan.exists()
+    assert _messages(caplog, "apps: ledger corrupt; skipping the orphan app directory sweep")
 
 
 def test_autostart_runs_after_startup_finalize(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:

@@ -20,6 +20,7 @@ export interface AppDetailResponse {
   devices: string[];
   env: EnvSpecInfo[];
   exit_code?: number | null;
+  id: string;
   installed_at: number | null;
   last_job: AppJobInfo | null;
   manifest: AppManifestInfo | null;

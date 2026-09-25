@@ -419,8 +419,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             ctx.sync_unit.stop(instance)
         cleanup_staging_and_trash(ctx)
         apps_state = adapters.state.read_apps_state()
-        # A corrupt ledger reads as empty; sweeping against it would trash every app.
-        if adapters.state.apps_state_file_state() is not AppsStateFileState.CORRUPT:
+        # An unreadable or legacy ledger reads as empty; sweeping against it would trash every app.
+        if adapters.state.apps_state_file_state() is AppsStateFileState.PRESENT:
             sweep_orphan_app_dirs(ctx, apps_state)
         else:
             logger.error("apps: ledger corrupt; skipping the orphan app directory sweep")

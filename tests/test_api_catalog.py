@@ -77,6 +77,7 @@ def test_get_catalog_returns_typed_source_and_env_objects(client: TestClient, ad
         "subdir": None,
         "commit": None,
         "manifest": None,
+        "official": True,
     }
     assert app["env"] == []
 

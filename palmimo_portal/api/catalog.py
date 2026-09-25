@@ -66,6 +66,9 @@ def get_catalog(request: Request) -> CatalogResponse:
                     subdir=a.source.subdir,
                     commit=a.source.commit,
                     manifest=a.source.manifest,
+                    #: Every catalog entry is generated from the official devkit repo itself
+                    #: (design doc 4.1) -- there is no non-official catalog source.
+                    official=True,
                 ),
                 env=[
                     EnvSpecInfo(name=name, required=spec.required, description=spec.description, help_url=spec.help_url)

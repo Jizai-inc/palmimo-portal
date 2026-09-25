@@ -95,6 +95,7 @@ def _record(name: str, *, params: dict | None = None, source: AppSource | None =
         params=params if params is not None else {"label": "x"},
         autostart=False,
         last_job=None,
+        id=name,
     )
 
 

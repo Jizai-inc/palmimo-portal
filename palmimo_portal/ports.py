@@ -777,7 +777,7 @@ class AppsLockTimeoutError(Exception):
 
 
 class AppsStateFileState(StrEnum):
-    """The three states ``apps.json`` can be in, mirroring :class:`AuthFileState`.
+    """The states ``apps.json`` can be in, including legacy pre-app-ID ledgers.
 
     A corrupt ledger must never be treated as "no apps installed" -- doing
     so would make every installed app silently disappear from the UI and
@@ -787,6 +787,7 @@ class AppsStateFileState(StrEnum):
     ABSENT = "absent"
     PRESENT = "present"
     CORRUPT = "corrupt"
+    LEGACY = "legacy"
 
 
 AppSourceType = Literal["zip", "git"]
@@ -822,6 +823,7 @@ class AppJob:
     error: str | None
     started_at: float | None
     finished_at: float | None
+    display_name: str | None = None
     #: True when no ``uv.lock`` was found in the app's project and one was generated --
     #: surfaced so the UI can warn "reproducibility reduced" without failing the job.
     lock_generated: bool = False
@@ -852,6 +854,8 @@ class AppRecord:
     update_available: bool = False
     #: The upstream commit `update_available` refers to, or `None` before any check has run.
     latest_commit: str | None = None
+    #: Stable machine identifier; ``name`` is the manifest-provided display name.
+    id: str = ""
 
 
 @dataclass(frozen=True)
@@ -959,8 +963,10 @@ class SecretNotFoundError(Exception):
 class SecretInUseError(Exception):
     """Raised by :meth:`SecretsStore.delete_secret` when a binding still references it.
 
-    ``users`` lists ``(app_name, request_name)`` pairs still bound to the secret being
-    deleted -- ``api/secrets.py`` returns them in the 409 ``secret_in_use`` body.
+    ``users`` lists ``(app_id, request_name)`` pairs still bound to the secret being
+    deleted -- bindings are keyed by app id, not display name (design doc 3.9).
+    ``api/secrets.py`` resolves each id's display name and returns both in the
+    409 ``secret_in_use`` body.
     """
 
     def __init__(self, users: list[tuple[str, str]]) -> None:
@@ -1127,7 +1133,7 @@ class UvPort(Protocol):
     def version(self) -> str:
         """Return ``uv --version``'s output, or ``"unknown"`` if it could not be determined.
 
-        Never raises -- consumed only by ``GET /apps/{name}/diagnostics``
+        Never raises -- consumed only by ``GET /apps/{id}/diagnostics``
         (design doc 3.2), where a version string a support agent cannot get
         is more useful than a 500.
         """
@@ -1275,7 +1281,7 @@ class AppUnitPort(Protocol):
 
 
 class RunDirPort(Protocol):
-    """Writes/removes ``/run/palmimo/apps/<name>/`` for one app's next start (design doc 2.1/3.5 step 6).
+    """Writes/removes ``/run/palmimo/apps/<id>/`` for one app's next start (design doc 2.1/3.5 step 6).
 
     See :class:`~palmimo_portal.adapters.rundir.TmpfsRunDirPort`.
     """

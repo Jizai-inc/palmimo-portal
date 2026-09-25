@@ -21,6 +21,7 @@ export interface AppSummary {
   broken_reason: string | null;
   credential_rejected: boolean;
   exit_code?: number | null;
+  id: string;
   installed_at: number | null;
   last_job: AppJobInfo | null;
   latest_commit: string | null;

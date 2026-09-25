@@ -32,9 +32,10 @@ function detail(overrides: Partial<AppDetailResponse> = {}): AppDetailResponse {
       ],
       params: [{ name: "port", type: "int", default: 8765, min: null, max: null, choices: null, pattern: null, flag: null }],
     },
+    id: "palmimo.teleop",
     name: "palmimo-teleop",
     params: { port: 8765, verbose: false },
-    source: { type: "git", url: "https://github.com/x/y", subdir: null, manifest: null, ref_kind: "tag", ref: "v1", commit: "abc123" },
+    source: { type: "git", official: false, url: "https://github.com/x/y", subdir: null, manifest: null, ref_kind: "tag", ref: "v1", commit: "abc123" },
     status: "stopped",
     ...overrides,
   };
@@ -56,12 +57,12 @@ describe("AppDetailPanel", () => {
     server.use(
       getGetAppApiV1AppsNameGetMockHandler(detail()),
       getListSecretsApiV1SecretsGetMockHandler({ secrets: [{ name: "HOME_WIFI_PASSWORD", updated_at: 1, used_by: [] }] }),
-      http.put("*/api/v1/apps/palmimo-teleop/bindings", async ({ request }) => {
+      http.put("*/api/v1/apps/palmimo.teleop/bindings", async ({ request }) => {
         putBody = await request.json();
         return HttpResponse.json(detail({ bindings: { WIFI_PASSWORD: "HOME_WIFI_PASSWORD" } }));
       }),
     );
-    renderWithRouter(<AppDetailPanel name="palmimo-teleop" />);
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
 
     await screen.findByText("WIFI_PASSWORD");
     expect(screen.getByText("This required variable is not bound.")).toBeInTheDocument();
@@ -81,12 +82,12 @@ describe("AppDetailPanel", () => {
     server.use(
       getGetAppApiV1AppsNameGetMockHandler(detail()),
       getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
-      http.put("*/api/v1/apps/palmimo-teleop/params", async ({ request }) => {
+      http.put("*/api/v1/apps/palmimo.teleop/params", async ({ request }) => {
         putBody = await request.json();
         return HttpResponse.json(detail());
       }),
     );
-    renderWithRouter(<AppDetailPanel name="palmimo-teleop" />);
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
 
     const input = await screen.findByLabelText(field);
     await user.clear(input);
@@ -112,7 +113,7 @@ describe("AppDetailPanel", () => {
       ),
       getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
     );
-    renderWithRouter(<AppDetailPanel name="palmimo-teleop" />);
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
 
     const select = await screen.findByLabelText("mode");
     expect(select.tagName).toBe("SELECT");
@@ -126,7 +127,7 @@ describe("AppDetailPanel", () => {
     server.use(
       getGetAppApiV1AppsNameGetMockHandler(detail()),
       getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
-      http.get("*/api/v1/apps/palmimo-teleop/logs", ({ request }) => {
+      http.get("*/api/v1/apps/palmimo.teleop/logs", ({ request }) => {
         const url = new URL(request.url);
         // The generated client serializes an absent `invocation` as the literal query string
         // "null" (not an omitted param), so "null" must be treated the same as not-present.
@@ -144,7 +145,7 @@ describe("AppDetailPanel", () => {
         });
       }),
     );
-    renderWithRouter(<AppDetailPanel name="palmimo-teleop" />);
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
 
     const startSelect = await screen.findByLabelText("Start");
     await waitFor(() => expect(startSelect).toHaveValue("11111111111111111111111111111111"));
@@ -161,12 +162,12 @@ describe("AppDetailPanel", () => {
     server.use(
       getGetAppApiV1AppsNameGetMockHandler(detail({ autostart: false })),
       getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
-      http.put("*/api/v1/apps/palmimo-teleop/autostart", async ({ request }) => {
+      http.put("*/api/v1/apps/palmimo.teleop/autostart", async ({ request }) => {
         putBody = await request.json();
         return HttpResponse.json(detail({ autostart: true }));
       }),
     );
-    renderWithRouter(<AppDetailPanel name="palmimo-teleop" />);
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
 
     const toggle = await screen.findByRole("switch");
     await user.click(toggle);
@@ -182,7 +183,7 @@ describe("AppDetailPanel", () => {
       getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
       getGetLogsApiV1AppsNameLogsGetMockHandler({ unavailable: "journal_permission" }),
     );
-    renderWithRouter(<AppDetailPanel name="palmimo-teleop" />);
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
 
     expect(await screen.findByText("Palmimo cannot read this app's logs right now.")).toBeInTheDocument();
   });
@@ -194,7 +195,7 @@ describe("AppDetailPanel", () => {
       getGetAppApiV1AppsNameGetMockHandler(detail({ devices: ["motor_display"] })),
       getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
     );
-    renderWithRouter(<AppDetailPanel name="palmimo-teleop" />);
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
 
     expect(await screen.findByText("Motors & display")).toBeInTheDocument();
     expect(screen.queryByText("motor_display")).not.toBeInTheDocument();
@@ -219,7 +220,7 @@ describe("AppDetailPanel", () => {
       ),
       getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
     );
-    renderWithRouter(<AppDetailPanel name="palmimo-teleop" />);
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
 
     await screen.findByLabelText("port");
     expect(screen.getByText("The port to serve on.")).toBeInTheDocument();
@@ -241,13 +242,13 @@ describe("AppDetailPanel", () => {
       const user = userEvent.setup();
       let running = false;
       server.use(
-        http.get("*/api/v1/apps/palmimo-teleop", () => HttpResponse.json(detail({ status: running ? "running" : "stopped" }))),
+        http.get("*/api/v1/apps/palmimo.teleop", () => HttpResponse.json(detail({ status: running ? "running" : "stopped" }))),
         getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
-        http.post("*/api/v1/apps/palmimo-teleop/start", () => {
+        http.post("*/api/v1/apps/palmimo.teleop/start", () => {
           running = true;
           return HttpResponse.json({ status: "activating" }, { status: 202 });
         }),
-        http.get("*/api/v1/apps/palmimo-teleop/logs", ({ request }) => {
+        http.get("*/api/v1/apps/palmimo.teleop/logs", ({ request }) => {
           const url = new URL(request.url);
           const raw = url.searchParams.get("invocation");
           const requested = raw && raw !== "null" ? raw : null;
@@ -262,7 +263,7 @@ describe("AppDetailPanel", () => {
           return HttpResponse.json({ entries, invocations, next_cursor: null });
         }),
       );
-      renderWithRouter(<AppDetailPanel name="palmimo-teleop" />);
+      renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
 
       await waitFor(() => expect(screen.getByText("old run line")).toBeInTheDocument());
 
@@ -282,14 +283,14 @@ describe("AppDetailPanel", () => {
     server.use(
       getGetAppApiV1AppsNameGetMockHandler(detail()),
       getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
-      http.delete("*/api/v1/apps/palmimo-teleop", () =>
+      http.delete("*/api/v1/apps/palmimo.teleop", () =>
         HttpResponse.json({ job: { id: "job-del", kind: "delete", state: "running", step: "register", error: null, started_at: 1, finished_at: null, dropped_bindings: [], dropped_params: [], lock_generated: false } }, { status: 202 }),
       ),
       http.get("*/api/v1/apps/jobs/job-del", () =>
         HttpResponse.json({ id: "job-del", kind: "delete", state: "done", step: "register", error: null, started_at: 1, finished_at: 2, dropped_bindings: [], dropped_params: [], lock_generated: false }),
       ),
     );
-    renderWithRouter(<AppDetailPanel name="palmimo-teleop" onDeleted={onDeleted} />);
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" onDeleted={onDeleted} />);
 
     await user.click(await screen.findByRole("button", { name: "Delete this app" }));
     const dialog = screen.getByRole("alertdialog");
@@ -297,7 +298,7 @@ describe("AppDetailPanel", () => {
     await screen.findByRole("status");
 
     server.use(
-      http.get("*/api/v1/apps/palmimo-teleop", () =>
+      http.get("*/api/v1/apps/palmimo.teleop", () =>
         HttpResponse.json({ error: { code: "app_not_found", params: {} } }, { status: 404 }),
       ),
     );
@@ -322,13 +323,13 @@ describe("AppDetailPanel", () => {
     const onDeleted = vi.fn();
     let appGone = false;
     server.use(
-      http.get("*/api/v1/apps/palmimo-teleop", () =>
+      http.get("*/api/v1/apps/palmimo.teleop", () =>
         appGone
           ? HttpResponse.json({ error: { code: "app_not_found", params: {} } }, { status: 404 })
           : HttpResponse.json(detail()),
       ),
       getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
-      http.delete("*/api/v1/apps/palmimo-teleop", () =>
+      http.delete("*/api/v1/apps/palmimo.teleop", () =>
         HttpResponse.json({ job: { id: "job-del", kind: "delete", state: "running", step: "register", error: null, started_at: 1, finished_at: null, dropped_bindings: [], dropped_params: [], lock_generated: false } }, { status: 202 }),
       ),
       // Still running when Close is clicked -- the job never reaches "done" from this
@@ -337,7 +338,7 @@ describe("AppDetailPanel", () => {
         HttpResponse.json({ id: "job-del", kind: "delete", state: "running", step: "register", error: null, started_at: 1, finished_at: null, dropped_bindings: [], dropped_params: [], lock_generated: false }),
       ),
     );
-    renderWithRouter(<AppDetailPanel name="palmimo-teleop" onDeleted={onDeleted} />);
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" onDeleted={onDeleted} />);
 
     await user.click(await screen.findByRole("button", { name: "Delete this app" }));
     const dialog = screen.getByRole("alertdialog");
@@ -361,14 +362,14 @@ describe("AppDetailPanel", () => {
     server.use(
       getGetAppApiV1AppsNameGetMockHandler(detail()),
       getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
-      http.delete("*/api/v1/apps/palmimo-teleop", () =>
+      http.delete("*/api/v1/apps/palmimo.teleop", () =>
         HttpResponse.json({ job: { id: "job-del", kind: "delete", state: "running", step: "register", error: null, started_at: 1, finished_at: null, dropped_bindings: [], dropped_params: [], lock_generated: false } }, { status: 202 }),
       ),
       http.get("*/api/v1/apps/jobs/job-del", () =>
         HttpResponse.json({ id: "job-del", kind: "delete", state: "failed", step: "register", error: "disk full", started_at: 1, finished_at: 2, dropped_bindings: [], dropped_params: [], lock_generated: false }),
       ),
     );
-    renderWithRouter(<AppDetailPanel name="palmimo-teleop" />);
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
 
     await user.click(await screen.findByRole("button", { name: "Delete this app" }));
     const dialog = screen.getByRole("alertdialog");
@@ -384,14 +385,14 @@ describe("AppDetailPanel", () => {
     server.use(
       getGetAppApiV1AppsNameGetMockHandler(detail()),
       getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
-      http.delete("*/api/v1/apps/palmimo-teleop", () =>
+      http.delete("*/api/v1/apps/palmimo.teleop", () =>
         HttpResponse.json({ job: { id: "job-del", kind: "delete", state: "running", step: "register", error: null, started_at: 1, finished_at: null, dropped_bindings: [], dropped_params: [], lock_generated: false } }, { status: 202 }),
       ),
       http.get("*/api/v1/apps/jobs/job-del", () =>
         HttpResponse.json({ id: "job-del", kind: "delete", state: "done", step: "register", error: null, started_at: 1, finished_at: 2, dropped_bindings: [], dropped_params: [], lock_generated: false }),
       ),
     );
-    renderWithRouter(<AppDetailPanel name="palmimo-teleop" onDeleted={onDeleted} />);
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" onDeleted={onDeleted} />);
 
     await user.click(await screen.findByRole("button", { name: "Delete this app" }));
     const dialog = screen.getByRole("alertdialog");
@@ -406,16 +407,16 @@ describe("AppDetailPanel", () => {
     const user = userEvent.setup();
     let updated = false;
     server.use(
-      http.get("*/api/v1/apps/palmimo-teleop", () => HttpResponse.json(detail({ source: { type: "git", url: "https://github.com/x/y", subdir: null, manifest: null, ref_kind: "tag", ref: updated ? "v2" : "v1", commit: updated ? "def456" : "abc123" } }))),
+      http.get("*/api/v1/apps/palmimo.teleop", () => HttpResponse.json(detail({ source: { type: "git", official: false, url: "https://github.com/x/y", subdir: null, manifest: null, ref_kind: "tag", ref: updated ? "v2" : "v1", commit: updated ? "def456" : "abc123" } }))),
       getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
-      http.post("*/api/v1/apps/palmimo-teleop/update/check", () => HttpResponse.json({ update_available: true, latest_ref: "v2", latest_commit: "def456" })),
-      http.post("*/api/v1/apps/palmimo-teleop/update", () => HttpResponse.json({ job: { id: "job-update", kind: "update", state: "running", step: "sync", error: null, started_at: 1, finished_at: null, dropped_bindings: [], dropped_params: [], lock_generated: false } }, { status: 202 })),
+      http.post("*/api/v1/apps/palmimo.teleop/update/check", () => HttpResponse.json({ update_available: true, latest_ref: "v2", latest_commit: "def456" })),
+      http.post("*/api/v1/apps/palmimo.teleop/update", () => HttpResponse.json({ job: { id: "job-update", kind: "update", state: "running", step: "sync", error: null, started_at: 1, finished_at: null, dropped_bindings: [], dropped_params: [], lock_generated: false } }, { status: 202 })),
       http.get("*/api/v1/apps/jobs/job-update", () => {
         updated = true;
         return HttpResponse.json({ id: "job-update", kind: "update", state: "done", step: "register", error: null, started_at: 1, finished_at: 2, dropped_bindings: [], dropped_params: [], lock_generated: false });
       }),
     );
-    renderWithRouter(<AppDetailPanel name="palmimo-teleop" />);
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
 
     await user.click(await screen.findByRole("button", { name: "Check for updates" }));
     await user.click(await screen.findByRole("button", { name: "Update" }));

@@ -7,17 +7,30 @@ import { useTranslation } from "react-i18next";
 import {
   getListAppsApiV1AppsGetQueryKey,
   useListAppsApiV1AppsGet,
+  useResetAppsApiV1AppsResetPost,
   useStartAppEndpointApiV1AppsNameStartPost,
   useStopAppEndpointApiV1AppsNameStopPost,
   useUpdateAppApiV1AppsNameUpdatePost,
 } from "@/api/generated/apps/apps";
-import type { AppSummary } from "@/api/generated/models";
+import type { AppSummary, PalmimoPortalApiAppsResetResponse } from "@/api/generated/models";
+import { PortalApiError } from "@/api/client";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
+import { AppIdLabel, appIdNamePart } from "@/components/AppIdLabel";
 import { AppJobDialog } from "@/components/AppJobDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { appStatusLabel, appStatusTone, isAppStatusBusy } from "@/lib/appStatus";
+import { formatSourceSummary } from "@/lib/appSourceSummary";
 import { usePlatformUpdate } from "@/lib/usePlatformUpdate";
 
 /** Poll cadence while any app is mid-transition (design doc 3.7). */
@@ -36,17 +49,39 @@ export function AppsListPanel() {
   });
   const { platform, startUpdate, starting, startError, job: platformJob } = usePlatformUpdate();
   const [repairJob, setRepairJob] = useState<{ jobId: string; name: string } | null>(null);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const [resetLeftovers, setResetLeftovers] = useState<string[]>([]);
 
   const invalidateList = () => void queryClient.invalidateQueries({ queryKey: getListAppsApiV1AppsGetQueryKey() });
 
   const startApp = useStartAppEndpointApiV1AppsNameStartPost({ mutation: { onSuccess: invalidateList } });
   const stopApp = useStopAppEndpointApiV1AppsNameStopPost({ mutation: { onSuccess: invalidateList } });
-  const repairApp = useUpdateAppApiV1AppsNameUpdatePost({
-    mutation: { onSuccess: (data, variables) => setRepairJob({ jobId: data.job.id, name: variables.name }) },
+  const repairApp = useUpdateAppApiV1AppsNameUpdatePost();
+  const resetApps = useResetAppsApiV1AppsResetPost({
+    mutation: {
+      onSuccess: (data: PalmimoPortalApiAppsResetResponse) => {
+        setResetLeftovers(data.leftover_paths);
+        if (data.leftover_paths.length === 0) {
+          setResetDialogOpen(false);
+        }
+        void queryClient.invalidateQueries({ queryKey: getListAppsApiV1AppsGetQueryKey() });
+      },
+    },
   });
 
   const ready = platform?.ready ?? true;
   const apps = data?.apps ?? [];
+  const ledgerRecovery =
+    error instanceof PortalApiError && (error.code === "ledger_legacy" || error.code === "platform_state_corrupt")
+      ? error.code
+      : null;
+  const isCorruptLedger = ledgerRecovery === "platform_state_corrupt";
+  const ledgerTitle = isCorruptLedger ? t("apps.corruptLedgerTitle") : t("apps.legacyLedgerTitle");
+  const ledgerBody = isCorruptLedger ? t("apps.corruptLedgerBody") : t("apps.legacyLedgerBody");
+  const ledgerResetButton = isCorruptLedger ? t("apps.corruptLedgerResetButton") : t("apps.legacyLedgerResetButton");
+  const ledgerDialogTitle = isCorruptLedger ? t("apps.corruptLedgerDialogTitle") : t("apps.legacyLedgerDialogTitle");
+  const ledgerDialogBody = isCorruptLedger ? t("apps.corruptLedgerDialogBody") : t("apps.legacyLedgerDialogBody");
+  const ledgerDialogConfirm = isCorruptLedger ? t("apps.corruptLedgerDialogConfirm") : t("apps.legacyLedgerDialogConfirm");
 
   return (
     <div className="flex flex-col gap-4">
@@ -77,7 +112,19 @@ export function AppsListPanel() {
         </Button>
       </div>
 
-      <ApiErrorAlert error={error} />
+      {ledgerRecovery ? null : <ApiErrorAlert error={error} />}
+
+      {ledgerRecovery ? (
+        <Alert>
+          <AlertTitle>{ledgerTitle}</AlertTitle>
+          <AlertDescription className="flex flex-col gap-3">
+            <span>{ledgerBody}</span>
+            <Button className="w-fit" variant="destructive" onClick={() => setResetDialogOpen(true)}>
+              {ledgerResetButton}
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       {error ? null : isLoading ? (
         <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
@@ -87,20 +134,22 @@ export function AppsListPanel() {
         <ul className="flex flex-col gap-2">
           {apps.map((app) => (
             <AppRow
-              key={app.name}
+              key={app.id}
               app={app}
               disabledForPlatform={!ready}
-              onStart={() => startApp.mutate({ name: app.name })}
-              onStop={() => stopApp.mutate({ name: app.name })}
+              onStart={() => startApp.mutate({ name: app.id })}
+              onStop={() => stopApp.mutate({ name: app.id })}
               onRepair={() =>
-                app.source.type === "git" ? repairApp.mutate({ name: app.name }) : undefined
+                app.source.type === "git"
+                  ? repairApp.mutate({ name: app.id }, { onSuccess: (data) => setRepairJob({ jobId: data.job.id, name: app.name }) })
+                  : undefined
               }
-              startPending={startApp.isPending && startApp.variables?.name === app.name}
-              stopPending={stopApp.isPending && stopApp.variables?.name === app.name}
+              startPending={startApp.isPending && startApp.variables?.name === app.id}
+              stopPending={stopApp.isPending && stopApp.variables?.name === app.id}
               rowError={
-                startApp.variables?.name === app.name
+                startApp.variables?.name === app.id
                   ? startApp.error
-                  : stopApp.variables?.name === app.name
+                  : stopApp.variables?.name === app.id
                     ? stopApp.error
                     : undefined
               }
@@ -115,6 +164,36 @@ export function AppsListPanel() {
         onClose={() => setRepairJob(null)}
         onDone={invalidateList}
       />
+      <AlertDialog
+        open={resetDialogOpen}
+        onOpenChange={(open) => {
+          setResetDialogOpen(open);
+          if (open) setResetLeftovers([]);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{ledgerDialogTitle}</AlertDialogTitle>
+            <AlertDialogDescription>{ledgerDialogBody}</AlertDialogDescription>
+          </AlertDialogHeader>
+          {resetLeftovers.length > 0 ? (
+            <Alert variant="destructive">
+              <AlertTitle>{t("apps.resetLeftoversTitle")}</AlertTitle>
+              <AlertDescription className="flex flex-col gap-2">
+                <span>{t("apps.resetLeftoversBody")}</span>
+                <ul className="list-inside list-disc">{resetLeftovers.map((path) => <li key={path}>{path}</li>)}</ul>
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          <ApiErrorAlert error={resetApps.error} />
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={resetApps.isPending}>{t("common.cancel")}</AlertDialogCancel>
+            <Button variant="destructive" disabled={resetApps.isPending} onClick={() => resetApps.mutate()}>
+              {ledgerDialogConfirm}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -150,8 +229,8 @@ function AppRow({
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
-          <Link to="/apps/$name" params={{ name: app.name }} className="min-w-0 truncate font-medium hover:underline">
-            {app.name}
+          <Link to="/apps/$id" params={{ id: app.id }} className="min-w-0 truncate hover:underline">
+            <AppIdLabel id={app.id} />
           </Link>
           <Badge
             variant={tone === "green" ? "default" : tone === "red" ? "destructive" : tone === "muted" ? "secondary" : "outline"}
@@ -160,10 +239,13 @@ function AppRow({
             {busy ? <Loader2 className="size-3 animate-spin" /> : null}
             {appStatusLabel(t, app.status, app.exit_code)}
           </Badge>
+          {app.source.official ? <Badge>{t("appAdd.catalogOfficialBadge")}</Badge> : null}
           {app.autostart ? <Badge variant="outline">{t("apps.autostartBadge")}</Badge> : null}
           {app.update_available ? <Badge variant="outline">{t("apps.updateAvailableChip")}</Badge> : null}
           {app.credential_rejected ? <Badge variant="destructive">{t("apps.credentialRejectedBadge")}</Badge> : null}
         </div>
+        {app.name !== appIdNamePart(app.id) ? <p className="truncate text-xs text-muted-foreground">{app.name}</p> : null}
+        <p className="truncate text-xs text-muted-foreground">{formatSourceSummary(app.source)}</p>
         <ApiErrorAlert error={rowError} />
       </div>
       <div className="flex shrink-0 flex-wrap gap-2" title={disabledForPlatform ? t("apps.platformActionDisabledTooltip") : undefined}>
@@ -191,7 +273,7 @@ function AppRow({
             </Button>
           ) : (
             <Button variant="outline" asChild>
-              <Link to="/apps/$name" params={{ name: app.name }}>
+              <Link to="/apps/$id" params={{ id: app.id }}>
                 {t("apps.repairButton")}
               </Link>
             </Button>

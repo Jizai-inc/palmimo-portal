@@ -1,4 +1,4 @@
-"""Real :class:`~palmimo_portal.ports.RunDirPort`: ``/run/palmimo/apps/<name>/`` on tmpfs.
+"""Real :class:`~palmimo_portal.ports.RunDirPort`: ``/run/palmimo/apps/<id>/`` on tmpfs.
 
 Schema (design doc 2.1/3.5 step 6)::
 

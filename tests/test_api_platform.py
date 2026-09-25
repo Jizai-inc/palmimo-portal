@@ -184,6 +184,30 @@ def test_post_platform_update_runs_the_full_pipeline_and_flips_readiness(
     assert status["installed_version"] == DEFAULT_REQUIRED_PLATFORM_VERSION
 
 
+def test_legacy_ledger_blocks_platform_check_and_update_until_apps_are_reset(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    client = _authenticated_client(client, adapters)
+    _set_available_release(adapters)
+    adapters.state.apps_state_legacy = True
+
+    check_response = client.post("/api/v1/platform/check", headers=CSRF_HEADERS)
+    update_response = client.post("/api/v1/platform/update", headers=CSRF_HEADERS)
+
+    assert check_response.status_code == 409
+    assert check_response.json()["error"]["code"] == "ledger_legacy"
+    assert update_response.status_code == 409
+    assert update_response.json()["error"]["code"] == "ledger_legacy"
+    assert adapters.platform.install_calls == []
+
+    reset_response = client.post("/api/v1/apps/reset", headers=CSRF_HEADERS)
+    update_response = client.post("/api/v1/platform/update", headers=CSRF_HEADERS)
+
+    assert reset_response.status_code == 202
+    assert update_response.status_code == 202
+    assert len(adapters.platform.install_calls) == 1
+
+
 def test_platform_readiness_gates_app_install_and_start(client: TestClient, adapters: FakeAdapterBundle) -> None:
     # This is the app-platform vertical's contract with the app-runtime feature
     # (design doc 2.7): install/start must refuse until the platform is ready.
@@ -191,7 +215,7 @@ def test_platform_readiness_gates_app_install_and_start(client: TestClient, adap
     _install_app(client)
     adapters.platform.installed = None
 
-    response = client.post("/api/v1/apps/palmimo-teleop/start", headers=CSRF_HEADERS)
+    response = client.post("/api/v1/apps/zip.palmimo-teleop/start", headers=CSRF_HEADERS)
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "platform_not_ready"

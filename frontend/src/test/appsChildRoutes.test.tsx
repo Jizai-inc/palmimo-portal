@@ -71,9 +71,10 @@ describe("apps child routes through the real route tree", () => {
       installed_at: 1_700_000_000,
       last_job: null,
       manifest: { devices: [], env: [], params: [] },
+      id: "palmimo.teleop",
       name: "palmimo-teleop",
       params: {},
-      source: { type: "git", url: "https://github.com/x/y", subdir: null, manifest: null, ref_kind: "tag", ref: "v1", commit: "abc123" },
+      source: { type: "git", official: false, url: "https://github.com/x/y", subdir: null, manifest: null, ref_kind: "tag", ref: "v1", commit: "abc123" },
       status: "running",
     };
     server.use(
@@ -87,7 +88,7 @@ describe("apps child routes through the real route tree", () => {
         next_cursor: null,
       }),
     );
-    const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ["/apps/palmimo-teleop"] }) });
+    const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ["/apps/palmimo.teleop"] }) });
     render(
       <QueryClientProvider client={queryClient}>
         <RouterProvider router={router} />
@@ -105,11 +106,36 @@ describe("apps child routes through the real route tree", () => {
     expect(await screen.findByRole("button", { name: "Delete this app" })).toBeInTheDocument();
   });
 
+  // Without this, an app id with a namespace (every app id has one, design doc 3.9) would 404 on
+  // direct navigation or a reload -- only a route parameter named `$id` (not `$name`) routes a
+  // URL segment containing a `.` to the detail screen at all.
+  it("opens the detail screen directly at a dotted app id, as a fresh navigation would see on reload", async () => {
+    const app: AppDetailResponse = {
+      autostart: false, bindings: {}, broken_reason: null, description: "A test app.", devices: [], env: [], installed_at: 1_700_000_000,
+      last_job: null, manifest: { devices: [], env: [], params: [] }, id: "alice.teleop-fork", name: "teleop", params: {},
+      source: { type: "git", official: false, url: "https://github.com/alice/teleop", subdir: null, manifest: null, ref_kind: "branch", ref: "main", commit: "abc123" },
+      status: "stopped",
+    };
+    server.use(
+      getGetStatusApiV1SystemStatusGetMockHandler(SYSTEM_STATUS),
+      getGetStatusApiV1WifiStatusGetMockHandler({ ssid: "Home", ip_address: null, state: "connected" }),
+      getGetAppApiV1AppsNameGetMockHandler(app),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+      getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }),
+    );
+    const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ["/apps/alice.teleop-fork"] }) });
+    render(<QueryClientProvider client={queryClient}><RouterProvider router={router} /></QueryClientProvider>);
+
+    expect(await screen.findByRole("button", { name: "Delete this app" })).toBeInTheDocument();
+    expect(screen.getByText("alice.")).toBeInTheDocument();
+    expect(screen.getByText("teleop-fork")).toBeInTheDocument();
+  });
+
   it("returns to the apps list from an app detail breadcrumb", async () => {
     const app: AppDetailResponse = {
       autostart: false, bindings: {}, broken_reason: null, description: "A test app.", devices: [], env: [], installed_at: 1_700_000_000,
-      last_job: null, manifest: { devices: [], env: [], params: [] }, name: "palmimo-teleop", params: {},
-      source: { type: "git", url: "https://github.com/x/y", subdir: null, manifest: null, ref_kind: "tag", ref: "v1", commit: "abc123" }, status: "stopped",
+      last_job: null, manifest: { devices: [], env: [], params: [] }, id: "palmimo.teleop", name: "palmimo-teleop", params: {},
+      source: { type: "git", official: false, url: "https://github.com/x/y", subdir: null, manifest: null, ref_kind: "tag", ref: "v1", commit: "abc123" }, status: "stopped",
     };
     server.use(
       getGetStatusApiV1SystemStatusGetMockHandler(SYSTEM_STATUS),
@@ -120,7 +146,7 @@ describe("apps child routes through the real route tree", () => {
       getListAppsApiV1AppsGetMockHandler({ apps: [] }),
       getGetPlatformApiV1PlatformGetMockHandler(),
     );
-    const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ["/apps/palmimo-teleop"] }) });
+    const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ["/apps/palmimo.teleop"] }) });
     render(<QueryClientProvider client={queryClient}><RouterProvider router={router} /></QueryClientProvider>);
     const user = userEvent.setup();
 

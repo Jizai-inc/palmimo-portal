@@ -74,7 +74,7 @@ def test_diagnostics_contains_every_fixed_section_header(client: TestClient, ada
     client = _authenticated_client(client, adapters)
     _install_zip(client)
 
-    response = client.get("/api/v1/apps/palmimo-teleop/diagnostics")
+    response = client.get("/api/v1/apps/zip.palmimo-teleop/diagnostics")
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/plain")
@@ -97,18 +97,20 @@ def test_diagnostics_never_leaks_a_registered_secret_value_or_git_token(
     client = _authenticated_client(client, adapters)
     _install_zip(client)
     client.put("/api/v1/secrets/MY_KEY", json={"value": "sekrit-value-123"}, headers=CSRF_HEADERS)
-    client.put("/api/v1/apps/palmimo-teleop/bindings", json={"bindings": {"API_KEY": "MY_KEY"}}, headers=CSRF_HEADERS)
+    client.put(
+        "/api/v1/apps/zip.palmimo-teleop/bindings", json={"bindings": {"API_KEY": "MY_KEY"}}, headers=CSRF_HEADERS
+    )
     client.put("/api/v1/git-credentials/github.com/x", json={"value": "ghp_topsecrettoken"}, headers=CSRF_HEADERS)
-    adapters.journal.entries_by_unit["palmimo-app@palmimo-teleop.service"] = []
+    adapters.journal.entries_by_unit["palmimo-app@zip.palmimo-teleop.service"] = []
     from palmimo_portal.ports import JournalEntry
 
-    adapters.journal.entries_by_unit["palmimo-app@palmimo-teleop.service"] = [
+    adapters.journal.entries_by_unit["palmimo-app@zip.palmimo-teleop.service"] = [
         JournalEntry(
             message="printed sekrit-value-123 and ghp_topsecrettoken by mistake", timestamp=1.0, invocation_id="i1"
         )
     ]
 
-    response = client.get("/api/v1/apps/palmimo-teleop/diagnostics")
+    response = client.get("/api/v1/apps/zip.palmimo-teleop/diagnostics")
 
     assert response.status_code == 200
     assert "sekrit-value-123" not in response.text
@@ -129,15 +131,15 @@ def test_diagnostics_precheck_section_matches_what_start_would_answer(
 ) -> None:
     client = _authenticated_client(client, adapters)
     _install_zip(client)
-    _touch_venv(settings, "palmimo-teleop")
+    _touch_venv(settings, "zip.palmimo-teleop")
     if bind_secret:
         client.put("/api/v1/secrets/MY_KEY", json={"value": "v"}, headers=CSRF_HEADERS)
         client.put(
-            "/api/v1/apps/palmimo-teleop/bindings", json={"bindings": {"API_KEY": "MY_KEY"}}, headers=CSRF_HEADERS
+            "/api/v1/apps/zip.palmimo-teleop/bindings", json={"bindings": {"API_KEY": "MY_KEY"}}, headers=CSRF_HEADERS
         )
 
-    diagnostics = client.get("/api/v1/apps/palmimo-teleop/diagnostics")
-    start = client.post("/api/v1/apps/palmimo-teleop/start", headers=CSRF_HEADERS)
+    diagnostics = client.get("/api/v1/apps/zip.palmimo-teleop/diagnostics")
+    start = client.post("/api/v1/apps/zip.palmimo-teleop/start", headers=CSRF_HEADERS)
 
     assert start.status_code == expected_start_status
     if expected_code == "ok":
@@ -152,17 +154,19 @@ def test_reset_stops_running_apps_removes_them_and_empties_secrets(
 ) -> None:
     client = _authenticated_client(client, adapters)
     _install_zip(client)
-    _touch_venv(settings, "palmimo-teleop")
+    _touch_venv(settings, "zip.palmimo-teleop")
     client.put("/api/v1/secrets/MY_KEY", json={"value": "v"}, headers=CSRF_HEADERS)
-    client.put("/api/v1/apps/palmimo-teleop/bindings", json={"bindings": {"API_KEY": "MY_KEY"}}, headers=CSRF_HEADERS)
-    start = client.post("/api/v1/apps/palmimo-teleop/start", headers=CSRF_HEADERS)
+    client.put(
+        "/api/v1/apps/zip.palmimo-teleop/bindings", json={"bindings": {"API_KEY": "MY_KEY"}}, headers=CSRF_HEADERS
+    )
+    start = client.post("/api/v1/apps/zip.palmimo-teleop/start", headers=CSRF_HEADERS)
     assert start.status_code == 202
-    assert "palmimo-teleop" in adapters.app_unit.start_calls
+    assert "zip.palmimo-teleop" in adapters.app_unit.start_calls
 
     response = client.post("/api/v1/apps/reset", headers=CSRF_HEADERS)
 
     assert response.status_code == 202
-    assert "palmimo-teleop" in adapters.app_unit.stop_calls
+    assert "zip.palmimo-teleop" in adapters.app_unit.stop_calls
     assert client.get("/api/v1/apps").json()["apps"] == []
     assert client.get("/api/v1/secrets").json()["secrets"] == []
 
@@ -215,11 +219,13 @@ def test_install_bind_start_and_stop_never_log_a_registered_secret_value(
     caplog.set_level("DEBUG", logger="palmimo_portal")
     client = _authenticated_client(client, adapters)
     _install_zip(client)
-    _touch_venv(settings, "palmimo-teleop")
+    _touch_venv(settings, "zip.palmimo-teleop")
     client.put("/api/v1/secrets/MY_KEY", json={"value": "sekrit-value-999"}, headers=CSRF_HEADERS)
-    client.put("/api/v1/apps/palmimo-teleop/bindings", json={"bindings": {"API_KEY": "MY_KEY"}}, headers=CSRF_HEADERS)
-    client.post("/api/v1/apps/palmimo-teleop/start", headers=CSRF_HEADERS)
-    client.post("/api/v1/apps/palmimo-teleop/stop", headers=CSRF_HEADERS)
+    client.put(
+        "/api/v1/apps/zip.palmimo-teleop/bindings", json={"bindings": {"API_KEY": "MY_KEY"}}, headers=CSRF_HEADERS
+    )
+    client.post("/api/v1/apps/zip.palmimo-teleop/start", headers=CSRF_HEADERS)
+    client.post("/api/v1/apps/zip.palmimo-teleop/stop", headers=CSRF_HEADERS)
 
     all_log_text = "\n".join(record.getMessage() for record in caplog.records)
 

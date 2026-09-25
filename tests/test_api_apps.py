@@ -22,6 +22,17 @@ from palmimo_portal.testing.fakes import FakeAdapterBundle
 
 CSRF_HEADERS = {"X-Requested-With": "PalmimoPortal"}
 
+#: `_install_zip()`'s default name is `zip`-namespaced (design doc 3.9); the
+#: git-sourced constants below install from `https://example.com/repo`
+#: (no owner segment, so normalization fails and the namespace falls back to
+#: `git`) or `https://example.com/acme/...` (an owner but a non-GitHub host,
+#: whose namespace is the normalized host, owner unused).
+ZIP_TELEOP_ID = "zip.palmimo-teleop"
+GIT_TELEOP_ID = "git.palmimo-teleop"
+GIT_APP_ID = "git.palmimo-git-app"
+EXAMPLE_COM_TELEOP_ID = "example-com.palmimo-teleop"
+EXAMPLE_COM_OTHER_ID = "example-com.other-app"
+
 
 class _StubUpload:
     """Stands in for Starlette's `UploadFile`: a declared `.size` plus a call-counted `.read`."""
@@ -139,8 +150,8 @@ def test_install_zip_with_a_manifest_field_installs_the_app_it_declares(
     )
 
     assert response.status_code == 202
-    assert response.json()["job"]["app_name"] == "palmimo-realtime"
-    detail = client.get("/api/v1/apps/palmimo-realtime")
+    assert response.json()["job"]["app_id"] == "zip.palmimo-realtime"
+    detail = client.get("/api/v1/apps/zip.palmimo-realtime")
     assert detail.status_code == 200
     assert detail.json()["source"]["manifest"] == "palmimo.realtime.toml"
 
@@ -156,6 +167,7 @@ def test_install_zip_then_list_shows_the_app(client: TestClient, adapters: FakeA
     assert list_response.status_code == 200
     [app] = list_response.json()["apps"]
     assert app["name"] == "palmimo-teleop"
+    assert app["id"] == "zip.palmimo-teleop"
     assert app["status"] == "stopped"
 
 
@@ -167,23 +179,23 @@ def test_list_apps_removes_a_stopped_apps_leftover_run_directory(
     client = _authenticated_client(client, adapters)
     _install_zip(client)
     adapters.run_dir.write(
-        "palmimo-teleop", env={"API_KEY": "sekrit"}, argv=["run"], cwd="/apps/palmimo-teleop", project="p"
+        ZIP_TELEOP_ID, env={"API_KEY": "sekrit"}, argv=["run"], cwd="/apps/palmimo-teleop", project="p"
     )
 
     response = client.get("/api/v1/apps")
 
     assert response.status_code == 200
-    assert "palmimo-teleop" not in adapters.run_dir.written
+    assert ZIP_TELEOP_ID not in adapters.run_dir.written
 
 
-def test_install_zip_over_existing_name_returns_409(client: TestClient, adapters: FakeAdapterBundle) -> None:
+def test_install_zip_over_existing_name_uses_a_suffix(client: TestClient, adapters: FakeAdapterBundle) -> None:
     client = _authenticated_client(client, adapters)
     _install_zip(client)
 
     response = _install_zip(client)
 
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "app_exists"
+    assert response.status_code == 202
+    assert response.json()["job"]["app_id"] == "zip.palmimo-teleop-2"
 
 
 def test_install_over_capacity_disk_returns_507(client: TestClient, adapters: FakeAdapterBundle) -> None:
@@ -244,7 +256,7 @@ def test_install_git_source_records_source_and_commit(client: TestClient, adapte
     assert response.status_code == 202
     assert response.json()["job"]["state"] == "done"
 
-    detail = client.get("/api/v1/apps/palmimo-git-app")
+    detail = client.get(f"/api/v1/apps/{GIT_APP_ID}")
     assert detail.status_code == 200
     assert detail.json()["source"]["commit"] == "abc123"
 
@@ -292,7 +304,37 @@ def test_preview_does_not_install(client: TestClient, adapters: FakeAdapterBundl
 
     assert response.status_code == 200
     assert response.json()["name"] == "palmimo-teleop"
+    assert response.json()["namespace"] == "zip"
+    assert response.json()["suggested_id"] == "zip.palmimo-teleop"
     assert client.get("/api/v1/apps").json()["apps"] == []
+
+
+def test_install_zip_rejects_an_invalid_requested_name(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+
+    response = client.post(
+        "/api/v1/apps/install",
+        files={"file": ("app.zip", _zip_bytes(), "application/zip")},
+        data={"name": "not_valid"},
+        headers=CSRF_HEADERS,
+    )
+
+    assert response.status_code == 422
+
+
+def test_install_zip_rejects_an_occupied_requested_name(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+    _install_zip(client)
+
+    response = client.post(
+        "/api/v1/apps/install",
+        files={"file": ("app.zip", _zip_bytes(), "application/zip")},
+        data={"name": "palmimo-teleop"},
+        headers=CSRF_HEADERS,
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "app_exists"
 
 
 def test_get_app_returns_404_for_unknown_name(client: TestClient, adapters: FakeAdapterBundle) -> None:
@@ -308,7 +350,7 @@ def test_delete_app_removes_it_from_the_list(client: TestClient, adapters: FakeA
     client = _authenticated_client(client, adapters)
     _install_zip(client)
 
-    response = client.delete("/api/v1/apps/palmimo-teleop", headers=CSRF_HEADERS)
+    response = client.delete(f"/api/v1/apps/{ZIP_TELEOP_ID}", headers=CSRF_HEADERS)
 
     assert response.status_code == 202
     assert client.get("/api/v1/apps").json()["apps"] == []
@@ -340,10 +382,48 @@ def test_put_params_rejects_value_outside_declared_range(client: TestClient, ada
         headers=CSRF_HEADERS,
     )
 
-    response = client.put("/api/v1/apps/palmimo-teleop/params", json={"params": {"port": 1}}, headers=CSRF_HEADERS)
+    response = client.put(f"/api/v1/apps/{GIT_TELEOP_ID}/params", json={"params": {"port": 1}}, headers=CSRF_HEADERS)
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "params_invalid"
+
+
+# Without this, the apps-list "official" badge (design doc 3.9/3.7) would key off the app id's
+# namespace segment instead of the source field the design explicitly calls for, silently
+# breaking the moment id-derivation and the official check diverge.
+def test_list_apps_marks_official_only_for_the_devkit_repo_source(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    client = _authenticated_client(client, adapters)
+
+    def seed(dest: Path, url: str, ref: str, ref_kind: str) -> None:
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "palmimo.toml").write_text('schema = 1\nname = "app"\ndescription = "d"\ncommand=["run"]\n')
+        (dest / "pyproject.toml").write_text("[project]\nname='app'\nversion='0'\n")
+
+    adapters.git.on_clone = seed
+    client.post(
+        "/api/v1/apps/install",
+        json={
+            "source": {
+                "type": "git",
+                "url": "https://github.com/Jizai-inc/palmimo-devkit",
+                "ref": "main",
+                "ref_kind": "branch",
+            }
+        },
+        headers=CSRF_HEADERS,
+    )
+    client.post(
+        "/api/v1/apps/install",
+        json={"source": {"type": "git", "url": "https://example.com/repo", "ref": "main", "ref_kind": "branch"}},
+        headers=CSRF_HEADERS,
+    )
+
+    response = client.get("/api/v1/apps")
+
+    official = {app["id"]: app["source"]["official"] for app in response.json()["apps"]}
+    assert official == {"palmimo.app": True, "git.app": False}
 
 
 def test_put_bindings_to_unregistered_secret_returns_422(client: TestClient, adapters: FakeAdapterBundle) -> None:
@@ -351,7 +431,7 @@ def test_put_bindings_to_unregistered_secret_returns_422(client: TestClient, ada
     _install_zip(client)
 
     response = client.put(
-        "/api/v1/apps/palmimo-teleop/bindings", json={"bindings": {"API_KEY": "NOT_REGISTERED"}}, headers=CSRF_HEADERS
+        f"/api/v1/apps/{ZIP_TELEOP_ID}/bindings", json={"bindings": {"API_KEY": "NOT_REGISTERED"}}, headers=CSRF_HEADERS
     )
 
     assert response.status_code == 422
@@ -377,7 +457,7 @@ def test_update_check_reports_update_available_for_branch_pinned_app(
     )
     adapters.git.remote_commits[("https://example.com/repo", "main", "branch")] = "v2"
 
-    response = client.post("/api/v1/apps/palmimo-teleop/update/check", headers=CSRF_HEADERS)
+    response = client.post(f"/api/v1/apps/{GIT_TELEOP_ID}/update/check", headers=CSRF_HEADERS)
 
     assert response.status_code == 200
     assert response.json() == {"update_available": True, "remote_commit": "v2"}
@@ -411,22 +491,23 @@ def test_update_check_clears_credential_rejected_for_every_app_sharing_the_host_
         autostart=False,
         last_job=None,
         credential_rejected=True,
+        id=EXAMPLE_COM_OTHER_ID,
     )
     adapters.state.write_apps_state(
         AppsState(
             apps={
-                "palmimo-teleop": replace(state.apps["palmimo-teleop"], credential_rejected=True),
-                "other-app": sibling,
+                EXAMPLE_COM_TELEOP_ID: replace(state.apps[EXAMPLE_COM_TELEOP_ID], credential_rejected=True),
+                EXAMPLE_COM_OTHER_ID: sibling,
             }
         )
     )
 
-    response = client.post("/api/v1/apps/palmimo-teleop/update/check", headers=CSRF_HEADERS)
+    response = client.post(f"/api/v1/apps/{EXAMPLE_COM_TELEOP_ID}/update/check", headers=CSRF_HEADERS)
 
     assert response.status_code == 200
     apps = adapters.state.read_apps_state().apps
-    assert apps["palmimo-teleop"].credential_rejected is False
-    assert apps["other-app"].credential_rejected is False, "same host/owner credential must also be cleared"
+    assert apps[EXAMPLE_COM_TELEOP_ID].credential_rejected is False
+    assert apps[EXAMPLE_COM_OTHER_ID].credential_rejected is False, "same host/owner credential must also be cleared"
 
 
 def test_update_app_returns_409_platform_not_ready_when_the_platform_bundle_is_not_ready(
@@ -506,6 +587,21 @@ def test_apps_state_corrupt_returns_409_for_list(client: TestClient, adapters: F
     assert response.json()["error"]["code"] == "platform_state_corrupt"
 
 
+def test_apps_state_legacy_returns_a_resettable_error_for_list(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+    adapters.state.apps_state_legacy = True
+
+    response = client.get("/api/v1/apps")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "ledger_legacy"
+
+    response = client.post("/api/v1/apps/reset", headers=CSRF_HEADERS)
+
+    assert response.status_code == 202
+    assert adapters.state.read_apps_state().apps == {}
+
+
 def test_get_job_returns_the_recorded_install_job(client: TestClient, adapters: FakeAdapterBundle) -> None:
     client = _authenticated_client(client, adapters)
     install_response = _install_zip(client)
@@ -558,7 +654,7 @@ def test_get_job_reports_the_target_app_and_kind_for_an_install(
     response = client.get(f"/api/v1/apps/jobs/{job_id}")
 
     assert response.status_code == 200
-    assert response.json()["app_name"] == "palmimo-teleop"
+    assert response.json()["app_id"] == ZIP_TELEOP_ID
     assert response.json()["kind"] == "install"
 
 
@@ -579,7 +675,7 @@ def test_get_app_exposes_manifest_param_specs_for_an_enum_and_a_bounded_numeric_
         "/api/v1/apps/install", files={"file": ("app.zip", buffer.getvalue(), "application/zip")}, headers=CSRF_HEADERS
     )
 
-    response = client.get("/api/v1/apps/palmimo-teleop")
+    response = client.get(f"/api/v1/apps/{ZIP_TELEOP_ID}")
 
     assert response.status_code == 200
     params_by_name = {p["name"]: p for p in response.json()["manifest"]["params"]}
@@ -603,7 +699,7 @@ def test_get_app_exposes_a_manifest_params_description(client: TestClient, adapt
         "/api/v1/apps/install", files={"file": ("app.zip", buffer.getvalue(), "application/zip")}, headers=CSRF_HEADERS
     )
 
-    response = client.get("/api/v1/apps/palmimo-teleop")
+    response = client.get(f"/api/v1/apps/{ZIP_TELEOP_ID}")
 
     params_by_name = {p["name"]: p for p in response.json()["manifest"]["params"]}
     assert params_by_name["port"]["description"] == "TCP port the control server listens on"
@@ -640,7 +736,7 @@ def test_start_returns_409_venv_missing_when_the_venv_was_never_synced(
     client = _authenticated_client(client, adapters)
     _install_zip(client)
 
-    response = client.post("/api/v1/apps/palmimo-teleop/start", headers=CSRF_HEADERS)
+    response = client.post(f"/api/v1/apps/{ZIP_TELEOP_ID}/start", headers=CSRF_HEADERS)
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "venv_missing"
@@ -651,13 +747,13 @@ def test_start_returns_202_and_starts_the_unit_once_prechecks_pass(
 ) -> None:
     client = _authenticated_client(client, adapters)
     _install_zip(client)
-    _touch_venv(settings, "palmimo-teleop")
+    _touch_venv(settings, ZIP_TELEOP_ID)
 
-    response = client.post("/api/v1/apps/palmimo-teleop/start", headers=CSRF_HEADERS)
+    response = client.post(f"/api/v1/apps/{ZIP_TELEOP_ID}/start", headers=CSRF_HEADERS)
 
     assert response.status_code == 202
     assert response.json() == {"status": "activating"}
-    assert adapters.app_unit.start_calls == ["palmimo-teleop"]
+    assert adapters.app_unit.start_calls == [ZIP_TELEOP_ID]
 
 
 def test_start_returns_409_app_running_naming_the_already_active_app(
@@ -666,16 +762,16 @@ def test_start_returns_409_app_running_naming_the_already_active_app(
     client = _authenticated_client(client, adapters)
     _install_zip(client, "palmimo-teleop")
     _install_zip(client, "palmimo-other")
-    _touch_venv(settings, "palmimo-teleop")
-    _touch_venv(settings, "palmimo-other")
-    client.post("/api/v1/apps/palmimo-other/start", headers=CSRF_HEADERS)
+    _touch_venv(settings, ZIP_TELEOP_ID)
+    _touch_venv(settings, "zip.palmimo-other")
+    client.post("/api/v1/apps/zip.palmimo-other/start", headers=CSRF_HEADERS)
 
-    response = client.post("/api/v1/apps/palmimo-teleop/start", headers=CSRF_HEADERS)
+    response = client.post(f"/api/v1/apps/{ZIP_TELEOP_ID}/start", headers=CSRF_HEADERS)
 
     assert response.status_code == 409
     body = response.json()["error"]
     assert body["code"] == "app_running"
-    assert body["params"]["running"] == "palmimo-other"
+    assert body["params"]["running"] == "zip.palmimo-other"
 
 
 def test_start_returns_503_polkit_denied_when_systemd_refuses(
@@ -685,10 +781,10 @@ def test_start_returns_503_polkit_denied_when_systemd_refuses(
 
     client = _authenticated_client(client, adapters)
     _install_zip(client)
-    _touch_venv(settings, "palmimo-teleop")
-    adapters.app_unit.raise_on_start = PolkitDeniedError("palmimo-app@palmimo-teleop.service", "start")
+    _touch_venv(settings, ZIP_TELEOP_ID)
+    adapters.app_unit.raise_on_start = PolkitDeniedError(f"palmimo-app@{ZIP_TELEOP_ID}.service", "start")
 
-    response = client.post("/api/v1/apps/palmimo-teleop/start", headers=CSRF_HEADERS)
+    response = client.post("/api/v1/apps/zip.palmimo-teleop/start", headers=CSRF_HEADERS)
 
     # Distinguishing this from a generic 503 backend failure is the point of the code, not
     # any wording it carries.
@@ -703,13 +799,13 @@ def test_start_returns_500_start_failed_with_journal_tail_on_unexpected_unit_err
 
     client = _authenticated_client(client, adapters)
     _install_zip(client)
-    _touch_venv(settings, "palmimo-teleop")
+    _touch_venv(settings, "zip.palmimo-teleop")
     adapters.app_unit.raise_on_start = RuntimeError("dbus exploded")
-    adapters.journal.entries_by_unit["palmimo-app@palmimo-teleop.service"] = [
+    adapters.journal.entries_by_unit["palmimo-app@zip.palmimo-teleop.service"] = [
         JournalEntry(message="boom", timestamp=1.0, invocation_id="inv-1")
     ]
 
-    response = client.post("/api/v1/apps/palmimo-teleop/start", headers=CSRF_HEADERS)
+    response = client.post("/api/v1/apps/zip.palmimo-teleop/start", headers=CSRF_HEADERS)
 
     assert response.status_code == 500
     body = response.json()["error"]
@@ -724,14 +820,14 @@ def test_start_failed_journal_tail_masks_a_registered_secret_value(
 
     client = _authenticated_client(client, adapters)
     _install_zip(client)
-    _touch_venv(settings, "palmimo-teleop")
+    _touch_venv(settings, "zip.palmimo-teleop")
     adapters.app_unit.raise_on_start = RuntimeError("dbus exploded")
     adapters.secrets.set_secret("API_KEY", "sk-supersecret")
-    adapters.journal.entries_by_unit["palmimo-app@palmimo-teleop.service"] = [
+    adapters.journal.entries_by_unit["palmimo-app@zip.palmimo-teleop.service"] = [
         JournalEntry(message="using key sk-supersecret to authenticate", timestamp=1.0, invocation_id="inv-1")
     ]
 
-    response = client.post("/api/v1/apps/palmimo-teleop/start", headers=CSRF_HEADERS)
+    response = client.post("/api/v1/apps/zip.palmimo-teleop/start", headers=CSRF_HEADERS)
 
     assert response.status_code == 500
     [line] = response.json()["error"]["params"]["journal_tail"]
@@ -745,11 +841,11 @@ def test_logs_masks_a_registered_secret_value(client: TestClient, adapters: Fake
     client = _authenticated_client(client, adapters)
     _install_zip(client)
     adapters.secrets.set_secret("API_KEY", "sk-supersecret")
-    adapters.journal.entries_by_unit["palmimo-app@palmimo-teleop.service"] = [
+    adapters.journal.entries_by_unit["palmimo-app@zip.palmimo-teleop.service"] = [
         JournalEntry(message="using key sk-supersecret to authenticate", timestamp=1.0, invocation_id="inv-1")
     ]
 
-    response = client.get("/api/v1/apps/palmimo-teleop/logs")
+    response = client.get("/api/v1/apps/zip.palmimo-teleop/logs")
 
     [entry] = response.json()["entries"]
     assert "sk-supersecret" not in entry["message"]
@@ -760,7 +856,7 @@ def test_logs_rejects_a_lines_value_above_the_bound(client: TestClient, adapters
     client = _authenticated_client(client, adapters)
     _install_zip(client)
 
-    response = client.get("/api/v1/apps/palmimo-teleop/logs", params={"lines": 5000})
+    response = client.get("/api/v1/apps/zip.palmimo-teleop/logs", params={"lines": 5000})
 
     assert response.status_code == 422
 
@@ -770,14 +866,14 @@ def test_stop_returns_202_and_stops_the_unit(
 ) -> None:
     client = _authenticated_client(client, adapters)
     _install_zip(client)
-    _touch_venv(settings, "palmimo-teleop")
-    client.post("/api/v1/apps/palmimo-teleop/start", headers=CSRF_HEADERS)
+    _touch_venv(settings, "zip.palmimo-teleop")
+    client.post("/api/v1/apps/zip.palmimo-teleop/start", headers=CSRF_HEADERS)
 
-    response = client.post("/api/v1/apps/palmimo-teleop/stop", headers=CSRF_HEADERS)
+    response = client.post("/api/v1/apps/zip.palmimo-teleop/stop", headers=CSRF_HEADERS)
 
     assert response.status_code == 202
     assert response.json() == {"status": "stopping"}
-    assert adapters.app_unit.stop_calls == ["palmimo-teleop"]
+    assert adapters.app_unit.stop_calls == ["zip.palmimo-teleop"]
 
 
 def test_stop_returns_404_for_an_unknown_app(client: TestClient, adapters: FakeAdapterBundle) -> None:
@@ -792,11 +888,11 @@ def test_put_autostart_persists_the_flag(client: TestClient, adapters: FakeAdapt
     client = _authenticated_client(client, adapters)
     _install_zip(client)
 
-    response = client.put("/api/v1/apps/palmimo-teleop/autostart", json={"enabled": True}, headers=CSRF_HEADERS)
+    response = client.put("/api/v1/apps/zip.palmimo-teleop/autostart", json={"enabled": True}, headers=CSRF_HEADERS)
 
     assert response.status_code == 200
     assert response.json()["autostart"] is True
-    assert adapters.state.read_apps_state().apps["palmimo-teleop"].autostart is True
+    assert adapters.state.read_apps_state().apps["zip.palmimo-teleop"].autostart is True
 
 
 def test_put_source_rejects_a_zip_sourced_app(client: TestClient, adapters: FakeAdapterBundle) -> None:
@@ -804,7 +900,7 @@ def test_put_source_rejects_a_zip_sourced_app(client: TestClient, adapters: Fake
     _install_zip(client)
 
     response = client.put(
-        "/api/v1/apps/palmimo-teleop/source", json={"ref": "v2", "ref_kind": "tag"}, headers=CSRF_HEADERS
+        "/api/v1/apps/zip.palmimo-teleop/source", json={"ref": "v2", "ref_kind": "tag"}, headers=CSRF_HEADERS
     )
 
     assert response.status_code == 409
@@ -827,11 +923,11 @@ def test_put_source_updates_ref_for_a_git_sourced_app(client: TestClient, adapte
     )
 
     response = client.put(
-        "/api/v1/apps/palmimo-git-app/source", json={"ref": "v2", "ref_kind": "tag"}, headers=CSRF_HEADERS
+        "/api/v1/apps/git.palmimo-git-app/source", json={"ref": "v2", "ref_kind": "tag"}, headers=CSRF_HEADERS
     )
 
     assert response.status_code == 200
-    record = adapters.state.read_apps_state().apps["palmimo-git-app"]
+    record = adapters.state.read_apps_state().apps["git.palmimo-git-app"]
     assert record.source.ref == "v2"
     assert record.source.ref_kind == "tag"
 
@@ -845,9 +941,9 @@ def _mark_job_in_progress(adapters: FakeAdapterBundle, name: str) -> None:
 @pytest.mark.parametrize(
     ("path", "body"),
     [
-        ("/api/v1/apps/palmimo-teleop/params", {"params": {}}),
-        ("/api/v1/apps/palmimo-teleop/autostart", {"enabled": True}),
-        ("/api/v1/apps/palmimo-teleop/source", {"ref": "v2", "ref_kind": "tag"}),
+        ("/api/v1/apps/zip.palmimo-teleop/params", {"params": {}}),
+        ("/api/v1/apps/zip.palmimo-teleop/autostart", {"enabled": True}),
+        ("/api/v1/apps/zip.palmimo-teleop/source", {"ref": "v2", "ref_kind": "tag"}),
     ],
 )
 def test_settings_write_refused_while_a_job_targets_the_app(
@@ -858,7 +954,7 @@ def test_settings_write_refused_while_a_job_targets_the_app(
     # app entirely.
     client = _authenticated_client(client, adapters)
     _install_zip(client)
-    _mark_job_in_progress(adapters, "palmimo-teleop")
+    _mark_job_in_progress(adapters, "zip.palmimo-teleop")
 
     response = client.put(path, json=body, headers=CSRF_HEADERS)
 
@@ -871,7 +967,7 @@ def test_logs_returns_journal_permission_when_unreadable(client: TestClient, ada
     _install_zip(client)
     adapters.journal.readable = False
 
-    response = client.get("/api/v1/apps/palmimo-teleop/logs")
+    response = client.get("/api/v1/apps/zip.palmimo-teleop/logs")
 
     assert response.status_code == 200
     assert response.json()["unavailable"] == "journal_permission"
@@ -890,17 +986,17 @@ def test_logs_pages_with_a_cursor(client: TestClient, adapters: FakeAdapterBundl
 
     client = _authenticated_client(client, adapters)
     _install_zip(client)
-    unit = "palmimo-app@palmimo-teleop.service"
+    unit = "palmimo-app@zip.palmimo-teleop.service"
     adapters.journal.entries_by_unit[unit] = [
         JournalEntry(message=f"line {i}", timestamp=float(i), invocation_id="inv-1") for i in range(5)
     ]
 
-    first = client.get("/api/v1/apps/palmimo-teleop/logs", params={"lines": 2})
+    first = client.get("/api/v1/apps/zip.palmimo-teleop/logs", params={"lines": 2})
     assert [entry["message"] for entry in first.json()["entries"]] == ["line 0", "line 1"]
     cursor = first.json()["next_cursor"]
     assert cursor is not None
 
-    second = client.get("/api/v1/apps/palmimo-teleop/logs", params={"lines": 2, "cursor": cursor})
+    second = client.get("/api/v1/apps/zip.palmimo-teleop/logs", params={"lines": 2, "cursor": cursor})
     assert [entry["message"] for entry in second.json()["entries"]] == ["line 2", "line 3"]
 
 
@@ -913,13 +1009,13 @@ def test_logs_filters_by_invocation(client: TestClient, adapters: FakeAdapterBun
 
     client = _authenticated_client(client, adapters)
     _install_zip(client)
-    unit = "palmimo-app@palmimo-teleop.service"
+    unit = "palmimo-app@zip.palmimo-teleop.service"
     adapters.journal.entries_by_unit[unit] = [
         JournalEntry(message="old", timestamp=1.0, invocation_id=_INV_1),
         JournalEntry(message="new", timestamp=2.0, invocation_id=_INV_2),
     ]
 
-    response = client.get("/api/v1/apps/palmimo-teleop/logs", params={"invocation": _INV_2})
+    response = client.get("/api/v1/apps/zip.palmimo-teleop/logs", params={"invocation": _INV_2})
 
     assert [entry["message"] for entry in response.json()["entries"]] == ["new"]
     assert response.json()["invocations"] == [
@@ -934,7 +1030,7 @@ def test_logs_rejects_a_malformed_invocation_id(client: TestClient, adapters: Fa
     client = _authenticated_client(client, adapters)
     _install_zip(client)
 
-    response = client.get("/api/v1/apps/palmimo-teleop/logs", params={"invocation": "not-an-invocation-id"})
+    response = client.get("/api/v1/apps/zip.palmimo-teleop/logs", params={"invocation": "not-an-invocation-id"})
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "invalid_invocation"
@@ -947,7 +1043,7 @@ def test_logs_lists_a_previous_invocation_once_the_current_run_exceeds_the_page(
 
     client = _authenticated_client(client, adapters)
     _install_zip(client)
-    unit = "palmimo-app@palmimo-teleop.service"
+    unit = "palmimo-app@zip.palmimo-teleop.service"
     adapters.journal.entries_by_unit[unit] = [
         JournalEntry(message="old", timestamp=1.0, invocation_id=_INV_1),
         *(JournalEntry(message=f"new-{i}", timestamp=float(i + 2), invocation_id=_INV_2) for i in range(5)),
@@ -955,7 +1051,7 @@ def test_logs_lists_a_previous_invocation_once_the_current_run_exceeds_the_page(
 
     # A page starting past the old run's one entry returns only current-run lines --
     # `invocations` must still surface the old run, not just whatever this page's own entries carry.
-    response = client.get("/api/v1/apps/palmimo-teleop/logs", params={"lines": 3, "cursor": "1"})
+    response = client.get("/api/v1/apps/zip.palmimo-teleop/logs", params={"lines": 3, "cursor": "1"})
 
     assert [entry["message"] for entry in response.json()["entries"]] == ["new-0", "new-1", "new-2"]
     assert response.json()["invocations"] == [

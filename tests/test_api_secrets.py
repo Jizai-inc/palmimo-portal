@@ -98,7 +98,39 @@ def test_delete_secret_in_use_returns_409_with_users(client: TestClient, adapter
     assert response.status_code == 409
     body = response.json()["error"]
     assert body["code"] == "secret_in_use"
-    assert body["params"]["users"] == [{"app": "palmimo-teleop", "name": "API_KEY"}]
+    assert body["params"]["users"] == [{"app_id": "palmimo-teleop", "app_name": "palmimo-teleop", "request": "API_KEY"}]
+
+
+def test_delete_secret_in_use_reports_the_apps_display_name_not_just_its_id(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    # id and display name diverge whenever the manifest's `name` differs from the id's name
+    # part (a suffix bump, or a rename design doc 3.9 accepts) -- users must be able to tell
+    # which of their apps a locked secret belongs to, not just its opaque id.
+    client = _authenticated_client(client, adapters)
+    adapters.state.write_apps_state(
+        AppsState(
+            apps={
+                "alice.teleop-2": AppRecord(
+                    name="teleop",
+                    source=AppSource(type="zip"),
+                    installed_at=1.0,
+                    params={},
+                    autostart=False,
+                    last_job=None,
+                    id="alice.teleop-2",
+                )
+            }
+        )
+    )
+    client.put("/api/v1/secrets/OPENAI_API_KEY", json={"value": "sk-1"}, headers=CSRF_HEADERS)
+    adapters.secrets.write_bindings("alice.teleop-2", {"API_KEY": "OPENAI_API_KEY"})
+
+    response = client.delete("/api/v1/secrets/OPENAI_API_KEY", headers=CSRF_HEADERS)
+
+    assert response.json()["error"]["params"]["users"] == [
+        {"app_id": "alice.teleop-2", "app_name": "teleop", "request": "API_KEY"}
+    ]
 
 
 def test_put_git_credential_never_exposes_token(client: TestClient, adapters: FakeAdapterBundle) -> None:

@@ -57,7 +57,7 @@ interface CursorState {
   cursor: string | null;
 }
 
-export function useAppLogs(name: string, status: string): UseAppLogsResult {
+export function useAppLogs(id: string, status: string): UseAppLogsResult {
   // `null` means "follow the newest run" -- re-derived from the latest response's `invocations`
   // on every render, not captured once, so a run that starts or restarts while this is open is
   // picked up on the next poll instead of leaving the view pinned to whatever was newest at
@@ -82,8 +82,8 @@ export function useAppLogs(name: string, status: string): UseAppLogsResult {
   // omits it instead of pairing a new invocation with an old cursor.
   const cursor = cursorState.invocation === invocation ? cursorState.cursor : null;
 
-  const setInvocation = (id: string | null) => {
-    setPinnedInvocation(id !== null && id === (knownInvocations[0]?.id ?? null) ? null : id);
+  const setInvocation = (invocationId: string | null) => {
+    setPinnedInvocation(invocationId !== null && invocationId === (knownInvocations[0]?.id ?? null) ? null : invocationId);
   };
 
   // The generated client serializes an explicit `null` param as the literal query string
@@ -92,7 +92,7 @@ export function useAppLogs(name: string, status: string): UseAppLogsResult {
   // string, not "absent" -- so a null cursor/invocation is left out of the params object
   // entirely instead of passed through.
   const { data: logs, refetch } = useGetLogsApiV1AppsNameLogsGet(
-    name,
+    id,
     { lines: DEFAULT_LOG_LINES, ...(invocation !== null ? { invocation } : {}), ...(cursor !== null ? { cursor } : {}) },
     { query: { refetchInterval: status === "running" ? LOG_POLL_INTERVAL_MS : false } },
   );

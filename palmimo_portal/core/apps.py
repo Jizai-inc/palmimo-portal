@@ -27,6 +27,57 @@ from palmimo_portal.ports import (
 )
 
 
+APP_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}\.[a-z][a-z0-9-]{0,39}$")
+_RESERVED_GITHUB_NAMESPACES = frozenset({"palmimo", "zip", "git"})
+
+
+def normalize_git_url(url: str) -> tuple[str, str, str] | None:
+    """Return normalized ``(host, owner, repo)`` for an HTTPS repository URL."""
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.hostname:
+        return None
+    parts = [part for part in parsed.path.split("/") if part]
+    if len(parts) < 2:
+        return None
+    return parsed.hostname.lower(), parts[0].lower(), parts[1].removesuffix(".git").lower()
+
+
+def normalize_namespace(value: str) -> str:
+    value = re.sub(r"[^a-z0-9-]", "-", value.lower())
+    value = re.sub(r"-+", "-", value)[:40].strip("-")
+    return value or "git"
+
+
+def app_namespace(source_type: str, url: str | None, catalog_repo: str | None) -> str:
+    if source_type == "zip":
+        return "zip"
+    normalized = normalize_git_url(url or "")
+    if normalized is None:
+        return "git"
+    host, owner, _repo = normalized
+    catalog = normalize_git_url(f"https://github.com/{catalog_repo}") if catalog_repo else None
+    if catalog == normalized:
+        return "palmimo"
+    if host == "github.com":
+        namespace = normalize_namespace(owner)
+        return f"{namespace}-gh" if namespace in _RESERVED_GITHUB_NAMESPACES else namespace
+    return normalize_namespace(host)
+
+
+def suggest_app_name(namespace: str, requested_name: str, state: AppsState) -> str:
+    """Choose the first unused name component under ``namespace`` (design doc 3.9)."""
+    base = requested_name[:40]
+    occupied = set(state.apps)
+    if state.current_job_app:
+        occupied.add(state.current_job_app)
+    for suffix_number in range(1, 1000000):
+        suffix = "" if suffix_number == 1 else f"-{suffix_number}"
+        candidate = f"{base[: 40 - len(suffix)]}{suffix}"
+        if f"{namespace}.{candidate}" not in occupied:
+            return candidate
+    raise RuntimeError("no app id available")
+
+
 def new_job_id() -> str:
     """Return a fresh job id, also used as the ``.staging/<id>/`` directory name.
 
@@ -125,20 +176,23 @@ def resolve_subdir(root: Path, subdir: str | None) -> Path:
 def host_owner_from_url(url: str) -> str | None:
     """Extract the normalized ``host/owner`` a git credential is scoped to (design doc 4.2) from a repo URL.
 
-    Normalized through :func:`~palmimo_portal.core.secrets.normalize_host_owner`
-    -- the same form every credential is stored/looked-up under, so this
-    always lands on the right entry regardless of how the URL's host was
-    cased. ``None`` for a URL with no host or no path segment (not a shape
-    a real app source ever has, but a caller must not crash on one).
+    Shares :func:`normalize_git_url`'s host parsing, but keeps the owner's
+    original case: :func:`~palmimo_portal.core.secrets.normalize_host_owner`
+    is case-preserving on the owner half (an operator-entered credential
+    keeps whatever case they typed), so lowercasing it here first would make
+    a URL-derived lookup key never match a credential registered against a
+    mixed-case owner. ``None`` for a URL with no host or no path segment
+    (not a shape a real app source ever has, but a caller must not crash on
+    one).
     """
     parsed = urlparse(url)
-    if not parsed.netloc:
+    if not parsed.hostname:
         return None
     parts = [part for part in parsed.path.split("/") if part]
     if not parts:
         return None
     try:
-        return normalize_host_owner(f"{parsed.netloc}/{parts[0]}")
+        return normalize_host_owner(f"{parsed.hostname}/{parts[0]}")
     except InvalidHostOwnerError:
         return None
 

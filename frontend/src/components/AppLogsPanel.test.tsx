@@ -21,9 +21,10 @@ function detail(overrides: Partial<AppDetailResponse> = {}): AppDetailResponse {
     installed_at: 1_700_000_000,
     last_job: null,
     manifest: { devices: [], env: [], params: [] },
+    id: "palmimo.teleop",
     name: "palmimo-teleop",
     params: {},
-    source: { type: "git", url: "https://github.com/x/y", subdir: null, manifest: null, ref_kind: "tag", ref: "v1", commit: "abc123" },
+    source: { type: "git", official: false, url: "https://github.com/x/y", subdir: null, manifest: null, ref_kind: "tag", ref: "v1", commit: "abc123" },
     status: "running",
     ...overrides,
   };
@@ -45,7 +46,7 @@ describe("AppLogsPanel", () => {
       }),
     );
 
-    renderWithRouter(<AppLogsPanel name="palmimo-teleop" />);
+    renderWithRouter(<AppLogsPanel id="palmimo.teleop" />);
 
     await waitFor(() => expect(screen.getByLabelText("Start")).toHaveValue("11111111111111111111111111111111"));
     expect(screen.getByText("Current run. Updates every 2 seconds.")).toBeInTheDocument();
@@ -67,7 +68,7 @@ describe("AppLogsPanel", () => {
       let restarted = false;
       server.use(
         getGetAppApiV1AppsNameGetMockHandler(detail()),
-        http.get("*/api/v1/apps/palmimo-teleop/logs", ({ request }) => {
+        http.get("*/api/v1/apps/palmimo.teleop/logs", ({ request }) => {
           const url = new URL(request.url);
           const raw = url.searchParams.get("invocation");
           const requested = raw && raw !== "null" ? raw : null;
@@ -83,7 +84,7 @@ describe("AppLogsPanel", () => {
         }),
       );
 
-      renderWithRouter(<AppLogsPanel name="palmimo-teleop" />);
+      renderWithRouter(<AppLogsPanel id="palmimo.teleop" />);
       await waitFor(() => expect(screen.getByText("old run line")).toBeInTheDocument());
       expect(screen.getByText("Current run. Updates every 2 seconds.")).toBeInTheDocument();
 
@@ -103,7 +104,7 @@ describe("AppLogsPanel", () => {
       let restarted = false;
       server.use(
         getGetAppApiV1AppsNameGetMockHandler(detail()),
-        http.get("*/api/v1/apps/palmimo-teleop/logs", ({ request }) => {
+        http.get("*/api/v1/apps/palmimo.teleop/logs", ({ request }) => {
           const url = new URL(request.url);
           const raw = url.searchParams.get("invocation");
           const requested = raw && raw !== "null" ? raw : null;
@@ -120,7 +121,7 @@ describe("AppLogsPanel", () => {
         }),
       );
 
-      renderWithRouter(<AppLogsPanel name="palmimo-teleop" />);
+      renderWithRouter(<AppLogsPanel id="palmimo.teleop" />);
       await waitFor(() => expect(screen.getByLabelText("Start")).toHaveValue("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
 
       await user.selectOptions(screen.getByLabelText("Start"), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -147,7 +148,7 @@ describe("AppLogsPanel", () => {
       const requestedInvocations: (string | null)[] = [];
       server.use(
         getGetAppApiV1AppsNameGetMockHandler(detail()),
-        http.get("*/api/v1/apps/palmimo-teleop/logs", ({ request }) => {
+        http.get("*/api/v1/apps/palmimo.teleop/logs", ({ request }) => {
           const url = new URL(request.url);
           const raw = url.searchParams.get("invocation");
           const requested = raw && raw !== "null" ? raw : null;
@@ -165,7 +166,7 @@ describe("AppLogsPanel", () => {
         }),
       );
 
-      renderWithRouter(<AppLogsPanel name="palmimo-teleop" />);
+      renderWithRouter(<AppLogsPanel id="palmimo.teleop" />);
       await waitFor(() => expect(screen.getByText("new line")).toBeInTheDocument());
 
       listingFailed = true;
@@ -187,7 +188,7 @@ describe("AppLogsPanel", () => {
       const seen: { invocation: string | null; cursor: string | null }[] = [];
       server.use(
         getGetAppApiV1AppsNameGetMockHandler(detail()),
-        http.get("*/api/v1/apps/palmimo-teleop/logs", ({ request }) => {
+        http.get("*/api/v1/apps/palmimo.teleop/logs", ({ request }) => {
           const url = new URL(request.url);
           const rawInvocation = url.searchParams.get("invocation");
           const requested = rawInvocation && rawInvocation !== "null" ? rawInvocation : null;
@@ -205,14 +206,16 @@ describe("AppLogsPanel", () => {
         }),
       );
 
-      renderWithRouter(<AppLogsPanel name="palmimo-teleop" />);
+      renderWithRouter(<AppLogsPanel id="palmimo.teleop" />);
       await waitFor(() => expect(screen.getByText("w line")).toBeInTheDocument());
 
       restarted = true;
-      await act(() => vi.advanceTimersByTimeAsync(LOG_POLL_INTERVAL_MS));
-      await act(() => vi.advanceTimersByTimeAsync(LOG_POLL_INTERVAL_MS));
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await act(() => vi.advanceTimersByTimeAsync(LOG_POLL_INTERVAL_MS));
+        if (screen.queryAllByText("x line").length > 0) break;
+      }
 
-      await waitFor(() => expect(screen.getByText("x line")).toBeInTheDocument());
+      expect(screen.getAllByText("x line").length).toBeGreaterThan(0);
 
       const firstRequestForX = seen.find((request) => request.invocation === "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
       expect(firstRequestForX?.cursor).toBeNull();

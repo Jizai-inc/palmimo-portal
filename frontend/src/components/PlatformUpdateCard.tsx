@@ -41,6 +41,9 @@ export function PlatformUpdateCard({
     updateAvailable &&
     installedPortalVersion !== undefined &&
     !isVersionAtLeast(installedPortalVersion, platform.latest!.requires_portal);
+  const legacyLedgerError =
+    (startError instanceof PortalApiError && startError.code === "ledger_legacy") ||
+    (checkError instanceof PortalApiError && checkError.code === "ledger_legacy");
 
   return (
     <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-4">
@@ -103,8 +106,19 @@ export function PlatformUpdateCard({
         </Alert>
       ) : null}
 
-      <ApiErrorAlert error={startError} />
-      <ApiErrorAlert error={isSilentRateLimit(checkError) ? undefined : checkError} />
+      {legacyLedgerError ? (
+        <Alert>
+          <AlertDescription>{t("update.platformLegacyLedger")}</AlertDescription>
+        </Alert>
+      ) : null}
+      <ApiErrorAlert error={startError instanceof PortalApiError && startError.code === "ledger_legacy" ? undefined : startError} />
+      <ApiErrorAlert
+        error={
+          isSilentRateLimit(checkError) || (checkError instanceof PortalApiError && checkError.code === "ledger_legacy")
+            ? undefined
+            : checkError
+        }
+      />
 
       {platform.latest?.reflash_required ? (
         <Alert>

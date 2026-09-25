@@ -31,6 +31,17 @@ from palmimo_portal.testing.fakes import (
 )
 
 
+#: `_zip_bytes()`'s default manifest name is `zip`-namespaced (design doc 3.9);
+#: the other constants mirror the other names installed by name below.
+ZIP_ID = "zip.palmimo-teleop"
+OTHER_APP_ID = "zip.other-app"
+PALMIMO_OTHER_ID = "zip.palmimo-other"
+#: `install_git`'s `url` below has no owner segment (`https://example.com/repo`),
+#: so it fails normalization and falls back to the `git` namespace (design doc
+#: 3.9's namespace-derivation table).
+GIT_ID = "git.palmimo-teleop"
+
+
 def _zip_bytes(name: str = "palmimo-teleop") -> bytes:
     import io
     import zipfile
@@ -64,7 +75,7 @@ def test_start_install_completes_and_registers_the_app_when_run_inline(ctx: Apps
     job = runner.start_install(prepared)
 
     assert job.state == "done"
-    last_job = state_store.read_apps_state().apps["palmimo-teleop"].last_job
+    last_job = state_store.read_apps_state().apps[ZIP_ID].last_job
     assert last_job is not None
     assert last_job.id == job.id
     assert state_store.read_apps_state().current_job is None
@@ -92,8 +103,9 @@ def test_install_job_is_visible_as_running_while_sync_is_in_flight(ctx: AppsJobC
     assert state.current_job is not None
     assert state.current_job.id == job.id
     assert state.current_job.state == "running"
-    assert state.current_job_app == "palmimo-teleop"
-    assert "palmimo-teleop" not in state.apps  # not registered until commit_install finishes
+    assert state.current_job.display_name == "palmimo-teleop"
+    assert state.current_job_app == ZIP_ID
+    assert ZIP_ID not in state.apps  # not registered until commit_install finishes
 
     release_sync.set()
 
@@ -121,7 +133,9 @@ def test_second_install_while_a_job_is_running_returns_lock_timeout(ctx: AppsJob
     release_sync.set()
 
 
-def test_install_over_existing_name_raises_before_spawning_a_thread(ctx: AppsJobContext) -> None:
+def test_install_over_an_explicitly_requested_id_raises_before_spawning_a_thread(ctx: AppsJobContext) -> None:
+    # An unspecified name auto-suffixes past a collision (design doc 3.9) -- only an
+    # explicitly *requested* name component can still land on an already-occupied id.
     state_store = FakeStateStore()
     runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
     prepared = prepare_install_zip(ctx, _zip_bytes())
@@ -129,7 +143,7 @@ def test_install_over_existing_name_raises_before_spawning_a_thread(ctx: AppsJob
 
     prepared_again = prepare_install_zip(ctx, _zip_bytes())
     with pytest.raises(AppExistsError):
-        runner.start_install(prepared_again)
+        runner.start_install(prepared_again, requested_name="palmimo-teleop")
 
 
 def test_start_install_keeps_the_failed_job_as_an_orphan_when_sync_fails(ctx: AppsJobContext) -> None:
@@ -148,10 +162,10 @@ def test_start_install_keeps_the_failed_job_as_an_orphan_when_sync_fails(ctx: Ap
     assert job.state == "failed"
     state = state_store.read_apps_state()
     assert state.current_job is None
-    assert "palmimo-teleop" not in state.apps
+    assert ZIP_ID not in state.apps
     assert state.last_orphan_job is not None
     assert state.last_orphan_job.id == job.id
-    assert state.last_orphan_job_app == "palmimo-teleop"
+    assert state.last_orphan_job_app == ZIP_ID
 
 
 def test_a_later_successful_install_clears_a_previous_orphan_job(ctx: AppsJobContext) -> None:
@@ -171,7 +185,7 @@ def test_a_later_successful_install_clears_a_previous_orphan_job(ctx: AppsJobCon
     state = state_store.read_apps_state()
     assert state.last_orphan_job is None
     assert state.last_orphan_job_app is None
-    assert "palmimo-other" in state.apps
+    assert PALMIMO_OTHER_ID in state.apps
 
 
 def test_finalize_after_simulated_crash_mid_install_marks_interrupted_and_omits_the_app(ctx: AppsJobContext) -> None:
@@ -183,7 +197,7 @@ def test_finalize_after_simulated_crash_mid_install_marks_interrupted_and_omits_
     crashed_job = AppJob(
         id="crashed", kind="install", state="running", step="sync", error=None, started_at=1.0, finished_at=None
     )
-    state_store.write_apps_state(AppsState(apps={}, current_job=crashed_job, current_job_app="palmimo-teleop"))
+    state_store.write_apps_state(AppsState(apps={}, current_job=crashed_job, current_job_app=ZIP_ID))
 
     manifest_exists, venv_exists = disk_state_checks(ctx, state_store.read_apps_state())
     finalized = finalize_apps_state(
@@ -191,7 +205,7 @@ def test_finalize_after_simulated_crash_mid_install_marks_interrupted_and_omits_
     )
 
     assert finalized.current_job is None
-    assert "palmimo-teleop" not in finalized.apps
+    assert ZIP_ID not in finalized.apps
 
 
 def test_start_delete_refuses_while_the_app_unit_is_running(ctx: AppsJobContext) -> None:
@@ -201,15 +215,15 @@ def test_start_delete_refuses_while_the_app_unit_is_running(ctx: AppsJobContext)
     prepared = prepare_install_zip(ctx, _zip_bytes())
     runner.start_install(prepared)
     app_unit.simulate_active_state(
-        "palmimo-teleop", UnitStatus(active_state="active", sub_state="running", result="success", exec_main_status=0)
+        ZIP_ID, UnitStatus(active_state="active", sub_state="running", result="success", exec_main_status=0)
     )
 
     with pytest.raises(AppRunningError):
-        runner.start_delete("palmimo-teleop")
+        runner.start_delete(ZIP_ID)
 
     state = state_store.read_apps_state()
-    assert "palmimo-teleop" in state.apps
-    assert (ctx.apps_dir / "palmimo-teleop").exists()
+    assert ZIP_ID in state.apps
+    assert (ctx.apps_dir / ZIP_ID).exists()
 
 
 def test_job_completion_does_not_clobber_a_concurrent_write_to_another_apps_record(ctx: AppsJobContext) -> None:
@@ -235,18 +249,18 @@ def test_job_completion_does_not_clobber_a_concurrent_write_to_another_apps_reco
     assert sync_started.wait(timeout=5)
 
     state = state_store.read_apps_state()
-    other = state.apps["other-app"]
-    state_store.write_apps_state(replace(state, apps={**state.apps, "other-app": replace(other, autostart=True)}))
+    other = state.apps[OTHER_APP_ID]
+    state_store.write_apps_state(replace(state, apps={**state.apps, OTHER_APP_ID: replace(other, autostart=True)}))
 
     release_sync.set()
     for _ in range(200):
-        if "palmimo-teleop" in state_store.read_apps_state().apps:
+        if ZIP_ID in state_store.read_apps_state().apps:
             break
         time.sleep(0.01)
 
     final = state_store.read_apps_state()
-    assert final.apps["other-app"].autostart is True
-    assert "palmimo-teleop" in final.apps
+    assert final.apps[OTHER_APP_ID].autostart is True
+    assert ZIP_ID in final.apps
 
 
 def test_update_completion_keeps_a_concurrent_autostart_change_to_the_same_app(ctx: AppsJobContext) -> None:
@@ -276,21 +290,21 @@ def test_update_completion_keeps_a_concurrent_autostart_change_to_the_same_app(c
 
     ctx.sync_unit.wait = blocking_wait  # type: ignore[method-assign]
     ctx.git.next_commit = "commit-2"  # type: ignore[attr-defined]
-    runner.start_update("palmimo-teleop")
+    runner.start_update(GIT_ID)
     assert sync_started.wait(timeout=5)
 
     state = state_store.read_apps_state()
-    record = state.apps["palmimo-teleop"]
-    state_store.write_apps_state(replace(state, apps={**state.apps, "palmimo-teleop": replace(record, autostart=True)}))
+    record = state.apps[GIT_ID]
+    state_store.write_apps_state(replace(state, apps={**state.apps, GIT_ID: replace(record, autostart=True)}))
 
     release_sync.set()
     for _ in range(200):
-        job = state_store.read_apps_state().apps["palmimo-teleop"].last_job
+        job = state_store.read_apps_state().apps[GIT_ID].last_job
         if job is not None and job.kind == "update" and job.state == "done":
             break
         time.sleep(0.01)
 
-    final = state_store.read_apps_state().apps["palmimo-teleop"]
+    final = state_store.read_apps_state().apps[GIT_ID]
     assert final.autostart is True
     assert final.source.commit == "commit-2"
 
@@ -303,20 +317,20 @@ def test_start_delete_failure_during_file_cleanup_restores_the_ledger_entry_as_f
     prepared = prepare_install_zip(ctx, _zip_bytes())
     runner.start_install(prepared)
     ctx.secrets.set_secret("TOKEN", "s3cr3t")
-    ctx.secrets.write_bindings("palmimo-teleop", {"TOKEN": "TOKEN"})
+    ctx.secrets.write_bindings(ZIP_ID, {"TOKEN": "TOKEN"})
 
     def raise_on_rename(self: Path, target: object) -> Path:
         raise OSError("device busy")
 
     monkeypatch.setattr(Path, "rename", raise_on_rename)
 
-    job = runner.start_delete("palmimo-teleop")
+    job = runner.start_delete(ZIP_ID)
 
     assert job.state == "failed"
-    record = state_store.read_apps_state().apps["palmimo-teleop"]
+    record = state_store.read_apps_state().apps[ZIP_ID]
     assert record.last_job is not None
     assert record.last_job.state == "failed"
-    assert ctx.secrets.read_bindings("palmimo-teleop") == {"TOKEN": "TOKEN"}
+    assert ctx.secrets.read_bindings(ZIP_ID) == {"TOKEN": "TOKEN"}
 
 
 def test_start_delete_removes_the_apps_run_directory(ctx: AppsJobContext) -> None:
@@ -330,13 +344,11 @@ def test_start_delete_removes_the_apps_run_directory(ctx: AppsJobContext) -> Non
     runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
     prepared = prepare_install_zip(ctx, _zip_bytes())
     runner.start_install(prepared)
-    run_dir.write(
-        "palmimo-teleop", env={"SECRET": "x"}, argv=["run"], cwd=str(ctx.apps_dir / "palmimo-teleop"), project="p"
-    )
+    run_dir.write(ZIP_ID, env={"SECRET": "x"}, argv=["run"], cwd=str(ctx.apps_dir / ZIP_ID), project="p")
 
-    runner.start_delete("palmimo-teleop")
+    runner.start_delete(ZIP_ID)
 
-    assert "palmimo-teleop" not in run_dir.written
+    assert ZIP_ID not in run_dir.written
 
 
 def test_start_delete_reports_a_removal_failure_that_purge_mode_also_cannot_fix(
@@ -362,12 +374,12 @@ def test_start_delete_reports_a_removal_failure_that_purge_mode_also_cannot_fix(
     sync_unit = cast(FakeSyncUnitPort, ctx.sync_unit)
     sync_unit.undeletable_paths.add(str(trash_container))
 
-    job = runner.start_delete("palmimo-teleop")
+    job = runner.start_delete(ZIP_ID)
 
     assert job.state == "done", "the ledger removal already succeeded -- a leftover is a warning, not a job failure"
     assert job.error is not None
     assert "stuck-trash" in job.error
-    assert "palmimo-teleop" not in state_store.read_apps_state().apps
+    assert ZIP_ID not in state_store.read_apps_state().apps
 
     purge_instance = sync_unit.start_calls[-1]
     assert re.fullmatch(r"[a-z][a-z0-9-]{0,39}", purge_instance), purge_instance

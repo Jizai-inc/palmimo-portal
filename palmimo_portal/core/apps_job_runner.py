@@ -105,7 +105,7 @@ class AppsJobRunner:
             lock_cm.__exit__(None, None, None)
             raise
 
-    def start_install(self, prepared: PreparedInstall) -> AppJob:
+    def start_install(self, prepared: PreparedInstall, *, requested_name: str | None = None) -> AppJob:
         """Start the slow half of an install (:func:`~palmimo_portal.core.apps_jobs.commit_install`).
 
         Raises:
@@ -116,9 +116,12 @@ class AppsJobRunner:
         """
         lock_cm = self._acquire_lock()
         started = time.time()
-        name = prepared.manifest.name
+        namespace = apps_core.app_namespace(prepared.source.type, prepared.source.url, self._ctx.catalog_repo)
+        state = self._state.read_apps_state()
+        desired_name = requested_name or apps_core.suggest_app_name(namespace, prepared.manifest.name, state)
+        name = f"{namespace}.{desired_name}"
+        prepared = replace(prepared, app_id=name)
         try:
-            state = self._state.read_apps_state()
             if name in state.apps:
                 raise AppExistsError(name)
             job = AppJob(
@@ -129,6 +132,7 @@ class AppsJobRunner:
                 error=None,
                 started_at=started,
                 finished_at=None,
+                display_name=prepared.manifest.name,
             )
             self._state.write_apps_state(AppsState(apps=state.apps, current_job=job, current_job_app=name))
         except BaseException:

@@ -1,4 +1,4 @@
-"""Precheck and orchestration for ``POST /apps/{name}/start`` and ``/stop`` (design doc 3.5).
+"""Precheck and orchestration for ``POST /apps/{id}/start`` and ``/stop`` (design doc 3.5).
 
 :func:`start_app` runs the numbered prechecks in order and stops at the
 first failure -- nothing is changed until step 6 (write the run dir), and
@@ -144,7 +144,7 @@ class StartDeps:
 
 
 def _layout_for(ctx: AppsJobContext, record: AppRecord) -> LayoutPaths:
-    return resolve_layout(ctx.app_dir(record.name), record.source.subdir)
+    return resolve_layout(ctx.app_dir(record.id), record.source.subdir)
 
 
 def _other_active_app(deps: StartDeps, name: str, apps_state: AppsState) -> str | None:
@@ -279,7 +279,7 @@ def _run_prechecks(deps: StartDeps, name: str, *, host: str) -> _StartPlan:
 class PrecheckResult:
     """The would-be outcome of :func:`start_app`'s prechecks, without starting anything.
 
-    Backs ``GET /apps/{name}/diagnostics``'s ``[precheck]`` section (design
+    Backs ``GET /apps/{id}/diagnostics``'s ``[precheck]`` section (design
     doc 3.2): a support agent needs to see *why* a start would fail without
     actually starting the app. ``code``/``names``/``running`` mirror
     :class:`AppStartError`'s own shape 1:1.

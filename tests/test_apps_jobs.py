@@ -27,7 +27,6 @@ from palmimo_portal.core.apps_jobs import (
 from palmimo_portal.core.catalog import CatalogCache
 from palmimo_portal.core.manifest import ManifestValidationError
 from palmimo_portal.ports import (
-    AppExistsError,
     AppNotFoundError,
     AppRecord,
     AppSource,
@@ -50,6 +49,10 @@ from palmimo_portal.testing.fakes import (
     FakeSyncUnitPort,
     FakeUvPort,
 )
+
+
+ZIP_ID = "zip.palmimo-teleop"
+GIT_ID = "git.palmimo-teleop"
 
 
 def _zip_bytes(name: str = "app", *, with_lock: bool = False, top_dir: str | None = None) -> bytes:
@@ -105,8 +108,8 @@ def test_install_zip_registers_app_and_moves_it_into_apps_dir(harness: Harness) 
     state, record = install_zip(harness.ctx, AppsState(), _zip_bytes("palmimo-teleop"))
 
     assert record.name == "palmimo-teleop"
-    assert state.apps["palmimo-teleop"] is record
-    assert (harness.ctx.apps_dir / "palmimo-teleop" / "palmimo.toml").is_file()
+    assert state.apps[ZIP_ID] is record
+    assert (harness.ctx.apps_dir / ZIP_ID / "palmimo.toml").is_file()
 
 
 def test_install_zip_removes_staging_directory_on_success(harness: Harness) -> None:
@@ -185,11 +188,13 @@ def test_install_zip_peeled_top_dir_is_2775_before_sync(harness: Harness) -> Non
     assert modes[0] == 0o2775
 
 
-def test_install_zip_over_existing_name_is_refused(harness: Harness) -> None:
+def test_install_zip_uses_a_suffix_for_a_second_same_source(harness: Harness) -> None:
     state, _ = install_zip(harness.ctx, AppsState(), _zip_bytes("palmimo-teleop"))
 
-    with pytest.raises(AppExistsError):
-        install_zip(harness.ctx, state, _zip_bytes("palmimo-teleop"))
+    next_state, record = install_zip(harness.ctx, state, _zip_bytes("palmimo-teleop"))
+
+    assert record.id == "zip.palmimo-teleop-2"
+    assert record.id in next_state.apps
 
 
 def test_install_zip_below_disk_reserve_is_refused(harness: Harness) -> None:
@@ -281,7 +286,7 @@ def test_install_git_records_commit_and_source(harness: Harness) -> None:
     assert record.source == AppSource(
         type="git", url="https://example.com/repo", ref="main", ref_kind="branch", commit="abc123"
     )
-    assert state.apps["palmimo-teleop"] is record
+    assert state.apps[GIT_ID] is record
 
 
 def test_install_git_rejects_subdir_that_escapes_the_clone_root(harness: Harness) -> None:
@@ -354,7 +359,7 @@ def test_install_git_with_a_named_manifest_installs_the_app_it_declares(harness:
 
     assert record.name == "palmimo-realtime"
     assert record.source.manifest == "palmimo.realtime.toml"
-    assert "palmimo-default" not in state.apps
+    assert "git.palmimo-default" not in state.apps
 
 
 def test_update_git_re_reads_the_records_own_non_default_manifest(harness: Harness) -> None:
@@ -371,7 +376,7 @@ def test_update_git_re_reads_the_records_own_non_default_manifest(harness: Harne
     )
 
     harness.git.next_commit = "v2"
-    _, new_record = update_git(harness.ctx, state, "palmimo-realtime")
+    _, new_record = update_git(harness.ctx, state, "git.palmimo-realtime")
 
     assert new_record.name == "palmimo-realtime"
     assert new_record.source.commit == "v2"
@@ -381,8 +386,8 @@ def test_update_git_re_reads_the_records_own_non_default_manifest(harness: Harne
 def test_update_git_swaps_in_new_tree_and_updates_commit(harness: Harness) -> None:
     harness.git.next_commit = "v1"
     harness.git.on_clone = lambda dest, url, ref, ref_kind: _seed_git_clone(dest, "palmimo-teleop")
-    state, _ = install_git(harness.ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")
-    marker = harness.ctx.apps_dir / "palmimo-teleop" / "v1-marker.txt"
+    state, record = install_git(harness.ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")
+    marker = harness.ctx.apps_dir / record.id / "v1-marker.txt"
     marker.write_text("v1")
 
     harness.git.next_commit = "v2"
@@ -392,11 +397,24 @@ def test_update_git_swaps_in_new_tree_and_updates_commit(harness: Harness) -> No
         (dest / "v2-marker.txt").write_text("v2")
 
     harness.git.on_clone = reseed
-    _, new_record = update_git(harness.ctx, state, "palmimo-teleop")
+    _, new_record = update_git(harness.ctx, state, record.id)
 
     assert new_record.source.commit == "v2"
-    assert (harness.ctx.apps_dir / "palmimo-teleop" / "v2-marker.txt").is_file()
+    assert (harness.ctx.apps_dir / record.id / "v2-marker.txt").is_file()
     assert not marker.exists()  # the old tree was replaced, not merged into
+
+
+def test_update_git_accepts_a_manifest_name_change_and_keeps_the_id(harness: Harness) -> None:
+    # Without this, an author renaming their app upstream would either be rejected outright or
+    # silently reassigned a new id, breaking every binding/param/autostart flag the id owns.
+    harness.git.on_clone = lambda dest, url, ref, ref_kind: _seed_git_clone(dest, "palmimo-teleop")
+    state, record = install_git(harness.ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")
+
+    harness.git.on_clone = lambda dest, url, ref, ref_kind: _seed_git_clone(dest, "palmimo-teleop-renamed")
+    _, new_record = update_git(harness.ctx, state, record.id)
+
+    assert new_record.id == record.id
+    assert new_record.name == "palmimo-teleop-renamed"
 
 
 def test_update_git_fails_at_swap_when_a_start_slips_in_after_prechecks(harness: Harness) -> None:
@@ -406,8 +424,8 @@ def test_update_git_fails_at_swap_when_a_start_slips_in_after_prechecks(harness:
     from palmimo_portal.ports import UnitStatus
 
     harness.git.on_clone = lambda dest, url, ref, ref_kind: _seed_git_clone(dest, "palmimo-teleop")
-    state, _ = install_git(harness.ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")
-    original_contents = sorted((harness.ctx.apps_dir / "palmimo-teleop").rglob("*"))
+    state, record = install_git(harness.ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")
+    original_contents = sorted((harness.ctx.apps_dir / record.id).rglob("*"))
 
     app_unit = FakeAppUnitPort()
     state_store = FakeStateStore()
@@ -415,27 +433,27 @@ def test_update_git_fails_at_swap_when_a_start_slips_in_after_prechecks(harness:
     # A start that raced ahead of the job's own (already-passed) precheck -- the unit is now
     # occupied by the time update_git reaches its swap.
     app_unit.simulate_active_state(
-        "palmimo-teleop", UnitStatus(active_state="active", sub_state="running", result="success", exec_main_status=0)
+        record.id, UnitStatus(active_state="active", sub_state="running", result="success", exec_main_status=0)
     )
 
     with pytest.raises(AppRunningAtSwapError):
-        update_git(ctx, state, "palmimo-teleop")
+        update_git(ctx, state, record.id)
 
-    assert sorted((harness.ctx.apps_dir / "palmimo-teleop").rglob("*")) == original_contents
+    assert sorted((harness.ctx.apps_dir / record.id).rglob("*")) == original_contents
 
 
 def test_update_git_leaves_running_tree_untouched_when_sync_fails(harness: Harness) -> None:
     harness.git.on_clone = lambda dest, url, ref, ref_kind: _seed_git_clone(dest, "palmimo-teleop")
-    state, _ = install_git(harness.ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")
-    original_contents = sorted((harness.ctx.apps_dir / "palmimo-teleop").rglob("*"))
+    state, record = install_git(harness.ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")
+    original_contents = sorted((harness.ctx.apps_dir / record.id).rglob("*"))
 
     harness.sync_unit.default_status = UnitStatus(
         active_state="failed", sub_state="failed", result="exit-code", exec_main_status=1
     )
     with pytest.raises(SyncFailedError):
-        update_git(harness.ctx, state, "palmimo-teleop")
+        update_git(harness.ctx, state, record.id)
 
-    assert sorted((harness.ctx.apps_dir / "palmimo-teleop").rglob("*")) == original_contents
+    assert sorted((harness.ctx.apps_dir / record.id).rglob("*")) == original_contents
 
 
 def test_install_git_rejects_a_dangling_symlink_in_the_staging_tree_before_the_swap(harness: Harness) -> None:
@@ -463,10 +481,10 @@ def test_update_git_leaves_bindings_intact_when_the_swap_fails(
         (dest / "pyproject.toml").write_text("[project]\nname='app'\nversion='0'\n")
 
     harness.git.on_clone = seed_with_env
-    state, _ = install_git(harness.ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")
+    state, record = install_git(harness.ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")
     harness.secrets.set_secret("MY_KEY", "value")
-    harness.secrets.write_bindings("palmimo-teleop", {"API_KEY": "MY_KEY"})
-    original_bindings = harness.secrets.read_bindings("palmimo-teleop")
+    harness.secrets.write_bindings(record.id, {"API_KEY": "MY_KEY"})
+    original_bindings = harness.secrets.read_bindings(record.id)
 
     def seed_without_env(dest: Path, *_: object) -> None:
         dest.mkdir(parents=True, exist_ok=True)
@@ -483,16 +501,16 @@ def test_update_git_leaves_bindings_intact_when_the_swap_fails(
     monkeypatch.setattr(Path, "rename", raise_on_rename)
 
     with pytest.raises(OSError):
-        update_git(harness.ctx, state, "palmimo-teleop")
+        update_git(harness.ctx, state, record.id)
 
-    assert harness.secrets.read_bindings("palmimo-teleop") == original_bindings
+    assert harness.secrets.read_bindings(record.id) == original_bindings
 
 
 def test_update_git_on_non_git_app_is_refused(harness: Harness) -> None:
-    state, _ = install_zip(harness.ctx, AppsState(), _zip_bytes("palmimo-teleop"))
+    state, record = install_zip(harness.ctx, AppsState(), _zip_bytes("palmimo-teleop"))
 
     with pytest.raises(InvalidManifestSourceError):
-        update_git(harness.ctx, state, "palmimo-teleop")
+        update_git(harness.ctx, state, record.id)
 
 
 def test_update_git_on_unknown_app_raises_not_found(harness: Harness) -> None:
@@ -501,14 +519,14 @@ def test_update_git_on_unknown_app_raises_not_found(harness: Harness) -> None:
 
 
 def test_delete_from_ledger_and_purge_removes_app_directory(harness: Harness) -> None:
-    state, _ = install_zip(harness.ctx, AppsState(), _zip_bytes("palmimo-teleop"))
-    harness.secrets.write_bindings("palmimo-teleop", {})
+    state, record = install_zip(harness.ctx, AppsState(), _zip_bytes("palmimo-teleop"))
+    harness.secrets.write_bindings(record.id, {})
 
-    new_state, _ = delete_from_ledger(state, "palmimo-teleop")
-    purge_app_files(harness.ctx, "palmimo-teleop")
+    new_state, _ = delete_from_ledger(state, record.id)
+    purge_app_files(harness.ctx, record.id)
 
-    assert "palmimo-teleop" not in new_state.apps
-    assert not (harness.ctx.apps_dir / "palmimo-teleop").exists()
+    assert record.id not in new_state.apps
+    assert not (harness.ctx.apps_dir / record.id).exists()
 
 
 def test_purge_app_files_fails_at_trash_when_a_start_slips_in_after_prechecks(harness: Harness) -> None:
@@ -517,29 +535,29 @@ def test_purge_app_files_fails_at_trash_when_a_start_slips_in_after_prechecks(ha
     from palmimo_portal.core.apps_jobs import AppRunningAtSwapError
     from palmimo_portal.ports import UnitStatus
 
-    state, _ = install_zip(harness.ctx, AppsState(), _zip_bytes("palmimo-teleop"))
-    harness.secrets.write_bindings("palmimo-teleop", {})
-    delete_from_ledger(state, "palmimo-teleop")
+    state, record = install_zip(harness.ctx, AppsState(), _zip_bytes("palmimo-teleop"))
+    harness.secrets.write_bindings(record.id, {})
+    delete_from_ledger(state, record.id)
 
     app_unit = FakeAppUnitPort()
     ctx = replace(harness.ctx, app_unit=app_unit, state=FakeStateStore())
     app_unit.simulate_active_state(
-        "palmimo-teleop", UnitStatus(active_state="active", sub_state="running", result="success", exec_main_status=0)
+        record.id, UnitStatus(active_state="active", sub_state="running", result="success", exec_main_status=0)
     )
 
     with pytest.raises(AppRunningAtSwapError):
-        purge_app_files(ctx, "palmimo-teleop")
+        purge_app_files(ctx, record.id)
 
-    assert (harness.ctx.apps_dir / "palmimo-teleop").exists()
+    assert (harness.ctx.apps_dir / record.id).exists()
 
 
 def test_purge_app_files_keeps_bindings_when_the_directory_move_fails(
     harness: Harness, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    install_zip(harness.ctx, AppsState(), _zip_bytes("palmimo-teleop"))
+    _, record = install_zip(harness.ctx, AppsState(), _zip_bytes("palmimo-teleop"))
     harness.secrets.set_secret("TOKEN", "s3cr3t")
-    harness.secrets.write_bindings("palmimo-teleop", {"TOKEN": "TOKEN"})
-    dest = harness.ctx.app_dir("palmimo-teleop")
+    harness.secrets.write_bindings(record.id, {"TOKEN": "TOKEN"})
+    dest = harness.ctx.app_dir(record.id)
     original_rename = Path.rename
 
     def failing_rename(self: Path, target: str | Path) -> Path:
@@ -550,10 +568,10 @@ def test_purge_app_files_keeps_bindings_when_the_directory_move_fails(
     monkeypatch.setattr(Path, "rename", failing_rename)
 
     with pytest.raises(OSError, match="simulated rename failure"):
-        purge_app_files(harness.ctx, "palmimo-teleop")
+        purge_app_files(harness.ctx, record.id)
 
     assert dest.exists()
-    assert harness.secrets.read_bindings("palmimo-teleop") == {"TOKEN": "TOKEN"}
+    assert harness.secrets.read_bindings(record.id) == {"TOKEN": "TOKEN"}
 
 
 def test_delete_from_ledger_unknown_app_raises_not_found() -> None:
@@ -574,11 +592,11 @@ def test_sweep_orphan_app_dirs_removes_unledgered_directory_and_allows_reinstall
 
 
 def test_sweep_orphan_app_dirs_leaves_ledgered_app_directory(harness: Harness) -> None:
-    state, _ = install_zip(harness.ctx, AppsState(), _zip_bytes("palmimo-teleop"))
+    state, record = install_zip(harness.ctx, AppsState(), _zip_bytes("palmimo-teleop"))
 
     sweep_orphan_app_dirs(harness.ctx, state)
 
-    assert (harness.ctx.apps_dir / "palmimo-teleop" / "palmimo.toml").is_file()
+    assert (harness.ctx.apps_dir / record.id / "palmimo.toml").is_file()
 
 
 def _tag_record(url: str, ref: str) -> AppRecord:

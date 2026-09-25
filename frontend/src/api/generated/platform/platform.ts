@@ -180,7 +180,7 @@ export const getCheckPlatformApiV1PlatformCheckPostUrl = () => {
  * one -- as ``latest_error`` in the body, not an HTTP error.
  *
  * Raises:
- *     PortalError: 429 ``platform_check_rate_limited`` (with
+ *     PortalError: 409 ``ledger_legacy`` until the apps are reset; 429 ``platform_check_rate_limited`` (with
  *         ``retry_after_seconds``) if the last successful check was
  *         under a minute ago.
  * @summary Check Platform
@@ -357,7 +357,7 @@ export const getStartUpdateApiV1PlatformUpdatePostUrl = () => {
  * Fetch and apply the latest platform bundle release in the background.
  *
  * Raises:
- *     PortalError: 409 ``update_in_progress`` / 409 ``app_job_in_progress``
+ *     PortalError: 409 ``ledger_legacy`` until the apps are reset; 409 ``update_in_progress`` / 409 ``app_job_in_progress``
  *         for the two mutual-exclusion directions with a Portal
  *         self-update and an app job; 409 ``platform_update_in_progress``
  *         if a platform update is already running; 502

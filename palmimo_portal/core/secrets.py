@@ -95,7 +95,7 @@ def collect_registered_secret_values(secrets: SecretsStore) -> list[str]:
     """Return every raw secret value and git credential token currently registered.
 
     For scrubbing an operator-facing text dump (``GET
-    /apps/{name}/diagnostics``, design doc 3.2) before it leaves the
+    /apps/{id}/diagnostics``, design doc 3.2) before it leaves the
     process -- never for display. A value can reach that dump only via
     app-generated journal content, never something this codebase writes
     itself.

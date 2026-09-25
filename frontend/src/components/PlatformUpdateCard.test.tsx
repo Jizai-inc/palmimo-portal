@@ -69,6 +69,26 @@ describe("PlatformUpdateCard", () => {
     await waitFor(() => expect(started).toBe(true));
   });
 
+  it("tells the operator to reset apps when a legacy ledger blocks the update", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/v1/platform", () =>
+        HttpResponse.json({
+          ...BASE_PLATFORM,
+          latest: { version: 2, tag: "v2", summary: "adds camera support", requires_portal: "0.1.0", restart_portal: false, reflash_required: false },
+        }),
+      ),
+      http.post("*/api/v1/platform/update", () =>
+        HttpResponse.json({ error: { code: "ledger_legacy", params: {} } }, { status: 409 }),
+      ),
+    );
+    renderWithProviders(<PlatformUpdateCard installedPortalVersion="0.1.0" />);
+
+    await user.click(await screen.findByRole("button", { name: "Update" }));
+
+    expect(await screen.findByText("Reset the apps first, then update the device platform.")).toBeInTheDocument();
+  });
+
   it("checks now and shows the freshly returned latest version", async () => {
     const user = userEvent.setup();
     server.use(

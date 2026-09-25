@@ -67,6 +67,10 @@
             ],
             "title": "Exit Code"
           },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
           "installed_at": {
             "anyOf": [
               {
@@ -151,6 +155,7 @@
         },
         "required": [
           "name",
+          "id",
           "source",
           "installed_at",
           "autostart",
@@ -181,7 +186,7 @@
       },
       "AppJobInfo": {
         "properties": {
-          "app_name": {
+          "app_id": {
             "anyOf": [
               {
                 "type": "string"
@@ -190,7 +195,7 @@
                 "type": "null"
               }
             ],
-            "title": "App Name"
+            "title": "App Id"
           },
           "dropped_bindings": {
             "items": {
@@ -269,7 +274,7 @@
         },
         "required": [
           "id",
-          "app_name",
+          "app_id",
           "kind",
           "state",
           "step",
@@ -340,6 +345,10 @@
             ],
             "title": "Manifest"
           },
+          "official": {
+            "title": "Official",
+            "type": "boolean"
+          },
           "ref": {
             "anyOf": [
               {
@@ -396,7 +405,8 @@
           "ref_kind",
           "subdir",
           "commit",
-          "manifest"
+          "manifest",
+          "official"
         ],
         "title": "AppSourceInfo",
         "type": "object"
@@ -433,6 +443,10 @@
               }
             ],
             "title": "Exit Code"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
           },
           "installed_at": {
             "anyOf": [
@@ -518,6 +532,7 @@
         },
         "required": [
           "name",
+          "id",
           "source",
           "installed_at",
           "autostart",
@@ -1037,10 +1052,25 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "namespace": {
+            "title": "Namespace",
+            "type": "string"
+          },
+          "suggested_id": {
+            "title": "Suggested Id",
+            "type": "string"
+          },
+          "suggested_name": {
+            "title": "Suggested Name",
+            "type": "string"
           }
         },
         "required": [
           "name",
+          "namespace",
+          "suggested_name",
+          "suggested_id",
           "description",
           "devices",
           "env"
@@ -2402,7 +2432,7 @@
     },
     "/api/v1/apps/{name}/logs": {
       "get": {
-        "description": "Return up to ``lines`` journal entries for ``name``'s unit, cursor-paginated (design doc 3.2/3.8).\n\n``invocations`` lists every distinct systemd invocation id seen, so the\nUI can offer \"view a previous start\". Answers ``{\"unavailable\":\n\"journal_permission\"}`` rather than an error when this process cannot\nread the journal at all (design doc 3.6). Every entry's ``message`` is\nmasked the same way ``GET /apps/{name}/diagnostics`` is -- an app can\nprint a registered secret or git credential to its own journal.\n\nPortalError: 400 ``invalid_invocation`` if ``invocation`` is not a\n32-hex-digit systemd invocation id; 404 ``app_not_found``.",
+        "description": "Return up to ``lines`` journal entries for ``name``'s unit, cursor-paginated (design doc 3.2/3.8).\n\n``invocations`` lists every distinct systemd invocation id seen, so the\nUI can offer \"view a previous start\". Answers ``{\"unavailable\":\n\"journal_permission\"}`` rather than an error when this process cannot\nread the journal at all (design doc 3.6). Every entry's ``message`` is\nmasked the same way ``GET /apps/{id}/diagnostics`` is -- an app can\nprint a registered secret or git credential to its own journal.\n\nPortalError: 400 ``invalid_invocation`` if ``invocation`` is not a\n32-hex-digit systemd invocation id; 404 ``app_not_found``.",
         "operationId": "get_logs_api_v1_apps__name__logs_get",
         "parameters": [
           {
@@ -3117,7 +3147,7 @@
     },
     "/api/v1/platform/check": {
       "post": {
-        "description": "Bypass the latest-release cache and fetch it now, then report the same payload as ``GET /platform``.\n\nMirrors ``POST /api/v1/update/check``: same auth/gating (the router's\ndependencies), same rate limit (:data:`~palmimo_portal.core.update.CHECK_RATE_LIMIT_SECONDS`),\nand a fetch failure is reported the same way ``GET /platform`` reports\none -- as ``latest_error`` in the body, not an HTTP error.\n\nRaises:\n    PortalError: 429 ``platform_check_rate_limited`` (with\n        ``retry_after_seconds``) if the last successful check was\n        under a minute ago.",
+        "description": "Bypass the latest-release cache and fetch it now, then report the same payload as ``GET /platform``.\n\nMirrors ``POST /api/v1/update/check``: same auth/gating (the router's\ndependencies), same rate limit (:data:`~palmimo_portal.core.update.CHECK_RATE_LIMIT_SECONDS`),\nand a fetch failure is reported the same way ``GET /platform`` reports\none -- as ``latest_error`` in the body, not an HTTP error.\n\nRaises:\n    PortalError: 409 ``ledger_legacy`` until the apps are reset; 429 ``platform_check_rate_limited`` (with\n        ``retry_after_seconds``) if the last successful check was\n        under a minute ago.",
         "operationId": "check_platform_api_v1_platform_check_post",
         "responses": {
           "200": {
@@ -3159,7 +3189,7 @@
         ]
       },
       "post": {
-        "description": "Fetch and apply the latest platform bundle release in the background.\n\nRaises:\n    PortalError: 409 ``update_in_progress`` / 409 ``app_job_in_progress``\n        for the two mutual-exclusion directions with a Portal\n        self-update and an app job; 409 ``platform_update_in_progress``\n        if a platform update is already running; 502\n        ``release_source_unavailable`` if the latest release cannot be\n        discovered right now.",
+        "description": "Fetch and apply the latest platform bundle release in the background.\n\nRaises:\n    PortalError: 409 ``ledger_legacy`` until the apps are reset; 409 ``update_in_progress`` / 409 ``app_job_in_progress``\n        for the two mutual-exclusion directions with a Portal\n        self-update and an app job; 409 ``platform_update_in_progress``\n        if a platform update is already running; 502\n        ``release_source_unavailable`` if the latest release cannot be\n        discovered right now.",
         "operationId": "start_update_api_v1_platform_update_post",
         "responses": {
           "202": {

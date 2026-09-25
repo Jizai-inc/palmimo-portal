@@ -13,17 +13,17 @@ import { copyText } from "@/lib/copyText";
 import { formatLocalTimestamp } from "@/lib/formatTimestamp";
 import { useAppLogs } from "@/lib/useAppLogs";
 
-/** The full-page app logs view (design doc D18b). Route + `AppShell` chrome live in routes/apps_.$name_.logs.tsx. */
-export function AppLogsPanel({ name }: { name: string }) {
+/** The full-page app logs view (design doc D18b). Route + `AppShell` chrome live in routes/apps_.$id_.logs.tsx. */
+export function AppLogsPanel({ id }: { id: string }) {
   const { t, i18n } = useTranslation();
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
 
-  const { data: app, error } = useGetAppApiV1AppsNameGet(name, {
+  const { data: app, error } = useGetAppApiV1AppsNameGet(id, {
     query: { refetchInterval: (query) => (query.state.data && isAppStatusBusy(query.state.data.status) ? 3_000 : false) },
   });
   const status = app?.status ?? "stopped";
-  const { unavailable, invocations, invocation, setInvocation, isCurrentInvocation, accumulated, truncated, text } = useAppLogs(name, status);
+  const { unavailable, invocations, invocation, setInvocation, isCurrentInvocation, accumulated, truncated, text } = useAppLogs(id, status);
 
   if (error) {
     return <ApiErrorAlert error={error} />;
@@ -75,7 +75,7 @@ export function AppLogsPanel({ name }: { name: string }) {
             {copied ? t("appDetail.logsCopied") : copyFailed ? t("appDetail.logsCopyFailed") : t("appDetail.logsCopyButton")}
           </Button>
           <Button type="button" variant="outline" size="sm" asChild>
-            <Link to="/apps/$name" params={{ name }}>{t("appDetail.logsPageCloseButton")}</Link>
+            <Link to="/apps/$id" params={{ id }}>{t("appDetail.logsPageCloseButton")}</Link>
           </Button>
         </div>
       </div>
@@ -85,6 +85,7 @@ export function AppLogsPanel({ name }: { name: string }) {
       ) : (
         <>
           <p className="text-sm text-muted-foreground">{subtitle}</p>
+          <p className="text-xs text-muted-foreground">{t("appDetail.logsReusedIdNote")}</p>
           {truncated ? (
             <p className="text-sm text-muted-foreground">{t("appDetail.logsTruncated", { count: accumulated.length })}</p>
           ) : null}

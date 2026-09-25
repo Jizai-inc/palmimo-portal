@@ -11,4 +11,7 @@ export interface ManifestPreviewResponse {
   devices: string[];
   env: EnvSpecInfo[];
   name: string;
+  namespace: string;
+  suggested_id: string;
+  suggested_name: string;
 }

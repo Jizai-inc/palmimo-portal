@@ -94,6 +94,7 @@ from palmimo_portal.ports import (
     WifiNetwork,
     WifiStatus,
 )
+from palmimo_portal.settings import DEFAULT_REQUIRED_PLATFORM_VERSION
 
 
 @dataclass
@@ -290,6 +291,7 @@ class FakeStateStore(StateStore):
     #: Test-only scripting hook, mirroring `auth_corrupt`: puts apps.json into
     #: AppsStateFileState.CORRUPT without a real unparseable file on disk.
     apps_state_corrupt: bool = False
+    apps_state_legacy: bool = False
     _apps_state_written: bool = field(default=False, init=False, repr=False)
     _apps_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _run_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
@@ -365,19 +367,22 @@ class FakeStateStore(StateStore):
         self._update_state = state
 
     def read_apps_state(self) -> AppsState:
-        if self.apps_state_corrupt:
+        if self.apps_state_corrupt or self.apps_state_legacy:
             return AppsState()
         return self._apps_state
 
     def apps_state_file_state(self) -> AppsStateFileState:
         if self.apps_state_corrupt:
             return AppsStateFileState.CORRUPT
+        if self.apps_state_legacy:
+            return AppsStateFileState.LEGACY
         return AppsStateFileState.PRESENT if self._apps_state_written else AppsStateFileState.ABSENT
 
     def write_apps_state(self, state: AppsState) -> None:
         self._apps_state = state
         self._apps_state_written = True
         self.apps_state_corrupt = False
+        self.apps_state_legacy = False
 
     @contextlib.contextmanager
     def lock_apps(self) -> Iterator[None]:
@@ -492,7 +497,7 @@ class FakeUpdater(Updater):
 class FakePlatformPort(PlatformPort):
     """Scriptable :class:`PlatformPort`. Records every call so a test can assert none happened.
 
-    Reports platform version 9 installed and clean by default -- matches
+    Reports the required platform version installed and clean by default -- matches
     ``Settings.required_platform_version``'s own default, so every
     pre-existing test that never mentions the platform channel (app
     install/start, autostart, ...) keeps seeing ``platform_ready`` as
@@ -501,7 +506,7 @@ class FakePlatformPort(PlatformPort):
 
     installed: PlatformInstalled | None = field(
         default_factory=lambda: PlatformInstalled(
-            version=9, installed_at="2026-01-01T00:00:00Z", bundle_sha256="0" * 64
+            version=DEFAULT_REQUIRED_PLATFORM_VERSION, installed_at="2026-01-01T00:00:00Z", bundle_sha256="0" * 64
         )
     )
     verify_diffs: list[PlatformVerifyDiff] = field(default_factory=list)

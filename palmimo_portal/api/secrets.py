@@ -99,7 +99,9 @@ def put_secret(
 
 
 @router.delete("/api/v1/secrets/{name}")
-def delete_secret(name: str, store: SecretsStore = Depends(get_secrets_store)) -> None:
+def delete_secret(
+    name: str, store: SecretsStore = Depends(get_secrets_store), state_store: StateStore = Depends(get_state_store)
+) -> None:
     """Delete a registered secret.
 
     Raises:
@@ -112,8 +114,17 @@ def delete_secret(name: str, store: SecretsStore = Depends(get_secrets_store)) -
     except SecretNotFoundError as error:
         raise PortalError(404, "secret_not_found") from error
     except SecretInUseError as error:
+        apps = state_store.read_apps_state().apps
         raise PortalError(
-            409, "secret_in_use", users=[{"app": app, "name": req} for app, req in error.users]
+            409,
+            "secret_in_use",
+            # `app_id` is bindings.json's key (design doc 3.9); `app_name` is the ledger's
+            # display name for it, falling back to the id itself for a binding whose app
+            # record is missing (not a shape a real ledger has, but a caller must not crash).
+            users=[
+                {"app_id": app_id, "app_name": apps[app_id].name if app_id in apps else app_id, "request": req}
+                for app_id, req in error.users
+            ],
         ) from error
     logger.info("secrets: deleted name=%s", name)
 
@@ -162,8 +173,8 @@ def put_git_credential(
     except InvalidSecretValueError as error:
         raise PortalError(422, "invalid_secret_value") from error
     host_owner = normalize_host_owner(host_owner)
-    if state_store.apps_state_file_state() is AppsStateFileState.CORRUPT:
-        logger.warning("git-credential: set host=%s, apps.json ledger is corrupt, skipped", host_owner)
+    if state_store.apps_state_file_state() is not AppsStateFileState.PRESENT:
+        logger.warning("git-credential: set host=%s, apps.json ledger is unavailable, skipped", host_owner)
     else:
         state_store.write_apps_state(clear_credential_rejected(state_store.read_apps_state(), host_owner))
     updated = next(r for r in store.list_git_credentials() if r.host_owner == host_owner)

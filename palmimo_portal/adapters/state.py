@@ -38,6 +38,7 @@ import fcntl
 import json
 import logging
 import os
+import re
 import secrets
 import time
 from collections.abc import Iterator
@@ -46,6 +47,7 @@ from pathlib import Path
 from typing import Any
 
 from palmimo_portal.adapters.atomic_write import atomic_write_text, create_exclusive_text, ensure_private_dir, fsync_dir
+from palmimo_portal.core.apps import APP_ID_RE
 from palmimo_portal.core.auth import AUTH_LOCK_TIMEOUT_SECONDS
 from palmimo_portal.core.platform_update import IDLE_PLATFORM_STATE
 from palmimo_portal.core.update import IDLE_UPDATE_JOB, IDLE_UPDATE_STATE, is_valid_release_tag
@@ -89,6 +91,8 @@ PLATFORM_UPDATE_STATE_FILENAME = "platform_update.json"
 PLATFORM_LOCK_FILENAME = "platform.lock"
 CATALOG_CACHE_FILENAME = "catalog_cache.json"
 
+_LEGACY_APP_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,39}$")
+
 _VALID_PLATFORM_JOB_STATES = frozenset({"idle", "running", "done", "failed"})
 
 #: Non-blocking: a second app job attempted while one is in flight must see
@@ -104,6 +108,10 @@ _AUTH_LOCK_POLL_INTERVAL_SECONDS = 0.05
 #: :meth:`_parse_update_state` can validate with a plain ``in`` check.
 _VALID_UPDATE_JOB_STATES = frozenset({"idle", "checking", "running", "restarting", "done", "failed"})
 _VALID_UPDATE_JOB_KINDS = frozenset({"update", "rollback"})
+
+
+class LegacyAppsLedgerError(TypeError):
+    """Raised when an otherwise readable ledger uses pre-app-ID keys."""
 
 
 def _require_optional_type(value: Any, expected: type | tuple[type, ...], field_name: str) -> None:
@@ -733,6 +741,7 @@ class JsonFileStateStore(StateStore):
             raise TypeError(f"{field_prefix}.id/kind/state must be strings")
         for name in ("step", "error"):
             _require_optional_type(data.get(name), str, f"{field_prefix}.{name}")
+        _require_optional_type(data.get("display_name"), str, f"{field_prefix}.display_name")
         for name in ("started_at", "finished_at"):
             _require_optional_type(data.get(name), (int, float), f"{field_prefix}.{name}")
         dropped_bindings = tuple(data.get("dropped_bindings", ()))
@@ -745,6 +754,7 @@ class JsonFileStateStore(StateStore):
             error=data.get("error"),
             started_at=data.get("started_at"),
             finished_at=data.get("finished_at"),
+            display_name=data.get("display_name"),
             lock_generated=bool(data.get("lock_generated", False)),
             dropped_bindings=dropped_bindings,
             dropped_params=dropped_params,
@@ -779,6 +789,7 @@ class JsonFileStateStore(StateStore):
             "error": job.error,
             "started_at": job.started_at,
             "finished_at": job.finished_at,
+            "display_name": job.display_name,
             "lock_generated": job.lock_generated,
             "dropped_bindings": list(job.dropped_bindings),
             "dropped_params": list(job.dropped_params),
@@ -798,8 +809,12 @@ class JsonFileStateStore(StateStore):
         apps_data = data["apps"]
         if not isinstance(apps_data, dict):
             raise TypeError("apps.json apps must be an object")
+        if apps_data and all(cls._is_legacy_app_entry(name, entry) for name, entry in apps_data.items()):
+            raise LegacyAppsLedgerError("apps.json uses pre-app-ID app records")
         apps: dict[str, AppRecord] = {}
         for name, entry in apps_data.items():
+            if not isinstance(name, str) or APP_ID_RE.fullmatch(name) is None:
+                raise TypeError(f"apps.json apps key is not an app id: {name!r}")
             if not isinstance(entry, dict):
                 raise TypeError(f"apps.json apps.{name} must be an object")
             source_data = entry["source"]
@@ -824,7 +839,7 @@ class JsonFileStateStore(StateStore):
             if not isinstance(params, dict):
                 raise TypeError(f"apps.json apps.{name}.params must be an object")
             apps[name] = AppRecord(
-                name=name,
+                name=entry["name"],
                 source=source,
                 installed_at=entry.get("installed_at"),
                 params=params,
@@ -834,6 +849,7 @@ class JsonFileStateStore(StateStore):
                 credential_rejected=bool(entry.get("credential_rejected", False)),
                 update_available=bool(entry.get("update_available", False)),
                 latest_commit=entry.get("latest_commit"),
+                id=name,
             )
         current_job_data = data.get("current_job")
         current_job = (
@@ -859,6 +875,44 @@ class JsonFileStateStore(StateStore):
             last_orphan_job_app=last_orphan_job_app,
         )
 
+    @staticmethod
+    def _is_legacy_app_entry(name: Any, entry: Any) -> bool:
+        if not isinstance(name, str) or _LEGACY_APP_NAME_RE.fullmatch(name) is None:
+            return False
+        if not isinstance(entry, dict) or "id" in entry or entry.get("name") != name:
+            return False
+        source = entry.get("source")
+        if not isinstance(source, dict) or source.get("type") not in {"git", "zip"}:
+            return False
+        if any(
+            value in source and source[value] is not None and not isinstance(source[value], str)
+            for value in ("url", "ref", "ref_kind", "subdir", "commit", "manifest")
+        ):
+            return False
+        if (
+            "installed_at" in entry
+            and entry["installed_at"] is not None
+            and not isinstance(entry["installed_at"], (int, float))
+        ):
+            return False
+        if "params" in entry and not isinstance(entry["params"], dict):
+            return False
+        if entry.get("last_job") is not None:
+            try:
+                JsonFileStateStore._parse_app_job(entry["last_job"], field_prefix="apps.json legacy app last_job")
+            except (KeyError, TypeError, ValueError):
+                return False
+        return all(
+            key not in entry or entry[key] is None or isinstance(entry[key], value_type)
+            for key, value_type in (
+                ("autostart", bool),
+                ("broken_reason", str),
+                ("credential_rejected", bool),
+                ("update_available", bool),
+                ("latest_commit", str),
+            )
+        )
+
     def read_apps_state(self) -> AppsState:
         if not self._apps_state_path.is_file():
             return AppsState()
@@ -873,6 +927,9 @@ class JsonFileStateStore(StateStore):
             return AppsStateFileState.ABSENT
         try:
             self._parse_apps_state(self._apps_state_path.read_text(encoding="utf-8"))
+        except LegacyAppsLedgerError as error:
+            logger.warning("apps: state file uses legacy keys path=%s reason=%s", self._apps_state_path, error)
+            return AppsStateFileState.LEGACY
         except (json.JSONDecodeError, KeyError, OSError, TypeError, ValueError) as error:
             logger.error("apps: state file unreadable path=%s reason=%s", self._apps_state_path, error)
             return AppsStateFileState.CORRUPT
@@ -883,6 +940,7 @@ class JsonFileStateStore(StateStore):
             "schema": 1,
             "apps": {
                 name: {
+                    "name": record.name,
                     "source": self._source_payload(record.source),
                     "installed_at": record.installed_at,
                     "params": record.params,

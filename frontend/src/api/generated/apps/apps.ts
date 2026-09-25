@@ -968,7 +968,7 @@ export const getGetLogsApiV1AppsNameLogsGetUrl = (name: string,
  * UI can offer "view a previous start". Answers ``{"unavailable":
  * "journal_permission"}`` rather than an error when this process cannot
  * read the journal at all (design doc 3.6). Every entry's ``message`` is
- * masked the same way ``GET /apps/{name}/diagnostics`` is -- an app can
+ * masked the same way ``GET /apps/{id}/diagnostics`` is -- an app can
  * print a registered secret or git credential to its own journal.
  *
  * PortalError: 400 ``invalid_invocation`` if ``invocation`` is not a

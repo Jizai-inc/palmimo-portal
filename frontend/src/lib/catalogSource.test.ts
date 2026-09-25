@@ -11,6 +11,7 @@ const BASE_SOURCE: AppSourceInfo = {
   subdir: null,
   commit: null,
   manifest: null,
+  official: true,
 };
 
 describe("parseCatalogSource", () => {

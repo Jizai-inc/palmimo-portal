@@ -19,6 +19,7 @@ def _data(**overrides: object) -> AppDiagnosticsInput:
             params={"port": 8080},
             autostart=False,
             last_job=None,
+            id="git.app",
         ),
         "manifest": None,
         "manifest_errors": [],
@@ -41,6 +42,8 @@ def test_build_diagnostics_contains_every_fixed_section_header() -> None:
 
     for section in SECTIONS:
         assert section in text
+
+    assert "id=git.app" in text
 
 
 def test_build_diagnostics_never_contains_a_registered_secret_value_or_git_token() -> None:
@@ -82,6 +85,7 @@ def test_build_diagnostics_never_contains_userinfo_from_a_git_source_url() -> No
         params={},
         autostart=False,
         last_job=None,
+        id="git.app",
     )
 
     text = build_diagnostics(_data(record=record), known_secret_values=[])

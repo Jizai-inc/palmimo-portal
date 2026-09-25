@@ -376,7 +376,7 @@ def validate_param_values(manifest: Manifest, values: dict[str, Any]) -> None:
     """Validate ``values`` against their declared param specs, without requiring every param to be present.
 
     Used when persisting a partial set of param values (``PUT
-    /apps/{name}/params``) -- completeness (every required param has a
+    /apps/{id}/params``) -- completeness (every required param has a
     value) is instead checked at start time by :func:`resolve_command`.
 
     Raises:

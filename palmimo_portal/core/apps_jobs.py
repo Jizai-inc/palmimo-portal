@@ -19,7 +19,7 @@ Only the truly OS/environment-dependent steps (subprocess ``git``, the
 :class:`~palmimo_portal.ports.DiskPort`); dependency sync itself runs as
 ``palmimo-app`` inside that unit, never in this process (design doc 2.2b) --
 renaming and removing directories *within* the app tree this module already
-owns (``apps/<name>/``, ``.staging/``, ``.trash/``) is done directly with
+owns (``apps/<id>/``, ``.staging/``, ``.trash/``) is done directly with
 ``pathlib``/``shutil`` -- there is no meaningful fake for "rename a
 directory", and every such call is exercised against a real ``tmp_path`` in
 tests, not mocked.
@@ -42,7 +42,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from palmimo_portal.core import apps as apps_core
-from palmimo_portal.core.apps import host_owner_from_url, resolve_subdir
+from palmimo_portal.core.apps import app_namespace, host_owner_from_url, resolve_subdir, suggest_app_name
 from palmimo_portal.core.apps_layout import LayoutPaths, resolve_layout
 from palmimo_portal.core.apps_zip import UPLOAD_MAX_BYTES, extract_zip_to_staging
 from palmimo_portal.core.catalog import CatalogCache
@@ -400,7 +400,7 @@ def purge_path(ctx: AppsJobContext, path: Path) -> str | None:
 
 def read_manifest_for_app(ctx: AppsJobContext, record: AppRecord) -> Manifest:
     """Read the current on-disk manifest for an installed app (design doc 3.3: never cached in the ledger)."""
-    project_dir = ctx.app_dir(record.name)
+    project_dir = ctx.app_dir(record.id)
     project_dir = resolve_subdir(project_dir, record.source.subdir)
     return _read_manifest(project_dir, _manifest_filename_for(record.source))
 
@@ -467,6 +467,7 @@ class PreparedInstall:
     staging_container: Path
     source: AppSource
     commit: str | None
+    app_id: str | None = None
 
 
 def prepare_install_zip(
@@ -559,16 +560,20 @@ def commit_install(
     """Sync, swap, and register a :class:`PreparedInstall` -- the slow half, safe to run in the background.
 
     Raises:
-        AppExistsError: ``prepared.manifest.name`` is already installed.
+        AppExistsError: ``prepared.app_id`` is already installed.
     """
-    if prepared.manifest.name in state.apps:
-        raise AppExistsError(prepared.manifest.name)
+    app_id = prepared.app_id
+    if app_id is None:
+        namespace = app_namespace(prepared.source.type, prepared.source.url, ctx.catalog_repo)
+        app_id = f"{namespace}.{suggest_app_name(namespace, prepared.manifest.name, state)}"
+    if app_id in state.apps:
+        raise AppExistsError(app_id)
     _chmod_group_rwx(prepared.install_root)
     on_step("sync")
     layout = resolve_layout(prepared.install_root, prepared.source.subdir)
     lock_generated = _sync_dependencies(ctx, prepared.job_id, prepared.staging_container, layout, prepared.install_root)
     on_step("swap")
-    dest = ctx.app_dir(prepared.manifest.name)
+    dest = ctx.app_dir(app_id)
     prepared.install_root.rename(dest)
     on_step("register")
     job = AppJob(
@@ -579,6 +584,7 @@ def commit_install(
         error=None,
         started_at=started,
         finished_at=ctx.now(),
+        display_name=prepared.manifest.name,
         lock_generated=lock_generated,
     )
     record = AppRecord(
@@ -588,8 +594,9 @@ def commit_install(
         params={},
         autostart=False,
         last_job=job,
+        id=app_id,
     )
-    new_state = AppsState(apps={**state.apps, prepared.manifest.name: record})
+    new_state = AppsState(apps={**state.apps, app_id: record})
     return new_state, record
 
 
@@ -655,8 +662,7 @@ def update_git(
 
     Raises:
         AppNotFoundError: no app named ``name`` is installed.
-        InvalidManifestSourceError: ``name`` is not git-sourced, or the
-            fetched manifest's ``name`` no longer matches.
+        InvalidManifestSourceError: ``name`` is not git-sourced.
         DiskFullError: not enough free space for the reserve.
     """
     record = state.apps.get(name)
@@ -682,8 +688,6 @@ def update_git(
         on_step("validate")
         project_dir = resolve_subdir(staging_container, record.source.subdir)
         manifest = _read_manifest(project_dir, _manifest_filename_for(record.source))
-        if manifest.name != name:
-            raise InvalidManifestSourceError(f"fetched manifest name {manifest.name!r} does not match app {name!r}")
         _check_pyproject(project_dir)
         _chmod_group_rwx(staging_container)
         on_step("sync")
@@ -716,6 +720,11 @@ def update_git(
                 logger.info("apps: binding dropped app=%s req=%s", name, request_name)
         for param_name in dropped_params:
             logger.info("apps: param dropped app=%s name=%s", name, param_name)
+        if manifest.name != record.name:
+            # The id stays put (design doc 3.9): only the ledger's display name follows a
+            # rename, so an app the operator is already running/binding secrets against
+            # never has to be reinstalled just because its author renamed it upstream.
+            logger.info("apps: app renamed id=%s old=%s new=%s", record.id, record.name, manifest.name)
         job = AppJob(
             id=job_id,
             kind="update",
@@ -729,12 +738,13 @@ def update_git(
             dropped_params=dropped_params,
         )
         new_record = AppRecord(
-            name=name,
+            name=manifest.name,
             source=replace(record.source, commit=commit),
             installed_at=record.installed_at,
             params={key: value for key, value in record.params.items() if key not in dropped_params},
             autostart=record.autostart,
             last_job=job,
+            id=record.id,
         )
         new_state = AppsState(apps={**state.apps, name: new_record})
         return new_state, new_record
@@ -802,7 +812,7 @@ def purge_app_files(ctx: AppsJobContext, name: str, on_step: Callable[[str], Non
 
 
 def _is_official_devkit_source(url: str | None, catalog_repo: str) -> bool:
-    return url is not None and url.rstrip("/") == f"https://github.com/{catalog_repo}"
+    return app_namespace("git", url, catalog_repo) == "palmimo"
 
 
 def check_git_update(ctx: AppsJobContext, record: AppRecord) -> tuple[bool, str | None]:
@@ -815,7 +825,7 @@ def check_git_update(ctx: AppsJobContext, record: AppRecord) -> tuple[bool, str 
     already holds, never fetched here. Any other tag-pinned app (a
     community fork, a private tag-locked repo) has no catalog entry to
     compare against, so it always reports no update available; raising its
-    pin is a manual ``PUT /apps/{name}/source`` instead.
+    pin is a manual ``PUT /apps/{id}/source`` instead.
     """
     if record.source.type != "git":
         return False, None
@@ -838,7 +848,7 @@ def check_git_update(ctx: AppsJobContext, record: AppRecord) -> tuple[bool, str 
 
 
 def _project_dir_for(ctx: AppsJobContext, record: AppRecord) -> Path:
-    return resolve_subdir(ctx.app_dir(record.name), record.source.subdir)
+    return resolve_subdir(ctx.app_dir(record.id), record.source.subdir)
 
 
 def disk_state_checks(ctx: AppsJobContext, state: AppsState) -> tuple[Callable[[str], bool], Callable[[str], bool]]:
@@ -855,7 +865,7 @@ def disk_state_checks(ctx: AppsJobContext, state: AppsState) -> tuple[Callable[[
         if record is None:
             return False
         try:
-            layout = resolve_layout(ctx.app_dir(record.name), record.source.subdir)
+            layout = resolve_layout(ctx.app_dir(record.id), record.source.subdir)
         except InvalidManifestSourceError:
             return False
         return layout.venv_python.exists()
@@ -880,7 +890,7 @@ def cleanup_staging_and_trash(ctx: AppsJobContext) -> None:
 def sweep_orphan_app_dirs(ctx: AppsJobContext, state: AppsState) -> None:
     """Trash any directory directly under ``apps_dir`` that the ledger does not name -- startup finalize.
 
-    ``commit_install`` renames a staged tree to ``apps/<name>`` before its ledger
+    ``commit_install`` renames a staged tree to ``apps/<id>`` before its ledger
     record is written, and delete drops the ledger record before moving the
     directory to ``.trash`` -- a crash or restart in either window leaves a
     directory here that :func:`~palmimo_portal.core.apps.finalize_apps_state`

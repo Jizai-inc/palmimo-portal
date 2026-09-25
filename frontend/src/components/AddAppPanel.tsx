@@ -1,9 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import { Upload } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { PortalApiError } from "@/api/client";
 import { getListAppsApiV1AppsGetQueryKey } from "@/api/generated/apps/apps";
 import { useGetCatalogApiV1CatalogGet } from "@/api/generated/catalog/catalog";
 import { useListSecretsApiV1SecretsGet } from "@/api/generated/secrets/secrets";
@@ -17,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import type { GitInstallSource, InstallSource } from "@/lib/appInstall";
 import { installApp, previewApp } from "@/lib/appInstall";
+import { isValidAppNamePart } from "@/lib/appNamePart";
 import { parseCatalogSource } from "@/lib/catalogSource";
 import { deviceLabel } from "@/lib/deviceLabel";
 import { isHttpUrl } from "@/lib/isHttpUrl";
@@ -27,27 +29,22 @@ type Tab = "catalog" | "github" | "zip";
  * The add-app screen's logic (see routes/apps.add.tsx, which wraps this in `AppShell`). Free of
  * router hooks -- `onInstalled` is the only reach-out to routing, mirroring
  * `UpdatePanel`'s `onRestarted` -- so it's unit-testable directly. `onInstalled` receives the
- * finished job's `app_name` (the manifest's declared name, known only once install completes) so
- * the caller can route straight to the new app's detail page.
+ * finished job's `app_id` (the namespaced app id, known only once install completes) so the
+ * caller can route straight to the new app's detail page.
  */
-export function AddAppPanel({ onInstalled = () => undefined }: { onInstalled?: (appName: string | null) => void }) {
+export function AddAppPanel({ onInstalled = () => undefined }: { onInstalled?: (appId: string | null) => void }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>("catalog");
   const [installJob, setInstallJob] = useState<{ jobId: string; name: string } | null>(null);
 
-  const install = useMutation({
-    mutationFn: ({ source }: { source: InstallSource; displayName: string }) => installApp(source),
-    onSuccess: (data, { displayName }) => {
-      setInstallJob({ jobId: data.job.id, name: displayName });
-    },
-  });
-
   function handleJobDone(job: AppJobInfo) {
     void queryClient.invalidateQueries({ queryKey: getListAppsApiV1AppsGetQueryKey() });
     setInstallJob(null);
-    onInstalled(job.app_name);
+    onInstalled(job.app_id);
   }
+
+  const startInstallJob = (jobId: string, displayName: string) => setInstallJob({ jobId, name: displayName });
 
   return (
     <div className="flex flex-col gap-4">
@@ -63,14 +60,12 @@ export function AddAppPanel({ onInstalled = () => undefined }: { onInstalled?: (
         </TabButton>
       </div>
 
-      <ApiErrorAlert error={install.error} />
-
       {tab === "catalog" ? (
-        <CatalogTab onInstall={(source, displayName) => install.mutate({ source, displayName })} installPending={install.isPending} />
+        <CatalogTab onInstalled={startInstallJob} />
       ) : tab === "github" ? (
-        <GithubTab onInstall={(source, displayName) => install.mutate({ source, displayName })} installPending={install.isPending} />
+        <GithubTab onInstalled={startInstallJob} />
       ) : (
-        <ZipTab onInstall={(source, displayName) => install.mutate({ source, displayName })} installPending={install.isPending} />
+        <ZipTab onInstalled={startInstallJob} />
       )}
 
       <AppJobDialog
@@ -141,13 +136,84 @@ function catalogStaleReasonText(t: TFunction, reason: string | null): string {
   }
 }
 
-function CatalogTab({
-  onInstall,
-  installPending,
+/**
+ * Preview + device-name-part choice + install, shared by all three add-app tabs (design doc
+ * 3.9's add-app-screen section). A source change clears its preview before installation.
+ *
+ * A 409 `app_exists` on install (the suggested/typed name part was taken between preview and
+ * install) re-runs preview automatically instead of leaving the operator stuck on a name that
+ * will never install.
+ */
+function InstallFlow({
+  getSource,
+  sourceKey,
+  canPreview,
+  onInstalled,
 }: {
-  onInstall: (source: GitInstallSource, displayName: string) => void;
-  installPending: boolean;
+  getSource: () => InstallSource;
+  sourceKey: unknown;
+  canPreview: boolean;
+  onInstalled: (jobId: string, displayName: string) => void;
 }) {
+  const { t } = useTranslation();
+  const [preview, setPreview] = useState<ManifestPreviewResponse | null>(null);
+  const [namePart, setNamePart] = useState("");
+  const sourceKeyRef = useRef(sourceKey);
+  sourceKeyRef.current = sourceKey;
+
+  useEffect(() => {
+    setPreview(null);
+    setNamePart("");
+  }, [sourceKey]);
+
+  const previewMutation = useMutation({
+    mutationFn: async () => {
+      const requestSourceKey = sourceKeyRef.current;
+      return { preview: await previewApp(getSource()), sourceKey: requestSourceKey };
+    },
+    onSuccess: ({ preview: data, sourceKey: requestSourceKey }) => {
+      if (requestSourceKey !== sourceKeyRef.current) {
+        return;
+      }
+      setPreview(data);
+      setNamePart(data.suggested_name);
+    },
+  });
+
+  const install = useMutation({
+    mutationFn: () => installApp(getSource(), namePart),
+    onSuccess: (data) => onInstalled(data.job.id, preview?.name ?? namePart),
+    onError: (error) => {
+      if (error instanceof PortalApiError && error.code === "app_exists") {
+        previewMutation.mutate();
+      }
+    },
+  });
+
+  const namePartValid = isValidAppNamePart(namePart);
+
+  return (
+    <div className="flex flex-col gap-3">
+      <ApiErrorAlert error={previewMutation.error} />
+      <div className="flex gap-2">
+        <Button variant="outline" disabled={!canPreview || previewMutation.isPending} onClick={() => previewMutation.mutate()}>
+          {t("appAdd.previewButton")}
+        </Button>
+        {preview ? (
+          <Button disabled={install.isPending || !namePartValid} onClick={() => install.mutate()}>
+            {t("appAdd.installButton")}
+          </Button>
+        ) : null}
+      </div>
+      {preview ? (
+        <PreviewCard preview={preview} namePart={namePart} namePartValid={namePartValid} onNamePartChange={setNamePart} />
+      ) : null}
+      <ApiErrorAlert error={install.error} />
+    </div>
+  );
+}
+
+function CatalogTab({ onInstalled }: { onInstalled: (jobId: string, displayName: string) => void }) {
   const { t } = useTranslation();
   const { data, isLoading } = useGetCatalogApiV1CatalogGet();
 
@@ -165,7 +231,7 @@ function CatalogTab({
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {(data?.apps ?? []).map((catalogApp) => (
-            <CatalogCard key={catalogApp.name} app={catalogApp} onInstall={onInstall} installPending={installPending} />
+            <CatalogCard key={catalogApp.name} app={catalogApp} onInstalled={onInstalled} />
           ))}
         </div>
       )}
@@ -175,12 +241,10 @@ function CatalogTab({
 
 function CatalogCard({
   app,
-  onInstall,
-  installPending,
+  onInstalled,
 }: {
   app: CatalogAppInfo;
-  onInstall: (source: GitInstallSource, displayName: string) => void;
-  installPending: boolean;
+  onInstalled: (jobId: string, displayName: string) => void;
 }) {
   const { t } = useTranslation();
   const env = app.env.map((entry) => ({
@@ -209,27 +273,25 @@ function CatalogCard({
           ))}
         </div>
       ) : null}
-      <Button className="w-fit" disabled={!source || installPending} onClick={() => source && onInstall(source, app.name)}>
-        {t("appAdd.installButton")}
-      </Button>
+      {source ? (
+        <InstallFlow
+          getSource={() => source}
+          sourceKey={`${source.url}\u0000${source.ref_kind}\u0000${source.ref}\u0000${source.subdir ?? ""}\u0000${source.manifest ?? ""}`}
+          canPreview
+          onInstalled={onInstalled}
+        />
+      ) : null}
     </div>
   );
 }
 
-function GithubTab({
-  onInstall,
-  installPending,
-}: {
-  onInstall: (source: GitInstallSource, displayName: string) => void;
-  installPending: boolean;
-}) {
+function GithubTab({ onInstalled }: { onInstalled: (jobId: string, displayName: string) => void }) {
   const { t } = useTranslation();
   const [url, setUrl] = useState("");
   const [refKind, setRefKind] = useState<"branch" | "tag">("branch");
   const [ref, setRef] = useState("");
   const [subdir, setSubdir] = useState("");
   const [manifest, setManifest] = useState("");
-  const [preview, setPreview] = useState<ManifestPreviewResponse | null>(null);
 
   const source: GitInstallSource = {
     type: "git",
@@ -239,18 +301,14 @@ function GithubTab({
     ...(subdir ? { subdir } : {}),
     ...(manifest ? { manifest } : {}),
   };
-  const canSubmit = url.trim() !== "" && ref.trim() !== "";
-
-  const previewMutation = useMutation({
-    mutationFn: () => previewApp(source),
-    onSuccess: setPreview,
-  });
+  const canPreview = url.trim() !== "" && ref.trim() !== "";
+  const sourceKey = `${url}\u0000${refKind}\u0000${ref}\u0000${subdir}\u0000${manifest}`;
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
         <Label htmlFor="github-url">{t("appAdd.githubUrlLabel")}</Label>
-        <Input id="github-url" value={url} onChange={(event) => { setUrl(event.target.value); setPreview(null); }} placeholder="https://github.com/org/repo" />
+        <Input id="github-url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://github.com/org/repo" />
       </div>
       <div className="flex flex-col gap-1">
         <Label htmlFor="github-ref-kind">{t("appAdd.githubRefKindLabel")}</Label>
@@ -258,7 +316,7 @@ function GithubTab({
           id="github-ref-kind"
           className="h-10 rounded-md border border-input bg-transparent px-3 text-sm"
           value={refKind}
-          onChange={(event) => { setRefKind(event.target.value as "branch" | "tag"); setPreview(null); }}
+          onChange={(event) => setRefKind(event.target.value as "branch" | "tag")}
         >
           <option value="branch">{t("appAdd.githubRefKindBranch")}</option>
           <option value="tag">{t("appAdd.githubRefKindTag")}</option>
@@ -266,65 +324,36 @@ function GithubTab({
       </div>
       <div className="flex flex-col gap-1">
         <Label htmlFor="github-ref">{t("appAdd.githubRefLabel")}</Label>
-        <Input id="github-ref" value={ref} onChange={(event) => { setRef(event.target.value); setPreview(null); }} />
+        <Input id="github-ref" value={ref} onChange={(event) => setRef(event.target.value)} />
       </div>
       <div className="flex flex-col gap-1">
         <Label htmlFor="github-subdir">{t("appAdd.githubSubdirLabel")}</Label>
-        <Input id="github-subdir" value={subdir} onChange={(event) => { setSubdir(event.target.value); setPreview(null); }} />
+        <Input id="github-subdir" value={subdir} onChange={(event) => setSubdir(event.target.value)} />
       </div>
       <div className="flex flex-col gap-1">
         <Label htmlFor="github-manifest">{t("appAdd.manifestLabel")}</Label>
         <Input
           id="github-manifest"
           value={manifest}
-          onChange={(event) => { setManifest(event.target.value); setPreview(null); }}
+          onChange={(event) => setManifest(event.target.value)}
           placeholder="palmimo.toml"
         />
       </div>
-      <ApiErrorAlert error={previewMutation.error} />
-      <div className="flex gap-2">
-        <Button variant="outline" disabled={!canSubmit || previewMutation.isPending} onClick={() => previewMutation.mutate()}>
-          {t("appAdd.previewButton")}
-        </Button>
-        {preview ? (
-          <Button disabled={installPending} onClick={() => onInstall(source, preview.name)}>
-            {t("appAdd.installButton")}
-          </Button>
-        ) : null}
-      </div>
-      {preview ? <PreviewCard preview={preview} /> : null}
+      <InstallFlow getSource={() => source} sourceKey={sourceKey} canPreview={canPreview} onInstalled={onInstalled} />
     </div>
   );
 }
 
-function ZipTab({
-  onInstall,
-  installPending,
-}: {
-  onInstall: (source: InstallSource, displayName: string) => void;
-  installPending: boolean;
-}) {
+function ZipTab({ onInstalled }: { onInstalled: (jobId: string, displayName: string) => void }) {
   const { t } = useTranslation();
   const [file, setFile] = useState<File | null>(null);
   const [manifest, setManifest] = useState("");
-  const [preview, setPreview] = useState<ManifestPreviewResponse | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const sourceFor = (chosenFile: File): InstallSource => ({
-    type: "zip",
-    file: chosenFile,
-    ...(manifest ? { manifest } : {}),
-  });
-
-  const previewMutation = useMutation({
-    mutationFn: (chosenFile: File) => previewApp(sourceFor(chosenFile)),
-    onSuccess: setPreview,
-  });
+  const sourceKey = useMemo(() => ({ file, manifest }), [file, manifest]);
 
   function handleFile(chosenFile: File | undefined) {
     if (!chosenFile) return;
     setFile(chosenFile);
-    setPreview(null);
   }
 
   return (
@@ -357,33 +386,53 @@ function ZipTab({
         <Input
           id="zip-manifest"
           value={manifest}
-          onChange={(event) => { setManifest(event.target.value); setPreview(null); }}
+          onChange={(event) => setManifest(event.target.value)}
           placeholder="palmimo.toml"
         />
       </div>
-      <ApiErrorAlert error={previewMutation.error} />
-      <div className="flex gap-2">
-        <Button variant="outline" disabled={!file || previewMutation.isPending} onClick={() => file && previewMutation.mutate(file)}>
-          {t("appAdd.previewButton")}
-        </Button>
-        {preview && file ? (
-          <Button disabled={installPending} onClick={() => onInstall(sourceFor(file), preview.name)}>
-            {t("appAdd.installButton")}
-          </Button>
-        ) : null}
-      </div>
-      {preview ? <PreviewCard preview={preview} /> : null}
+      <InstallFlow
+        getSource={() => ({ type: "zip", file: file as File, ...(manifest ? { manifest } : {}) })}
+        sourceKey={sourceKey}
+        canPreview={file !== null}
+        onInstalled={onInstalled}
+      />
     </div>
   );
 }
 
-function PreviewCard({ preview }: { preview: ManifestPreviewResponse }) {
+function PreviewCard({
+  preview,
+  namePart,
+  namePartValid,
+  onNamePartChange,
+}: {
+  preview: ManifestPreviewResponse;
+  namePart: string;
+  namePartValid: boolean;
+  onNamePartChange: (value: string) => void;
+}) {
   const { t } = useTranslation();
   const { data: secretsData } = useListSecretsApiV1SecretsGet();
   const registeredNames = new Set((secretsData?.secrets ?? []).map((secret) => secret.name));
   return (
     <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
-      <p className="font-semibold">{preview.name}</p>
+      <p className="text-sm">
+        <span className="text-muted-foreground">{t("appAdd.manifestNameLabel")}: </span>
+        <span className="font-semibold">{preview.name}</span>
+      </p>
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="app-name-part">{t("appAdd.deviceNameLabel")}</Label>
+        <div className="flex items-center gap-1">
+          <span className="shrink-0 text-sm text-muted-foreground">{preview.namespace}.</span>
+          <Input
+            id="app-name-part"
+            value={namePart}
+            aria-invalid={!namePartValid}
+            onChange={(event) => onNamePartChange(event.target.value)}
+          />
+        </div>
+        {!namePartValid ? <p className="text-xs text-destructive">{t("appAdd.deviceNameInvalid")}</p> : null}
+      </div>
       <p className="text-sm text-muted-foreground">{preview.description}</p>
       <EnvRequirementList
         entries={preview.env.map((entry) => ({

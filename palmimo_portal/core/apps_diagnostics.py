@@ -1,4 +1,4 @@
-"""Builds the plain-text support document for ``GET /apps/{name}/diagnostics`` (design doc 3.2).
+"""Builds the plain-text support document for ``GET /apps/{id}/diagnostics`` (design doc 3.2).
 
 One flat document, fixed section headers, no secret values or git tokens --
 :func:`build_diagnostics` never reads a secret store itself; the caller
@@ -121,6 +121,7 @@ def build_diagnostics(data: AppDiagnosticsInput, *, known_secret_values: list[st
         f"version={data.uv_version}",
         "",
         SECTION_APP,
+        f"id={record.id}",
         f"name={record.name}",
         f"source.type={source.type}",
         f"source.url={_scrub_userinfo(source.url)}",

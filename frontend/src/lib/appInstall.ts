@@ -22,11 +22,18 @@ export interface GitInstallSource {
 
 export type InstallSource = GitInstallSource | { type: "zip"; file: File; manifest?: string };
 
-function toRequestInit(source: InstallSource): RequestInit {
+/**
+ * `name` is the app id's name part (design doc 3.9): a caller-chosen override of
+ * `ManifestPreviewResponse.suggested_name`, carried on both `/preview` (echoed back
+ * unchecked as `suggested_name`) and `/install` (where the backend validates and
+ * reserves it). Omitted, the backend derives one itself.
+ */
+function toRequestInit(source: InstallSource, name?: string): RequestInit {
   if (source.type === "zip") {
     const formData = new FormData();
     formData.append("file", source.file);
     if (source.manifest) formData.append("manifest", source.manifest);
+    if (name) formData.append("name", name);
     return { method: "POST", body: formData };
   }
   const { type, url, ref, ref_kind, subdir, manifest } = source;
@@ -35,14 +42,15 @@ function toRequestInit(source: InstallSource): RequestInit {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       source: { type, url, ref, ref_kind, ...(subdir ? { subdir } : {}), ...(manifest ? { manifest } : {}) },
+      ...(name ? { name } : {}),
     }),
   };
 }
 
-export function installApp(source: InstallSource): Promise<AppJobAcceptedResponse> {
-  return customFetch<AppJobAcceptedResponse>(getInstallApiV1AppsInstallPostUrl(), toRequestInit(source));
+export function installApp(source: InstallSource, name?: string): Promise<AppJobAcceptedResponse> {
+  return customFetch<AppJobAcceptedResponse>(getInstallApiV1AppsInstallPostUrl(), toRequestInit(source, name));
 }
 
-export function previewApp(source: InstallSource): Promise<ManifestPreviewResponse> {
-  return customFetch<ManifestPreviewResponse>(getPreviewApiV1AppsPreviewPostUrl(), toRequestInit(source));
+export function previewApp(source: InstallSource, name?: string): Promise<ManifestPreviewResponse> {
+  return customFetch<ManifestPreviewResponse>(getPreviewApiV1AppsPreviewPostUrl(), toRequestInit(source, name));
 }

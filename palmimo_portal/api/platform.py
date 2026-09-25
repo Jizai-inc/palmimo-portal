@@ -23,7 +23,7 @@ from palmimo_portal.api.deps import get_state_store, require_auth, require_full_
 from palmimo_portal.api.errors import PortalError
 from palmimo_portal.core import platform as platform_core
 from palmimo_portal.core.platform_update import PlatformUpdateInProgressError
-from palmimo_portal.ports import AppsLockTimeoutError, PlatformLockTimeoutError, StateStore
+from palmimo_portal.ports import AppsLockTimeoutError, AppsStateFileState, PlatformLockTimeoutError, StateStore
 
 
 router = APIRouter(
@@ -44,6 +44,11 @@ def _ensure_no_apps_job_in_progress(state_store: StateStore) -> None:
             pass
     except AppsLockTimeoutError as error:
         raise PortalError(409, "app_job_in_progress") from error
+
+
+def _ensure_apps_ledger_is_current(state_store: StateStore) -> None:
+    if state_store.apps_state_file_state() is AppsStateFileState.LEGACY:
+        raise PortalError(409, "ledger_legacy")
 
 
 class PlatformLatestInfo(BaseModel):
@@ -150,10 +155,11 @@ def check_platform(request: Request, state_store: StateStore = Depends(get_state
     one -- as ``latest_error`` in the body, not an HTTP error.
 
     Raises:
-        PortalError: 429 ``platform_check_rate_limited`` (with
+        PortalError: 409 ``ledger_legacy`` until the apps are reset; 429 ``platform_check_rate_limited`` (with
             ``retry_after_seconds``) if the last successful check was
             under a minute ago.
     """
+    _ensure_apps_ledger_is_current(state_store)
     cache = request.app.state.platform_latest_cache
     ntp_synchronized = request.app.state.adapters.clock.ntp_synchronized()
     try:
@@ -170,13 +176,14 @@ def start_update(
     """Fetch and apply the latest platform bundle release in the background.
 
     Raises:
-        PortalError: 409 ``update_in_progress`` / 409 ``app_job_in_progress``
+        PortalError: 409 ``ledger_legacy`` until the apps are reset; 409 ``update_in_progress`` / 409 ``app_job_in_progress``
             for the two mutual-exclusion directions with a Portal
             self-update and an app job; 409 ``platform_update_in_progress``
             if a platform update is already running; 502
             ``release_source_unavailable`` if the latest release cannot be
             discovered right now.
     """
+    _ensure_apps_ledger_is_current(state_store)
     _ensure_no_portal_update_in_progress(state_store)
     _ensure_no_apps_job_in_progress(state_store)
 

@@ -22,15 +22,17 @@ const READY_PLATFORM: PlatformStatusResponse = {
 };
 
 function app(overrides: Partial<AppSummary>): AppSummary {
+  const name = overrides.name ?? "palmimo-teleop";
   return {
     autostart: false,
     broken_reason: null,
     credential_rejected: false,
+    id: `zip.${name}`,
     installed_at: 1_700_000_000,
     last_job: null,
     latest_commit: null,
-    name: "palmimo-teleop",
-    source: { type: "git", url: "https://github.com/x/y", subdir: null, manifest: null, ref_kind: "tag", ref: "v1", commit: "abc" },
+    name,
+    source: { type: "git", official: false, url: "https://github.com/x/y", subdir: null, manifest: null, ref_kind: "tag", ref: "v1", commit: "abc" },
     status: "stopped",
     update_available: false,
     ...overrides,
@@ -98,11 +100,113 @@ describe("AppsListPanel", () => {
     expect(okRow && within(okRow).queryByText("Credential rejected")).not.toBeInTheDocument();
   });
 
+  // Without this, two apps installed from different sources under the same manifest `name`
+  // (design doc 3.9's "same owner, two branches" case) would be indistinguishable in the list
+  // -- same visible label, no way to tell which row starts which app.
+  it("shows two apps with the same manifest name as separate rows distinguished by id and source", async () => {
+    server.use(
+      getListAppsApiV1AppsGetMockHandler({
+        apps: [
+          app({
+            name: "teleop",
+            id: "palmimo.teleop",
+            source: { type: "git", official: true, url: "https://github.com/Jizai-inc/palmimo-devkit", subdir: "examples/teleop", manifest: null, ref_kind: "tag", ref: "v1", commit: "abc" },
+          }),
+          app({
+            name: "teleop",
+            id: "alice.teleop",
+            source: { type: "git", official: false, url: "https://github.com/alice/teleop", subdir: null, manifest: null, ref_kind: "branch", ref: "main", commit: "def" },
+          }),
+        ],
+      }),
+      getGetPlatformApiV1PlatformGetMockHandler(READY_PLATFORM),
+    );
+    renderWithRouter(<AppsListPanel />);
+
+    const rows = (await screen.findAllByText("teleop", { selector: "span" })).map((node) => node.closest("li"));
+    expect(rows).toHaveLength(2);
+    const officialRow = rows.find((row) => row && within(row).queryByRole("link", { name: /palmimo\.teleop/ }));
+    expect(officialRow && within(officialRow).getByRole("link", { name: /palmimo\.teleop/ })).toBeInTheDocument();
+    expect(officialRow && within(officialRow).getByText("Official")).toBeInTheDocument();
+    expect(officialRow && within(officialRow).getByText(/github.com\/Jizai-inc\/palmimo-devkit|Jizai-inc\/palmimo-devkit/)).toBeInTheDocument();
+
+    const forkRow = rows.find((row) => row !== officialRow);
+    expect(forkRow && within(forkRow).getByRole("link", { name: /alice\.teleop/ })).toBeInTheDocument();
+    expect(forkRow && within(forkRow).queryByText("Official")).not.toBeInTheDocument();
+  });
+
   it("shows an empty state when there are no apps", async () => {
     server.use(getListAppsApiV1AppsGetMockHandler({ apps: [] }), getGetPlatformApiV1PlatformGetMockHandler(READY_PLATFORM));
     renderWithRouter(<AppsListPanel />);
 
     expect(await screen.findByText("No apps installed yet.")).toBeInTheDocument();
+  });
+
+  it("resets an old-format ledger after confirmation", async () => {
+    const user = userEvent.setup();
+    let reset = false;
+    server.use(
+      http.get("*/api/v1/apps", () =>
+        reset
+          ? HttpResponse.json({ apps: [] })
+          : HttpResponse.json({ error: { code: "ledger_legacy", params: {} } }, { status: 409 }),
+      ),
+      http.post("*/api/v1/apps/reset", () => {
+        reset = true;
+        return HttpResponse.json({ paths: [], leftover_paths: [] }, { status: 202 });
+      }),
+      getGetPlatformApiV1PlatformGetMockHandler(READY_PLATFORM),
+    );
+    renderWithRouter(<AppsListPanel />);
+
+    expect(await screen.findByText("Reset the app ledger")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Reset apps" }));
+    expect(await screen.findByRole("heading", { name: "Reset all apps?" })).toBeInTheDocument();
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Reset apps" }));
+
+    expect(await screen.findByText("No apps installed yet.")).toBeInTheDocument();
+  });
+
+  // Without this, an unreadable app ledger would leave the operator unable to recover from the apps screen.
+  it("resets an unreadable ledger after confirmation", async () => {
+    const user = userEvent.setup();
+    let reset = false;
+    server.use(
+      http.get("*/api/v1/apps", () =>
+        reset
+          ? HttpResponse.json({ apps: [] })
+          : HttpResponse.json({ error: { code: "platform_state_corrupt", params: {} } }, { status: 409 }),
+      ),
+      http.post("*/api/v1/apps/reset", () => {
+        reset = true;
+        return HttpResponse.json({ paths: [], leftover_paths: [] }, { status: 202 });
+      }),
+      getGetPlatformApiV1PlatformGetMockHandler(READY_PLATFORM),
+    );
+    renderWithRouter(<AppsListPanel />);
+
+    expect(await screen.findByText("Reset the unreadable app ledger")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Reset apps" }));
+    expect(await screen.findByRole("heading", { name: "Reset all apps?" })).toBeInTheDocument();
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Reset apps" }));
+
+    expect(await screen.findByText("No apps installed yet.")).toBeInTheDocument();
+  });
+
+  it("keeps the reset dialog open and shows leftover paths", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/v1/apps", () => HttpResponse.json({ error: { code: "ledger_legacy", params: {} } }, { status: 409 })),
+      http.post("*/api/v1/apps/reset", () => HttpResponse.json({ paths: [], leftover_paths: ["/var/lib/palmimo/apps/alice.app"] }, { status: 202 })),
+      getGetPlatformApiV1PlatformGetMockHandler(READY_PLATFORM),
+    );
+    renderWithRouter(<AppsListPanel />);
+
+    await user.click(await screen.findByRole("button", { name: "Reset apps" }));
+    await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Reset apps" }));
+
+    expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
+    expect(screen.getByText("/var/lib/palmimo/apps/alice.app")).toBeInTheDocument();
   });
 
   // Without this, a device stuck on an old platform version would let the operator kick off an

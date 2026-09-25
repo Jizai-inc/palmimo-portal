@@ -6,7 +6,7 @@ Install/update/delete run on a background thread
 see that module's docstring for the lock-handoff-across-threads mechanics.
 This router returns 202 with the job's *current* state immediately (running,
 or already done/failed if ``PALMIMO_ADAPTERS`` runs it inline for tests);
-``GET /apps`` and ``GET /apps/{name}`` report ``installing``/``updating``/
+``GET /apps`` and ``GET /apps/{id}`` report ``installing``/``updating``/
 ``deleting`` for the app the in-flight job targets, and ``GET
 /apps/jobs/{id}`` polls the job itself. A failure that happens *after* the
 job starts running (a sync/swap/register error) never reaches this request
@@ -61,8 +61,10 @@ from palmimo_portal.api.deps import (
 from palmimo_portal.api.errors import PortalError
 from palmimo_portal.core import apps_jobs
 from palmimo_portal.core.apps import (
+    app_namespace,
     clear_credential_rejected,
     host_owner_from_url,
+    suggest_app_name,
     validate_git_ref,
     validate_git_subdir_shape,
     validate_git_url,
@@ -134,7 +136,7 @@ from palmimo_portal.version import portal_version
 #: Journal lines attached to a 500 `start_failed` response (design doc pass E).
 _START_FAILED_JOURNAL_LINES = 20
 
-#: Journal lines included in `GET /apps/{name}/diagnostics`'s `[journal]` section (design doc 3.2).
+#: Journal lines included in `GET /apps/{id}/diagnostics`'s `[journal]` section (design doc 3.2).
 _DIAGNOSTICS_JOURNAL_LINES = 50
 
 
@@ -210,11 +212,15 @@ class AppSourceInfo(BaseModel):
     subdir: str | None
     commit: str | None
     manifest: str | None
+    #: True iff this source normalizes to the official devkit repo (``app_namespace(...) ==
+    #: "palmimo"``, design doc 3.9) -- the "official" badge must key off source, not the app id's
+    #: namespace segment, so a UI never has to re-derive the normalization rule itself.
+    official: bool
 
 
 class AppJobInfo(BaseModel):
     id: str
-    app_name: str | None
+    app_id: str | None
     kind: str
     state: str
     step: str | None
@@ -240,6 +246,7 @@ class AppSummary(BaseModel):
     """
 
     name: str
+    id: str
     source: AppSourceInfo
     installed_at: float | None
     autostart: bool
@@ -289,6 +296,7 @@ class AppManifestInfo(BaseModel):
 
 class AppDetailResponse(BaseModel):
     name: str
+    id: str
     source: AppSourceInfo
     installed_at: float | None
     autostart: bool
@@ -308,6 +316,9 @@ class AppDetailResponse(BaseModel):
 
 class ManifestPreviewResponse(BaseModel):
     name: str
+    namespace: str
+    suggested_name: str
+    suggested_id: str
     description: str
     devices: list[str]
     env: list[EnvSpecInfo]
@@ -329,6 +340,18 @@ class GitSourceRequest(BaseModel):
 
 class GitInstallRequest(BaseModel):
     source: GitSourceRequest
+    name: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str | None) -> str | None:
+        return _validate_requested_name(value)
+
+
+def _validate_requested_name(value: str | None) -> str | None:
+    if value is not None and re.fullmatch(r"[a-z][a-z0-9-]{0,39}", value) is None:
+        raise ValueError("name must match ^[a-z][a-z0-9-]{0,39}$")
+    return value
 
 
 class ParamsRequest(BaseModel):
@@ -384,8 +407,11 @@ _INVOCATION_ID_PATTERN = re.compile(r"^[0-9a-f]{32}$")
 
 
 def _ensure_not_corrupt(state_store: StateStore) -> None:
-    if state_store.apps_state_file_state() is AppsStateFileState.CORRUPT:
+    file_state = state_store.apps_state_file_state()
+    if file_state is AppsStateFileState.CORRUPT:
         raise PortalError(409, "platform_state_corrupt")
+    if file_state is AppsStateFileState.LEGACY:
+        raise PortalError(409, "ledger_legacy")
 
 
 def _ensure_no_portal_update_in_progress(state_store: StateStore) -> None:
@@ -428,10 +454,10 @@ def _ensure_platform_ready(deps: StartDeps) -> None:
         raise PortalError(409, "platform_not_ready")
 
 
-def _job_info(job: AppJob, app_name: str | None = None) -> AppJobInfo:
+def _job_info(job: AppJob, app_id: str | None = None) -> AppJobInfo:
     return AppJobInfo(
         id=job.id,
-        app_name=app_name,
+        app_id=app_id,
         kind=job.kind,
         state=job.state,
         step=job.step,
@@ -444,7 +470,18 @@ def _job_info(job: AppJob, app_name: str | None = None) -> AppJobInfo:
     )
 
 
-def _source_info(record: AppRecord) -> AppSourceInfo:
+def _app_id_for_job(state: AppsState, job: AppJob) -> str | None:
+    if state.current_job is not None and state.current_job.id == job.id:
+        return state.current_job_app
+    for app_id, record in state.apps.items():
+        if record.last_job is not None and record.last_job.id == job.id:
+            return app_id
+    if state.last_orphan_job is not None and state.last_orphan_job.id == job.id:
+        return state.last_orphan_job_app
+    return None
+
+
+def _source_info(record: AppRecord, catalog_repo: str | None) -> AppSourceInfo:
     return AppSourceInfo(
         type=record.source.type,
         url=record.source.url,
@@ -453,6 +490,7 @@ def _source_info(record: AppRecord) -> AppSourceInfo:
         subdir=record.source.subdir,
         commit=record.source.commit,
         manifest=record.source.manifest,
+        official=app_namespace(record.source.type, record.source.url, catalog_repo) == "palmimo",
     )
 
 
@@ -468,14 +506,14 @@ def _run_status(
     that would clean it up ever ran again) does not wait for the next
     restart to lose its secrets-bearing `env` file.
     """
-    if state.current_job is not None and state.current_job_app == record.name:
+    if state.current_job is not None and state.current_job_app == record.id:
         job_status = _JOB_KIND_STATUS.get(state.current_job.kind, "stopped")
         return job_status, None, None
     if record.broken_reason is not None:
         return "broken", None, None
-    unit_status = app_unit.status(record.name)
+    unit_status = app_unit.status(record.id)
     if unit_status.active_state not in RUNNING_ACTIVE_STATES:
-        run_dir.remove(record.name)
+        run_dir.remove(record.id)
     run_status = derive_run_status(unit_status)
     return cast(AppStatus, run_status.status), run_status.exit_code, run_status.reason
 
@@ -485,7 +523,8 @@ def _summary(record: AppRecord, state: AppsState, app_unit: AppUnitPort, deps: S
     url = resolve_running_url(deps, record, host=host) if status == "running" else None
     return AppSummary(
         name=record.name,
-        source=_source_info(record),
+        id=record.id,
+        source=_source_info(record, deps.apps_job_ctx.catalog_repo),
         installed_at=record.installed_at,
         autostart=record.autostart,
         status=status,
@@ -493,7 +532,7 @@ def _summary(record: AppRecord, state: AppsState, app_unit: AppUnitPort, deps: S
         credential_rejected=record.credential_rejected,
         update_available=record.update_available,
         latest_commit=record.latest_commit,
-        last_job=_job_info(record.last_job, record.name) if record.last_job is not None else None,
+        last_job=_job_info(record.last_job, record.id) if record.last_job is not None else None,
         exit_code=exit_code,
         reason=reason,
         url=url,
@@ -506,9 +545,10 @@ def _pending_install_summary(state: AppsState) -> AppSummary | None:
     if job is None or job.kind != "install" or state.current_job_app is None or state.current_job_app in state.apps:
         return None
     return AppSummary(
-        name=state.current_job_app,
+        name=job.display_name or state.current_job_app.rsplit(".", 1)[-1],
+        id=state.current_job_app,
         source=AppSourceInfo(
-            type="unknown", url=None, ref=None, ref_kind=None, subdir=None, commit=None, manifest=None
+            type="unknown", url=None, ref=None, ref_kind=None, subdir=None, commit=None, manifest=None, official=False
         ),
         installed_at=None,
         autostart=False,
@@ -568,18 +608,19 @@ def _detail(
     url = resolve_running_url(deps, record, host=host) if status == "running" else None
     return AppDetailResponse(
         name=record.name,
-        source=_source_info(record),
+        id=record.id,
+        source=_source_info(record, ctx.catalog_repo),
         installed_at=record.installed_at,
         autostart=record.autostart,
         status=status,
         broken_reason=record.broken_reason,
         params=record.params,
         env=_env_info(manifest) if manifest is not None else [],
-        bindings=secrets.read_bindings(record.name),
+        bindings=secrets.read_bindings(record.id),
         devices=sorted(manifest.devices) if manifest is not None else [],
         description=manifest.description if manifest is not None else "",
         manifest=_manifest_info(manifest),
-        last_job=_job_info(record.last_job, record.name) if record.last_job is not None else None,
+        last_job=_job_info(record.last_job, record.id) if record.last_job is not None else None,
         exit_code=exit_code,
         reason=reason,
         url=url,
@@ -627,8 +668,8 @@ async def _read_upload_bounded(upload: Any, max_bytes: int) -> Path:
     return tmp_path
 
 
-async def _read_zip_or_git(request: Request) -> tuple[Path | None, GitSourceRequest | None, str | None]:
-    """Returns ``(upload_path, git_source, zip_manifest)`` -- exactly one of the first two is set.
+async def _read_zip_or_git(request: Request) -> tuple[Path | None, GitSourceRequest | None, str | None, str | None]:
+    """Returns ``(upload_path, git_source, zip_manifest, requested_name)`` -- exactly one of the first two is set.
 
     ``zip_manifest`` is the validated, optional ``manifest`` form field for a zip install/preview
     (``None`` for a git request, whose own ``manifest`` rides on ``git_source`` instead).
@@ -644,7 +685,12 @@ async def _read_zip_or_git(request: Request) -> tuple[Path | None, GitSourceRequ
             zip_manifest = validate_manifest_filename(manifest_field if isinstance(manifest_field, str) else None)
         except InvalidManifestFilenameError as error:
             raise PortalError(422, "validation_error", errors=[str(error)]) from error
-        return await _read_upload_bounded(upload, UPLOAD_MAX_BYTES), None, zip_manifest
+        name = form.get("name")
+        try:
+            requested_name = _validate_requested_name(name if isinstance(name, str) else None)
+        except ValueError as error:
+            raise PortalError(422, "validation_error", errors=[str(error)]) from error
+        return await _read_upload_bounded(upload, UPLOAD_MAX_BYTES), None, zip_manifest, requested_name
     body = await request.json()
     try:
         parsed = GitInstallRequest.model_validate(body)
@@ -653,7 +699,7 @@ async def _read_zip_or_git(request: Request) -> tuple[Path | None, GitSourceRequ
         # `validate_git_url`) otherwise rides along in `ctx.error` as the raw exception
         # object, which `PortalError`'s JSON envelope cannot serialize.
         raise PortalError(422, "validation_error", errors=error.errors(include_context=False)) from error
-    return None, parsed.source, None
+    return None, parsed.source, None, parsed.name
 
 
 def _request_host(request: Request) -> str:
@@ -680,7 +726,11 @@ def list_apps(
 
 
 @router.post("/preview")
-async def preview(request: Request, ctx: AppsJobContext = Depends(get_apps_job_context)) -> ManifestPreviewResponse:
+async def preview(
+    request: Request,
+    ctx: AppsJobContext = Depends(get_apps_job_context),
+    state_store: StateStore = Depends(get_state_store),
+) -> ManifestPreviewResponse:
     """Fetch and validate a source without installing it, returning its manifest.
 
     Raises:
@@ -689,7 +739,7 @@ async def preview(request: Request, ctx: AppsJobContext = Depends(get_apps_job_c
             that fails validation; 422 ``preview_failed`` for any other
             fetch/extract failure.
     """
-    upload, git_source, zip_manifest = await _read_zip_or_git(request)
+    upload, git_source, zip_manifest, requested_name = await _read_zip_or_git(request)
     try:
         if upload is not None:
             manifest = apps_jobs.preview_zip(ctx, upload, zip_manifest)
@@ -710,8 +760,16 @@ async def preview(request: Request, ctx: AppsJobContext = Depends(get_apps_job_c
     finally:
         if upload is not None:
             upload.unlink(missing_ok=True)
+    namespace = app_namespace(
+        "zip" if upload is not None else "git", git_source.url if git_source else None, ctx.catalog_repo
+    )
+    state = state_store.read_apps_state()
+    suggested_name = requested_name or suggest_app_name(namespace, manifest.name, state)
     return ManifestPreviewResponse(
         name=manifest.name,
+        namespace=namespace,
+        suggested_name=suggested_name,
+        suggested_id=f"{namespace}.{suggested_name}",
         description=manifest.description,
         devices=sorted(manifest.devices),
         env=_env_info(manifest),
@@ -745,7 +803,7 @@ async def install(
     _ensure_no_portal_update_in_progress(state_store)
     _ensure_no_platform_update_in_progress(state_store)
     _ensure_platform_ready(deps)
-    upload, git_source, zip_manifest = await _read_zip_or_git(request)
+    upload, git_source, zip_manifest, requested_name = await _read_zip_or_git(request)
     try:
         if upload is not None:
             prepared = apps_jobs.prepare_install_zip(ctx, upload, manifest_filename=zip_manifest)
@@ -772,14 +830,14 @@ async def install(
             upload.unlink(missing_ok=True)
 
     try:
-        job = runner.start_install(prepared)
+        job = runner.start_install(prepared, requested_name=requested_name)
     except AppExistsError as error:
         shutil.rmtree(prepared.staging_container, ignore_errors=True)
         raise PortalError(409, "app_exists") from error
     except AppsLockTimeoutError as error:
         shutil.rmtree(prepared.staging_container, ignore_errors=True)
         raise PortalError(409, "app_job_in_progress") from error
-    return AppJobAcceptedResponse(job=_job_info(job, prepared.manifest.name))
+    return AppJobAcceptedResponse(job=_job_info(job, _app_id_for_job(state_store.read_apps_state(), job)))
 
 
 @router.get("/jobs/{job_id}")
@@ -791,7 +849,7 @@ def get_job(job_id: str, state_store: StateStore = Depends(get_state_store)) -> 
         return _job_info(state.current_job, state.current_job_app)
     for record in state.apps.values():
         if record.last_job is not None and record.last_job.id == job_id:
-            return _job_info(record.last_job, record.name)
+            return _job_info(record.last_job, record.id)
     if state.last_orphan_job is not None and state.last_orphan_job.id == job_id:
         return _job_info(state.last_orphan_job, state.last_orphan_job_app)
     raise PortalError(404, "job_not_found")
@@ -1123,7 +1181,7 @@ def get_logs(
     UI can offer "view a previous start". Answers ``{"unavailable":
     "journal_permission"}`` rather than an error when this process cannot
     read the journal at all (design doc 3.6). Every entry's ``message`` is
-    masked the same way ``GET /apps/{name}/diagnostics`` is -- an app can
+    masked the same way ``GET /apps/{id}/diagnostics`` is -- an app can
     print a registered secret or git credential to its own journal.
 
     PortalError: 400 ``invalid_invocation`` if ``invocation`` is not a
@@ -1215,7 +1273,7 @@ def get_diagnostics(
 
     journal_lines: list[str] | None = None
     if journal.can_read():
-        page = journal.read(app_unit_name(name), cursor=None, lines=_DIAGNOSTICS_JOURNAL_LINES)
+        page = journal.read(app_unit_name(record.id), cursor=None, lines=_DIAGNOSTICS_JOURNAL_LINES)
         journal_lines = [entry.message for entry in page.entries]
 
     identity_info = identity.read_identity_uncached()
@@ -1226,9 +1284,9 @@ def get_diagnostics(
         record=record,
         manifest=manifest,
         manifest_errors=manifest_errors,
-        bindings=secrets.read_bindings(name),
-        precheck=precheck_report(deps, name, host=_request_host(request)),
-        unit_status=app_unit.status(name),
+        bindings=secrets.read_bindings(record.id),
+        precheck=precheck_report(deps, record.id, host=_request_host(request)),
+        unit_status=app_unit.status(record.id),
         journal_lines=journal_lines,
         disk_free_bytes=disk.free_bytes(settings.state_dir),
         ntp_synchronized=clock.ntp_synchronized(),

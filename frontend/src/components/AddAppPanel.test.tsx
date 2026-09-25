@@ -26,6 +26,7 @@ const CATALOG: CatalogResponse = {
       ],
       source: {
         type: "git",
+        official: true,
         url: "https://github.com/Jizai-inc/palmimo-devkit",
         subdir: "examples/teleop",
         manifest: "palmimo.realtime.toml",
@@ -35,6 +36,10 @@ const CATALOG: CatalogResponse = {
       },
     },
   ],
+};
+
+const JOB_RESPONSE = {
+  job: { id: "job-1", app_id: "palmimo.teleop", kind: "install", state: "running", step: "fetch", error: null, started_at: 1, finished_at: null, dropped_bindings: [], dropped_params: [], lock_generated: false },
 };
 
 describe("AddAppPanel", () => {
@@ -59,32 +64,39 @@ describe("AddAppPanel", () => {
     expect(screen.queryByText("camera")).not.toBeInTheDocument();
   });
 
-  // Without this, installing from the catalog card would silently fail to reach the backend
-  // with a correctly-shaped git source (name/ref/ref_kind/subdir/manifest), or the job dialog +
-  // the caller's completion callback would never fire once the job finishes.
+  // Without this, previewing then installing a catalog app would silently fail to reach the
+  // backend with a correctly-shaped git source and the chosen device-name part, or the job
+  // dialog + the caller's completion callback would never fire once the job finishes.
   //
-  // `onInstalled` receiving the finished job's `app_name` is what routes/apps.add.tsx uses to
+  // `onInstalled` receiving the finished job's `app_id` is what routes/apps.add.tsx uses to
   // navigate straight to the new app's detail page instead of the plain list -- asserted here,
   // at the router-free component boundary, rather than by mocking the router itself.
-  it("installs a catalog app and reports completion with the installed app's name", async () => {
+  it("previews then installs a catalog app, sending the default device name and reporting completion with the installed app's id", async () => {
     const user = userEvent.setup();
     const onInstalled = vi.fn();
     let installedBody: unknown;
     let jobPolls = 0;
     server.use(
       getGetCatalogApiV1CatalogGetMockHandler(CATALOG),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+      http.post("*/api/v1/apps/preview", () =>
+        HttpResponse.json({ name: "palmimo-teleop", namespace: "palmimo", suggested_name: "teleop", suggested_id: "palmimo.teleop", description: "Drive the robot from a browser.", devices: ["camera"], env: [] }),
+      ),
       http.post("*/api/v1/apps/install", async ({ request }) => {
         installedBody = await request.json();
-        return HttpResponse.json({ job: { id: "job-1", app_name: "palmimo-teleop", kind: "install", state: "running", step: "fetch", error: null, started_at: 1, finished_at: null, dropped_bindings: [], dropped_params: [], lock_generated: false } }, { status: 202 });
+        return HttpResponse.json(JOB_RESPONSE, { status: 202 });
       }),
       http.get("*/api/v1/apps/jobs/job-1", () => {
         jobPolls += 1;
-        return HttpResponse.json({ id: "job-1", app_name: "palmimo-teleop", kind: "install", state: jobPolls === 1 ? "running" : "done", step: "register", error: null, started_at: 1, finished_at: jobPolls === 1 ? null : 2, dropped_bindings: [], dropped_params: [], lock_generated: false });
+        return HttpResponse.json({ id: "job-1", app_id: "palmimo.teleop", kind: "install", state: jobPolls === 1 ? "running" : "done", step: "register", error: null, started_at: 1, finished_at: jobPolls === 1 ? null : 2, dropped_bindings: [], dropped_params: [], lock_generated: false });
       }),
     );
     renderWithProviders(<AddAppPanel onInstalled={onInstalled} />);
 
-    await user.click(await screen.findByRole("button", { name: "Install" }));
+    await screen.findByText("palmimo-teleop");
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    expect(await screen.findByLabelText("Name on this device")).toHaveValue("teleop");
+    await user.click(screen.getByRole("button", { name: "Install" }));
 
     expect(await screen.findByRole("heading", { name: /palmimo-teleop/ })).toBeInTheDocument();
 
@@ -98,16 +110,82 @@ describe("AddAppPanel", () => {
           subdir: "examples/teleop",
           manifest: "palmimo.realtime.toml",
         },
+        name: "teleop",
       }),
     );
-    await waitFor(() => expect(onInstalled).toHaveBeenCalledWith("palmimo-teleop"));
+    await waitFor(() => expect(onInstalled).toHaveBeenCalledWith("palmimo.teleop"));
+  });
+
+  // Without this, the namespace segment could be typed over (letting an operator claim to be
+  // "palmimo." on a fork) or a device-name-part change could fail to reach the install request
+  // (design doc 3.9's add-app screen: namespace read-only, name part editable and sent).
+  it("shows the namespace as read-only and sends an edited device name part on install", async () => {
+    const user = userEvent.setup();
+    let installedName: string | undefined;
+    server.use(
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+      http.post("*/api/v1/apps/preview", () =>
+        HttpResponse.json({ name: "my-app", namespace: "alice", suggested_name: "app", suggested_id: "alice.app", description: "A private app.", devices: [], env: [] }),
+      ),
+      http.post("*/api/v1/apps/install", async ({ request }) => {
+        installedName = ((await request.json()) as { name?: string }).name;
+        return HttpResponse.json(JOB_RESPONSE, { status: 202 });
+      }),
+    );
+    renderWithProviders(<AddAppPanel />);
+
+    await user.click(screen.getByRole("button", { name: "GitHub URL" }));
+    await user.type(screen.getByLabelText("Repository URL"), "https://github.com/alice/app");
+    await user.type(screen.getByLabelText("Branch or tag"), "main");
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+
+    expect(await screen.findByText("alice.")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "alice." })).not.toBeInTheDocument();
+
+    const nameInput = screen.getByLabelText("Name on this device");
+    await user.clear(nameInput);
+    await user.type(nameInput, "my-fork");
+    await user.click(screen.getByRole("button", { name: "Install" }));
+
+    await waitFor(() => expect(installedName).toBe("my-fork"));
+  });
+
+  // Without this, a name-part collision discovered only at install time (design doc 3.9: preview
+  // and install can race) would leave the operator stuck retrying an id that will never install,
+  // instead of being shown a fresh suggested name.
+  it("re-runs preview and shows a new suggested name when install returns app_exists", async () => {
+    const user = userEvent.setup();
+    let previewCount = 0;
+    server.use(
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+      http.post("*/api/v1/apps/preview", () => {
+        previewCount += 1;
+        const suggestedName = previewCount === 1 ? "app" : "app-2";
+        return HttpResponse.json({ name: "my-app", namespace: "alice", suggested_name: suggestedName, suggested_id: `alice.${suggestedName}`, description: "d", devices: [], env: [] });
+      }),
+      http.post("*/api/v1/apps/install", () =>
+        HttpResponse.json({ error: { code: "app_exists", params: {} } }, { status: 409 }),
+      ),
+    );
+    renderWithProviders(<AddAppPanel />);
+
+    await user.click(screen.getByRole("button", { name: "GitHub URL" }));
+    await user.type(screen.getByLabelText("Repository URL"), "https://github.com/alice/app");
+    await user.type(screen.getByLabelText("Branch or tag"), "main");
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    await waitFor(() => expect(screen.getByLabelText("Name on this device")).toHaveValue("app"));
+
+    await user.click(screen.getByRole("button", { name: "Install" }));
+
+    await waitFor(() => expect(screen.getByLabelText("Name on this device")).toHaveValue("app-2"));
+    expect(previewCount).toBe(2);
   });
 
   it("shows the GitHub preview card once a preview succeeds, then allows install", async () => {
     const user = userEvent.setup();
     server.use(
       http.post("*/api/v1/apps/preview", () =>
-        HttpResponse.json({ name: "my-app", description: "A private app.", devices: [], env: [{ name: "TOKEN", required: true, description: "API token", help_url: null }] }),
+        HttpResponse.json({ name: "my-app", namespace: "alice", suggested_name: "private-app", suggested_id: "alice.private-app", description: "A private app.", devices: [], env: [{ name: "TOKEN", required: true, description: "API token", help_url: null }] }),
       ),
       getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
     );
@@ -123,17 +201,70 @@ describe("AddAppPanel", () => {
     expect(screen.getByRole("button", { name: "Install" })).toBeInTheDocument();
   });
 
+  it("clears a GitHub preview before installation when its source changes", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post("*/api/v1/apps/preview", () =>
+        HttpResponse.json({ name: "alice-app", namespace: "alice", suggested_name: "alice-app", suggested_id: "alice.alice-app", description: "d", devices: [], env: [] }),
+      ),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+    );
+    renderWithProviders(<AddAppPanel />);
+
+    await user.click(screen.getByRole("button", { name: "GitHub URL" }));
+    const url = screen.getByLabelText("Repository URL");
+    await user.type(url, "https://github.com/alice/app");
+    await user.type(screen.getByLabelText("Branch or tag"), "main");
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    await screen.findByRole("button", { name: "Install" });
+
+    await user.clear(url);
+    await user.type(url, "https://github.com/bob/other");
+
+    expect(screen.queryByRole("button", { name: "Install" })).not.toBeInTheDocument();
+  });
+
+  it("does not restore a pending GitHub preview after its source changes", async () => {
+    const user = userEvent.setup();
+    let respond: ((response: Response) => void) | undefined;
+    server.use(
+      http.post(
+        "*/api/v1/apps/preview",
+        () =>
+          new Promise((resolve) => {
+            respond = resolve;
+          }),
+      ),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+    );
+    renderWithProviders(<AddAppPanel />);
+
+    await user.click(screen.getByRole("button", { name: "GitHub URL" }));
+    const url = screen.getByLabelText("Repository URL");
+    await user.type(url, "https://github.com/alice/app");
+    await user.type(screen.getByLabelText("Branch or tag"), "main");
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    await waitFor(() => expect(respond).toBeDefined());
+
+    await user.clear(url);
+    await user.type(url, "https://github.com/bob/other");
+    respond?.(HttpResponse.json({ name: "alice-app", namespace: "alice", suggested_name: "alice-app", suggested_id: "alice.alice-app", description: "d", devices: [], env: [] }));
+
+    await waitFor(() => expect(screen.queryByText("alice-app")).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "Install" })).not.toBeInTheDocument();
+  });
+
   it("sends the chosen manifest file with a zip preview and install", async () => {
     const user = userEvent.setup();
     const manifests: (FormDataEntryValue | null)[] = [];
     server.use(
       http.post("*/api/v1/apps/preview", async ({ request }) => {
         manifests.push((await request.formData()).get("manifest"));
-        return HttpResponse.json({ name: "my-realtime", description: "d", devices: [], env: [] });
+        return HttpResponse.json({ name: "my-realtime", namespace: "zip", suggested_name: "my-realtime", suggested_id: "zip.my-realtime", description: "d", devices: [], env: [] });
       }),
       http.post("*/api/v1/apps/install", async ({ request }) => {
         manifests.push((await request.formData()).get("manifest"));
-        return HttpResponse.json({ job: { id: "job-1", app_name: null, kind: "install", state: "running", step: "fetch", error: null, started_at: 1, finished_at: null, dropped_bindings: [], dropped_params: [], lock_generated: false } }, { status: 202 });
+        return HttpResponse.json({ job: { id: "job-1", app_id: null, kind: "install", state: "running", step: "fetch", error: null, started_at: 1, finished_at: null, dropped_bindings: [], dropped_params: [], lock_generated: false } }, { status: 202 });
       }),
       getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
     );
@@ -191,6 +322,9 @@ describe("AddAppPanel", () => {
       http.post("*/api/v1/apps/preview", () =>
         HttpResponse.json({
           name: "my-app",
+          namespace: "alice",
+          suggested_name: "my-app",
+          suggested_id: "alice.my-app",
           description: "A private app.",
           devices: [],
           env: [
@@ -213,5 +347,31 @@ describe("AddAppPanel", () => {
     const wifiRow = screen.getByText("WIFI_PASSWORD").closest("li");
     expect(tokenRow && within(tokenRow).getByText("Not yet registered")).toBeInTheDocument();
     expect(wifiRow && within(wifiRow).queryByText("Not yet registered")).not.toBeInTheDocument();
+  });
+
+  // Without this, typing a device name part outside the backend's `^[a-z][a-z0-9-]{0,39}$`
+  // pattern would only be caught after a round trip to /install, instead of being flagged
+  // (and blocking Install) right in the form.
+  it("disables Install and shows a hint when the device name part is invalid", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post("*/api/v1/apps/preview", () =>
+        HttpResponse.json({ name: "my-app", namespace: "alice", suggested_name: "app", suggested_id: "alice.app", description: "d", devices: [], env: [] }),
+      ),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+    );
+    renderWithProviders(<AddAppPanel />);
+
+    await user.click(screen.getByRole("button", { name: "GitHub URL" }));
+    await user.type(screen.getByLabelText("Repository URL"), "https://github.com/alice/app");
+    await user.type(screen.getByLabelText("Branch or tag"), "main");
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    const nameInput = await screen.findByLabelText("Name on this device");
+
+    await user.clear(nameInput);
+    await user.type(nameInput, "Not Valid!");
+
+    expect(screen.getByRole("button", { name: "Install" })).toBeDisabled();
+    expect(screen.getByText(/lowercase letter/)).toBeInTheDocument();
   });
 });

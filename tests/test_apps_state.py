@@ -14,6 +14,9 @@ from palmimo_portal.core.apps import clear_credential_rejected, finalize_apps_st
 from palmimo_portal.ports import AppJob, AppRecord, AppSource, AppsState, AppsStateFileState
 
 
+APP_ID = "palmimo.teleop"
+
+
 def _record(
     name: str,
     *,
@@ -35,6 +38,7 @@ def _record(
         credential_rejected=credential_rejected,
         update_available=update_available,
         latest_commit=latest_commit,
+        id=APP_ID,
     )
 
 
@@ -42,6 +46,44 @@ def test_apps_state_file_state_reports_corrupt_when_file_is_unparseable(tmp_path
     state_dir = tmp_path / "state"
     state_dir.mkdir()
     (state_dir / "apps.json").write_text("not json", encoding="utf-8")
+    store = JsonFileStateStore(state_dir)
+
+    assert store.apps_state_file_state() is AppsStateFileState.CORRUPT
+
+
+def test_apps_state_file_state_reports_legacy_for_a_legacy_name_key(tmp_path: Path) -> None:
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    (state_dir / "apps.json").write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "apps": {"teleop": {"name": "teleop", "source": {"type": "zip"}}},
+                "current_job": None,
+                "current_job_app": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = JsonFileStateStore(state_dir)
+
+    assert store.apps_state_file_state() is AppsStateFileState.LEGACY
+
+
+def test_apps_state_file_state_reports_corrupt_when_an_id_record_has_a_legacy_shaped_key(tmp_path: Path) -> None:
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    (state_dir / "apps.json").write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "apps": {"teleop": {"id": APP_ID, "name": "teleop", "source": {"type": "zip"}}},
+                "current_job": None,
+                "current_job_app": None,
+            }
+        ),
+        encoding="utf-8",
+    )
     store = JsonFileStateStore(state_dir)
 
     assert store.apps_state_file_state() is AppsStateFileState.CORRUPT
@@ -64,7 +106,7 @@ def test_write_then_read_apps_state_round_trips(tmp_path: Path) -> None:
     store = JsonFileStateStore(tmp_path / "state")
     job = AppJob(id="j1", kind="install", state="done", step="register", error=None, started_at=1.0, finished_at=2.0)
     record = _record("palmimo-teleop", last_job=job)
-    state = AppsState(apps={"palmimo-teleop": record})
+    state = AppsState(apps={APP_ID: record})
 
     store.write_apps_state(state)
 
@@ -78,7 +120,7 @@ def test_write_then_read_apps_state_round_trips_periodic_check_fields(tmp_path: 
     # defaults, and a rejected credential would resume being checked as if never rejected.
     store = JsonFileStateStore(tmp_path / "state")
     record = _record("palmimo-teleop", credential_rejected=True, update_available=True, latest_commit="deadbeef")
-    state = AppsState(apps={"palmimo-teleop": record})
+    state = AppsState(apps={APP_ID: record})
 
     store.write_apps_state(state)
 
@@ -87,16 +129,16 @@ def test_write_then_read_apps_state_round_trips_periodic_check_fields(tmp_path: 
 
 def test_write_then_read_apps_state_round_trips_a_non_default_manifest(tmp_path: Path) -> None:
     store = JsonFileStateStore(tmp_path / "state")
-    record = _record("palmimo-realtime")
+    record = replace(_record("palmimo-realtime"), id="palmimo.realtime")
     record = replace(record, source=replace(record.source, manifest="palmimo.realtime.toml"))
-    state = AppsState(apps={"palmimo-realtime": record})
+    state = AppsState(apps={"palmimo.realtime": record})
 
     store.write_apps_state(state)
 
     assert store.read_apps_state() == state
 
 
-def test_read_apps_state_treats_a_ledger_entry_without_a_manifest_key_as_the_default(tmp_path: Path) -> None:
+def test_read_apps_state_treats_an_id_ledger_entry_without_a_manifest_key_as_the_default(tmp_path: Path) -> None:
     # A ledger written before the manifest field existed must keep loading as "default
     # manifest", not fail or silently drop the app.
     state_dir = tmp_path / "state"
@@ -106,7 +148,8 @@ def test_read_apps_state_treats_a_ledger_entry_without_a_manifest_key_as_the_def
             {
                 "schema": 1,
                 "apps": {
-                    "palmimo-teleop": {
+                    APP_ID: {
+                        "name": "palmimo-teleop",
                         "source": {
                             "type": "git",
                             "url": "https://example.com/repo",
@@ -131,14 +174,14 @@ def test_read_apps_state_treats_a_ledger_entry_without_a_manifest_key_as_the_def
 
     state = store.read_apps_state()
 
-    assert state.apps["palmimo-teleop"].source.manifest is None
+    assert state.apps[APP_ID].source.manifest is None
     assert state.last_orphan_job is None
 
 
 def test_write_then_read_apps_state_round_trips_the_orphan_job(tmp_path: Path) -> None:
     store = JsonFileStateStore(tmp_path / "state")
     job = AppJob(id="j1", kind="install", state="failed", step="sync", error="boom", started_at=1.0, finished_at=2.0)
-    state = AppsState(last_orphan_job=job, last_orphan_job_app="palmimo-teleop")
+    state = AppsState(last_orphan_job=job, last_orphan_job_app=APP_ID)
 
     store.write_apps_state(state)
 
@@ -148,12 +191,14 @@ def test_write_then_read_apps_state_round_trips_the_orphan_job(tmp_path: Path) -
 def test_clear_credential_rejected_unmarks_only_apps_scoped_to_host_owner() -> None:
     same_owner = _record("app-a", url="https://github.com/acme/repo-a", credential_rejected=True)
     other_owner = _record("app-b", url="https://github.com/other/repo-b", credential_rejected=True)
-    state = AppsState(apps={"app-a": same_owner, "app-b": other_owner})
+    state = AppsState(
+        apps={"acme.app-a": replace(same_owner, id="acme.app-a"), "other.app-b": replace(other_owner, id="other.app-b")}
+    )
 
     cleared = clear_credential_rejected(state, "github.com/acme")
 
-    assert cleared.apps["app-a"].credential_rejected is False
-    assert cleared.apps["app-b"].credential_rejected is True
+    assert cleared.apps["acme.app-a"].credential_rejected is False
+    assert cleared.apps["other.app-b"].credential_rejected is True
 
 
 def test_finalize_apps_state_marks_interrupted_job_failed() -> None:
@@ -161,13 +206,13 @@ def test_finalize_apps_state_marks_interrupted_job_failed() -> None:
         id="j1", kind="update", state="running", step="sync", error=None, started_at=1.0, finished_at=None
     )
     record = _record("palmimo-teleop")
-    state = AppsState(apps={"palmimo-teleop": record}, current_job=running_job, current_job_app="palmimo-teleop")
+    state = AppsState(apps={APP_ID: record}, current_job=running_job, current_job_app=APP_ID)
 
     finalized = finalize_apps_state(state, manifest_exists=lambda name: True, venv_exists=lambda name: True, now=99.0)
 
     assert finalized.current_job is None
     assert finalized.current_job_app is None
-    last_job = finalized.apps["palmimo-teleop"].last_job
+    last_job = finalized.apps[APP_ID].last_job
     assert last_job is not None
     assert last_job.state == "failed"
     assert last_job.error == "interrupted"
@@ -183,16 +228,16 @@ def test_finalize_apps_state_marks_interrupted_job_failed() -> None:
 def test_finalize_apps_state_marks_broken_when_disk_is_inconsistent(
     manifest_exists: Callable[[str], bool], venv_exists: Callable[[str], bool], expected_reason: str
 ) -> None:
-    state = AppsState(apps={"palmimo-teleop": _record("palmimo-teleop")})
+    state = AppsState(apps={APP_ID: _record("palmimo-teleop")})
 
     finalized = finalize_apps_state(state, manifest_exists=manifest_exists, venv_exists=venv_exists, now=1.0)
 
-    assert finalized.apps["palmimo-teleop"].broken_reason == expected_reason
+    assert finalized.apps[APP_ID].broken_reason == expected_reason
 
 
 def test_finalize_apps_state_clears_broken_reason_once_disk_is_consistent_again() -> None:
-    state = AppsState(apps={"palmimo-teleop": _record("palmimo-teleop", broken_reason="venv_missing")})
+    state = AppsState(apps={APP_ID: _record("palmimo-teleop", broken_reason="venv_missing")})
 
     finalized = finalize_apps_state(state, manifest_exists=lambda name: True, venv_exists=lambda name: True, now=1.0)
 
-    assert finalized.apps["palmimo-teleop"].broken_reason is None
+    assert finalized.apps[APP_ID].broken_reason is None

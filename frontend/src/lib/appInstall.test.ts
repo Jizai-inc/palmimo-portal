@@ -7,7 +7,7 @@ import { server } from "@/test/server";
 const JOB_RESPONSE = {
   job: {
     id: "job-1",
-    app_name: "app",
+    app_id: "zip.app",
     kind: "install",
     state: "running",
     step: "fetch",
@@ -84,5 +84,35 @@ describe("installApp/previewApp", () => {
     await installApp({ type: "zip", file: new File(["z"], "app.zip") });
 
     expect(form?.get("manifest")).toBeNull();
+  });
+
+  // Without this, the device-name-part a caller passes (design doc 3.9) could be dropped
+  // instead of reaching the backend, silently falling back to a server-derived name.
+  it("sends the given name as a sibling of source in a git install's JSON body", async () => {
+    let body: unknown;
+    server.use(
+      http.post("*/api/v1/apps/install", async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json(JOB_RESPONSE, { status: 202 });
+      }),
+    );
+
+    await installApp({ type: "git", url: "https://example.com/repo", ref: "main", ref_kind: "branch" }, "my-fork");
+
+    expect((body as { name?: string }).name).toBe("my-fork");
+  });
+
+  it("sends the given name as a zip upload's form field", async () => {
+    let form: FormData | undefined;
+    server.use(
+      http.post("*/api/v1/apps/install", async ({ request }) => {
+        form = await request.formData();
+        return HttpResponse.json(JOB_RESPONSE, { status: 202 });
+      }),
+    );
+
+    await installApp({ type: "zip", file: new File(["z"], "app.zip") }, "my-fork");
+
+    expect(form?.get("name")).toBe("my-fork");
   });
 });

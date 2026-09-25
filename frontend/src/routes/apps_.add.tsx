@@ -15,8 +15,8 @@ function AddAppScreen() {
   return (
     <AppShell title={t("appAdd.title")} breadcrumbs={[<Link key="apps" to="/apps">{t("apps.title")}</Link>, <span key="add">{t("appAdd.title")}</span>]}>
       <AddAppPanel
-        onInstalled={(appName) =>
-          void (appName ? navigate({ to: "/apps/$name", params: { name: appName } }) : navigate({ to: "/apps" }))
+        onInstalled={(appId) =>
+          void (appId ? navigate({ to: "/apps/$id", params: { id: appId } }) : navigate({ to: "/apps" }))
         }
       />
     </AppShell>

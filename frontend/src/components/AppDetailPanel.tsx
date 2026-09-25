@@ -22,6 +22,7 @@ import {
 import { useListSecretsApiV1SecretsGet } from "@/api/generated/secrets/secrets";
 import type { AppDetailResponse, ParamSpecInfo, SourceUpdateRequestRefKind } from "@/api/generated/models";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
+import { AppIdLabel, appIdNamePart } from "@/components/AppIdLabel";
 import { AppJobDialog } from "@/components/AppJobDialog";
 import {
   AlertDialog,
@@ -43,10 +44,10 @@ import { deviceLabel } from "@/lib/deviceLabel";
 import { formatLocalTimestamp, formatUtcTimestamp } from "@/lib/formatTimestamp";
 import { useAppLogs } from "@/lib/useAppLogs";
 
-export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: string; onDeleted?: () => void }) {
+export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string; onDeleted?: () => void }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const invalidate = () => void queryClient.invalidateQueries({ queryKey: getGetAppApiV1AppsNameGetQueryKey(name) });
+  const invalidate = () => void queryClient.invalidateQueries({ queryKey: getGetAppApiV1AppsNameGetQueryKey(id) });
 
   const [job, setJob] = useState<{ id: string; kind: "update" | "delete" } | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -58,7 +59,7 @@ export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: st
   const [redirectedAfterDelete, setRedirectedAfterDelete] = useState(false);
   const [updateCompleted, setUpdateCompleted] = useState(0);
 
-  const { data: app, error } = useGetAppApiV1AppsNameGet(name, {
+  const { data: app, error } = useGetAppApiV1AppsNameGet(id, {
     query: {
       // While the delete job's dialog is open, its own state (not this query) is the source of
       // truth for "done" -- disabling here avoids a race where this 404s (the app already
@@ -119,25 +120,29 @@ export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: st
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center gap-2">
-        <h2 className="text-xl font-semibold">{app.name}</h2>
-        <Badge variant={tone === "green" ? "default" : tone === "red" ? "destructive" : tone === "muted" ? "secondary" : "outline"} className="flex items-center gap-1">
-          {busy ? <Loader2 className="size-3 animate-spin" /> : null}
-          {appStatusLabel(t, app.status, app.exit_code)}
-        </Badge>
-        {app.autostart ? <Badge variant="outline">{t("apps.autostartBadge")}</Badge> : null}
-        <div className="ml-auto flex gap-2">
-          {app.status === "running" && app.url ? (
-            <Button variant="outline" asChild>
-              <a href={app.url} target="_blank" rel="noreferrer">{t("apps.openButton")}</a>
-            </Button>
-          ) : null}
-          {app.status === "running" ? (
-            <Button variant="outline" onClick={() => stopApp.mutate({ name })} disabled={stopApp.isPending}>{t("apps.stopButton")}</Button>
-          ) : app.status === "stopped" || app.status === "failed" ? (
-            <Button onClick={() => startApp.mutate({ name })} disabled={startApp.isPending}>{t("apps.startButton")}</Button>
-          ) : null}
+      <div className="flex flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-xl"><AppIdLabel id={app.id} /></h2>
+          <Badge variant={tone === "green" ? "default" : tone === "red" ? "destructive" : tone === "muted" ? "secondary" : "outline"} className="flex items-center gap-1">
+            {busy ? <Loader2 className="size-3 animate-spin" /> : null}
+            {appStatusLabel(t, app.status, app.exit_code)}
+          </Badge>
+          {app.source.official ? <Badge>{t("appAdd.catalogOfficialBadge")}</Badge> : null}
+          {app.autostart ? <Badge variant="outline">{t("apps.autostartBadge")}</Badge> : null}
+          <div className="ml-auto flex gap-2">
+            {app.status === "running" && app.url ? (
+              <Button variant="outline" asChild>
+                <a href={app.url} target="_blank" rel="noreferrer">{t("apps.openButton")}</a>
+              </Button>
+            ) : null}
+            {app.status === "running" ? (
+              <Button variant="outline" onClick={() => stopApp.mutate({ name: id })} disabled={stopApp.isPending}>{t("apps.stopButton")}</Button>
+            ) : app.status === "stopped" || app.status === "failed" ? (
+              <Button onClick={() => startApp.mutate({ name: id })} disabled={startApp.isPending}>{t("apps.startButton")}</Button>
+            ) : null}
+          </div>
         </div>
+        {app.name !== appIdNamePart(app.id) ? <p className="text-sm text-muted-foreground">{app.name}</p> : null}
       </div>
       <ApiErrorAlert error={startApp.error} />
       <ApiErrorAlert error={stopApp.error} />
@@ -153,7 +158,7 @@ export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: st
 
       <BindingsSection app={app} onSaved={invalidate} />
       <ParamsSection app={app} onSaved={invalidate} />
-      <LogsSection name={name} status={app.status} />
+      <LogsSection id={id} status={app.status} />
 
       {app.devices.length > 0 ? (
         <Section title={t("appDetail.devicesTitle")}>
@@ -165,8 +170,8 @@ export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: st
         </Section>
       ) : null}
 
-      <AutostartSection name={name} app={app} onSaved={invalidate} />
-      <SourceSection app={app} onUpdate={() => updateApp.mutate({ name })} updatePending={updateApp.isPending} updateCompleted={updateCompleted} />
+      <AutostartSection app={app} onSaved={invalidate} />
+      <SourceSection app={app} onUpdate={() => updateApp.mutate({ name: id })} updatePending={updateApp.isPending} updateCompleted={updateCompleted} />
 
       <Section title={t("appDetail.dangerZoneTitle")}>
         <Button variant="destructive" className="w-fit" onClick={() => setDeleteOpen(true)}>
@@ -183,7 +188,7 @@ export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: st
           <ApiErrorAlert error={deleteApp.error} />
           <AlertDialogFooter>
             <AlertDialogCancel disabled={deleteApp.isPending}>{t("common.cancel")}</AlertDialogCancel>
-            <Button variant="destructive" disabled={deleteApp.isPending} onClick={() => deleteApp.mutate({ name })}>
+            <Button variant="destructive" disabled={deleteApp.isPending} onClick={() => deleteApp.mutate({ name: id })}>
               {t("appDetail.deleteDialogConfirm")}
             </Button>
           </AlertDialogFooter>
@@ -192,7 +197,7 @@ export function AppDetailPanel({ name, onDeleted = () => undefined }: { name: st
 
       <AppJobDialog
         jobId={job?.id ?? null}
-        title={job?.kind === "delete" && deleteOutcome === null ? t("appDetail.deleteProgressTitle", { name: app.name }) : t("apps.jobDialogTitle", { name })}
+        title={job?.kind === "delete" && deleteOutcome === null ? t("appDetail.deleteProgressTitle", { name: app.name }) : t("apps.jobDialogTitle", { name: app.name })}
         completedMessage={job?.kind === "delete" ? t("appDetail.deleteCompleted", { name: app.name }) : undefined}
         onClose={() => {
           setJob(null);
@@ -252,7 +257,7 @@ function BindingsSection({ app, onSaved }: { app: AppDetailResponse; onSaved: ()
     for (const [key, value] of Object.entries(bindings)) {
       if (value) payload[key] = value;
     }
-    putBindings.mutate({ name: app.name, data: { bindings: payload } });
+    putBindings.mutate({ name: app.id, data: { bindings: payload } });
   }
 
   return (
@@ -381,7 +386,7 @@ function ParamsSection({ app, onSaved }: { app: AppDetailResponse; onSaved: () =
         <div className="flex items-center gap-2">
           <Button
             className="w-fit"
-            onClick={() => putParams.mutate({ name: app.name, data: { params: values } })}
+            onClick={() => putParams.mutate({ name: app.id, data: { params: values } })}
             disabled={putParams.isPending}
           >
             {t("appDetail.paramsSaveButton")}
@@ -393,11 +398,11 @@ function ParamsSection({ app, onSaved }: { app: AppDetailResponse; onSaved: () =
   );
 }
 
-function LogsSection({ name, status }: { name: string; status: string }) {
+function LogsSection({ id, status }: { id: string; status: string }) {
   const { t, i18n } = useTranslation();
   const [copied, setCopied] = useState(false);
   const [copyFailed, setCopyFailed] = useState(false);
-  const { unavailable, invocations, invocation, setInvocation, accumulated, text, refetch } = useAppLogs(name, status);
+  const { unavailable, invocations, invocation, setInvocation, accumulated, text, refetch } = useAppLogs(id, status);
 
   if (unavailable) {
     return (
@@ -416,6 +421,7 @@ function LogsSection({ name, status }: { name: string; status: string }) {
 
   return (
     <Section title={t("appDetail.logsTitle")}>
+      <p className="text-xs text-muted-foreground">{t("appDetail.logsReusedIdNote")}</p>
       <div className="flex flex-wrap items-center gap-2">
         {invocations.length > 1 && invocation !== null ? (
           <select
@@ -435,7 +441,7 @@ function LogsSection({ name, status }: { name: string; status: string }) {
           {copied ? t("appDetail.logsCopied") : copyFailed ? t("appDetail.logsCopyFailed") : t("appDetail.logsCopyButton")}
         </Button>
         <Button type="button" variant="ghost" size="sm" asChild>
-          <Link to="/apps/$name/logs" params={{ name }}>{t("appDetail.logsExpandButton")}</Link>
+          <Link to="/apps/$id/logs" params={{ id }}>{t("appDetail.logsExpandButton")}</Link>
         </Button>
         {status !== "running" ? (
           <Button type="button" variant="ghost" size="sm" onClick={refetch}>
@@ -452,7 +458,7 @@ function LogsSection({ name, status }: { name: string; status: string }) {
   );
 }
 
-function AutostartSection({ name, app, onSaved }: { name: string; app: AppDetailResponse; onSaved: () => void }) {
+function AutostartSection({ app, onSaved }: { app: AppDetailResponse; onSaved: () => void }) {
   const { t } = useTranslation();
   const putAutostart = usePutAutostartApiV1AppsNameAutostartPut({ mutation: { onSuccess: onSaved } });
   return (
@@ -466,7 +472,7 @@ function AutostartSection({ name, app, onSaved }: { name: string; app: AppDetail
           aria-checked={app.autostart}
           checked={app.autostart}
           disabled={putAutostart.isPending}
-          onChange={(event) => putAutostart.mutate({ name, data: { enabled: event.target.checked } })}
+          onChange={(event) => putAutostart.mutate({ name: app.id, data: { enabled: event.target.checked } })}
         />
         {t("appDetail.autostartTitle")}
       </label>
@@ -516,7 +522,7 @@ function SourceSection({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => updateCheck.mutate({ name: app.name })}
+            onClick={() => updateCheck.mutate({ name: app.id })}
             disabled={updateCheck.isPending}
           >
             {t("appDetail.checkForUpdatesButton")}
@@ -555,7 +561,7 @@ function SourceSection({
             <Input id="source-ref" value={ref} onChange={(event) => setRef(event.target.value)} />
           </div>
           <Button
-            onClick={() => putSource.mutate({ name: app.name, data: { ref, ref_kind: refKind } }, { onSuccess: () => setEditingRef(false) })}
+            onClick={() => putSource.mutate({ name: app.id, data: { ref, ref_kind: refKind } }, { onSuccess: () => setEditingRef(false) })}
             disabled={putSource.isPending || !ref}
           >
             {t("appDetail.sourceSaveButton")}

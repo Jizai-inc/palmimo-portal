@@ -12,6 +12,13 @@ import type { AppJobInfo, CatalogAppInfo, ManifestPreviewResponse } from "@/api/
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { AppJobDialog } from "@/components/AppJobDialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -137,8 +144,7 @@ function catalogStaleReasonText(t: TFunction, reason: string | null): string {
 }
 
 /**
- * Preview + device-name-part choice + install, shared by all three add-app tabs (design doc
- * 3.9's add-app-screen section). A source change clears its preview before installation.
+ * Fetches an install preview in its confirmation dialog, shared by all three add-app tabs.
  *
  * A 409 `app_exists` on install (the suggested/typed name part was taken between preview and
  * install) re-runs preview automatically instead of leaving the operator stuck on a name that
@@ -158,13 +164,9 @@ function InstallFlow({
   const { t } = useTranslation();
   const [preview, setPreview] = useState<ManifestPreviewResponse | null>(null);
   const [namePart, setNamePart] = useState("");
+  const [dialogOpen, setDialogOpen] = useState(false);
   const sourceKeyRef = useRef(sourceKey);
   sourceKeyRef.current = sourceKey;
-
-  useEffect(() => {
-    setPreview(null);
-    setNamePart("");
-  }, [sourceKey]);
 
   const previewMutation = useMutation({
     mutationFn: async () => {
@@ -185,30 +187,54 @@ function InstallFlow({
     onSuccess: (data) => onInstalled(data.job.id, preview?.name ?? namePart),
     onError: (error) => {
       if (error instanceof PortalApiError && error.code === "app_exists") {
+        install.reset();
         previewMutation.mutate();
       }
     },
   });
 
+  useEffect(() => {
+    setPreview(null);
+    setNamePart("");
+    setDialogOpen(false);
+  }, [sourceKey]);
+
   const namePartValid = isValidAppNamePart(namePart);
 
   return (
     <div className="flex flex-col gap-3">
-      <ApiErrorAlert error={previewMutation.error} />
-      <div className="flex gap-2">
-        <Button variant="outline" disabled={!canPreview || previewMutation.isPending} onClick={() => previewMutation.mutate()}>
-          {t("appAdd.previewButton")}
-        </Button>
-        {preview ? (
-          <Button disabled={install.isPending || !namePartValid} onClick={() => install.mutate()}>
-            {t("appAdd.installButton")}
-          </Button>
-        ) : null}
-      </div>
-      {preview ? (
-        <PreviewCard preview={preview} namePart={namePart} namePartValid={namePartValid} onNamePartChange={setNamePart} />
-      ) : null}
-      <ApiErrorAlert error={install.error} />
+      <Button
+        disabled={!canPreview}
+        onClick={() => {
+          setDialogOpen(true);
+          setPreview(null);
+          setNamePart("");
+          previewMutation.mutate();
+        }}
+      >
+        {t("appAdd.installButton")}
+      </Button>
+      <AlertDialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("appAdd.confirmInstallTitle")}</AlertDialogTitle>
+          </AlertDialogHeader>
+          {previewMutation.isPending ? <p className="text-sm text-muted-foreground">{t("common.loading")}</p> : null}
+          <ApiErrorAlert error={previewMutation.error} />
+          {preview ? (
+            <PreviewCard preview={preview} namePart={namePart} namePartValid={namePartValid} onNamePartChange={setNamePart} />
+          ) : null}
+          <ApiErrorAlert error={install.error} />
+          <AlertDialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button disabled={!preview || install.isPending || !namePartValid} onClick={() => install.mutate()}>
+              {t("appAdd.installButton")}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -415,13 +441,14 @@ function PreviewCard({
   const { data: secretsData } = useListSecretsApiV1SecretsGet();
   const registeredNames = new Set((secretsData?.secrets ?? []).map((secret) => secret.name));
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
+    <div className="flex flex-col gap-2">
       <p className="text-sm">
         <span className="text-muted-foreground">{t("appAdd.manifestNameLabel")}: </span>
         <span className="font-semibold">{preview.name}</span>
       </p>
       <div className="flex flex-col gap-1">
         <Label htmlFor="app-name-part">{t("appAdd.deviceNameLabel")}</Label>
+        <p className="text-xs text-muted-foreground">{t("appAdd.deviceNameHelp")}</p>
         <div className="flex items-center gap-1">
           <span className="shrink-0 text-sm text-muted-foreground">{preview.namespace}.</span>
           <Input

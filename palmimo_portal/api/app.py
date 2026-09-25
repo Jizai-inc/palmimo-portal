@@ -420,8 +420,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         cleanup_staging_and_trash(ctx)
         apps_state = adapters.state.read_apps_state()
         # An unreadable or legacy ledger reads as empty; sweeping against it would trash every app.
-        if adapters.state.apps_state_file_state() is AppsStateFileState.PRESENT:
+        apps_file_state = adapters.state.apps_state_file_state()
+        if apps_file_state is AppsStateFileState.PRESENT:
             sweep_orphan_app_dirs(ctx, apps_state)
+        elif apps_file_state is AppsStateFileState.LEGACY:
+            logger.error("apps: legacy ledger; skipping the orphan app directory sweep")
         else:
             logger.error("apps: ledger corrupt; skipping the orphan app directory sweep")
         manifest_exists, venv_exists = disk_state_checks(ctx, apps_state)

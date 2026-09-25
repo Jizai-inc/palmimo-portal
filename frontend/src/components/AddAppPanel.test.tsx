@@ -42,6 +42,14 @@ const JOB_RESPONSE = {
   job: { id: "job-1", app_id: "palmimo.teleop", kind: "install", state: "running", step: "fetch", error: null, started_at: 1, finished_at: null, dropped_bindings: [], dropped_params: [], lock_generated: false },
 };
 
+async function openInstallDialog(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "Install" }));
+}
+
+function installDialog() {
+  return within(screen.getByRole("alertdialog"));
+}
+
 describe("AddAppPanel", () => {
   it("shows a catalog card's required and optional env badges", async () => {
     server.use(getGetCatalogApiV1CatalogGetMockHandler(CATALOG));
@@ -64,14 +72,14 @@ describe("AddAppPanel", () => {
     expect(screen.queryByText("camera")).not.toBeInTheDocument();
   });
 
-  // Without this, previewing then installing a catalog app would silently fail to reach the
+  // Without this, confirming then installing a catalog app would silently fail to reach the
   // backend with a correctly-shaped git source and the chosen device-name part, or the job
   // dialog + the caller's completion callback would never fire once the job finishes.
   //
   // `onInstalled` receiving the finished job's `app_id` is what routes/apps.add.tsx uses to
   // navigate straight to the new app's detail page instead of the plain list -- asserted here,
   // at the router-free component boundary, rather than by mocking the router itself.
-  it("previews then installs a catalog app, sending the default device name and reporting completion with the installed app's id", async () => {
+  it("confirms then installs a catalog app, sending the default ID name and reporting completion with the installed app's id", async () => {
     const user = userEvent.setup();
     const onInstalled = vi.fn();
     let installedBody: unknown;
@@ -94,9 +102,9 @@ describe("AddAppPanel", () => {
     renderWithProviders(<AddAppPanel onInstalled={onInstalled} />);
 
     await screen.findByText("palmimo-teleop");
-    await user.click(screen.getByRole("button", { name: "Preview" }));
-    expect(await screen.findByLabelText("Name on this device")).toHaveValue("teleop");
-    await user.click(screen.getByRole("button", { name: "Install" }));
+    await openInstallDialog(user);
+    expect(await installDialog().findByLabelText("ID")).toHaveValue("teleop");
+    await user.click(installDialog().getByRole("button", { name: "Install" }));
 
     expect(await screen.findByRole("heading", { name: /palmimo-teleop/ })).toBeInTheDocument();
 
@@ -114,6 +122,31 @@ describe("AddAppPanel", () => {
       }),
     );
     await waitFor(() => expect(onInstalled).toHaveBeenCalledWith("palmimo.teleop"));
+  });
+
+  // Without this, opening the confirmation dialog could submit an install before the operator
+  // explicitly confirms it.
+  it("does not install when the confirmation dialog is cancelled", async () => {
+    const user = userEvent.setup();
+    let installRequests = 0;
+    server.use(
+      getGetCatalogApiV1CatalogGetMockHandler(CATALOG),
+      http.post("*/api/v1/apps/preview", () =>
+        HttpResponse.json({ name: "palmimo-teleop", namespace: "palmimo", suggested_name: "teleop", suggested_id: "palmimo.teleop", description: "d", devices: [], env: [] }),
+      ),
+      http.post("*/api/v1/apps/install", () => {
+        installRequests += 1;
+        return HttpResponse.json(JOB_RESPONSE, { status: 202 });
+      }),
+    );
+    renderWithProviders(<AddAppPanel />);
+
+    await screen.findByText("palmimo-teleop");
+    await openInstallDialog(user);
+    await installDialog().findByLabelText("ID");
+    await user.click(installDialog().getByRole("button", { name: "Cancel" }));
+
+    expect(installRequests).toBe(0);
   });
 
   // Without this, the namespace segment could be typed over (letting an operator claim to be
@@ -137,15 +170,15 @@ describe("AddAppPanel", () => {
     await user.click(screen.getByRole("button", { name: "GitHub URL" }));
     await user.type(screen.getByLabelText("Repository URL"), "https://github.com/alice/app");
     await user.type(screen.getByLabelText("Branch or tag"), "main");
-    await user.click(screen.getByRole("button", { name: "Preview" }));
+    await openInstallDialog(user);
 
     expect(await screen.findByText("alice.")).toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "alice." })).not.toBeInTheDocument();
 
-    const nameInput = screen.getByLabelText("Name on this device");
+    const nameInput = installDialog().getByLabelText("ID");
     await user.clear(nameInput);
     await user.type(nameInput, "my-fork");
-    await user.click(screen.getByRole("button", { name: "Install" }));
+    await user.click(installDialog().getByRole("button", { name: "Install" }));
 
     await waitFor(() => expect(installedName).toBe("my-fork"));
   });
@@ -172,12 +205,12 @@ describe("AddAppPanel", () => {
     await user.click(screen.getByRole("button", { name: "GitHub URL" }));
     await user.type(screen.getByLabelText("Repository URL"), "https://github.com/alice/app");
     await user.type(screen.getByLabelText("Branch or tag"), "main");
-    await user.click(screen.getByRole("button", { name: "Preview" }));
-    await waitFor(() => expect(screen.getByLabelText("Name on this device")).toHaveValue("app"));
+    await openInstallDialog(user);
+    await waitFor(() => expect(installDialog().getByLabelText("ID")).toHaveValue("app"));
 
-    await user.click(screen.getByRole("button", { name: "Install" }));
+    await user.click(installDialog().getByRole("button", { name: "Install" }));
 
-    await waitFor(() => expect(screen.getByLabelText("Name on this device")).toHaveValue("app-2"));
+    await waitFor(() => expect(installDialog().getByLabelText("ID")).toHaveValue("app-2"));
     expect(previewCount).toBe(2);
   });
 
@@ -194,14 +227,14 @@ describe("AddAppPanel", () => {
     await user.click(screen.getByRole("button", { name: "GitHub URL" }));
     await user.type(screen.getByLabelText("Repository URL"), "https://github.com/org/private-app");
     await user.type(screen.getByLabelText("Branch or tag"), "main");
-    await user.click(screen.getByRole("button", { name: "Preview" }));
+    await openInstallDialog(user);
 
     expect(await screen.findByText("my-app")).toBeInTheDocument();
     expect(screen.getByText("TOKEN")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Install" })).toBeInTheDocument();
+    expect(installDialog().getByRole("button", { name: "Install" })).toBeInTheDocument();
   });
 
-  it("clears a GitHub preview before installation when its source changes", async () => {
+  it("closes the confirmation dialog when its source changes", async () => {
     const user = userEvent.setup();
     server.use(
       http.post("*/api/v1/apps/preview", () =>
@@ -215,13 +248,13 @@ describe("AddAppPanel", () => {
     const url = screen.getByLabelText("Repository URL");
     await user.type(url, "https://github.com/alice/app");
     await user.type(screen.getByLabelText("Branch or tag"), "main");
-    await user.click(screen.getByRole("button", { name: "Preview" }));
-    await screen.findByRole("button", { name: "Install" });
+    await openInstallDialog(user);
+    await installDialog().findByRole("button", { name: "Install" });
 
     await user.clear(url);
     await user.type(url, "https://github.com/bob/other");
 
-    expect(screen.queryByRole("button", { name: "Install" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
   it("does not restore a pending GitHub preview after its source changes", async () => {
@@ -243,15 +276,14 @@ describe("AddAppPanel", () => {
     const url = screen.getByLabelText("Repository URL");
     await user.type(url, "https://github.com/alice/app");
     await user.type(screen.getByLabelText("Branch or tag"), "main");
-    await user.click(screen.getByRole("button", { name: "Preview" }));
+    await openInstallDialog(user);
     await waitFor(() => expect(respond).toBeDefined());
 
     await user.clear(url);
     await user.type(url, "https://github.com/bob/other");
     respond?.(HttpResponse.json({ name: "alice-app", namespace: "alice", suggested_name: "alice-app", suggested_id: "alice.alice-app", description: "d", devices: [], env: [] }));
 
-    await waitFor(() => expect(screen.queryByText("alice-app")).not.toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "Install" })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
   });
 
   it("sends the chosen manifest file with a zip preview and install", async () => {
@@ -273,8 +305,8 @@ describe("AddAppPanel", () => {
     await user.click(screen.getByRole("button", { name: "Zip" }));
     await user.upload(screen.getByLabelText("Choose file"), new File(["z"], "app.zip", { type: "application/zip" }));
     await user.type(screen.getByLabelText("Manifest file (optional)"), "palmimo.realtime.toml");
-    await user.click(screen.getByRole("button", { name: "Preview" }));
-    await user.click(await screen.findByRole("button", { name: "Install" }));
+    await openInstallDialog(user);
+    await user.click((await installDialog().findByRole("button", { name: "Install" })));
 
     await waitFor(() => expect(manifests).toEqual(["palmimo.realtime.toml", "palmimo.realtime.toml"]));
   });
@@ -340,7 +372,7 @@ describe("AddAppPanel", () => {
     await user.click(screen.getByRole("button", { name: "GitHub URL" }));
     await user.type(screen.getByLabelText("Repository URL"), "https://github.com/org/private-app");
     await user.type(screen.getByLabelText("Branch or tag"), "main");
-    await user.click(screen.getByRole("button", { name: "Preview" }));
+    await openInstallDialog(user);
 
     await screen.findByText("TOKEN");
     const tokenRow = screen.getByText("TOKEN").closest("li");
@@ -365,13 +397,13 @@ describe("AddAppPanel", () => {
     await user.click(screen.getByRole("button", { name: "GitHub URL" }));
     await user.type(screen.getByLabelText("Repository URL"), "https://github.com/alice/app");
     await user.type(screen.getByLabelText("Branch or tag"), "main");
-    await user.click(screen.getByRole("button", { name: "Preview" }));
-    const nameInput = await screen.findByLabelText("Name on this device");
+    await openInstallDialog(user);
+    const nameInput = await installDialog().findByLabelText("ID");
 
     await user.clear(nameInput);
     await user.type(nameInput, "Not Valid!");
 
-    expect(screen.getByRole("button", { name: "Install" })).toBeDisabled();
+    expect(installDialog().getByRole("button", { name: "Install" })).toBeDisabled();
     expect(screen.getByText(/lowercase letter/)).toBeInTheDocument();
   });
 });

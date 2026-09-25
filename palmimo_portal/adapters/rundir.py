@@ -29,6 +29,20 @@ _ENV_FILENAME = "env"
 _ARGV_FILENAME = "argv.json"
 
 
+def _quote_env_value(value: str) -> str:
+    """Double-quote a value for ``EnvironmentFile=`` (systemd.exec(5)) so it round-trips byte for byte.
+
+    Only ``\\`` and ``"`` need escaping inside systemd's double-quoted
+    value: its parser (``parse_env_file_internal`` in
+    ``src/basic/env-file.c``) does not trim whitespace or interpret ``$``
+    inside a quoted value, and a backslash followed by anything else is
+    kept as-is. Escaping only these two, rather than reusing Python's own
+    quoting, is what makes leading/trailing whitespace and ``$`` survive
+    unchanged.
+    """
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 class TmpfsRunDirPort(RunDirPort):
     def __init__(self, run_dir: Path) -> None:
         self._run_dir = run_dir
@@ -54,7 +68,7 @@ class TmpfsRunDirPort(RunDirPort):
         app_dir.chmod(0o750)
 
         env_path = app_dir / _ENV_FILENAME
-        env_text = "".join(f"{key}={value}\n" for key, value in env.items())
+        env_text = "".join(f"{key}={_quote_env_value(value)}\n" for key, value in env.items())
         env_path.write_text(env_text, encoding="utf-8")
         env_path.chmod(0o600)
 

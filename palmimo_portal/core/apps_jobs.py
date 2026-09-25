@@ -256,6 +256,26 @@ def _prepare_cache_for_sync(path: Path) -> None:
         path.chmod(stat.S_ISGID | 0o775)
 
 
+def _write_reserved_json(path: Path, data: object) -> None:
+    """Write ``data`` as JSON to ``path``, refusing to follow or replace anything already there.
+
+    ``path`` sits inside a fetched (possibly untrusted) tree -- a repository
+    could place its own file, or a symlink, exactly where Portal is about to
+    write. ``O_EXCL`` refuses any existing entry outright; ``O_NOFOLLOW`` is
+    defense in depth against a symlink swapped in between the check and the
+    open.
+
+    Raises:
+        InvalidManifestSourceError: ``path`` already exists.
+    """
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o644)
+    except OSError as error:
+        raise InvalidManifestSourceError(f"app source reserves internal path: {path}") from error
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(data))
+
+
 def _run_sync_dependencies(
     ctx: AppsJobContext,
     instance: str,
@@ -279,7 +299,7 @@ def _run_sync_dependencies(
         "frozen": not lock_generated,
         "relocatable": True,
     }
-    (staging_container / "sync.json").write_text(json.dumps(sync_spec), encoding="utf-8")
+    _write_reserved_json(staging_container / "sync.json", sync_spec)
     ctx.sync_unit.start(instance)
     try:
         status = ctx.sync_unit.wait(instance, timeout_s=SYNC_TIMEOUT_SECONDS)
@@ -552,7 +572,7 @@ def purge_path(ctx: AppsJobContext, path: Path) -> str | None:
     staging_container.mkdir(parents=True, exist_ok=True)
     _prepare_staging_for_sync(staging_container)
     try:
-        (staging_container / "sync.json").write_text(json.dumps({"purge": str(path)}), encoding="utf-8")
+        _write_reserved_json(staging_container / "sync.json", {"purge": str(path)})
         ctx.sync_unit.start(instance)
         ctx.sync_unit.wait(instance, timeout_s=SYNC_TIMEOUT_SECONDS)
     except (OSError, TimeoutError) as error:

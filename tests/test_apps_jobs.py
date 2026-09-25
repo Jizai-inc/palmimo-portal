@@ -655,7 +655,9 @@ def test_prepare_install_git_uses_blobless_sparse_clone_for_an_official_catalog_
     assert harness.git.clone_options == [(True, "examples/teleop")]
 
 
-def test_install_git_ignores_a_symlink_outside_a_nonofficial_app_subdir(harness: Harness) -> None:
+def test_install_git_leaves_an_unwritten_symlink_outside_the_app_subdir_alone(harness: Harness) -> None:
+    # Portal never *writes through* a symlink in the fetched tree, but a symlink outside the
+    # app subdir that nothing writes to is not itself a reason to refuse the install.
     def seed(dest: Path, *_: object) -> None:
         _seed_git_clone(dest / "app", "palmimo-teleop")
         dest.mkdir(exist_ok=True)
@@ -668,6 +670,26 @@ def test_install_git_ignores_a_symlink_outside_a_nonofficial_app_subdir(harness:
     )
 
     assert record.source.subdir == "app"
+
+
+def test_install_git_does_not_follow_a_sync_json_symlink_at_the_clone_root(harness: Harness, tmp_path: Path) -> None:
+    # Portal writes sync.json at the clone root (staging_container), not inside the app
+    # subdir -- _chmod_group_rwx's symlink check only walks the subdir, so a repository that
+    # places sync.json itself as a symlink could otherwise redirect Portal's own write.
+    victim = tmp_path / "victim.txt"
+    victim.write_text("untouched", encoding="utf-8")
+
+    def seed(dest: Path, *_: object) -> None:
+        _seed_git_clone(dest / "app", "palmimo-teleop")
+        dest.mkdir(exist_ok=True)
+        (dest / "sync.json").symlink_to(victim)
+
+    harness.git.on_clone = seed
+
+    with pytest.raises(InvalidManifestSourceError):
+        install_git(harness.ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch", subdir="app")
+
+    assert victim.read_text(encoding="utf-8") == "untouched"
 
 
 def test_update_git_leaves_bindings_intact_when_the_swap_fails(

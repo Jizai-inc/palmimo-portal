@@ -31,8 +31,8 @@ def test_clone_shallow_populates_the_working_tree_for_a_sparse_blobless_clone(tm
     _run_git(["clone", str(bare), str(work)])
     (work / "README.md").write_text("root file\n", encoding="utf-8")
     (work / "apps" / "foo").mkdir(parents=True)
-    (work / "apps" / "foo" / "palmimo.toml").write_text("name = \"foo\"\n", encoding="utf-8")
-    (work / "apps" / "foo" / "pyproject.toml").write_text("[project]\nname = \"foo\"\n", encoding="utf-8")
+    (work / "apps" / "foo" / "palmimo.toml").write_text('name = "foo"\n', encoding="utf-8")
+    (work / "apps" / "foo" / "pyproject.toml").write_text('[project]\nname = "foo"\n', encoding="utf-8")
     (work / "apps" / "bar").mkdir(parents=True)
     (work / "apps" / "bar" / "x.txt").write_text("bar\n", encoding="utf-8")
     _run_git(["add", "-A"], cwd=work)
@@ -46,9 +46,7 @@ def test_clone_shallow_populates_the_working_tree_for_a_sparse_blobless_clone(tm
     dest = tmp_path / "dest"
     port = SubprocessGitPort()
 
-    port.clone_shallow(
-        f"file://{bare}", "v1.0.0", "tag", dest, blobless=True, sparse_subdir="apps/foo"
-    )
+    port.clone_shallow(f"file://{bare}", "v1.0.0", "tag", dest, blobless=True, sparse_subdir="apps/foo")
 
     assert (dest / "README.md").is_file()
     assert (dest / "apps" / "foo" / "palmimo.toml").is_file()

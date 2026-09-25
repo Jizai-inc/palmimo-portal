@@ -34,6 +34,20 @@ export function isAppStatusBusy(status: string): boolean {
 }
 
 /**
+ * Whether `status` is an install/update/delete job status -- the same `apps.lock` job the
+ * backend's `app_job_in_progress` start precheck refuses every app's start against (design
+ * doc 3.10: its sync step runs untrusted build hooks as the same uid an app unit runs as).
+ * Exactly one app in the list can have one of these statuses at a time.
+ */
+export function isAppJobStatus(status: string): boolean {
+  return (
+    status === AppSummaryStatus.installing ||
+    status === AppSummaryStatus.updating ||
+    status === AppSummaryStatus.deleting
+  );
+}
+
+/**
  * Translated label for one app's status, via explicit `t("apps.status…")` calls so the
  * i18n-parity static scan (which only recognizes literal `t(...)` calls, see
  * `src/lib/navLabels.ts` for the same pattern) can see every key used here.

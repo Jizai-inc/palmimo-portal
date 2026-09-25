@@ -204,6 +204,25 @@ def test_start_app_raises_app_job_in_progress_when_name_is_its_own_current_job(d
         start_app(deps, "app", host="host")
 
 
+def test_start_app_raises_app_job_in_progress_when_a_different_apps_job_is_running(
+    deps: StartDeps, apps_dir: Path
+) -> None:
+    # install/update/delete's sync step runs untrusted build hooks as the same uid an app
+    # unit runs as (design doc 3.10) -- letting an unrelated app start while any job's sync
+    # is in flight would let that app's environ leak the app being installed's secrets via
+    # /proc/<pid>/environ, and vice versa. Any job in progress blocks every app's start.
+    from palmimo_portal.ports import AppJob
+
+    record = _install(deps, apps_dir, "app")
+    other = _install(deps, apps_dir, "other")
+    state = _state(deps)
+    job = AppJob(id="j1", kind="update", state="running", step="sync", error=None, started_at=0.0, finished_at=None)
+    state.write_apps_state(AppsState(apps={"app": record, "other": other}, current_job=job, current_job_app="other"))
+
+    with pytest.raises(AppJobInProgressStartError):
+        start_app(deps, "app", host="host")
+
+
 def test_start_app_raises_platform_not_ready_when_the_gate_refuses(deps: StartDeps, apps_dir: Path) -> None:
     _install(deps, apps_dir, "app")
     deps = StartDeps(

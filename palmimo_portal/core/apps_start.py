@@ -199,7 +199,11 @@ def _run_prechecks(deps: StartDeps, name: str, *, host: str) -> _StartPlan:
     if name not in apps_state.apps:
         raise AppNotFoundError(name)
 
-    if apps_state.current_job_app == name:
+    if apps_state.current_job_app is not None:
+        # Any install/update/delete job -- not just one against `name` -- runs its sync step
+        # as the same uid an app unit runs as (design doc 3.10); starting an unrelated app
+        # while that sync is in flight would let it read the job's secrets, or vice versa,
+        # via /proc/<pid>/environ.
         raise AppJobInProgressStartError()
 
     running = _other_active_app(deps, name, apps_state)

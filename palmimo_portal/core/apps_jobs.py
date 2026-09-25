@@ -412,7 +412,9 @@ def _fetch_git_source(
         GitCommandError: ``ctx.catalog_cache`` pins a commit for this source
             and the clone's ``HEAD`` does not match it.
     """
-    expected_commit = _catalog_commit_for_source(ctx, url=url, ref=ref, ref_kind=ref_kind, subdir=subdir, manifest=manifest)
+    expected_commit = _catalog_commit_for_source(
+        ctx, url=url, ref=ref, ref_kind=ref_kind, subdir=subdir, manifest=manifest
+    )
     commit = ctx.git.clone_shallow(
         url,
         ref,

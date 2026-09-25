@@ -394,6 +394,7 @@
     "platformBannerBody": "This device's software platform needs an update before apps can be installed or started.",
     "platformUpdateButton": "Update now",
     "platformActionDisabledTooltip": "Update the device platform first",
+    "jobInProgressDisabledTooltip": "Another app install, update, or delete is in progress",
     "legacyLedgerTitle": "Reset the app ledger",
     "legacyLedgerBody": "The app ledger uses an older format. Reset the apps to continue.",
     "legacyLedgerResetButton": "Reset apps",

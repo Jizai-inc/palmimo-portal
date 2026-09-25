@@ -483,18 +483,14 @@ def test_update_git_follows_the_catalog_to_its_latest_tag_for_an_official_devkit
 
     latest_app = replace(
         make_catalog_app(subdir="examples/teleop", commit="new-commit"),
-        source=replace(
-            make_catalog_app(subdir="examples/teleop", commit="new-commit").source, ref="examples-v0.1.1"
-        ),
+        source=replace(make_catalog_app(subdir="examples/teleop", commit="new-commit").source, ref="examples-v0.1.1"),
     )
     catalog = CatalogCache(
         FakeCatalogSource(asset=CatalogAsset(tag="examples-v0.1.1", apps=(latest_app,))), FakeStateStore()
     )
     catalog.get(ntp_synchronized=True)
     ctx = replace(harness.ctx, catalog_cache=catalog, catalog_repo="Jizai-inc/palmimo-devkit")
-    harness.git.remote_commits[
-        ("https://github.com/Jizai-inc/palmimo-devkit", "examples-v0.1.1", "tag")
-    ] = "new-commit"
+    harness.git.remote_commits[("https://github.com/Jizai-inc/palmimo-devkit", "examples-v0.1.1", "tag")] = "new-commit"
     harness.git.on_clone = lambda dest, *_: _seed_git_clone(dest / "examples" / "teleop", "palmimo-teleop")
 
     _, new_record = update_git(ctx, state, record.id)
@@ -687,7 +683,9 @@ def test_install_git_does_not_follow_a_sync_json_symlink_at_the_clone_root(harne
     harness.git.on_clone = seed
 
     with pytest.raises(InvalidManifestSourceError):
-        install_git(harness.ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch", subdir="app")
+        install_git(
+            harness.ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch", subdir="app"
+        )
 
     assert victim.read_text(encoding="utf-8") == "untouched"
 

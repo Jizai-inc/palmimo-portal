@@ -394,6 +394,7 @@
     "platformBannerBody": "アプリのインストール・起動の前に、この端末の基盤ソフトウェアの更新が必要です。",
     "platformUpdateButton": "今すぐ更新",
     "platformActionDisabledTooltip": "先に実機の基盤を更新してください",
+    "jobInProgressDisabledTooltip": "別のアプリのインストール・更新・削除が進行中です",
     "legacyLedgerTitle": "アプリの台帳をリセット",
     "legacyLedgerBody": "アプリの台帳が古い形式です。アプリをリセットして続行してください。",
     "legacyLedgerResetButton": "アプリをリセット",

@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { appStatusLabel, appStatusTone, isAppStatusBusy } from "@/lib/appStatus";
+import { appStatusLabel, appStatusTone, isAppJobStatus, isAppStatusBusy } from "@/lib/appStatus";
 import { formatSourceSummary } from "@/lib/appSourceSummary";
 import { usePlatformUpdate } from "@/lib/usePlatformUpdate";
 
@@ -71,6 +71,7 @@ export function AppsListPanel() {
 
   const ready = platform?.ready ?? true;
   const apps = data?.apps ?? [];
+  const jobInProgress = apps.some((app) => isAppJobStatus(app.status));
   const ledgerRecovery =
     error instanceof PortalApiError && (error.code === "ledger_legacy" || error.code === "platform_state_corrupt")
       ? error.code
@@ -137,6 +138,7 @@ export function AppsListPanel() {
               key={app.id}
               app={app}
               disabledForPlatform={!ready}
+              disabledForJob={jobInProgress}
               onStart={() => startApp.mutate({ name: app.id })}
               onStop={() => stopApp.mutate({ name: app.id })}
               onRepair={() =>
@@ -201,6 +203,7 @@ export function AppsListPanel() {
 function AppRow({
   app,
   disabledForPlatform,
+  disabledForJob,
   onStart,
   onStop,
   onRepair,
@@ -210,6 +213,7 @@ function AppRow({
 }: {
   app: AppSummary;
   disabledForPlatform: boolean;
+  disabledForJob: boolean;
   onStart: () => void;
   onStop: () => void;
   onRepair: () => void;
@@ -221,6 +225,11 @@ function AppRow({
   const tone = appStatusTone(app.status);
   const busy = isAppStatusBusy(app.status);
   const needsRepair = app.status === "needs_repair" || app.status === "broken";
+  const startDisabledTitle = disabledForPlatform
+    ? t("apps.platformActionDisabledTooltip")
+    : disabledForJob
+      ? t("apps.jobInProgressDisabledTooltip")
+      : undefined;
 
   return (
     <li className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 md:flex-row md:items-center md:gap-4">
@@ -248,7 +257,7 @@ function AppRow({
         <p className="truncate text-xs text-muted-foreground">{formatSourceSummary(app.source)}</p>
         <ApiErrorAlert error={rowError} />
       </div>
-      <div className="flex shrink-0 flex-wrap gap-2" title={disabledForPlatform ? t("apps.platformActionDisabledTooltip") : undefined}>
+      <div className="flex shrink-0 flex-wrap gap-2" title={startDisabledTitle}>
         {app.status === "running" ? (
           <>
             {app.url ? (
@@ -263,7 +272,7 @@ function AppRow({
             </Button>
           </>
         ) : app.status === "stopped" || app.status === "failed" ? (
-          <Button onClick={onStart} disabled={startPending || disabledForPlatform}>
+          <Button onClick={onStart} disabled={startPending || disabledForPlatform || disabledForJob}>
             {t("apps.startButton")}
           </Button>
         ) : needsRepair ? (

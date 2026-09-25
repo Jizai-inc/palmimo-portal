@@ -77,24 +77,20 @@ export function PlatformUpdateCard({
           <dt className="text-muted-foreground">{t("update.platformInstalledVersionLabel")}</dt>
           <dd className="font-medium">{platform.installed_version ?? "—"}</dd>
         </div>
-        {platform.latest ? (
-          <div className="flex items-center justify-between gap-2">
-            <dt className="text-muted-foreground">{t("update.platformLatestVersionLabel")}</dt>
-            <dd className="flex items-center gap-2 font-medium">
-              <span>
-                {platform.latest.version} ({platform.latest.tag})
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={checkNow}
-                disabled={checking || starting || job?.state === "running" || portalUpdateRunning}
-              >
-                {t("update.platformCheckNowButton")}
-              </Button>
-            </dd>
-          </div>
-        ) : null}
+        <div className="flex items-center justify-between gap-2">
+          <dt className="text-muted-foreground">{t("update.platformLatestVersionLabel")}</dt>
+          <dd className="flex items-center gap-2 font-medium">
+            <span>{platform.latest ? `${platform.latest.version} (${platform.latest.tag})` : "—"}</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={checkNow}
+              disabled={checking || starting || job?.state === "running" || portalUpdateRunning}
+            >
+              {t("update.platformCheckNowButton")}
+            </Button>
+          </dd>
+        </div>
         {platform.latest?.summary ? (
           <div className="flex flex-col gap-1">
             <dt className="text-muted-foreground">{t("update.platformSummaryLabel")}</dt>

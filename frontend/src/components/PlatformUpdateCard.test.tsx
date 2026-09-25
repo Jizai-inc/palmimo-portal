@@ -34,9 +34,6 @@ describe("PlatformUpdateCard", () => {
     expect(await screen.findByText("Up to date")).toBeInTheDocument();
   });
 
-  // Bug: `latest: null` used to fall through to the "up to date" branch, so a device that
-  // could not reach GitHub (or whose clock had not synced yet) silently reported itself
-  // current instead of telling the operator why it does not know.
   it.each([
     ["clock_unsynced", "Waiting for the clock to sync before checking for updates."],
     ["rate_limited", "Checked for updates too recently; try again in a moment."],
@@ -49,11 +46,9 @@ describe("PlatformUpdateCard", () => {
 
     expect(await screen.findByText(expectedText)).toBeInTheDocument();
     expect(screen.queryByText("Up to date")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Check now" })).toBeEnabled();
   });
 
-  // Bug: a never-installed bundle (`installed_version: null`) with a `latest.version` of 0
-  // would compare as `0 > (null ?? 0)`, i.e. false, and render "up to date" for a device that
-  // has never had the platform applied at all.
   it("does not claim to be up to date when the installed version is unknown", async () => {
     server.use(
       http.get("*/api/v1/platform", () =>

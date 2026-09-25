@@ -81,7 +81,7 @@ class SubprocessGitPort(GitPort):
         # `palmimo_portal.core.apps.validate_git_url`/`validate_git_ref`, which already
         # reject a leading `-`); this is the defense-in-depth half at the argv boundary.
         argv = ["git", "clone", "--depth", "1"]
-        if blobless:
+        if blobless and sparse_subdir is not None:
             # `--sparse` checks out the top-level files immediately; the
             # `sparse-checkout set` below widens that to `sparse_subdir` and
             # materializes it.

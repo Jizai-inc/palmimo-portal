@@ -52,6 +52,27 @@ def test_clone_shallow_populates_the_working_tree_for_a_sparse_blobless_clone(tm
     assert not (dest / "apps" / "bar").exists()
 
 
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not on PATH")
+def test_clone_shallow_populates_nested_root_application_for_a_blobless_clone(tmp_path: Path) -> None:
+    bare = tmp_path / "origin.git"
+    _run_git(["init", "--bare", "--initial-branch=main", str(bare)])
+    _run_git(["config", "uploadpack.allowFilter", "true"], cwd=bare)
+    work = tmp_path / "work"
+    _run_git(["clone", str(bare), str(work)])
+    (work / "src").mkdir()
+    (work / "src" / "application.py").write_text("print('app')\n", encoding="utf-8")
+    (work / "palmimo.toml").write_text('name = "root-app"\n', encoding="utf-8")
+    _run_git(["add", "-A"], cwd=work)
+    _run_git(["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "seed"], cwd=work)
+    _run_git(["tag", "v1.0.0"], cwd=work)
+    _run_git(["push", "origin", "main", "v1.0.0"], cwd=work)
+
+    dest = tmp_path / "dest"
+    SubprocessGitPort().clone_shallow(f"file://{bare}", "v1.0.0", "tag", dest, blobless=True)
+
+    assert (dest / "src" / "application.py").is_file()
+
+
 class _RecordingRunner:
     def __init__(self) -> None:
         self.calls: list[list[str]] = []

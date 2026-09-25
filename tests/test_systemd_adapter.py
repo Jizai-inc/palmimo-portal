@@ -347,6 +347,9 @@ class _StubbedAppUnitPort(SystemdAppUnitPort):
             raise outcome
         return outcome
 
+    def _status_for_unit(self, unit: str) -> UnitStatus:
+        return UnitStatus(active_state="inactive", sub_state="dead", result="success", exec_main_status=0)
+
 
 class _RawDBusInterface:
     """Stands in for the `ProxyInterface` `SystemdAppUnitPort._connect` returns -- one scripted `call_<member>`."""
@@ -506,6 +509,9 @@ class _ScriptedStatusAppUnitPort(SystemdAppUnitPort):
         index = min(self.status_calls - 1, len(self._statuses) - 1)
         return self._statuses[index]
 
+    def _start_unit(self, unit: str) -> None:
+        pass
+
 
 def test_sync_unit_start_calls_start_unit_against_the_sync_template() -> None:
     port = SystemdSyncUnitPort()
@@ -538,6 +544,38 @@ def test_sync_unit_wait_polls_until_the_unit_leaves_the_running_state(monkeypatc
     status = port.wait("jabc123", timeout_s=5.0)
 
     assert status is done
+    assert stub.status_calls == 3
+
+
+def test_sync_unit_wait_observes_the_started_invocation_before_accepting_its_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(systemd_module, "_SYNC_POLL_INTERVAL_SECONDS", 0.0)
+    previous = UnitStatus(
+        active_state="inactive", sub_state="dead", result="success", exec_main_status=0, exec_main_start_timestamp=1.0
+    )
+    running = UnitStatus(
+        active_state="activating",
+        sub_state="start",
+        result="success",
+        exec_main_status=0,
+        exec_main_start_timestamp=2.0,
+    )
+    failed = UnitStatus(
+        active_state="inactive",
+        sub_state="failed",
+        result="exit-code",
+        exec_main_status=1,
+        exec_main_start_timestamp=2.0,
+    )
+    port = SystemdSyncUnitPort()
+    stub = _ScriptedStatusAppUnitPort([previous, running, failed])
+    port._unit_port = stub
+
+    port.start("jabc123")
+    status = port.wait("jabc123", timeout_s=5.0)
+
+    assert status is failed
     assert stub.status_calls == 3
 
 

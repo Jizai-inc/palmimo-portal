@@ -452,8 +452,12 @@ class SystemdSyncUnitPort(SyncUnitPort):
 
     def __init__(self, *, loop_thread: SharedEventLoopThread | None = None) -> None:
         self._unit_port = SystemdAppUnitPort(loop_thread=loop_thread)
+        self._started_after: dict[str, float] = {}
 
     def start(self, instance: str) -> None:
+        self._started_after[instance] = self._unit_port._status_for_unit(
+            sync_unit_name(instance)
+        ).exec_main_start_timestamp
         self._unit_port._start_unit(sync_unit_name(instance))
 
     def stop(self, instance: str) -> None:
@@ -465,10 +469,12 @@ class SystemdSyncUnitPort(SyncUnitPort):
     def wait(self, instance: str, timeout_s: float) -> UnitStatus:
         unit = sync_unit_name(instance)
         deadline = time.monotonic() + timeout_s
-        status = self._unit_port._status_for_unit(unit)
-        while status.active_state in _UNIT_START_STATES and time.monotonic() < deadline:
-            time.sleep(_SYNC_POLL_INTERVAL_SECONDS)
+        started_after = self._started_after.get(instance)
+        while time.monotonic() < deadline:
             status = self._unit_port._status_for_unit(unit)
-        if status.active_state in _UNIT_START_STATES:
-            raise TimeoutError(f"sync unit {instance} did not finish within {timeout_s:g}s")
-        return status
+            invocation_started = started_after is None or status.exec_main_start_timestamp > started_after
+            if invocation_started and status.active_state not in _UNIT_START_STATES:
+                self._started_after.pop(instance, None)
+                return status
+            time.sleep(_SYNC_POLL_INTERVAL_SECONDS)
+        raise TimeoutError(f"sync unit {instance} did not finish within {timeout_s:g}s")

@@ -999,7 +999,7 @@ def update_git(
         if leftover is not None:
             new_record = replace(
                 new_record,
-                last_job=replace(new_record.last_job, error=f"could not remove old app files at {leftover}"),
+                last_job=replace(job, error=f"could not remove old app files at {leftover}"),
             )
             on_registered(new_record)
         new_state = AppsState(apps={**state.apps, name: new_record})

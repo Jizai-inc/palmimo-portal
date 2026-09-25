@@ -583,10 +583,15 @@ def _summary(record: AppRecord, state: AppsState, app_unit: AppUnitPort, deps: S
     )
 
 
-def _pending_install_summary(state: AppsState) -> AppSummary | None:
-    """Synthesize a list entry for an install whose manifest name is known but not yet in the ledger."""
+def _pending_job_summary(state: AppsState) -> AppSummary | None:
+    """Synthesize a list entry for an install or delete whose ledger record is absent."""
     job = state.current_job
-    if job is None or job.kind != "install" or state.current_job_app is None or state.current_job_app in state.apps:
+    if (
+        job is None
+        or job.kind not in ("install", "delete")
+        or state.current_job_app is None
+        or state.current_job_app in state.apps
+    ):
         return None
     return AppSummary(
         name=job.display_name or state.current_job_app.rsplit(".", 1)[-1],
@@ -596,7 +601,7 @@ def _pending_install_summary(state: AppsState) -> AppSummary | None:
         ),
         installed_at=None,
         autostart=False,
-        status="installing",
+        status="installing" if job.kind == "install" else "deleting",
         broken_reason=None,
         credential_rejected=False,
         update_available=False,
@@ -763,7 +768,7 @@ def list_apps(
     state = state_store.read_apps_state()
     host = _request_host(request)
     summaries = [_summary(record, state, app_unit, deps, host) for _, record in sorted(state.apps.items())]
-    pending = _pending_install_summary(state)
+    pending = _pending_job_summary(state)
     if pending is not None:
         summaries.append(pending)
     return AppsListResponse(apps=sorted(summaries, key=lambda summary: summary.name))

@@ -203,6 +203,67 @@ def test_list_apps_removes_a_stopped_apps_leftover_run_directory(
     assert ZIP_TELEOP_ID not in adapters.run_dir.written
 
 
+def test_list_apps_shows_a_deleting_row_after_the_ledger_entry_is_removed(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    client = _authenticated_client(client, adapters)
+    job = AppJob(
+        id="j-delete",
+        kind="delete",
+        state="running",
+        step="cleanup",
+        error=None,
+        started_at=1,
+        finished_at=None,
+        display_name="teleop",
+    )
+    adapters.state.write_apps_state(AppsState(apps={}, current_job=job, current_job_app=ZIP_TELEOP_ID))
+
+    response = client.get("/api/v1/apps")
+
+    assert response.status_code == 200
+    assert response.json()["apps"] == [
+        {
+            "name": "teleop",
+            "id": ZIP_TELEOP_ID,
+            "status": "deleting",
+            "autostart": False,
+            "installed_at": None,
+            "broken_reason": None,
+            "credential_rejected": False,
+            "update_available": False,
+            "latest_commit": None,
+            "last_job": {
+                "id": "j-delete",
+                "kind": "delete",
+                "state": "running",
+                "step": "cleanup",
+                "error": None,
+                "error_code": None,
+                "started_at": 1,
+                "finished_at": None,
+                "lock_generated": False,
+                "dropped_bindings": [],
+                "dropped_params": [],
+                "app_id": ZIP_TELEOP_ID,
+            },
+            "source": {
+                "type": "unknown",
+                "url": None,
+                "ref": None,
+                "ref_kind": None,
+                "subdir": None,
+                "commit": None,
+                "manifest": None,
+                "official": False,
+            },
+            "exit_code": None,
+            "reason": None,
+            "url": None,
+        }
+    ]
+
+
 def test_list_apps_keeps_a_run_directory_while_start_holds_the_run_lock(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:

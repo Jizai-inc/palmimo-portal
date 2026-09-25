@@ -221,6 +221,7 @@ class AppsJobRunner:
                 error=None,
                 started_at=started,
                 finished_at=None,
+                display_name=state.apps[name].name,
             )
             self._state.write_apps_state(AppsState(apps=state.apps, current_job=job, current_job_app=name))
         except BaseException:

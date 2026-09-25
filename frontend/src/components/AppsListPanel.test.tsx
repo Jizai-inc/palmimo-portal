@@ -236,7 +236,7 @@ describe("AppsListPanel", () => {
   it("disables Start for every app while another app's install/update/delete is in progress", async () => {
     server.use(
       getListAppsApiV1AppsGetMockHandler({
-        apps: [app({ name: "app-a", status: "stopped" }), app({ name: "app-b", status: "updating" })],
+        apps: [app({ name: "app-a", status: "stopped" }), app({ name: "app-b", status: "deleting" })],
       }),
       getGetPlatformApiV1PlatformGetMockHandler(READY_PLATFORM),
     );

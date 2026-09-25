@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { getListAppsApiV1AppsGetMockHandler } from "@/api/generated/apps/apps.msw";
 import { getListGitCredentialsApiV1GitCredentialsGetMockHandler, getListSecretsApiV1SecretsGetMockHandler } from "@/api/generated/secrets/secrets.msw";
 import { EnvPanel } from "@/components/EnvPanel";
+import { GitCredentialsPanel } from "@/components/GitCredentialsPanel";
 import { renderWithProviders } from "@/test/render";
 import { server } from "@/test/server";
 
@@ -88,9 +89,9 @@ describe("EnvPanel", () => {
         return HttpResponse.json({ host_owner: putHostOwner, updated_at: 1 });
       }),
     );
-    renderWithProviders(<EnvPanel />);
+    renderWithProviders(<GitCredentialsPanel />);
 
-    await user.click(await screen.findByRole("button", { name: "Add" }));
+    await user.click(await screen.findByRole("button", { name: "Add credential" }));
     const dialog = screen.getByRole("alertdialog");
     await user.type(within(dialog).getByLabelText("Host / owner"), "github.com/Jizai-inc");
     await user.type(within(dialog).getByLabelText("Personal access token"), "ghp_abc");
@@ -111,7 +112,7 @@ describe("EnvPanel", () => {
         ],
       }),
     );
-    renderWithProviders(<EnvPanel />);
+    renderWithProviders(<GitCredentialsPanel />);
 
     const acmeRow = (await screen.findByText("github.com/acme")).closest("li");
     const otherRow = (await screen.findByText("github.com/other")).closest("li");
@@ -119,5 +120,20 @@ describe("EnvPanel", () => {
     expect(otherRow).not.toBeNull();
     expect(within(acmeRow as HTMLElement).getByText("Rejected")).toBeInTheDocument();
     expect(within(otherRow as HTMLElement).queryByText("Rejected")).not.toBeInTheDocument();
+  });
+
+  it("shows replacement state for an existing host owner", async () => {
+    const user = userEvent.setup();
+    server.use(
+      getListGitCredentialsApiV1GitCredentialsGetMockHandler({
+        credentials: [{ host_owner: "github.com/jizai-inc", updated_at: 1, rejected_at: null }],
+      }),
+    );
+    renderWithProviders(<GitCredentialsPanel />);
+
+    await user.click(await screen.findByRole("button", { name: "Add credential" }));
+    const dialog = screen.getByRole("alertdialog");
+    await user.type(within(dialog).getByLabelText("Host / owner"), "github.com/Jizai-inc");
+    expect(within(dialog).getByRole("button", { name: "Replace" })).toBeInTheDocument();
   });
 });

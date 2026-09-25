@@ -635,8 +635,11 @@ class FakeSecretsStore(SecretsStore):
 
     def list_git_credentials(self) -> list[GitCredentialRecord]:
         records = []
-        for host_owner, (_, updated_at) in self._git_credentials.items():
-            rejection = self._git_credential_rejections.get(host_owner)
+        normalized = {
+            normalize_host_owner(host_owner): (host_owner, entry) for host_owner, entry in self._git_credentials.items()
+        }
+        for host_owner, (stored_key, (_, updated_at)) in normalized.items():
+            rejection = self._git_credential_rejections.get(stored_key)
             records.append(
                 GitCredentialRecord(
                     host_owner=host_owner,
@@ -650,18 +653,25 @@ class FakeSecretsStore(SecretsStore):
     def set_git_credential(self, host_owner: str, token: str) -> None:
         host_owner = normalize_host_owner(host_owner)
         validate_secret_value(token)
+        for key in list(self._git_credentials):
+            if normalize_host_owner(key) == host_owner and key != host_owner:
+                self._git_credentials.pop(key)
+                self._git_credential_rejections.pop(key, None)
         self._git_credentials[host_owner] = (token, self.clock())
         self._git_credential_rejections.pop(host_owner, None)
 
     def get_git_credential(self, host_owner: str) -> str | None:
         host_owner = normalize_host_owner(host_owner)
-        entry = self._git_credentials.get(host_owner)
+        entry = next(
+            (entry for key, entry in self._git_credentials.items() if normalize_host_owner(key) == host_owner), None
+        )
         return entry[0] if entry is not None else None
 
     def delete_git_credential(self, host_owner: str) -> None:
         host_owner = normalize_host_owner(host_owner)
-        self._git_credentials.pop(host_owner, None)
-        self._git_credential_rejections.pop(host_owner, None)
+        for key in [key for key in self._git_credentials if normalize_host_owner(key) == host_owner]:
+            self._git_credentials.pop(key)
+            self._git_credential_rejections.pop(key, None)
 
     def mark_git_credential_rejected(self, host_owner: str, status: int) -> None:
         host_owner = normalize_host_owner(host_owner)

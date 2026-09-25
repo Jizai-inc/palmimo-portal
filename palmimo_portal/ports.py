@@ -1083,8 +1083,9 @@ class GitCommandError(Exception):
     HTTP status in the output).
     """
 
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+    def __init__(self, message: str, *, status_code: int | None = None, reason: str = "git_unknown") -> None:
         self.status_code = status_code
+        self.reason = reason
         super().__init__(message)
 
 

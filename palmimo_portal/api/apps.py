@@ -755,8 +755,10 @@ async def preview(
             )
     except ManifestValidationError as error:
         raise PortalError(422, "manifest_invalid", errors=error.errors) from error
-    except (InvalidManifestSourceError, GitCommandError) as error:
+    except InvalidManifestSourceError as error:
         raise PortalError(422, "preview_failed", detail=str(error)) from error
+    except GitCommandError as error:
+        raise PortalError(422, error.reason, detail=str(error)) from error
     finally:
         if upload is not None:
             upload.unlink(missing_ok=True)
@@ -823,8 +825,10 @@ async def install(
         raise PortalError(507, "disk_full") from error
     except AppsDirUnavailableError as error:
         raise PortalError(503, "platform_not_ready") from error
-    except (InvalidManifestSourceError, GitCommandError) as error:
+    except InvalidManifestSourceError as error:
         raise PortalError(422, "install_failed", detail=str(error)) from error
+    except GitCommandError as error:
+        raise PortalError(422, error.reason, detail=str(error)) from error
     finally:
         if upload is not None:
             upload.unlink(missing_ok=True)
@@ -1025,7 +1029,7 @@ def update_check(
     try:
         available, remote_commit = apps_jobs.check_git_update(ctx, record)
     except GitCommandError as error:
-        raise PortalError(502, "git_check_failed", detail=str(error)) from error
+        raise PortalError(502, error.reason, detail=str(error)) from error
     if record.source.ref_kind == "branch" and record.source.url is not None:
         host_owner = host_owner_from_url(record.source.url)
         if host_owner is not None:

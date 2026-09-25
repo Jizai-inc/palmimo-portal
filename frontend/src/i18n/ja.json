@@ -12,6 +12,8 @@
     "retry": "再試行",
     "back": "戻る",
     "cancel": "キャンセル",
+    "save": "保存",
+    "delete": "削除",
     "logout": "ログアウト",
     "networkError": "Palmimo に接続できませんでした。接続状況を確認してもう一度お試しください。",
     "inProgress": "進行中"
@@ -33,7 +35,9 @@
     "apps": "アプリ",
     "appsDescription": "アプリのインストールと管理",
     "env": "環境変数",
-    "envDescription": "登録済みのシークレットとGit認証情報"
+    "envDescription": "登録済みのシークレット",
+    "gitCredentials": "Git 認証情報",
+    "gitCredentialsDescription": "private Git リポジトリへのアクセス"
   },
   "status": {
     "unavailable": {
@@ -297,6 +301,11 @@
     "duplicate_key": "この鍵はすでに登録されています。",
     "env_unbound": "このアプリが必要とする環境変数がまだ登録されていません。",
     "git_check_failed": "アプリの git ソースの更新確認に失敗しました。",
+    "git_credential_missing": "Git 認証情報がありません。リポジトリが private または存在しない可能性があります。{{detail}}",
+    "git_credential_rejected": "Git 認証情報が拒否されました。PAT の対象リポジトリ、Contents 権限、組織の承認を確認してください。{{detail}}",
+    "git_not_found": "リポジトリまたは指定した ref が見つかりません。{{detail}}",
+    "git_network_unreachable": "Git サーバーに到達できません。ネットワーク接続を確認してください。{{detail}}",
+    "git_unknown": "Git 操作に失敗しました。{{detail}}",
     "host_not_allowed": "このページは Palmimo が認識しないアドレスから開かれました。",
     "http_error": "問題が発生しました。もう一度お試しください。",
     "identity_unavailable": "このデバイスの識別情報をまだ読み取れません。しばらくしてから再試行してください。",
@@ -527,5 +536,22 @@
     "gitCredentialsSaved": "保存しました",
     "gitCredentialsEmptyState": "登録済みの Git 認証情報はありません。",
     "gitCredentialsRejectedBadge": "拒否されました"
+  },
+  "gitCredentials": {
+    "title": "Git 認証情報",
+    "description": "private GitHub リポジトリからアプリを入れるときに使います。ホスト / オーナーごとに 1 つです。Contents: Read-only の fine-grained PAT を推奨します。",
+    "addButton": "認証情報を追加",
+    "emptyState": "登録済みの Git 認証情報はありません。",
+    "updatedAt": "更新日時",
+    "rejected": "拒否されました",
+    "updateButton": "トークンを更新",
+    "deleteTitle": "{{hostOwner}} を削除しますか？",
+    "addTitle": "Git 認証情報を追加",
+    "updateTitle": "{{hostOwner}} のトークンを更新",
+    "hostOwnerHint": "例：github.com/Jizai-inc",
+    "hostOwnerLabel": "ホスト / オーナー",
+    "tokenLabel": "個人アクセストークン",
+    "replacing": "すでに登録されています。保存すると置き換えます。",
+    "replaceButton": "置き換える"
   }
 }

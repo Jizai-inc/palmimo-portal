@@ -3,13 +3,9 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import {
-  getListGitCredentialsApiV1GitCredentialsGetQueryKey,
   getListSecretsApiV1SecretsGetQueryKey,
-  useDeleteGitCredentialApiV1GitCredentialsHostOwnerDelete,
   useDeleteSecretApiV1SecretsNameDelete,
-  useListGitCredentialsApiV1GitCredentialsGet,
   useListSecretsApiV1SecretsGet,
-  usePutGitCredentialApiV1GitCredentialsHostOwnerPut,
   usePutSecretApiV1SecretsNamePut,
 } from "@/api/generated/secrets/secrets";
 import type { SecretRecordInfo } from "@/api/generated/models";
@@ -18,7 +14,6 @@ import {
   AlertDialog,
   AlertDialogCancel,
   AlertDialogContent,
-  AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
@@ -91,8 +86,6 @@ export function EnvPanel() {
           </ul>
         )}
       </div>
-
-      <GitCredentialsSection />
 
       <SecretDialogContent dialog={dialog} onClose={() => setDialog(null)} onSaved={invalidateSecrets} />
 
@@ -169,105 +162,5 @@ function SecretDialogContent({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
-  );
-}
-
-function GitCredentialsSection() {
-  const { t } = useTranslation();
-  const queryClient = useQueryClient();
-  const [addOpen, setAddOpen] = useState(false);
-  const [hostOwner, setHostOwner] = useState("");
-  const [token, setToken] = useState("");
-  const [saved, setSaved] = useState(false);
-
-  const { data } = useListGitCredentialsApiV1GitCredentialsGet();
-  const credentials = data?.credentials ?? [];
-  const invalidateCredentials = () =>
-    void queryClient.invalidateQueries({ queryKey: getListGitCredentialsApiV1GitCredentialsGetQueryKey() });
-
-  const putCredential = usePutGitCredentialApiV1GitCredentialsHostOwnerPut({
-    mutation: {
-      onSuccess: () => {
-        setAddOpen(false);
-        setHostOwner("");
-        setToken("");
-        setSaved(true);
-        invalidateCredentials();
-        setTimeout(() => setSaved(false), 2000);
-      },
-    },
-  });
-  const deleteCredential = useDeleteGitCredentialApiV1GitCredentialsHostOwnerDelete({
-    mutation: { onSuccess: invalidateCredentials },
-  });
-
-  return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
-      <div className="flex items-center justify-between gap-2">
-        <p className="font-semibold">{t("env.gitCredentialsTitle")}</p>
-        <Button variant="outline" onClick={() => setAddOpen(true)}>{t("env.gitCredentialsAddButton")}</Button>
-      </div>
-      {saved ? <p className="text-sm text-primary">{t("env.gitCredentialsSaved")}</p> : null}
-
-      {credentials.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t("env.gitCredentialsEmptyState")}</p>
-      ) : (
-        <ul className="flex flex-col gap-2">
-          {credentials.map((credential) => (
-            <li
-              key={credential.host_owner}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-2"
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <code className="font-mono text-sm">{credential.host_owner}</code>
-                <span className="text-xs text-muted-foreground">
-                  {t("env.columnUpdatedAt")}: {formatUtcTimestamp(credential.updated_at)}
-                </span>
-                {credential.rejected_at != null ? (
-                  <Badge variant="destructive">{t("env.gitCredentialsRejectedBadge")}</Badge>
-                ) : null}
-              </div>
-              <Button
-                variant="outline"
-                disabled={deleteCredential.isPending}
-                onClick={() => deleteCredential.mutate({ hostOwner: credential.host_owner })}
-              >
-                {t("env.deleteButton")}
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <ApiErrorAlert error={deleteCredential.error} />
-
-      <AlertDialog open={addOpen} onOpenChange={setAddOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("env.gitCredentialsDialogTitle")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("env.gitCredentialsHostOwnerHint")}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1">
-              <Label htmlFor="git-host-owner">{t("env.gitCredentialsHostOwnerLabel")}</Label>
-              <Input id="git-host-owner" value={hostOwner} onChange={(event) => setHostOwner(event.target.value)} placeholder="github.com/Jizai-inc" />
-            </div>
-            <div className="flex flex-col gap-1">
-              <Label htmlFor="git-token">{t("env.gitCredentialsTokenLabel")}</Label>
-              <Input id="git-token" type="password" value={token} onChange={(event) => setToken(event.target.value)} />
-            </div>
-            <ApiErrorAlert error={putCredential.error} />
-          </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={putCredential.isPending}>{t("common.cancel")}</AlertDialogCancel>
-            <Button
-              disabled={putCredential.isPending || !hostOwner.trim() || !token}
-              onClick={() => putCredential.mutate({ hostOwner, data: { value: token } })}
-            >
-              {t("env.saveButton")}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </div>
   );
 }

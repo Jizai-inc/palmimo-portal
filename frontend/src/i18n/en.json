@@ -12,6 +12,8 @@
     "retry": "Retry",
     "back": "Back",
     "cancel": "Cancel",
+    "save": "Save",
+    "delete": "Delete",
     "logout": "Log out",
     "networkError": "Could not reach Palmimo. Check your connection and try again.",
     "inProgress": "In progress"
@@ -33,7 +35,9 @@
     "apps": "Apps",
     "appsDescription": "Install and manage apps",
     "env": "Environment variables",
-    "envDescription": "Registered secrets and git credentials"
+    "envDescription": "Registered secrets",
+    "gitCredentials": "Git credentials",
+    "gitCredentialsDescription": "Access private Git repositories"
   },
   "status": {
     "unavailable": {
@@ -297,6 +301,11 @@
     "duplicate_key": "This key is already registered.",
     "env_unbound": "This app needs environment variables that are not registered yet.",
     "git_check_failed": "Could not check the app's git source for updates.",
+    "git_credential_missing": "Git credentials are missing. The repository may be private or not exist. {{detail}}",
+    "git_credential_rejected": "Git credentials were rejected. Check the PAT's repository scope, Contents permission, and organization approval. {{detail}}",
+    "git_not_found": "The repository or requested ref was not found. {{detail}}",
+    "git_network_unreachable": "Could not reach the Git server. Check the network connection. {{detail}}",
+    "git_unknown": "Git operation failed. {{detail}}",
     "host_not_allowed": "This page was opened from an address Palmimo does not recognize.",
     "http_error": "Something went wrong. Try again.",
     "identity_unavailable": "This device's identity could not be read yet. Try again shortly.",
@@ -527,5 +536,22 @@
     "gitCredentialsSaved": "Saved",
     "gitCredentialsEmptyState": "No git credentials registered yet.",
     "gitCredentialsRejectedBadge": "Rejected"
+  },
+  "gitCredentials": {
+    "title": "Git credentials",
+    "description": "Used to install apps from private GitHub repositories. One per host / owner. Fine-grained PATs with Contents: Read-only are recommended.",
+    "addButton": "Add credential",
+    "emptyState": "No Git credentials registered yet.",
+    "updatedAt": "Updated",
+    "rejected": "Rejected",
+    "updateButton": "Update token",
+    "deleteTitle": "Delete {{hostOwner}}?",
+    "addTitle": "Add Git credential",
+    "updateTitle": "Update {{hostOwner}} token",
+    "hostOwnerHint": "For example: github.com/Jizai-inc",
+    "hostOwnerLabel": "Host / owner",
+    "tokenLabel": "Personal access token",
+    "replacing": "This credential is already registered. Saving will replace it.",
+    "replaceButton": "Replace"
   }
 }

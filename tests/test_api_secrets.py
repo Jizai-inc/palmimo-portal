@@ -155,7 +155,7 @@ def test_put_git_credential_normalizes_a_mixed_case_host_with_a_trailing_slash(
     )
 
     assert response.status_code == 200
-    assert response.json()["host_owner"] == "github.com/Jizai-inc"
+    assert response.json()["host_owner"] == "github.com/jizai-inc"
     assert adapters.secrets.get_git_credential("github.com/Jizai-inc") == "ghp_token"
 
 

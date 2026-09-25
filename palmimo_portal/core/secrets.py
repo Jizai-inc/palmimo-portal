@@ -23,8 +23,8 @@ def validate_secret_name(name: str) -> None:
 
 
 #: A normalized git-credential scope: a lowercase DNS-ish host, one ``/``, then an owner/org
-#: name (design doc 4.2, e.g. ``github.com/Jizai-inc``). The owner half keeps its case --
-#: GitHub org names are case-preserving, only the host is normalized.
+#: name (design doc 4.2, e.g. ``github.com/Jizai-inc``). GitHub treats owner
+#: names case-insensitively; other hosts keep their owner case.
 HOST_OWNER_PATTERN = re.compile(r"^[a-z0-9.-]+/[A-Za-z0-9_.-]+$")
 
 
@@ -45,7 +45,8 @@ def normalize_host_owner(host_owner: str) -> str:
     """
     trimmed = host_owner.strip().rstrip("/")
     host, sep, owner = trimmed.partition("/")
-    normalized = f"{host.lower()}{sep}{owner}"
+    normalized_host = host.lower()
+    normalized = f"{normalized_host}{sep}{owner.lower() if normalized_host == 'github.com' else owner}"
     if not HOST_OWNER_PATTERN.fullmatch(normalized):
         raise InvalidHostOwnerError(f"host_owner must match {HOST_OWNER_PATTERN.pattern}, got {host_owner!r}")
     return normalized

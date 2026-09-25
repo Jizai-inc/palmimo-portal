@@ -127,6 +127,7 @@ class JsonSecretsStore(SecretsStore):
 
     def list_git_credentials(self) -> list[GitCredentialRecord]:
         credentials = self._read_json(self._git_credentials_path, key="credentials")
+        normalized = {normalize_host_owner(host_owner): entry for host_owner, entry in credentials.items()}
         return [
             GitCredentialRecord(
                 host_owner=host_owner,
@@ -134,20 +135,23 @@ class JsonSecretsStore(SecretsStore):
                 rejected_at=entry.get("rejected_at"),
                 rejected_status=entry.get("rejected_status"),
             )
-            for host_owner, entry in credentials.items()
+            for host_owner, entry in normalized.items()
         ]
 
     def set_git_credential(self, host_owner: str, token: str) -> None:
         host_owner = normalize_host_owner(host_owner)
         validate_secret_value(token)
         credentials = self._read_json(self._git_credentials_path, key="credentials")
+        for key in list(credentials):
+            if normalize_host_owner(key) == host_owner and key != host_owner:
+                del credentials[key]
         credentials[host_owner] = {"token": token, "updated_at": time.time()}
         self._write_json(self._git_credentials_path, key="credentials", payload=credentials)
 
     def mark_git_credential_rejected(self, host_owner: str, status: int) -> None:
         host_owner = normalize_host_owner(host_owner)
         credentials = self._read_json(self._git_credentials_path, key="credentials")
-        entry = credentials.get(host_owner)
+        entry = next((entry for key, entry in credentials.items() if normalize_host_owner(key) == host_owner), None)
         if entry is None:
             return
         entry["rejected_at"] = time.time()
@@ -157,14 +161,16 @@ class JsonSecretsStore(SecretsStore):
     def get_git_credential(self, host_owner: str) -> str | None:
         host_owner = normalize_host_owner(host_owner)
         credentials = self._read_json(self._git_credentials_path, key="credentials")
-        entry = credentials.get(host_owner)
+        entry = next((entry for key, entry in credentials.items() if normalize_host_owner(key) == host_owner), None)
         return entry["token"] if entry is not None else None
 
     def delete_git_credential(self, host_owner: str) -> None:
         host_owner = normalize_host_owner(host_owner)
         credentials = self._read_json(self._git_credentials_path, key="credentials")
-        if host_owner in credentials:
-            del credentials[host_owner]
+        matching = [key for key in credentials if normalize_host_owner(key) == host_owner]
+        if matching:
+            for key in matching:
+                del credentials[key]
             self._write_json(self._git_credentials_path, key="credentials", payload=credentials)
 
     def reset(self) -> None:

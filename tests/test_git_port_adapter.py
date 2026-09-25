@@ -70,3 +70,21 @@ def test_clone_shallow_maps_a_credential_helper_refusal_to_status_401(stderr: st
         port.clone_shallow("https://example.com/repo", "main", "branch", tmp_path / "dest")
 
     assert excinfo.value.status_code == 401
+
+
+@pytest.mark.parametrize(
+    ("stderr", "reason"),
+    [
+        ("fatal: Authentication failed for 'https://example.com/repo'", "git_credential_missing"),
+        ("fatal: unable to access: The requested URL returned error: 403", "git_credential_rejected"),
+        ("fatal: repository not found", "git_not_found"),
+        ("fatal: unable to access: Could not resolve host", "git_network_unreachable"),
+    ],
+)
+def test_clone_shallow_classifies_operator_recoverable_failures(stderr: str, reason: str, tmp_path: Path) -> None:
+    port = SubprocessGitPort(runner=_FailingRunner(stderr))
+
+    with pytest.raises(GitCommandError) as excinfo:
+        port.clone_shallow("https://example.com/repo", "main", "branch", tmp_path / "dest")
+
+    assert excinfo.value.reason == reason

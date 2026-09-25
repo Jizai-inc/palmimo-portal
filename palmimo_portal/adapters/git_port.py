@@ -38,6 +38,20 @@ _HTTP_STATUS_RE = re.compile(r"returned error:\s*(\d{3})")
 _AUTH_FAILURE_MARKERS = ("could not read username", "terminal prompts disabled", "authentication failed")
 
 
+def _failure_reason(stderr: str, status: int | None) -> str:
+    lowered = stderr.lower()
+    if status in (401, 403):
+        return "git_credential_rejected" if status == 403 else "git_credential_missing"
+    if "not found" in lowered or "does not appear to be a git repository" in lowered:
+        return "git_not_found"
+    if any(
+        marker in lowered
+        for marker in ("could not resolve host", "network is unreachable", "failed to connect", "connection timed out")
+    ):
+        return "git_network_unreachable"
+    return "git_unknown"
+
+
 def _parse_http_status(stderr: str) -> int | None:
     match = _HTTP_STATUS_RE.search(stderr)
     if match:
@@ -68,7 +82,7 @@ class SubprocessGitPort(GitPort):
         line = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
         commit = line.split()[0] if line else ""
         if not commit:
-            raise GitCommandError(f"ref {ref!r} not found on {url}")
+            raise GitCommandError(f"ref {ref!r} not found on {url}", reason="git_not_found")
         return commit
 
     def _rev_parse(self, dest: Path, *, env: Mapping[str, str] | None) -> str:
@@ -88,13 +102,19 @@ class SubprocessGitPort(GitPort):
                 env={**os.environ, **env} if env is not None else None,
             )
         except subprocess.TimeoutExpired as error:
-            raise GitCommandError(f"{' '.join(argv[:2])} timed out after {timeout:g}s") from error
+            raise GitCommandError(
+                f"{' '.join(argv[:2])} timed out after {timeout:g}s", reason="git_network_unreachable"
+            ) from error
         except OSError as error:
-            raise GitCommandError(f"{' '.join(argv[:2])} failed to start: {error}") from error
+            raise GitCommandError(
+                f"{' '.join(argv[:2])} failed to start: {error}", reason="git_network_unreachable"
+            ) from error
         if result.returncode != 0:
             raw_stderr = (result.stderr or "").strip()
             tail = mask_authorization_lines(raw_stderr)
             raise GitCommandError(
-                f"{' '.join(argv[:2])} exited {result.returncode}: {tail}", status_code=_parse_http_status(raw_stderr)
+                f"{' '.join(argv[:2])} exited {result.returncode}: {tail}",
+                status_code=_parse_http_status(raw_stderr),
+                reason=_failure_reason(raw_stderr, _parse_http_status(raw_stderr)),
             )
         return result

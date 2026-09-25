@@ -304,6 +304,7 @@
     "git_credential_missing": "Git 認証情報がありません。リポジトリが private または存在しない可能性があります。{{detail}}",
     "git_credential_rejected": "Git 認証情報が拒否されました。PAT の対象リポジトリ、Contents 権限、組織の承認を確認してください。{{detail}}",
     "git_not_found": "リポジトリまたは指定した ref が見つかりません。{{detail}}",
+    "git_commit_mismatch": "公式アプリの取得元がカタログと一致しません。カタログを更新して、もう一度試してください。{{detail}}",
     "git_network_unreachable": "Git サーバーに到達できません。ネットワーク接続を確認してください。{{detail}}",
     "git_unknown": "Git 操作に失敗しました。{{detail}}",
     "host_not_allowed": "このページは Palmimo が認識しないアドレスから開かれました。",

@@ -38,7 +38,13 @@ VALID_ASSET = {
         {
             "name": "palmimo-teleop",
             "description": "d",
-            "source": {"type": "git", "url": "https://x", "ref_kind": "tag", "ref": "v1.0.0"},
+            "source": {
+                "type": "git",
+                "url": "https://x",
+                "ref_kind": "tag",
+                "ref": "v1.0.0",
+                "commit": "deadbeef",
+            },
             "env": {},
             "devices": ["camera"],
         }
@@ -70,7 +76,7 @@ def test_fetch_parses_a_valid_catalog_asset() -> None:
         CatalogApp(
             name="palmimo-teleop",
             description="d",
-            source=AppSource(type="git", url="https://x", ref_kind="tag", ref="v1.0.0"),
+            source=AppSource(type="git", url="https://x", ref_kind="tag", ref="v1.0.0", commit="deadbeef"),
             env={},
             devices=("camera",),
         ),
@@ -88,6 +94,18 @@ def test_fetch_parses_a_non_default_manifest_filename_on_source() -> None:
     asset = source.fetch()
 
     assert asset.apps[0].source.manifest == "palmimo.realtime.toml"
+
+
+def test_fetch_rejects_an_official_catalog_source_without_a_commit_pin() -> None:
+    payload = json.loads(json.dumps(VALID_ASSET))
+    del payload["apps"][0]["source"]["commit"]
+    asset_bytes = json.dumps(payload).encode("utf-8")
+    source = GitHubCatalogSource(
+        catalog_repo="Jizai-inc/palmimo-devkit", release_source=_FakeReleaseSource(), opener=_opener_for(asset_bytes)
+    )
+
+    with pytest.raises(CatalogSourceError, match="commit"):
+        source.fetch()
 
 
 @pytest.mark.parametrize(

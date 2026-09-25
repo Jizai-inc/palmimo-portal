@@ -41,7 +41,7 @@ from palmimo_portal.version import portal_version
 
 
 _REQUIRED_APP_KEYS = ("name", "description", "source", "env", "devices")
-_REQUIRED_SOURCE_KEYS = ("type", "url", "ref", "ref_kind")
+_REQUIRED_SOURCE_KEYS = ("type", "url", "ref", "ref_kind", "commit")
 _REQUIRED_ENV_KEYS = ("required", "description")
 
 
@@ -58,6 +58,7 @@ def _parse_source(raw: Any, asset_name: str, index: int) -> AppSource:
         ref=raw["ref"],
         ref_kind=raw["ref_kind"],
         subdir=raw.get("subdir"),
+        commit=raw["commit"],
         manifest=None if manifest == DEFAULT_MANIFEST_FILENAME else manifest,
     )
 

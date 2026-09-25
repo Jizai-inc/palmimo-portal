@@ -18,6 +18,7 @@ from palmimo_portal.core.apps_jobs import (
     delete_from_ledger,
     install_git,
     install_zip,
+    prepare_install_git,
     prepare_install_zip,
     purge_app_files,
     sweep_orphan_app_dirs,
@@ -33,6 +34,7 @@ from palmimo_portal.ports import (
     AppsState,
     CatalogAsset,
     DiskFullError,
+    GitCommandError,
     InvalidManifestSourceError,
     JournalEntry,
     SyncFailedError,
@@ -48,6 +50,7 @@ from palmimo_portal.testing.fakes import (
     FakeStateStore,
     FakeSyncUnitPort,
     FakeUvPort,
+    make_catalog_app,
 )
 
 
@@ -467,6 +470,28 @@ def test_install_git_rejects_a_dangling_symlink_in_the_staging_tree_before_the_s
         install_git(harness.ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")
 
     assert not (harness.ctx.apps_dir / "palmimo-teleop").exists()
+
+
+def test_prepare_install_git_rejects_an_official_catalog_tag_at_the_wrong_commit(harness: Harness) -> None:
+    """A moved tag must not replace the commit that the signed catalog advertised."""
+    expected = "catalog-commit"
+    catalog = CatalogCache(
+        FakeCatalogSource(asset=CatalogAsset(tag="v1.0.0", apps=(make_catalog_app(commit=expected),))), FakeStateStore()
+    )
+    catalog.get(ntp_synchronized=True)
+    ctx = replace(harness.ctx, catalog_cache=catalog, catalog_repo="Jizai-inc/palmimo-devkit")
+    harness.git.next_commit = "moved-tag-commit"
+    harness.git.on_clone = lambda dest, *_: _seed_git_clone(dest, "palmimo-teleop")
+
+    with pytest.raises(GitCommandError) as excinfo:
+        prepare_install_git(
+            ctx,
+            url="https://github.com/Jizai-inc/palmimo-devkit",
+            ref="v1.0.0",
+            ref_kind="tag",
+        )
+
+    assert excinfo.value.reason == "git_commit_mismatch"
 
 
 def test_update_git_leaves_bindings_intact_when_the_swap_fails(

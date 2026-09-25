@@ -75,7 +75,7 @@ def test_get_catalog_returns_typed_source_and_env_objects(client: TestClient, ad
         "ref": "v1.0.0",
         "ref_kind": "tag",
         "subdir": None,
-        "commit": None,
+        "commit": "deadbeef",
         "manifest": None,
         "official": True,
     }

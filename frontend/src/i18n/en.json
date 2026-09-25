@@ -304,6 +304,7 @@
     "git_credential_missing": "Git credentials are missing. The repository may be private or not exist. {{detail}}",
     "git_credential_rejected": "Git credentials were rejected. Check the PAT's repository scope, Contents permission, and organization approval. {{detail}}",
     "git_not_found": "The repository or requested ref was not found. {{detail}}",
+    "git_commit_mismatch": "The official app source no longer matches the catalog. Refresh the catalog and try again. {{detail}}",
     "git_network_unreachable": "Could not reach the Git server. Check the network connection. {{detail}}",
     "git_unknown": "Git operation failed. {{detail}}",
     "host_not_allowed": "This page was opened from an address Palmimo does not recognize.",

@@ -863,7 +863,9 @@ class FakeCatalogSource(CatalogSource):
         return self.asset
 
 
-def make_catalog_app(name: str = "palmimo-teleop", *, manifest: str | None = None) -> CatalogApp:
+def make_catalog_app(
+    name: str = "palmimo-teleop", *, manifest: str | None = None, commit: str = "deadbeef"
+) -> CatalogApp:
     """Build a minimal, valid :class:`CatalogApp` for scripting :class:`FakeCatalogSource`."""
     return CatalogApp(
         name=name,
@@ -873,6 +875,7 @@ def make_catalog_app(name: str = "palmimo-teleop", *, manifest: str | None = Non
             url="https://github.com/Jizai-inc/palmimo-devkit",
             ref_kind="tag",
             ref="v1.0.0",
+            commit=commit,
             manifest=manifest,
         ),
         env={},

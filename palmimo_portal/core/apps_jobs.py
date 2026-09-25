@@ -42,7 +42,13 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from palmimo_portal.core import apps as apps_core
-from palmimo_portal.core.apps import app_namespace, host_owner_from_url, resolve_subdir, suggest_app_name
+from palmimo_portal.core.apps import (
+    app_namespace,
+    host_owner_from_url,
+    normalize_git_url,
+    resolve_subdir,
+    suggest_app_name,
+)
 from palmimo_portal.core.apps_layout import LayoutPaths, resolve_layout
 from palmimo_portal.core.apps_zip import UPLOAD_MAX_BYTES, extract_zip_to_staging
 from palmimo_portal.core.catalog import CatalogCache
@@ -68,6 +74,7 @@ from palmimo_portal.ports import (
     AppUnitPort,
     DiskFullError,
     DiskPort,
+    GitCommandError,
     GitPort,
     InvalidManifestSourceError,
     JournalPort,
@@ -255,6 +262,42 @@ def _read_manifest(project_dir: Path, manifest_filename: str = DEFAULT_MANIFEST_
     if not manifest_path.is_file():
         raise InvalidManifestSourceError(f"{manifest_filename} not found in {project_dir}")
     return parse_manifest(manifest_path.read_text(encoding="utf-8"))
+
+
+def _catalog_commit_for_source(
+    ctx: AppsJobContext, *, url: str, ref: str, ref_kind: AppRefKind, subdir: str | None, manifest: str | None
+) -> str | None:
+    """Return the pinned catalog commit for exactly this official source.
+
+    A URL that merely happens to point to the official repository is not a
+    catalog install: it must also match an advertised source tuple.  This
+    keeps user-selected refs on the normal git-source path while making the
+    catalog's signed commit pin authoritative for its own entries.
+    """
+    if ctx.catalog_cache is None or ref_kind != "tag":
+        return None
+    requested_url = normalize_git_url(url)
+    for app in ctx.catalog_cache.peek().apps:
+        source = app.source
+        if (
+            source.type == "git"
+            and normalize_git_url(source.url or "") == requested_url
+            and source.ref == ref
+            and source.ref_kind == ref_kind
+            and source.subdir == subdir
+            and source.manifest == manifest
+        ):
+            if not isinstance(source.commit, str) or not source.commit:
+                raise GitCommandError("official catalog source has no commit pin", reason="git_commit_mismatch")
+            return source.commit
+    return None
+
+
+def _verify_catalog_commit(expected: str | None, actual: str) -> None:
+    if expected is not None and actual != expected:
+        raise GitCommandError(
+            f"official catalog commit mismatch: expected {expected}, got {actual}", reason="git_commit_mismatch"
+        )
 
 
 def _manifest_filename_for(source: AppSource) -> str:
@@ -543,6 +586,12 @@ def prepare_install_git(
     staging_container = ctx.staging_dir / job_id
     try:
         commit = ctx.git.clone_shallow(url, ref, ref_kind, staging_container, env=git_env(ctx, url))
+        _verify_catalog_commit(
+            _catalog_commit_for_source(
+                ctx, url=url, ref=ref, ref_kind=ref_kind, subdir=subdir, manifest=_stored_manifest(resolved_manifest)
+            ),
+            commit,
+        )
         project_dir = resolve_subdir(staging_container, subdir)
         manifest = _read_manifest(project_dir, resolved_manifest)
         _check_pyproject(project_dir)
@@ -697,6 +746,17 @@ def update_git(
             record.source.ref_kind,
             staging_container,
             env=git_env(ctx, record.source.url),
+        )
+        _verify_catalog_commit(
+            _catalog_commit_for_source(
+                ctx,
+                url=record.source.url,
+                ref=record.source.ref,
+                ref_kind=record.source.ref_kind,
+                subdir=record.source.subdir,
+                manifest=record.source.manifest,
+            ),
+            commit,
         )
         on_step("validate")
         project_dir = resolve_subdir(staging_container, record.source.subdir)

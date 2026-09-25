@@ -204,6 +204,22 @@ def test_list_apps_removes_a_stopped_apps_leftover_run_directory(
     assert ZIP_TELEOP_ID not in adapters.run_dir.written
 
 
+def test_list_apps_keeps_a_run_directory_while_start_holds_the_run_lock(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    client = _authenticated_client(client, adapters)
+    _install_zip(client)
+    adapters.run_dir.write(
+        ZIP_TELEOP_ID, env={"API_KEY": "sekrit"}, argv=["run"], cwd="/apps/palmimo-teleop", project="p"
+    )
+
+    with adapters.state.lock_run():
+        response = client.get("/api/v1/apps")
+
+    assert response.status_code == 200
+    assert ZIP_TELEOP_ID in adapters.run_dir.written
+
+
 def test_install_zip_over_existing_name_uses_a_suffix(client: TestClient, adapters: FakeAdapterBundle) -> None:
     client = _authenticated_client(client, adapters)
     _install_zip(client)

@@ -535,7 +535,7 @@ def _source_info(record: AppRecord, catalog_repo: str | None) -> AppSourceInfo:
 
 
 def _run_status(
-    record: AppRecord, state: AppsState, app_unit: AppUnitPort, run_dir: RunDirPort
+    record: AppRecord, state: AppsState, app_unit: AppUnitPort, run_dir: RunDirPort, state_store: StateStore
 ) -> tuple[AppStatus, int | None, str | None]:
     """Resolve `record`'s status: an in-flight job or `broken` wins over systemd (design doc 3.5).
 
@@ -553,13 +553,17 @@ def _run_status(
         return "broken", None, None
     unit_status = app_unit.status(record.id)
     if unit_status.active_state not in RUNNING_ACTIVE_STATES:
-        run_dir.remove(record.id)
+        try:
+            with state_store.lock_run():
+                run_dir.remove(record.id)
+        except RunLockTimeoutError:
+            pass
     run_status = derive_run_status(unit_status)
     return cast(AppStatus, run_status.status), run_status.exit_code, run_status.reason
 
 
 def _summary(record: AppRecord, state: AppsState, app_unit: AppUnitPort, deps: StartDeps, host: str) -> AppSummary:
-    status, exit_code, reason = _run_status(record, state, app_unit, deps.run_dir)
+    status, exit_code, reason = _run_status(record, state, app_unit, deps.run_dir, deps.state)
     url = resolve_running_url(deps, record, host=host) if status == "running" else None
     return AppSummary(
         name=record.name,
@@ -644,7 +648,7 @@ def _detail(
         manifest = apps_jobs.read_manifest_for_app(ctx, record)
     except (InvalidManifestSourceError, ManifestValidationError):
         manifest = None
-    status, exit_code, reason = _run_status(record, state, app_unit, deps.run_dir)
+    status, exit_code, reason = _run_status(record, state, app_unit, deps.run_dir, deps.state)
     url = resolve_running_url(deps, record, host=host) if status == "running" else None
     return AppDetailResponse(
         name=record.name,

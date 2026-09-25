@@ -9,6 +9,8 @@ import pytest
 from palmimo_portal.core.manifest import (
     InvalidManifestFilenameError,
     ManifestValidationError,
+    manifest_from_snapshot,
+    manifest_snapshot,
     parse_manifest,
     resolve_command,
     resolve_url,
@@ -32,6 +34,38 @@ def test_parse_manifest_rejects_invalid_fixture(path: Path) -> None:
     with pytest.raises(ManifestValidationError) as excinfo:
         parse_manifest(path.read_text())
     assert excinfo.value.errors
+
+
+def test_manifest_from_snapshot_round_trips_a_control_character_in_a_string_value() -> None:
+    # apps.json is JSON, not TOML: a description containing U+007F (a valid JSON string
+    # character, invalid in a bare TOML string) must not corrupt the whole ledger entry on
+    # the next read -- manifest_from_snapshot must validate the dict directly, not by
+    # re-serializing it through TOML.
+    manifest = parse_manifest(
+        'schema = 1\nname = "app"\ndescription = "d"\ncommand = ["run"]\n\n'
+        '[env.API_KEY]\ndescription = "has a \\u007f delete char"\n'
+    )
+    snapshot = manifest_snapshot(manifest)
+
+    restored = manifest_from_snapshot(snapshot)
+
+    assert restored.env["API_KEY"].description == "has a \x7f delete char"
+
+
+def test_manifest_from_snapshot_rejects_a_non_finite_param_default() -> None:
+    snapshot = {
+        "schema": 1,
+        "name": "app",
+        "description": "d",
+        "command": ["run"],
+        "url": None,
+        "devices": [],
+        "env": {},
+        "params": {"speed": {"type": "float", "default": float("inf")}},
+    }
+
+    with pytest.raises(ManifestValidationError):
+        manifest_from_snapshot(snapshot)
 
 
 def test_parse_manifest_reports_every_error_at_once() -> None:

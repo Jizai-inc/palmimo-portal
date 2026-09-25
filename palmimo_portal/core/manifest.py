@@ -8,7 +8,7 @@ so a typo in a manifest cannot silently fail to take effect.
 
 from __future__ import annotations
 
-import json
+import math
 import re
 import tomllib
 from dataclasses import dataclass
@@ -188,50 +188,18 @@ def manifest_snapshot(manifest: Manifest) -> dict[str, Any]:
 def manifest_from_snapshot(snapshot: Any) -> Manifest:
     """Validate and restore a ledger manifest snapshot.
 
-    The conversion deliberately reuses :func:`parse_manifest`: ``apps.json`` is
-    operator-writable state, so treating its snapshot as already trusted would
-    let a tampered ledger grant a new device class at start time.
+    Validates ``snapshot`` directly as the small dict shape
+    :func:`manifest_snapshot` produces, sharing every rule with
+    :func:`parse_manifest` -- ``apps.json`` is operator-writable state, so
+    treating its snapshot as already trusted would let a tampered ledger
+    grant a new device class at start time. Deliberately does not round-trip
+    through TOML text: a JSON-valid string (a control character like
+    U+007F, or a non-ASCII codepoint) can be invalid TOML syntax, which
+    would reject a snapshot :func:`manifest_snapshot` itself produced.
     """
     if not isinstance(snapshot, dict):
         raise ManifestValidationError(["manifest snapshot must be an object"])
-    try:
-        # This also rejects values JSON cannot represent before generating TOML.
-        normalized = json.loads(json.dumps(snapshot))
-        return parse_manifest(_snapshot_toml(normalized))
-    except (AttributeError, TypeError, ValueError) as error:
-        raise ManifestValidationError([f"invalid manifest snapshot: {error}"]) from error
-
-
-def _snapshot_toml(snapshot: dict[str, Any]) -> str:
-    """Encode the small manifest schema as TOML so normal validation is authoritative."""
-
-    def scalar(value: Any) -> str:
-        return json.dumps(value, ensure_ascii=False)
-
-    lines = [
-        f"schema = {scalar(snapshot.get('schema'))}",
-        f"name = {scalar(snapshot.get('name'))}",
-        f"description = {scalar(snapshot.get('description'))}",
-        f"command = {scalar(snapshot.get('command'))}",
-        f"devices = {scalar(snapshot.get('devices', []))}",
-    ]
-    if snapshot.get("url") is not None:
-        lines.append(f"url = {scalar(snapshot['url'])}")
-    for name, spec in snapshot.get("env", {}).items():
-        lines.append(f"[env.{scalar(name)}]")
-        if isinstance(spec, dict):
-            for key, value in spec.items():
-                lines.append(f"{key} = {scalar(value)}")
-        else:
-            lines.append(f"value = {scalar(spec)}")
-    for name, spec in snapshot.get("params", {}).items():
-        lines.append(f"[params.{scalar(name)}]")
-        if isinstance(spec, dict):
-            for key, value in spec.items():
-                lines.append(f"{key} = {scalar(value)}")
-        else:
-            lines.append(f"value = {scalar(spec)}")
-    return "\n".join(lines)
+    return _validate_manifest_dict(snapshot)
 
 
 def parse_manifest(text: str) -> Manifest:
@@ -240,12 +208,16 @@ def parse_manifest(text: str) -> Manifest:
     Raises :class:`ManifestValidationError` carrying every violation found,
     not just the first, so a manifest author fixes the file in one pass.
     """
-    errors: list[str] = []
     try:
         raw = tomllib.loads(text)
     except tomllib.TOMLDecodeError as error:
         raise ManifestValidationError([f"invalid TOML: {error}"]) from error
+    return _validate_manifest_dict(raw)
 
+
+def _validate_manifest_dict(raw: dict[str, Any]) -> Manifest:
+    """Validate the small manifest schema against an already-parsed dict (TOML or a ledger snapshot)."""
+    errors: list[str] = []
     unknown_keys = set(raw) - _TOP_LEVEL_KEYS
     for key in sorted(unknown_keys):
         errors.append(f"unknown top-level key: {key!r}")
@@ -346,6 +318,13 @@ def _is_number_not_bool(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def _is_finite_number(value: Any) -> bool:
+    # `manifest_snapshot`/`manifest_from_snapshot` round-trip through JSON, which -- unlike
+    # TOML -- has no literal syntax for inf/nan, so a non-finite default/min/max would only
+    # ever reach here from a value Python's own (non-standard) json.loads accepted.
+    return _is_number_not_bool(value) and math.isfinite(value)
+
+
 def _has_nested_quantifier(pattern: str) -> bool:
     return _NESTED_QUANTIFIER_RE.search(pattern) is not None
 
@@ -429,12 +408,12 @@ def _parse_param_by_type(
 
     # int / float
     min_value = spec.get("min")
-    if min_value is not None and not _is_number_not_bool(min_value):
-        errors.append(f"params.{name}.min must be a number")
+    if min_value is not None and not _is_finite_number(min_value):
+        errors.append(f"params.{name}.min must be a finite number")
         return None
     max_value = spec.get("max")
-    if max_value is not None and not _is_number_not_bool(max_value):
-        errors.append(f"params.{name}.max must be a number")
+    if max_value is not None and not _is_finite_number(max_value):
+        errors.append(f"params.{name}.max must be a finite number")
         return None
     return ParamSpec(
         type=cast('Literal["int", "float"]', param_type),
@@ -535,6 +514,9 @@ def _validate_param_value(name: str, spec: ParamSpec, value: Any, errors: list[s
         expected = int if spec.type == "int" else (int, float)
         if not isinstance(value, expected) or isinstance(value, bool):
             errors.append(f"param {name!r} must be a {spec.type}")
+            return
+        if not math.isfinite(value):
+            errors.append(f"param {name!r} must be a finite number")
             return
         if spec.min is not None and value < spec.min:
             errors.append(f"param {name!r} value {value!r} is below min {spec.min!r}")

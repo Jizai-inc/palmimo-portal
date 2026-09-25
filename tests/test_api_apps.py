@@ -15,7 +15,16 @@ from starlette.testclient import TestClient
 from palmimo_portal.api.apps import _read_upload_bounded
 from palmimo_portal.api.errors import PortalError
 from palmimo_portal.core.periodic import run_git_check_sweep
-from palmimo_portal.ports import AppJob, AppRecord, AppSource, AppsState, UnitStatus, UpdateJob, UpdateState
+from palmimo_portal.ports import (
+    AppJob,
+    AppRecord,
+    AppSource,
+    AppsState,
+    GitCommandError,
+    UnitStatus,
+    UpdateJob,
+    UpdateState,
+)
 from palmimo_portal.settings import Settings
 from palmimo_portal.testing.fakes import FakeAdapterBundle
 
@@ -532,6 +541,35 @@ def test_update_app_returns_409_platform_not_ready_when_the_platform_bundle_is_n
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "platform_not_ready"
+
+
+def test_update_job_exposes_the_git_failure_reason_code(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    # Without `error_code` on the job response, an operator sees only a free-text git stderr
+    # tail for a background update failure and gets none of the "check your PAT's scope"
+    # guidance a synchronous preview/install 403 already gets (see `_raise_for_git_error`).
+    client = _authenticated_client(client, adapters)
+
+    def seed(dest: Path, url: str, ref: str, ref_kind: str) -> None:
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "palmimo.toml").write_text('schema = 1\nname = "palmimo-teleop"\ndescription = "d"\ncommand=["run"]\n')
+        (dest / "pyproject.toml").write_text("[project]\nname='app'\nversion='0'\n")
+
+    adapters.git.on_clone = seed
+    client.post(
+        "/api/v1/apps/install",
+        json={"source": {"type": "git", "url": "https://example.com/repo", "ref": "main", "ref_kind": "branch"}},
+        headers=CSRF_HEADERS,
+    )
+    adapters.git.raise_on_clone = GitCommandError("403", status_code=403, reason="git_credential_rejected")
+
+    response = client.post(f"/api/v1/apps/{GIT_TELEOP_ID}/update", headers=CSRF_HEADERS)
+
+    assert response.status_code == 202
+    job_id = response.json()["job"]["id"]
+    assert response.json()["job"]["error_code"] == "git_credential_rejected"
+
+    job_response = client.get(f"/api/v1/apps/jobs/{job_id}")
+    assert job_response.json()["error_code"] == "git_credential_rejected"
 
 
 def test_get_apps_reflects_a_periodic_sweep_result(

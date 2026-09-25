@@ -19,7 +19,7 @@ from palmimo_portal.api.deps import (
     require_provisioned,
 )
 from palmimo_portal.api.errors import PortalError
-from palmimo_portal.core.apps import clear_credential_rejected
+from palmimo_portal.core.apps import clear_credential_rejected, git_credential_used_by
 from palmimo_portal.core.secrets import normalize_host_owner, secret_used_by
 from palmimo_portal.ports import (
     AppsStateFileState,
@@ -59,6 +59,8 @@ class GitCredentialRecordInfo(BaseModel):
     host_owner: str
     updated_at: float
     rejected_at: float | None = None
+    #: App ids whose git source is scoped to this credential's ``host_owner`` (design doc 4.2).
+    app_ids: list[str] = []
 
 
 class GitCredentialsListResponse(BaseModel):
@@ -130,11 +132,19 @@ def delete_secret(
 
 
 @router.get("/api/v1/git-credentials")
-def list_git_credentials(store: SecretsStore = Depends(get_secrets_store)) -> GitCredentialsListResponse:
+def list_git_credentials(
+    store: SecretsStore = Depends(get_secrets_store), state_store: StateStore = Depends(get_state_store)
+) -> GitCredentialsListResponse:
     """List every registered ``host/owner`` credential's metadata. Never returns a token."""
+    state = state_store.read_apps_state()
     return GitCredentialsListResponse(
         credentials=[
-            GitCredentialRecordInfo(host_owner=r.host_owner, updated_at=r.updated_at, rejected_at=r.rejected_at)
+            GitCredentialRecordInfo(
+                host_owner=r.host_owner,
+                updated_at=r.updated_at,
+                rejected_at=r.rejected_at,
+                app_ids=git_credential_used_by(state, r.host_owner),
+            )
             for r in store.list_git_credentials()
         ]
     )

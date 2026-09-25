@@ -824,6 +824,11 @@ class AppJob:
     started_at: float | None
     finished_at: float | None
     display_name: str | None = None
+    #: The failure's machine-readable reason (a `GitCommandError.reason`, currently -- see
+    #: `core.apps_job_runner._fail_current_job`), for the same per-cause UI guidance a
+    #: synchronous preview/install git failure gets (`api/apps.py`'s `_raise_for_git_error`).
+    #: `None` for a non-git failure, or when the job has not failed.
+    error_code: str | None = None
     #: True when no ``uv.lock`` was found in the app's project and one was generated --
     #: surfaced so the UI can warn "reproducibility reduced" without failing the job.
     lock_generated: bool = False

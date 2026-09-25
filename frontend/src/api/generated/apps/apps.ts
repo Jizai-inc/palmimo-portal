@@ -181,7 +181,10 @@ export const getInstallApiV1AppsInstallPostUrl = () => {
  * Raises:
  *     PortalError: 422 ``manifest_invalid`` / 422 ``install_failed`` /
  *         422 ``zip_too_large`` / 507 ``disk_full`` for the synchronous
- *         fetch+validate half; 409 ``app_exists`` if the manifest's name
+ *         fetch+validate half; 422 ``git_credential_missing`` /
+ *         ``git_credential_rejected`` / ``git_not_found`` /
+ *         ``git_network_unreachable`` / ``git_unknown`` for a git source's
+ *         clone failure; 409 ``app_exists`` if the manifest's name
  *         is already installed; 409 ``update_in_progress`` / 409
  *         ``app_job_in_progress`` / 409 ``platform_not_ready`` for the
  *         mutual-exclusion and platform-readiness refusals; 503
@@ -363,7 +366,10 @@ export const getPreviewApiV1AppsPreviewPostUrl = () => {
  *     PortalError: 422 ``validation_error`` for a malformed request body;
  *         422 ``manifest_invalid`` (with every violation) for a manifest
  *         that fails validation; 422 ``preview_failed`` for any other
- *         fetch/extract failure.
+ *         fetch/extract failure; 422 ``git_credential_missing`` /
+ *         ``git_credential_rejected`` / ``git_not_found`` /
+ *         ``git_network_unreachable`` / ``git_unknown`` for a git source's
+ *         clone/fetch failure.
  * @summary Preview
  */
 export const previewApiV1AppsPreviewPost = async ( options?: RequestInit): Promise<ManifestPreviewResponse> => {
@@ -1478,7 +1484,10 @@ export const useUpdateAppApiV1AppsNameUpdatePost = <TError = HTTPValidationError
  * same as design doc 3.6's PUT-based clearing path.
  *
  * Raises:
- *     PortalError: 404 ``app_not_found``; 502 ``git_check_failed``.
+ *     PortalError: 404 ``app_not_found``; 502 ``git_credential_missing`` /
+ *         ``git_credential_rejected`` / ``git_not_found`` /
+ *         ``git_network_unreachable`` / ``git_unknown`` for a ``git
+ *         ls-remote`` failure.
  * @summary Update Check
  */
 export const updateCheckApiV1AppsNameUpdateCheckPost = async (name: string, options?: RequestInit): Promise<UpdateCheckResponse> => {

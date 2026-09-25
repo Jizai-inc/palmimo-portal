@@ -215,6 +215,31 @@ def test_list_git_credentials_shows_rejected_at_after_a_periodic_sweep_rejection
     assert entry["rejected_at"] is not None
 
 
+def test_list_git_credentials_reports_the_apps_installed_from_its_host_owner(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    # Without this, an operator deleting/rotating a credential has no way to see which
+    # installed apps depend on it before they act.
+    client = _authenticated_client(client, adapters)
+    client.put("/api/v1/git-credentials/github.com%2FJizai-inc", json={"value": "ghp_token"}, headers=CSRF_HEADERS)
+    record = AppRecord(
+        name="palmimo-teleop",
+        source=AppSource(type="git", url="https://github.com/Jizai-inc/repo", ref="main", ref_kind="branch"),
+        installed_at=1.0,
+        params={},
+        autostart=False,
+        last_job=None,
+        id="palmimo.teleop",
+    )
+    adapters.state.write_apps_state(AppsState(apps={"palmimo.teleop": record}))
+
+    response = client.get("/api/v1/git-credentials")
+
+    assert response.status_code == 200
+    entry = next(c for c in response.json()["credentials"] if c["host_owner"] == "github.com/jizai-inc")
+    assert entry["app_ids"] == ["palmimo.teleop"]
+
+
 def test_put_git_credential_saves_the_token_when_the_apps_ledger_is_corrupt(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:

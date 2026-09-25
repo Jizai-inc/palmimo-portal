@@ -42,4 +42,33 @@ describe("AppJobDialog", () => {
     await act(() => vi.advanceTimersByTimeAsync(5_000));
     expect(callCount).toBe(callsAfterFirstError);
   });
+
+  // Without `error_code` driving the message, a background update job's 403 shows only the raw
+  // git stderr tail instead of the same "check your PAT's scope" guidance a synchronous
+  // preview/install 403 already gets from ApiErrorAlert.
+  it("shows the PAT-scope guidance for a failed job with a git_credential_rejected error_code", async () => {
+    server.use(
+      http.get("*/api/v1/apps/jobs/:jobId", () =>
+        HttpResponse.json({
+          id: "job-1",
+          app_id: "git.palmimo-teleop",
+          kind: "update",
+          state: "failed",
+          step: "fetch",
+          error: "git clone exited 128: fatal: unable to access: The requested URL returned error: 403",
+          error_code: "git_credential_rejected",
+          started_at: 0,
+          finished_at: 1,
+          lock_generated: false,
+          dropped_bindings: [],
+          dropped_params: [],
+        }),
+      ),
+    );
+
+    renderWithProviders(<AppJobDialog jobId="job-1" title="palmimo-teleop" onClose={vi.fn()} onDone={vi.fn()} />);
+    await act(() => vi.advanceTimersByTimeAsync(0));
+
+    expect(await screen.findByText(/Git credentials were rejected/)).toBeInTheDocument();
+  });
 });

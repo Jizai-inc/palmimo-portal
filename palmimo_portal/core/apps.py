@@ -214,6 +214,15 @@ def clear_credential_rejected(state: AppsState, host_owner: str) -> AppsState:
     return replace(state, apps={name: _clear(record) for name, record in state.apps.items()})
 
 
+def git_credential_used_by(state: AppsState, host_owner: str) -> list[str]:
+    """Return the sorted app ids whose git source is scoped to ``host_owner`` (design doc 4.2)."""
+    return sorted(
+        app_id
+        for app_id, record in state.apps.items()
+        if record.source.url is not None and host_owner_from_url(record.source.url) == host_owner
+    )
+
+
 def new_app_job(kind: AppJobKind, now: float) -> AppJob:
     """Start a fresh, ``"running"`` :class:`AppJob`."""
     return AppJob(id=new_job_id(), kind=kind, state="running", step=None, error=None, started_at=now, finished_at=None)

@@ -222,6 +222,17 @@
             ],
             "title": "Error"
           },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
           "finished_at": {
             "anyOf": [
               {
@@ -279,6 +290,7 @@
           "state",
           "step",
           "error",
+          "error_code",
           "started_at",
           "finished_at",
           "lock_generated",
@@ -816,6 +828,14 @@
       },
       "GitCredentialRecordInfo": {
         "properties": {
+          "app_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "App Ids",
+            "type": "array"
+          },
           "host_owner": {
             "title": "Host Owner",
             "type": "string"
@@ -2090,7 +2110,7 @@
     },
     "/api/v1/apps/install": {
       "post": {
-        "description": "Start installing an app from a zip upload (multipart, field ``file``) or a git source (JSON body).\n\n``uv sync`` runs in the background; only the fast fetch+validate half\nruns before this returns. Once accepted, a sync/swap failure surfaces on\n``GET /apps/jobs/{id}`` or the app's own ``last_job``, not here.\n\nRaises:\n    PortalError: 422 ``manifest_invalid`` / 422 ``install_failed`` /\n        422 ``zip_too_large`` / 507 ``disk_full`` for the synchronous\n        fetch+validate half; 409 ``app_exists`` if the manifest's name\n        is already installed; 409 ``update_in_progress`` / 409\n        ``app_job_in_progress`` / 409 ``platform_not_ready`` for the\n        mutual-exclusion and platform-readiness refusals; 503\n        ``platform_not_ready`` if ``apps_dir`` itself is unavailable.",
+        "description": "Start installing an app from a zip upload (multipart, field ``file``) or a git source (JSON body).\n\n``uv sync`` runs in the background; only the fast fetch+validate half\nruns before this returns. Once accepted, a sync/swap failure surfaces on\n``GET /apps/jobs/{id}`` or the app's own ``last_job``, not here.\n\nRaises:\n    PortalError: 422 ``manifest_invalid`` / 422 ``install_failed`` /\n        422 ``zip_too_large`` / 507 ``disk_full`` for the synchronous\n        fetch+validate half; 422 ``git_credential_missing`` /\n        ``git_credential_rejected`` / ``git_not_found`` /\n        ``git_network_unreachable`` / ``git_unknown`` for a git source's\n        clone failure; 409 ``app_exists`` if the manifest's name\n        is already installed; 409 ``update_in_progress`` / 409\n        ``app_job_in_progress`` / 409 ``platform_not_ready`` for the\n        mutual-exclusion and platform-readiness refusals; 503\n        ``platform_not_ready`` if ``apps_dir`` itself is unavailable.",
         "operationId": "install_api_v1_apps_install_post",
         "responses": {
           "202": {
@@ -2155,7 +2175,7 @@
     },
     "/api/v1/apps/preview": {
       "post": {
-        "description": "Fetch and validate a source without installing it, returning its manifest.\n\nRaises:\n    PortalError: 422 ``validation_error`` for a malformed request body;\n        422 ``manifest_invalid`` (with every violation) for a manifest\n        that fails validation; 422 ``preview_failed`` for any other\n        fetch/extract failure.",
+        "description": "Fetch and validate a source without installing it, returning its manifest.\n\nRaises:\n    PortalError: 422 ``validation_error`` for a malformed request body;\n        422 ``manifest_invalid`` (with every violation) for a manifest\n        that fails validation; 422 ``preview_failed`` for any other\n        fetch/extract failure; 422 ``git_credential_missing`` /\n        ``git_credential_rejected`` / ``git_not_found`` /\n        ``git_network_unreachable`` / ``git_unknown`` for a git source's\n        clone/fetch failure.",
         "operationId": "preview_api_v1_apps_preview_post",
         "responses": {
           "200": {
@@ -2754,7 +2774,7 @@
     },
     "/api/v1/apps/{name}/update/check": {
       "post": {
-        "description": "Check a git-sourced app for a new commit/tag upstream (design doc 3.2).\n\nA successful branch-pinned check clears\n:attr:`~palmimo_portal.ports.AppRecord.credential_rejected` for every\napp sharing this app's ``host/owner`` credential -- a live ``git\nls-remote`` that succeeds proves the credential is valid again,\nsame as design doc 3.6's PUT-based clearing path.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 502 ``git_check_failed``.",
+        "description": "Check a git-sourced app for a new commit/tag upstream (design doc 3.2).\n\nA successful branch-pinned check clears\n:attr:`~palmimo_portal.ports.AppRecord.credential_rejected` for every\napp sharing this app's ``host/owner`` credential -- a live ``git\nls-remote`` that succeeds proves the credential is valid again,\nsame as design doc 3.6's PUT-based clearing path.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 502 ``git_credential_missing`` /\n        ``git_credential_rejected`` / ``git_not_found`` /\n        ``git_network_unreachable`` / ``git_unknown`` for a ``git\n        ls-remote`` failure.",
         "operationId": "update_check_api_v1_apps__name__update_check_post",
         "parameters": [
           {

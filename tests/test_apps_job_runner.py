@@ -17,7 +17,7 @@ from palmimo_portal.core.apps import finalize_apps_state
 from palmimo_portal.core.apps_job_runner import AppsJobRunner
 from palmimo_portal.core.apps_jobs import AppsJobContext, disk_state_checks, install_git, prepare_install_zip
 from palmimo_portal.core.apps_start import AppRunningError
-from palmimo_portal.ports import AppExistsError, AppsLockTimeoutError, AppsState, UnitStatus
+from palmimo_portal.ports import AppExistsError, AppsLockTimeoutError, AppsState, GitCommandError, UnitStatus
 from palmimo_portal.testing.fakes import (
     FakeAppUnitPort,
     FakeDiskPort,
@@ -307,6 +307,35 @@ def test_update_completion_keeps_a_concurrent_autostart_change_to_the_same_app(c
     final = state_store.read_apps_state().apps[GIT_ID]
     assert final.autostart is True
     assert final.source.commit == "commit-2"
+
+
+def test_start_update_records_the_git_failure_reason_on_the_failed_job(ctx: AppsJobContext) -> None:
+    # A 403 mid-update must land on `last_job.error_code`, not just its free-text `error` --
+    # without it, the update-job dialog has no way to tell an operator "your PAT was rejected"
+    # apart from "install_failed" (see `api/apps.py`'s `_raise_for_git_error` for the preview/
+    # install-time equivalent this update path lacked).
+    def seed(dest: Path, url: str, ref: str, ref_kind: str) -> None:
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "palmimo.toml").write_text('schema = 1\nname = "palmimo-teleop"\ndescription = "d"\ncommand=["run"]\n')
+        (dest / "pyproject.toml").write_text("[project]\nname='app'\nversion='0'\n")
+
+    ctx.git.on_clone = seed  # type: ignore[attr-defined]
+    ctx.git.next_commit = "commit-1"  # type: ignore[attr-defined]
+    state_store = FakeStateStore()
+    initial_state, _ = install_git(ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")
+    state_store.write_apps_state(initial_state)
+    ctx.git.raise_on_clone = GitCommandError(  # type: ignore[attr-defined]
+        "403", status_code=403, reason="git_credential_rejected"
+    )
+
+    runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
+    job = runner.start_update(GIT_ID)
+
+    assert job.state == "failed"
+    assert job.error_code == "git_credential_rejected"
+    last_job = state_store.read_apps_state().apps[GIT_ID].last_job
+    assert last_job is not None
+    assert last_job.error_code == "git_credential_rejected"
 
 
 def test_start_delete_failure_during_file_cleanup_restores_the_ledger_entry_as_failed(

@@ -300,7 +300,6 @@
     "disk_full": "空き容量が不足しています。",
     "duplicate_key": "この鍵はすでに登録されています。",
     "env_unbound": "このアプリが必要とする環境変数がまだ登録されていません。",
-    "git_check_failed": "アプリの git ソースの更新確認に失敗しました。",
     "git_credential_missing": "Git 認証情報がありません。リポジトリが private または存在しない可能性があります。{{detail}}",
     "git_credential_rejected": "Git 認証情報が拒否されました。PAT の対象リポジトリ、Contents 権限、組織の承認を確認してください。{{detail}}",
     "git_not_found": "リポジトリまたは指定した ref が見つかりません。{{detail}}",
@@ -526,16 +525,7 @@
     "valueLabel": "値",
     "saveButton": "保存",
     "deleteDialogTitle": "{{name}} を削除しますか？",
-    "deleteDialogConfirm": "削除",
-    "gitCredentialsTitle": "Git 認証情報（プライベートリポジトリ用）",
-    "gitCredentialsAddButton": "追加",
-    "gitCredentialsDialogTitle": "Git 認証情報を追加",
-    "gitCredentialsHostOwnerLabel": "ホスト / オーナー",
-    "gitCredentialsHostOwnerHint": "例：github.com/Jizai-inc",
-    "gitCredentialsTokenLabel": "個人アクセストークン",
-    "gitCredentialsSaved": "保存しました",
-    "gitCredentialsEmptyState": "登録済みの Git 認証情報はありません。",
-    "gitCredentialsRejectedBadge": "拒否されました"
+    "deleteDialogConfirm": "削除"
   },
   "gitCredentials": {
     "title": "Git 認証情報",

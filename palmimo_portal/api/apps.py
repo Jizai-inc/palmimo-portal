@@ -184,6 +184,24 @@ def _raise_for_start_error(error: Exception) -> NoReturn:
     raise error
 
 
+def _raise_for_git_error(error: GitCommandError, status_code: int) -> NoReturn:
+    """Translate a `GitCommandError`'s `reason` into its literal `PortalError` code.
+
+    Each `code` is spelled as a literal here (not read off `error.reason`) so
+    `tests/test_i18n_parity.py`'s static scan of `PortalError(...)` call
+    sites can find it -- see `_raise_for_start_error`.
+    """
+    if error.reason == "git_credential_missing":
+        raise PortalError(status_code, "git_credential_missing", detail=str(error)) from error
+    if error.reason == "git_credential_rejected":
+        raise PortalError(status_code, "git_credential_rejected", detail=str(error)) from error
+    if error.reason == "git_not_found":
+        raise PortalError(status_code, "git_not_found", detail=str(error)) from error
+    if error.reason == "git_network_unreachable":
+        raise PortalError(status_code, "git_network_unreachable", detail=str(error)) from error
+    raise PortalError(status_code, "git_unknown", detail=str(error)) from error
+
+
 #: UpdateJobState values that mean a Portal self-update is in flight (mirrors api/update.py).
 _UPDATE_ACTIVE_STATES = frozenset({"checking", "running", "restarting"})
 
@@ -225,6 +243,9 @@ class AppJobInfo(BaseModel):
     state: str
     step: str | None
     error: str | None
+    #: The failure's machine-readable reason (see :attr:`~palmimo_portal.ports.AppJob.error_code`),
+    #: for the same per-cause UI guidance a synchronous preview/install git failure gets.
+    error_code: str | None
     started_at: float | None
     finished_at: float | None
     lock_generated: bool
@@ -462,6 +483,7 @@ def _job_info(job: AppJob, app_id: str | None = None) -> AppJobInfo:
         state=job.state,
         step=job.step,
         error=job.error,
+        error_code=job.error_code,
         started_at=job.started_at,
         finished_at=job.finished_at,
         lock_generated=job.lock_generated,
@@ -737,7 +759,10 @@ async def preview(
         PortalError: 422 ``validation_error`` for a malformed request body;
             422 ``manifest_invalid`` (with every violation) for a manifest
             that fails validation; 422 ``preview_failed`` for any other
-            fetch/extract failure.
+            fetch/extract failure; 422 ``git_credential_missing`` /
+            ``git_credential_rejected`` / ``git_not_found`` /
+            ``git_network_unreachable`` / ``git_unknown`` for a git source's
+            clone/fetch failure.
     """
     upload, git_source, zip_manifest, requested_name = await _read_zip_or_git(request)
     try:
@@ -758,7 +783,7 @@ async def preview(
     except InvalidManifestSourceError as error:
         raise PortalError(422, "preview_failed", detail=str(error)) from error
     except GitCommandError as error:
-        raise PortalError(422, error.reason, detail=str(error)) from error
+        _raise_for_git_error(error, 422)
     finally:
         if upload is not None:
             upload.unlink(missing_ok=True)
@@ -795,7 +820,10 @@ async def install(
     Raises:
         PortalError: 422 ``manifest_invalid`` / 422 ``install_failed`` /
             422 ``zip_too_large`` / 507 ``disk_full`` for the synchronous
-            fetch+validate half; 409 ``app_exists`` if the manifest's name
+            fetch+validate half; 422 ``git_credential_missing`` /
+            ``git_credential_rejected`` / ``git_not_found`` /
+            ``git_network_unreachable`` / ``git_unknown`` for a git source's
+            clone failure; 409 ``app_exists`` if the manifest's name
             is already installed; 409 ``update_in_progress`` / 409
             ``app_job_in_progress`` / 409 ``platform_not_ready`` for the
             mutual-exclusion and platform-readiness refusals; 503
@@ -828,7 +856,7 @@ async def install(
     except InvalidManifestSourceError as error:
         raise PortalError(422, "install_failed", detail=str(error)) from error
     except GitCommandError as error:
-        raise PortalError(422, error.reason, detail=str(error)) from error
+        _raise_for_git_error(error, 422)
     finally:
         if upload is not None:
             upload.unlink(missing_ok=True)
@@ -1019,7 +1047,10 @@ def update_check(
     same as design doc 3.6's PUT-based clearing path.
 
     Raises:
-        PortalError: 404 ``app_not_found``; 502 ``git_check_failed``.
+        PortalError: 404 ``app_not_found``; 502 ``git_credential_missing`` /
+            ``git_credential_rejected`` / ``git_not_found`` /
+            ``git_network_unreachable`` / ``git_unknown`` for a ``git
+            ls-remote`` failure.
     """
     _ensure_not_corrupt(state_store)
     state = state_store.read_apps_state()
@@ -1029,7 +1060,7 @@ def update_check(
     try:
         available, remote_commit = apps_jobs.check_git_update(ctx, record)
     except GitCommandError as error:
-        raise PortalError(502, error.reason, detail=str(error)) from error
+        _raise_for_git_error(error, 502)
     if record.source.ref_kind == "branch" and record.source.url is not None:
         host_owner = host_owner_from_url(record.source.url)
         if host_owner is not None:

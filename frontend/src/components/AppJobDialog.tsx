@@ -80,7 +80,9 @@ export function AppJobDialog({
           <Alert variant="destructive">
             <AlertDescription>
               {job.step ? `${appJobStepLabel(t, job.step)}: ` : ""}
-              {job.error ?? t("errors.install_failed")}
+              {job.error_code
+                ? t(`errors.${job.error_code}`, { detail: job.error, defaultValue: job.error ?? t("errors.install_failed") })
+                : (job.error ?? t("errors.install_failed"))}
             </AlertDescription>
           </Alert>
         ) : job?.state === "done" ? (

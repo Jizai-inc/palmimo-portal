@@ -19,6 +19,8 @@ export function navLabel(t: TFunction, labelKey: NavItem["labelKey"]): string {
       return t("nav.apps");
     case "nav.env":
       return t("nav.env");
+    case "nav.gitCredentials":
+      return t("nav.gitCredentials");
     case "nav.wifi":
       return t("nav.wifi");
     case "nav.sshKeys":
@@ -38,6 +40,8 @@ export function navDescription(t: TFunction, descriptionKey: NavItem["descriptio
       return t("nav.appsDescription");
     case "nav.envDescription":
       return t("nav.envDescription");
+    case "nav.gitCredentialsDescription":
+      return t("nav.gitCredentialsDescription");
     case "nav.wifiDescription":
       return t("nav.wifiDescription");
     case "nav.sshKeysDescription":

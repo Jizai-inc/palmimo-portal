@@ -300,7 +300,6 @@
     "disk_full": "Not enough free disk space to complete this operation.",
     "duplicate_key": "This key is already registered.",
     "env_unbound": "This app needs environment variables that are not registered yet.",
-    "git_check_failed": "Could not check the app's git source for updates.",
     "git_credential_missing": "Git credentials are missing. The repository may be private or not exist. {{detail}}",
     "git_credential_rejected": "Git credentials were rejected. Check the PAT's repository scope, Contents permission, and organization approval. {{detail}}",
     "git_not_found": "The repository or requested ref was not found. {{detail}}",
@@ -526,16 +525,7 @@
     "valueLabel": "Value",
     "saveButton": "Save",
     "deleteDialogTitle": "Delete {{name}}?",
-    "deleteDialogConfirm": "Delete",
-    "gitCredentialsTitle": "Git credentials (private repositories)",
-    "gitCredentialsAddButton": "Add",
-    "gitCredentialsDialogTitle": "Add git credential",
-    "gitCredentialsHostOwnerLabel": "Host / owner",
-    "gitCredentialsHostOwnerHint": "e.g. github.com/Jizai-inc",
-    "gitCredentialsTokenLabel": "Personal access token",
-    "gitCredentialsSaved": "Saved",
-    "gitCredentialsEmptyState": "No git credentials registered yet.",
-    "gitCredentialsRejectedBadge": "Rejected"
+    "deleteDialogConfirm": "Delete"
   },
   "gitCredentials": {
     "title": "Git credentials",

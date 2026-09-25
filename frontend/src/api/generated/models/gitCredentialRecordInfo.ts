@@ -6,6 +6,7 @@
  */
 
 export interface GitCredentialRecordInfo {
+  app_ids?: string[];
   host_owner: string;
   rejected_at?: number | null;
   updated_at: number;

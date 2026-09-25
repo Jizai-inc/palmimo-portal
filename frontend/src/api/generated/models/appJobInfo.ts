@@ -10,6 +10,7 @@ export interface AppJobInfo {
   dropped_bindings: string[];
   dropped_params: string[];
   error: string | null;
+  error_code: string | null;
   finished_at: number | null;
   id: string;
   kind: string;

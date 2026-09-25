@@ -122,6 +122,20 @@ describe("EnvPanel", () => {
     expect(within(otherRow as HTMLElement).queryByText("Rejected")).not.toBeInTheDocument();
   });
 
+  // Without this, an operator deleting/rotating a credential has no way to see which
+  // installed apps depend on it, sourced straight off the list response's app_ids field.
+  it("shows the apps installed from a credential's host/owner", async () => {
+    server.use(
+      getListGitCredentialsApiV1GitCredentialsGetMockHandler({
+        credentials: [{ host_owner: "github.com/jizai-inc", updated_at: 1, rejected_at: null, app_ids: ["palmimo.teleop"] }],
+      }),
+    );
+    renderWithProviders(<GitCredentialsPanel />);
+
+    const row = (await screen.findByText("github.com/jizai-inc")).closest("li");
+    expect(within(row as HTMLElement).getByText("palmimo.teleop")).toBeInTheDocument();
+  });
+
   it("shows replacement state for an existing host owner", async () => {
     const user = userEvent.setup();
     server.use(

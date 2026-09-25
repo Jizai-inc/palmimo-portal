@@ -49,7 +49,16 @@ from palmimo_portal.core.apps_jobs import (
 )
 from palmimo_portal.core.apps_start import RUNNING_ACTIVE_STATES, AppRunningError
 from palmimo_portal.core.secrets import mask_authorization_lines
-from palmimo_portal.ports import AppExistsError, AppJob, AppNotFoundError, AppRecord, AppsState, AppUnitPort, StateStore
+from palmimo_portal.ports import (
+    AppExistsError,
+    AppJob,
+    AppNotFoundError,
+    AppRecord,
+    AppsState,
+    AppUnitPort,
+    GitCommandError,
+    StateStore,
+)
 
 
 logger = logging.getLogger("palmimo_portal")
@@ -371,7 +380,8 @@ class AppsJobRunner:
         current = self._state.read_apps_state()
         job = current.current_job
         assert job is not None
-        failed = replace(job, state="failed", error=str(error), finished_at=finished_at)
+        error_code = error.reason if isinstance(error, GitCommandError) else None
+        failed = replace(job, state="failed", error=str(error), error_code=error_code, finished_at=finished_at)
         apps = dict(current.apps)
         if attach_to is not None and attach_to in apps:
             apps[attach_to] = replace(apps[attach_to], last_job=failed)

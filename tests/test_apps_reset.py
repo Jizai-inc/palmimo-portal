@@ -87,12 +87,13 @@ def test_reset_platform_waits_for_inactive_before_deleting_anything(ctx: AppsJob
             UnitStatus(active_state="inactive", sub_state="dead", result="success", exec_main_status=0),
         )
     )
-    status_calls = 0
+    became_inactive_before_remove = False
 
     def delayed_status(name: str) -> UnitStatus:
-        nonlocal status_calls
-        status_calls += 1
-        return next(statuses)
+        nonlocal became_inactive_before_remove
+        status = next(statuses)
+        became_inactive_before_remove = status.active_state == "inactive"
+        return status
 
     app_unit.stop = lambda name: original_stop(name)  # type: ignore[method-assign]
     app_unit.status = delayed_status  # type: ignore[method-assign]
@@ -100,7 +101,7 @@ def test_reset_platform_waits_for_inactive_before_deleting_anything(ctx: AppsJob
     original_remove_all = run_dir.remove_all
 
     def assert_stopped_before_remove() -> None:
-        assert status_calls == 2
+        assert became_inactive_before_remove
         original_remove_all()
 
     run_dir.remove_all = assert_stopped_before_remove  # type: ignore[method-assign]
@@ -122,6 +123,26 @@ def test_reset_platform_leaves_data_untouched_when_a_unit_does_not_stop(
         reset_platform(FakeStateStore(), ctx, app_unit, FakeRunDirPort(), FakeSecretsStore())
 
     assert (ctx.apps_dir / "some-app").exists()
+
+
+def test_reset_platform_succeeds_when_a_unit_lands_in_failed_after_stop(ctx: AppsJobContext) -> None:
+    # A unit SIGKILL'd by `stop` (e.g. `TimeoutStopSec` expiring) reports `failed`, not
+    # `inactive` -- reset must treat that as "no longer running" rather than waiting forever.
+    app_unit = FakeAppUnitPort()
+    app_unit.simulate_active_state(
+        "running-app", UnitStatus(active_state="active", sub_state="running", result="success", exec_main_status=0)
+    )
+    original_stop = app_unit.stop
+
+    def stop_and_fail(name: str) -> None:
+        original_stop(name)
+        app_unit.simulate_active_state(
+            name, UnitStatus(active_state="failed", sub_state="failed", result="timeout", exec_main_status=1)
+        )
+
+    app_unit.stop = stop_and_fail  # type: ignore[method-assign]
+
+    reset_platform(FakeStateStore(), ctx, app_unit, FakeRunDirPort(), FakeSecretsStore())
 
 
 def test_reset_platform_empties_apps_and_uv_cache_directories_without_removing_them(ctx: AppsJobContext) -> None:

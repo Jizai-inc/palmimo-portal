@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from palmimo_portal.core.apps_jobs import AppsJobContext, purge_path
+from palmimo_portal.core.apps_start import RUNNING_ACTIVE_STATES
 from palmimo_portal.core.platform_update import IDLE_PLATFORM_STATE
 from palmimo_portal.ports import AppsState, AppUnitPort, RunDirPort, SecretsStore, StateStore
 
@@ -100,7 +101,7 @@ def reset_platform(
     pending = set(active)
     while pending:
         try:
-            pending = {name for name in pending if app_unit.status(name).active_state != "inactive"}
+            pending = {name for name in pending if app_unit.status(name).active_state in RUNNING_ACTIVE_STATES}
         except Exception as error:
             raise ResetStopError("could not confirm app shutdown") from error
         if not pending:

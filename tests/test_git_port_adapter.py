@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,49 @@ import pytest
 
 from palmimo_portal.adapters.git_port import SubprocessGitPort
 from palmimo_portal.ports import GitCommandError
+
+
+def _run_git(argv: list[str], *, cwd: Path | None = None) -> None:
+    subprocess.run(["git", *argv], cwd=cwd, check=True, capture_output=True, text=True)
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not on PATH")
+def test_clone_shallow_populates_the_working_tree_for_a_sparse_blobless_clone(tmp_path: Path) -> None:
+    # `--filter=blob:none --no-checkout` followed by `sparse-checkout set` with no checkout
+    # left the working tree empty (the official-catalog install/update path, design doc 3.10) --
+    # this exercises the real clone, not just its argv, so a fix that flips the flags back to
+    # an empty tree fails here even though a fake would happily report success.
+    bare = tmp_path / "origin.git"
+    _run_git(["init", "--bare", "--initial-branch=main", str(bare)])
+    _run_git(["config", "uploadpack.allowFilter", "true"], cwd=bare)
+
+    work = tmp_path / "work"
+    _run_git(["clone", str(bare), str(work)])
+    (work / "README.md").write_text("root file\n", encoding="utf-8")
+    (work / "apps" / "foo").mkdir(parents=True)
+    (work / "apps" / "foo" / "palmimo.toml").write_text("name = \"foo\"\n", encoding="utf-8")
+    (work / "apps" / "foo" / "pyproject.toml").write_text("[project]\nname = \"foo\"\n", encoding="utf-8")
+    (work / "apps" / "bar").mkdir(parents=True)
+    (work / "apps" / "bar" / "x.txt").write_text("bar\n", encoding="utf-8")
+    _run_git(["add", "-A"], cwd=work)
+    _run_git(
+        ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "seed"],
+        cwd=work,
+    )
+    _run_git(["tag", "v1.0.0"], cwd=work)
+    _run_git(["push", "origin", "main", "v1.0.0"], cwd=work)
+
+    dest = tmp_path / "dest"
+    port = SubprocessGitPort()
+
+    port.clone_shallow(
+        f"file://{bare}", "v1.0.0", "tag", dest, blobless=True, sparse_subdir="apps/foo"
+    )
+
+    assert (dest / "README.md").is_file()
+    assert (dest / "apps" / "foo" / "palmimo.toml").is_file()
+    assert (dest / "apps" / "foo" / "pyproject.toml").is_file()
+    assert not (dest / "apps" / "bar").exists()
 
 
 class _RecordingRunner:
@@ -30,19 +74,6 @@ def test_clone_shallow_places_a_double_dash_before_the_untrusted_url(tmp_path: P
 
     argv = runner.calls[0]
     assert argv[argv.index("--") + 1] == "https://example.com/repo"
-
-
-def test_clone_shallow_uses_blobless_sparse_checkout_only_when_requested(tmp_path: Path) -> None:
-    runner = _RecordingRunner()
-    port = SubprocessGitPort(runner=runner)
-
-    port.clone_shallow(
-        "https://example.com/repo", "v1.0.0", "tag", tmp_path / "dest", blobless=True, sparse_subdir="examples/app"
-    )
-
-    assert "--filter=blob:none" in runner.calls[0]
-    assert "--no-checkout" in runner.calls[0]
-    assert runner.calls[1] == ["git", "sparse-checkout", "set", "--cone", "--", "examples/app"]
 
 
 def test_fetch_commit_places_a_double_dash_before_the_untrusted_url() -> None:

@@ -370,6 +370,42 @@ def _verify_catalog_commit(expected: str | None, actual: str) -> None:
         )
 
 
+def _fetch_git_source(
+    ctx: AppsJobContext,
+    *,
+    url: str,
+    ref: str,
+    ref_kind: AppRefKind,
+    subdir: str | None,
+    manifest: str | None,
+    dest: Path,
+) -> str:
+    """Clone ``url``@``ref`` into ``dest``, the one fetch path every git-source pipeline shares.
+
+    Uses the blobless sparse clone for exactly the source tuples the official
+    catalog advertises (design doc 3.10), and verifies the resulting ``HEAD``
+    against the catalog's pinned commit either way -- a preview, an install,
+    and an update must all reject the same force-moved tag, not just two of
+    the three.
+
+    Raises:
+        GitCommandError: ``ctx.catalog_cache`` pins a commit for this source
+            and the clone's ``HEAD`` does not match it.
+    """
+    expected_commit = _catalog_commit_for_source(ctx, url=url, ref=ref, ref_kind=ref_kind, subdir=subdir, manifest=manifest)
+    commit = ctx.git.clone_shallow(
+        url,
+        ref,
+        ref_kind,
+        dest,
+        env=git_env(ctx, url),
+        blobless=expected_commit is not None,
+        sparse_subdir=subdir if expected_commit is not None else None,
+    )
+    _verify_catalog_commit(expected_commit, commit)
+    return commit
+
+
 def _manifest_filename_for(source: AppSource) -> str:
     return source.manifest or DEFAULT_MANIFEST_FILENAME
 
@@ -578,7 +614,15 @@ def preview_git(
     resolved_manifest = validate_manifest_filename(manifest_filename)
     staging_container = ctx.staging_dir / ctx.new_id()
     try:
-        ctx.git.clone_shallow(url, ref, ref_kind, staging_container, env=git_env(ctx, url))
+        _fetch_git_source(
+            ctx,
+            url=url,
+            ref=ref,
+            ref_kind=ref_kind,
+            subdir=subdir,
+            manifest=_stored_manifest(resolved_manifest),
+            dest=staging_container,
+        )
         project_dir = resolve_subdir(staging_container, subdir)
         manifest = _read_manifest(project_dir, resolved_manifest)
         _check_pyproject(project_dir)
@@ -669,19 +713,15 @@ def prepare_install_git(
     job_id = job_id or ctx.new_id()
     staging_container = ctx.staging_dir / job_id
     try:
-        expected_commit = _catalog_commit_for_source(
-            ctx, url=url, ref=ref, ref_kind=ref_kind, subdir=subdir, manifest=_stored_manifest(resolved_manifest)
+        commit = _fetch_git_source(
+            ctx,
+            url=url,
+            ref=ref,
+            ref_kind=ref_kind,
+            subdir=subdir,
+            manifest=_stored_manifest(resolved_manifest),
+            dest=staging_container,
         )
-        commit = ctx.git.clone_shallow(
-            url,
-            ref,
-            ref_kind,
-            staging_container,
-            env=git_env(ctx, url),
-            blobless=expected_commit is not None,
-            sparse_subdir=subdir if expected_commit is not None else None,
-        )
-        _verify_catalog_commit(expected_commit, commit)
         project_dir = resolve_subdir(staging_container, subdir)
         manifest = _read_manifest(project_dir, resolved_manifest)
         _check_pyproject(project_dir)
@@ -840,24 +880,15 @@ def update_git(
     staging_container = ctx.staging_dir / job_id
     try:
         on_step("fetch")
-        expected_commit = _catalog_commit_for_source(
+        commit = _fetch_git_source(
             ctx,
             url=record.source.url,
             ref=record.source.ref,
             ref_kind=record.source.ref_kind,
             subdir=record.source.subdir,
             manifest=record.source.manifest,
+            dest=staging_container,
         )
-        commit = ctx.git.clone_shallow(
-            record.source.url,
-            record.source.ref,
-            record.source.ref_kind,
-            staging_container,
-            env=git_env(ctx, record.source.url),
-            blobless=expected_commit is not None,
-            sparse_subdir=record.source.subdir if expected_commit is not None else None,
-        )
-        _verify_catalog_commit(expected_commit, commit)
         on_step("validate")
         project_dir = resolve_subdir(staging_container, record.source.subdir)
         manifest = _read_manifest(project_dir, _manifest_filename_for(record.source))

@@ -20,6 +20,7 @@ from palmimo_portal.core.apps_jobs import (
     install_zip,
     prepare_install_git,
     prepare_install_zip,
+    preview_git,
     purge_app_files,
     sweep_orphan_app_dirs,
     sync_unit_name,
@@ -561,6 +562,24 @@ def test_prepare_install_git_rejects_an_official_catalog_tag_at_the_wrong_commit
             ref="v1.0.0",
             ref_kind="tag",
         )
+
+    assert excinfo.value.reason == "git_commit_mismatch"
+
+
+def test_preview_git_rejects_an_official_catalog_tag_at_the_wrong_commit(harness: Harness) -> None:
+    # preview_git must apply the same catalog-commit verification as install/update --
+    # otherwise a force-moved tag passes preview and only fails later, at install time.
+    expected = "catalog-commit"
+    catalog = CatalogCache(
+        FakeCatalogSource(asset=CatalogAsset(tag="v1.0.0", apps=(make_catalog_app(commit=expected),))), FakeStateStore()
+    )
+    catalog.get(ntp_synchronized=True)
+    ctx = replace(harness.ctx, catalog_cache=catalog, catalog_repo="Jizai-inc/palmimo-devkit")
+    harness.git.next_commit = "moved-tag-commit"
+    harness.git.on_clone = lambda dest, *_: _seed_git_clone(dest, "palmimo-teleop")
+
+    with pytest.raises(GitCommandError) as excinfo:
+        preview_git(ctx, url="https://github.com/Jizai-inc/palmimo-devkit", ref="v1.0.0", ref_kind="tag")
 
     assert excinfo.value.reason == "git_commit_mismatch"
 

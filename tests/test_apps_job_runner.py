@@ -238,6 +238,25 @@ def test_failed_install_discards_its_cache_before_the_id_is_reused(ctx: AppsJobC
     assert seen == set()
 
 
+def test_install_rejects_a_reused_id_when_its_stale_cache_cannot_be_purged(
+    monkeypatch: pytest.MonkeyPatch, ctx: AppsJobContext
+) -> None:
+    from palmimo_portal.core import apps_jobs
+
+    cache = ctx.uv_cache_dir / ZIP_ID
+    cache.mkdir(parents=True)
+    (cache / "untrusted").write_text("cached wheel")
+    monkeypatch.setattr(apps_jobs, "purge_path", lambda _ctx, path: str(path))
+    state_store = FakeStateStore()
+    runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
+
+    job = runner.start_install(prepare_install_zip(ctx, _zip_bytes()))
+
+    assert job.state == "failed"
+    assert "stale uv cache" in (job.error or "")
+    assert cast(FakeSyncUnitPort, ctx.sync_unit).start_calls == []
+
+
 def test_start_install_reports_a_failed_required_python_install(ctx: AppsJobContext) -> None:
     uv = cast(FakeUvPort, ctx.uv)
     uv.system_python_satisfies = False

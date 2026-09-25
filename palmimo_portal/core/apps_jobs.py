@@ -798,7 +798,9 @@ def commit_install(
         app_id = f"{namespace}.{suggest_app_name(namespace, prepared.manifest.name, state)}"
     if app_id in state.apps:
         raise AppExistsError(app_id)
-    _purge_uv_cache(ctx, app_id)
+    leftover_cache = _purge_uv_cache(ctx, app_id)
+    if leftover_cache is not None:
+        raise OSError(f"could not remove stale uv cache: {leftover_cache}")
     on_step("sync")
     layout = resolve_layout(prepared.install_root, prepared.source.subdir)
     _chmod_group_rwx(prepared.project_dir)
@@ -1070,7 +1072,7 @@ def purge_app_files(ctx: AppsJobContext, name: str, on_step: Callable[[str], Non
         _purge_uv_cache(ctx, name)
 
 
-def _purge_uv_cache(ctx: AppsJobContext, name: str) -> None:
+def _purge_uv_cache(ctx: AppsJobContext, name: str) -> str | None:
     """Escalate a deleted app's uv cache through the same trash-then-purge contract as ``purge_path``.
 
     Cache contents are written by the sync unit's ``palmimo-app`` uid
@@ -1080,16 +1082,18 @@ def _purge_uv_cache(ctx: AppsJobContext, name: str) -> None:
     """
     cache = ctx.uv_cache_dir / name
     if not cache.exists() and not cache.is_symlink():
-        return
+        return None
     trash = ctx.trash_dir / ctx.new_id()
     ctx.trash_dir.mkdir(parents=True, exist_ok=True)
     try:
         cache.rename(trash)
     except OSError as error:
         logger.warning("apps: could not move uv cache into .trash name=%s: %s", name, error)
-        return
-    if purge_path(ctx, trash) is not None:
+        return str(cache)
+    leftover = purge_path(ctx, trash)
+    if leftover is not None:
         logger.warning("apps: purge left a leftover uv cache name=%s", name)
+    return leftover
 
 
 def _is_official_devkit_source(url: str | None, catalog_repo: str) -> bool:

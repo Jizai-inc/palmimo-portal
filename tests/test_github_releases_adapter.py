@@ -188,6 +188,7 @@ PRERELEASE_PAYLOAD = {
     "published_at": "2026-02-01T00:00:00Z",
     "html_url": "https://github.com/Jizai-inc/palmimo-portal/releases/tag/v2.0.0-rc1",
     "draft": False,
+    "prerelease": True,
 }
 
 
@@ -248,7 +249,7 @@ def test_fetch_latest_with_a_tag_prefix_looks_past_a_full_page_of_other_releases
     assert source.fetch_latest().tag == "examples-v0.1.0"
 
 
-def test_fetch_latest_on_the_prerelease_channel_resolves_the_newest_non_draft_entry() -> None:
+def test_fetch_latest_on_the_prerelease_channel_selects_the_highest_non_draft_version() -> None:
     payload = [
         {**PRERELEASE_PAYLOAD, "draft": True, "tag_name": "v2.0.0-rc2-draft"},
         PRERELEASE_PAYLOAD,
@@ -260,7 +261,84 @@ def test_fetch_latest_on_the_prerelease_channel_resolves_the_newest_non_draft_en
 
     release = source.fetch_latest()
 
-    assert release.tag == "v2.0.0-rc1"
+    assert release.tag == "v2.0.0"
+
+
+PORTAL_RELEASES_IN_API_ORDER = [
+    {**PRERELEASE_PAYLOAD, "tag_name": "v0.2.0-rc9"},
+    {**PRERELEASE_PAYLOAD, "tag_name": "v0.2.0-rc10"},
+    {**PRERELEASE_PAYLOAD, "tag_name": "v0.2.0-rc8"},
+    {**PRERELEASE_PAYLOAD, "tag_name": "v0.2.0-rc7"},
+    {**VALID_PAYLOAD, "tag_name": "v0.1.6", "draft": False, "prerelease": False},
+    {**VALID_PAYLOAD, "tag_name": "v0.1.5", "draft": False, "prerelease": False},
+]
+
+DEVKIT_RELEASES_IN_API_ORDER = [
+    {**PRERELEASE_PAYLOAD, "tag_name": "examples-v0.1.0-rc3"},
+    {**VALID_PAYLOAD, "tag_name": "v0.1.1", "draft": False, "prerelease": False},
+    {**PRERELEASE_PAYLOAD, "tag_name": "examples-v0.1.0-rc2"},
+    {**PRERELEASE_PAYLOAD, "tag_name": "examples-v0.1.0-rc1"},
+    {**VALID_PAYLOAD, "tag_name": "v0.1.0", "draft": False, "prerelease": False},
+]
+
+
+@pytest.mark.parametrize(
+    ("channel", "tag_prefix", "payload", "expected_tag", "expected_error"),
+    [
+        ("prerelease", None, PORTAL_RELEASES_IN_API_ORDER, "v0.2.0-rc10", None),
+        ("prerelease", "examples-v", DEVKIT_RELEASES_IN_API_ORDER, "examples-v0.1.0-rc3", None),
+        ("stable", "examples-v", DEVKIT_RELEASES_IN_API_ORDER, None, "no_release"),
+        (
+            "stable",
+            "examples-v",
+            [*DEVKIT_RELEASES_IN_API_ORDER, {**VALID_PAYLOAD, "tag_name": "examples-v0.1.0", "draft": False}],
+            "examples-v0.1.0",
+            None,
+        ),
+        (
+            "prerelease",
+            "examples-v",
+            [*DEVKIT_RELEASES_IN_API_ORDER, {**VALID_PAYLOAD, "tag_name": "examples-v0.1.0", "draft": False}],
+            "examples-v0.1.0",
+            None,
+        ),
+        (
+            "stable",
+            "examples-v",
+            [
+                *DEVKIT_RELEASES_IN_API_ORDER,
+                {**VALID_PAYLOAD, "tag_name": "examples-v0.1.1", "draft": False},
+                {**PRERELEASE_PAYLOAD, "tag_name": "examples-v0.2.0-rc1"},
+            ],
+            "examples-v0.1.1",
+            None,
+        ),
+    ],
+    ids=[
+        "portal_prerelease",
+        "catalog_prerelease",
+        "catalog_stable_without_final",
+        "catalog_stable_with_final",
+        "catalog_prerelease_prefers_final",
+        "catalog_stable_ignores_newer_prerelease",
+    ],
+)
+def test_fetch_latest_from_list_selects_the_highest_matching_version(
+    channel: str,
+    tag_prefix: str | None,
+    payload: list[dict[str, Any]],
+    expected_tag: str | None,
+    expected_error: str | None,
+) -> None:
+    source = GitHubReleaseSource(channel=channel, tag_prefix=tag_prefix, opener=_opener_returning(payload))
+
+    if expected_error is not None:
+        with pytest.raises(ReleaseSourceError) as excinfo:
+            source.fetch_latest()
+
+        assert excinfo.value.code == expected_error
+    else:
+        assert source.fetch_latest().tag == expected_tag
 
 
 def test_fetch_latest_on_the_prerelease_channel_uses_the_release_list_url() -> None:

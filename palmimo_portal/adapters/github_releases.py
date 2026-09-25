@@ -5,9 +5,9 @@
 recent non-prerelease, non-draft release". With a tag prefix, or with
 ``channel == "prerelease"`` (the dev-machine opt-in -- see
 ``PALMIMO_UPDATE_CHANNEL`` in ``settings.py``), it instead walks the release
-list newest first, a page at a time, and picks the first non-draft release
-the channel admits (prereleases only on the prerelease channel) whose tag
-has the prefix. That keeps a published rc discoverable without disturbing
+list a page at a time and picks the greatest non-draft release version the
+channel admits (prereleases only on the prerelease channel) whose tag has
+the prefix. That keeps a published rc discoverable without disturbing
 ``releases/latest`` for every other device, and lets the catalog pick its
 own releases out of a repository that also publishes others. Uses
 ``urllib`` (stdlib), not ``httpx``/``requests``: one occasional request
@@ -24,6 +24,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from packaging.version import InvalidVersion, Version
+
 from palmimo_portal.ports import Release, ReleaseSource, ReleaseSourceError
 from palmimo_portal.version import portal_version
 
@@ -32,8 +34,7 @@ logger = logging.getLogger("palmimo_portal")
 
 DEFAULT_TIMEOUT_SECONDS = 10.0
 
-#: Page size for the list-based selection: the API maximum. GitHub orders
-#: this endpoint by created date descending.
+#: Page size for the list-based selection: the API maximum.
 PRERELEASE_LIST_PAGE_SIZE = 100
 
 #: Pages the list-based selection walks before giving up. A tag prefix has to
@@ -126,6 +127,8 @@ class GitHubReleaseSource(ReleaseSource):
         return _release_from_payload(payload)
 
     def _fetch_latest_from_list(self) -> Release:
+        latest: tuple[Version, Release] | None = None
+        version_prefix = self.tag_prefix or "v"
         for page in range(1, RELEASE_LIST_MAX_PAGES + 1):
             payload = self._request(
                 f"https://api.github.com/repos/{self.repo}/releases?per_page={PRERELEASE_LIST_PAGE_SIZE}&page={page}"
@@ -137,9 +140,19 @@ class GitHubReleaseSource(ReleaseSource):
                     continue
                 if self.channel != "prerelease" and entry.get("prerelease", False):
                     continue
-                if self.tag_prefix is not None and not str(entry.get("tag_name", "")).startswith(self.tag_prefix):
+                tag = entry.get("tag_name", "")
+                if not isinstance(tag, str) or not tag.startswith(version_prefix):
                     continue
-                return _release_from_payload(entry)
+                try:
+                    version = Version(tag.removeprefix(version_prefix))
+                except InvalidVersion:
+                    logger.warning("github: skipping release with unparseable tag %s for %s", tag, self.repo)
+                    continue
+                release = _release_from_payload(entry)
+                if latest is None or version > latest[0]:
+                    latest = (version, release)
             if len(payload) < PRERELEASE_LIST_PAGE_SIZE:
                 break
+        if latest is not None:
+            return latest[1]
         raise ReleaseSourceError("no_release", f"no releases found for {self.repo}")

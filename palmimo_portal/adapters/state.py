@@ -49,6 +49,7 @@ from typing import Any
 from palmimo_portal.adapters.atomic_write import atomic_write_text, create_exclusive_text, ensure_private_dir, fsync_dir
 from palmimo_portal.core.apps import APP_ID_RE
 from palmimo_portal.core.auth import AUTH_LOCK_TIMEOUT_SECONDS
+from palmimo_portal.core.manifest import ManifestValidationError, manifest_from_snapshot, manifest_snapshot
 from palmimo_portal.core.platform_update import IDLE_PLATFORM_STATE
 from palmimo_portal.core.update import IDLE_UPDATE_JOB, IDLE_UPDATE_STATE, is_valid_release_tag
 from palmimo_portal.ports import (
@@ -838,6 +839,10 @@ class JsonFileStateStore(StateStore):
             params = entry.get("params", {})
             if not isinstance(params, dict):
                 raise TypeError(f"apps.json apps.{name}.params must be an object")
+            try:
+                manifest = manifest_snapshot(manifest_from_snapshot(entry["manifest"]))
+            except ManifestValidationError as error:
+                raise TypeError(f"apps.json apps.{name}.manifest is invalid: {error}") from error
             apps[name] = AppRecord(
                 name=entry["name"],
                 source=source,
@@ -849,6 +854,7 @@ class JsonFileStateStore(StateStore):
                 credential_rejected=bool(entry.get("credential_rejected", False)),
                 update_available=bool(entry.get("update_available", False)),
                 latest_commit=entry.get("latest_commit"),
+                manifest=manifest,
                 id=name,
             )
         current_job_data = data.get("current_job")
@@ -950,6 +956,7 @@ class JsonFileStateStore(StateStore):
                     "credential_rejected": record.credential_rejected,
                     "update_available": record.update_available,
                     "latest_commit": record.latest_commit,
+                    "manifest": record.manifest,
                 }
                 for name, record in state.apps.items()
             },

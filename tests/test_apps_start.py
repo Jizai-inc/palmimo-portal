@@ -14,7 +14,6 @@ from palmimo_portal.core.apps_start import (
     AppJobInProgressStartError,
     AppRunningError,
     EnvUnboundError,
-    ManifestInvalidError,
     ParamsInvalidError,
     ParamsMissingError,
     PlatformNotReadyError,
@@ -27,6 +26,7 @@ from palmimo_portal.core.apps_start import (
     start_app,
     stop_app,
 )
+from palmimo_portal.core.manifest import manifest_snapshot, parse_manifest
 from palmimo_portal.ports import AppNotFoundError, AppRecord, AppSource, AppsState, PolkitDeniedError, UnitStatus
 from palmimo_portal.testing.fakes import (
     FakeAppUnitPort,
@@ -87,7 +87,9 @@ def _write_app(
     return root
 
 
-def _record(name: str, *, params: dict | None = None, source: AppSource | None = None) -> AppRecord:
+def _record(
+    name: str, *, params: dict | None = None, source: AppSource | None = None, manifest: str = _DEFAULT_MANIFEST
+) -> AppRecord:
     return AppRecord(
         name=name,
         source=source or AppSource(type="zip"),
@@ -95,6 +97,7 @@ def _record(name: str, *, params: dict | None = None, source: AppSource | None =
         params=params if params is not None else {"label": "x"},
         autostart=False,
         last_job=None,
+        manifest=manifest_snapshot(parse_manifest(manifest)),
         id=name,
     )
 
@@ -140,7 +143,9 @@ def _state(deps: StartDeps) -> FakeStateStore:
 
 def _install(deps: StartDeps, apps_dir: Path, name: str, *, bind_required: bool = True, **kwargs: object) -> AppRecord:
     _write_app(apps_dir, name, **kwargs)  # type: ignore[arg-type]
-    record = _record(name)
+    manifest = kwargs.get("manifest", _DEFAULT_MANIFEST)
+    assert isinstance(manifest, str)
+    record = _record(name, manifest=manifest)
     existing = _state(deps).read_apps_state().apps
     _state(deps).write_apps_state(AppsState(apps={**existing, name: record}))
     if bind_required:
@@ -207,11 +212,14 @@ def test_start_app_raises_platform_not_ready_when_the_gate_refuses(deps: StartDe
         start_app(deps, "app", host="host")
 
 
-def test_start_app_raises_manifest_invalid_when_manifest_is_missing_on_disk(deps: StartDeps, apps_dir: Path) -> None:
-    # No _write_app call: the ledger names an app whose palmimo.toml was never written.
+def test_start_app_uses_snapshot_but_rejects_a_missing_app_tree(deps: StartDeps, apps_dir: Path) -> None:
+    # The snapshot remains authoritative for configuration, but the app still
+    # needs its installed venv to exist before it can be run.
     _state(deps).write_apps_state(AppsState(apps={"app": _record("app")}))
+    deps.apps_job_ctx.secrets.set_secret("MY_KEY", "sekrit")
+    deps.apps_job_ctx.secrets.write_bindings("app", {"API_KEY": "MY_KEY"})
 
-    with pytest.raises(ManifestInvalidError):
+    with pytest.raises(VenvMissingError):
         start_app(deps, "app", host="host")
 
 
@@ -252,7 +260,9 @@ def test_start_app_raises_params_invalid_when_a_saved_value_no_longer_fits_the_m
     # port's saved value was valid when set; the manifest changed underneath it (design doc 3.5 step 4).
     manifest = _DEFAULT_MANIFEST.replace('type = "int"\ndefault = 8080', 'type = "int"\nmin = 9000')
     _write_app(apps_dir, "app", manifest=manifest)
-    _state(deps).write_apps_state(AppsState(apps={"app": _record("app", params={"port": 8080, "label": "x"})}))
+    _state(deps).write_apps_state(
+        AppsState(apps={"app": _record("app", params={"port": 8080, "label": "x"}, manifest=manifest)})
+    )
     deps.apps_job_ctx.secrets.set_secret("MY_KEY", "sekrit")
     deps.apps_job_ctx.secrets.write_bindings("app", {"API_KEY": "MY_KEY"})
 
@@ -368,6 +378,17 @@ def test_start_app_sets_device_allow_camera_expands_to_three_groups(deps: StartD
     [(name, specs)] = _app_unit(deps).device_allow_calls
     assert name == "app"
     assert specs == ["char-video4linux", "char-media", "char-dma_heap"]
+
+
+def test_start_app_uses_the_installed_manifest_snapshot_for_device_allow(deps: StartDeps, apps_dir: Path) -> None:
+    _install(deps, apps_dir, "app")
+    (apps_dir / "app" / "palmimo.toml").write_text(
+        _DEFAULT_MANIFEST.replace('name = "app"', 'name = "app"\ndevices = ["camera"]'), encoding="utf-8"
+    )
+
+    start_app(deps, "app", host="host")
+
+    assert _app_unit(deps).device_allow_calls == [("app", [])]
 
 
 def test_start_app_calls_start_after_writing_run_dir_and_setting_devices(deps: StartDeps, apps_dir: Path) -> None:

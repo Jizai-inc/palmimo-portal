@@ -859,6 +859,9 @@ class AppRecord:
     update_available: bool = False
     #: The upstream commit `update_available` refers to, or `None` before any check has run.
     latest_commit: str | None = None
+    #: Validated manifest captured at install/update time. Runtime behavior
+    #: must use this rather than the mutable app checkout.
+    manifest: dict[str, Any] | None = None
     #: Stable machine identifier; ``name`` is the manifest-provided display name.
     id: str = ""
 

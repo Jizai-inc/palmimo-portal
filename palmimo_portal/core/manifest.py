@@ -8,6 +8,7 @@ so a typo in a manifest cannot silently fail to take effect.
 
 from __future__ import annotations
 
+import json
 import re
 import tomllib
 from dataclasses import dataclass
@@ -141,6 +142,94 @@ class Manifest:
     devices: frozenset[str]
     env: dict[str, EnvSpec]
     params: dict[str, ParamSpec]
+
+
+def manifest_snapshot(manifest: Manifest) -> dict[str, Any]:
+    """Return the validated, JSON-safe manifest form stored in the app ledger."""
+    params: dict[str, dict[str, Any]] = {}
+    for name, spec in manifest.params.items():
+        value: dict[str, Any] = {"type": spec.type}
+        if spec.has_default:
+            value["default"] = spec.default
+        if spec.min is not None:
+            value["min"] = spec.min
+        if spec.max is not None:
+            value["max"] = spec.max
+        if spec.choices is not None:
+            value["choices"] = list(spec.choices)
+        if spec.pattern is not None:
+            value["pattern"] = spec.pattern
+        if spec.type == "string" and spec.max_length != _DEFAULT_MAX_LENGTH:
+            value["max_length"] = spec.max_length
+        if spec.flag is not None:
+            value["flag"] = spec.flag
+        if spec.description is not None:
+            value["description"] = spec.description
+        params[name] = value
+    return {
+        "schema": manifest.schema,
+        "name": manifest.name,
+        "description": manifest.description,
+        "command": list(manifest.command),
+        "url": manifest.url,
+        "devices": sorted(manifest.devices),
+        "env": {
+            name: {
+                "required": spec.required,
+                "description": spec.description,
+                **({"help_url": spec.help_url} if spec.help_url is not None else {}),
+            }
+            for name, spec in manifest.env.items()
+        },
+        "params": params,
+    }
+
+
+def manifest_from_snapshot(snapshot: Any) -> Manifest:
+    """Validate and restore a ledger manifest snapshot.
+
+    The conversion deliberately reuses :func:`parse_manifest`: ``apps.json`` is
+    operator-writable state, so treating its snapshot as already trusted would
+    let a tampered ledger grant a new device class at start time.
+    """
+    if not isinstance(snapshot, dict):
+        raise ManifestValidationError(["manifest snapshot must be an object"])
+    try:
+        # This also rejects values JSON cannot represent before generating TOML.
+        normalized = json.loads(json.dumps(snapshot))
+        return parse_manifest(_snapshot_toml(normalized))
+    except (AttributeError, TypeError, ValueError) as error:
+        raise ManifestValidationError([f"invalid manifest snapshot: {error}"]) from error
+
+
+def _snapshot_toml(snapshot: dict[str, Any]) -> str:
+    """Encode the small manifest schema as TOML so normal validation is authoritative."""
+    def scalar(value: Any) -> str:
+        return json.dumps(value, ensure_ascii=False)
+    lines = [
+        f"schema = {scalar(snapshot.get('schema'))}",
+        f"name = {scalar(snapshot.get('name'))}",
+        f"description = {scalar(snapshot.get('description'))}",
+        f"command = {scalar(snapshot.get('command'))}",
+        f"devices = {scalar(snapshot.get('devices', []))}",
+    ]
+    if snapshot.get("url") is not None:
+        lines.append(f"url = {scalar(snapshot['url'])}")
+    for name, spec in snapshot.get("env", {}).items():
+        lines.append(f"[env.{scalar(name)}]")
+        if isinstance(spec, dict):
+            for key, value in spec.items():
+                lines.append(f"{key} = {scalar(value)}")
+        else:
+            lines.append(f"value = {scalar(spec)}")
+    for name, spec in snapshot.get("params", {}).items():
+        lines.append(f"[params.{scalar(name)}]")
+        if isinstance(spec, dict):
+            for key, value in spec.items():
+                lines.append(f"{key} = {scalar(value)}")
+        else:
+            lines.append(f"value = {scalar(spec)}")
+    return "\n".join(lines)
 
 
 def parse_manifest(text: str) -> Manifest:

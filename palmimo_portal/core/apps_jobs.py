@@ -46,7 +46,14 @@ from palmimo_portal.core.apps import app_namespace, host_owner_from_url, resolve
 from palmimo_portal.core.apps_layout import LayoutPaths, resolve_layout
 from palmimo_portal.core.apps_zip import UPLOAD_MAX_BYTES, extract_zip_to_staging
 from palmimo_portal.core.catalog import CatalogCache
-from palmimo_portal.core.manifest import DEFAULT_MANIFEST_FILENAME, Manifest, parse_manifest, validate_manifest_filename
+from palmimo_portal.core.manifest import (
+    DEFAULT_MANIFEST_FILENAME,
+    Manifest,
+    manifest_from_snapshot,
+    manifest_snapshot,
+    parse_manifest,
+    validate_manifest_filename,
+)
 from palmimo_portal.core.os_group import apps_gid
 from palmimo_portal.core.secrets import mask_authorization_lines
 from palmimo_portal.ports import (
@@ -399,7 +406,12 @@ def purge_path(ctx: AppsJobContext, path: Path) -> str | None:
 
 
 def read_manifest_for_app(ctx: AppsJobContext, record: AppRecord) -> Manifest:
-    """Read the current on-disk manifest for an installed app (design doc 3.3: never cached in the ledger)."""
+    """Return the validated manifest captured when this app was installed or updated."""
+    if record.manifest is not None:
+        return manifest_from_snapshot(record.manifest)
+    # Records created before snapshots were introduced are only retained for
+    # in-memory compatibility; persisted legacy ledgers are rejected by the
+    # state adapter below.
     project_dir = ctx.app_dir(record.id)
     project_dir = resolve_subdir(project_dir, record.source.subdir)
     return _read_manifest(project_dir, _manifest_filename_for(record.source))
@@ -594,6 +606,7 @@ def commit_install(
         params={},
         autostart=False,
         last_job=job,
+        manifest=manifest_snapshot(prepared.manifest),
         id=app_id,
     )
     new_state = AppsState(apps={**state.apps, app_id: record})
@@ -744,6 +757,7 @@ def update_git(
             params={key: value for key, value in record.params.items() if key not in dropped_params},
             autostart=record.autostart,
             last_job=job,
+            manifest=manifest_snapshot(manifest),
             id=record.id,
         )
         new_state = AppsState(apps={**state.apps, name: new_record})

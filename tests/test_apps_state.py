@@ -11,10 +11,15 @@ import pytest
 
 from palmimo_portal.adapters.state import JsonFileStateStore
 from palmimo_portal.core.apps import clear_credential_rejected, finalize_apps_state
+from palmimo_portal.core.manifest import manifest_snapshot, parse_manifest
 from palmimo_portal.ports import AppJob, AppRecord, AppSource, AppsState, AppsStateFileState
 
 
 APP_ID = "palmimo.teleop"
+
+_MANIFEST = manifest_snapshot(
+    parse_manifest('schema = 1\nname = "app"\ndescription = "app"\ncommand = ["run"]')
+)
 
 
 def _record(
@@ -38,6 +43,7 @@ def _record(
         credential_rejected=credential_rejected,
         update_available=update_available,
         latest_commit=latest_commit,
+        manifest=_MANIFEST,
         id=APP_ID,
     )
 
@@ -138,9 +144,10 @@ def test_write_then_read_apps_state_round_trips_a_non_default_manifest(tmp_path:
     assert store.read_apps_state() == state
 
 
-def test_read_apps_state_treats_an_id_ledger_entry_without_a_manifest_key_as_the_default(tmp_path: Path) -> None:
-    # A ledger written before the manifest field existed must keep loading as "default
-    # manifest", not fail or silently drop the app.
+def test_apps_state_file_state_reports_corrupt_when_an_id_ledger_entry_has_no_manifest_snapshot(tmp_path: Path) -> None:
+    # Reading a mutable checkout during start would let its author add devices
+    # after installation, so persisted records without the validated snapshot
+    # are intentionally not accepted as installed apps.
     state_dir = tmp_path / "state"
     state_dir.mkdir()
     (state_dir / "apps.json").write_text(
@@ -172,10 +179,7 @@ def test_read_apps_state_treats_an_id_ledger_entry_without_a_manifest_key_as_the
     )
     store = JsonFileStateStore(state_dir)
 
-    state = store.read_apps_state()
-
-    assert state.apps[APP_ID].source.manifest is None
-    assert state.last_orphan_job is None
+    assert store.apps_state_file_state() is AppsStateFileState.CORRUPT
 
 
 def test_write_then_read_apps_state_round_trips_the_orphan_job(tmp_path: Path) -> None:

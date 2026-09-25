@@ -37,12 +37,7 @@ _PARAM_TYPE_EXTRA_KEYS: dict[str, frozenset[str]] = {
     "bool": frozenset({"flag"}),
 }
 _DEFAULT_MAX_LENGTH = 256
-_MAX_PATTERN_LENGTH = 200
-#: Values are checked against ``pattern`` only up to this length: an
-#: unbounded ``max_length`` must not let an attacker-controlled string drive
-#: a (possibly pathological, see ``_has_nested_quantifier``) regex over its
-#: full size.
-_PATTERN_CHECK_MAX_VALUE_LENGTH = 256
+_MAX_PATTERN_LENGTH = 256
 # Any brace-delimited text is a placeholder candidate; name validity against
 # _PARAM_NAME_PATTERN is checked separately so `{}` and `{foo-bar}` are
 # reported as undefined rather than silently ignored by this regex.
@@ -527,7 +522,7 @@ def _validate_param_value(name: str, spec: ParamSpec, value: Any, errors: list[s
             return
         if len(value) > spec.max_length:
             errors.append(f"param {name!r} exceeds max_length {spec.max_length}")
-        if spec.pattern is not None and not re.fullmatch(spec.pattern, value[:_PATTERN_CHECK_MAX_VALUE_LENGTH]):
+        if spec.pattern is not None and not re.fullmatch(spec.pattern, value):
             errors.append(f"param {name!r} value {value!r} does not match pattern {spec.pattern!r}")
 
 

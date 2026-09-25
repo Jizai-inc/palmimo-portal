@@ -46,7 +46,7 @@ describe("PlatformUpdateCard", () => {
 
     expect(await screen.findByText(expectedText)).toBeInTheDocument();
     expect(screen.queryByText("Up to date")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Check now" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Check platform updates" })).toBeEnabled();
   });
 
   it("does not claim to be up to date when the installed version is unknown", async () => {
@@ -146,7 +146,7 @@ describe("PlatformUpdateCard", () => {
     renderWithProviders(<PlatformUpdateCard installedPortalVersion="0.1.0" />);
     await screen.findByText("2 (v2)");
 
-    await user.click(await screen.findByRole("button", { name: "Check now" }));
+    await user.click(await screen.findByRole("button", { name: "Check platform updates" }));
 
     expect(await screen.findByText("3 (v3)")).toBeInTheDocument();
   });

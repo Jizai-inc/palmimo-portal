@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from palmimo_portal.core.platform import PlatformLatestCache, PlatformUpdateRunner, compute_status
+from palmimo_portal.core.platform import (
+    PlatformLatestCache,
+    PlatformUpdateRunner,
+    compute_status,
+    portal_satisfies_requirement,
+)
 from palmimo_portal.core.platform_update import IDLE_PLATFORM_STATE, finalize_after_restart
 from palmimo_portal.ports import (
     AdapterUnavailableError,
@@ -33,6 +38,18 @@ READY_MANIFEST = {
     "summary": "adds camera device class",
     "reflash_required": False,
 }
+
+
+@pytest.mark.parametrize(
+    ("installed", "required", "expected"),
+    [
+        ("0.2.0rc1", "0.2.0", False),
+        ("0.2.0", "0.2.0rc1", True),
+        ("v0.3.0", "0.2.9", True),
+    ],
+)
+def test_portal_satisfies_requirement_uses_pep440_ordering(installed: str, required: str, expected: bool) -> None:
+    assert portal_satisfies_requirement(installed, required) is expected
 
 
 @pytest.fixture

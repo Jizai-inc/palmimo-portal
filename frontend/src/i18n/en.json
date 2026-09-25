@@ -277,7 +277,7 @@
     "platformLatestVersionLabel": "Latest version",
     "platformSummaryLabel": "Summary",
     "platformUpdateButton": "Update",
-    "platformCheckNowButton": "Check now",
+    "platformCheckNowButton": "Check platform updates",
     "platformReflashRequired": "This update requires reflashing the SD card; it cannot be applied in place.",
     "platformPortalTooOld": "Update the Portal itself before updating the device platform.",
     "platformVerifyDiffBanner": "The device platform has drifted from its recorded version. Reapply the update to fix it.",

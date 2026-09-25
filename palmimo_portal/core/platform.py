@@ -30,6 +30,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from packaging.version import InvalidVersion, Version
+
 from palmimo_portal.core.platform_update import advance, mark_done, mark_failed, start_update
 from palmimo_portal.core.update import CHECK_RATE_LIMIT_SECONDS
 from palmimo_portal.ports import (
@@ -88,22 +90,18 @@ def parse_manifest(bundle_dir: Path) -> PlatformManifest:
         raise ValueError(f"{path} is missing or has a malformed field: {error}") from error
 
 
-def _version_tuple(text: str) -> tuple[int, ...]:
-    """Parse a dotted version string (an optional leading ``v`` stripped) into a comparable tuple.
+def _version_tuple(text: str) -> Version:
+    """Parse a version string, treating invalid input as the oldest version.
 
     Falls back to ``(0,)`` for anything unparseable -- a malformed
     ``requires_portal``/installed-version string must never crash a
     readiness check; it is treated as "not newer", the safe direction for
     :func:`portal_satisfies_requirement`.
     """
-    text = text.removeprefix("v")
-    parts: list[int] = []
-    for chunk in text.split("."):
-        digits = "".join(ch for ch in chunk if ch.isdigit())
-        if not digits:
-            break
-        parts.append(int(digits))
-    return tuple(parts) or (0,)
+    try:
+        return Version(text.removeprefix("v"))
+    except InvalidVersion:
+        return Version("0")
 
 
 def portal_satisfies_requirement(installed_portal_version: str, requires_portal: str) -> bool:

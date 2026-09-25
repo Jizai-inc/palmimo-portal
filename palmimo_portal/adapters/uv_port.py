@@ -34,13 +34,17 @@ class SubprocessUvPort(UvPort):
         return (result.stdout or "").strip() or "unknown"
 
     def find_system_python(self, requirement: str) -> str | None:
+        env = os.environ.copy()
+        env["UV_PYTHON_INSTALL_DIR"] = str(UV_PYTHON_INSTALL_DIR)
+        env["UV_PYTHON_PREFERENCE"] = "system"
+        env["UV_PYTHON_DOWNLOADS"] = "never"
         try:
             result = self.runner(  # type: ignore[operator]
                 [self.uv_bin, "python", "find", "--system", "--no-project", "--no-config", requirement],
                 capture_output=True,
                 text=True,
                 timeout=PYTHON_TIMEOUT_SECONDS,
-                env=os.environ.copy(),
+                env=env,
             )
         except (subprocess.TimeoutExpired, OSError) as error:
             raise UvPythonInstallError(f"could not search for system Python {requirement!r}: {error}") from error

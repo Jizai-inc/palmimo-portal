@@ -285,6 +285,24 @@ def test_parse_manifest_rejects_pattern_with_alternation() -> None:
         )
 
 
+def test_parse_manifest_accepts_a_256_character_pattern() -> None:
+    pattern = "a" * 256
+    manifest = parse_manifest(
+        f'''\
+        schema = 1
+        name = "app"
+        description = "x"
+        command = ["run", "{{value}}"]
+
+        [params.value]
+        type = "string"
+        pattern = "{pattern}"
+        '''
+    )
+
+    assert manifest.params["value"].pattern == pattern
+
+
 @pytest.mark.parametrize("name", [None, "", "palmimo.toml", "palmimo.realtime.toml"])
 def test_validate_manifest_filename_accepts_default_and_variant_names(name: str | None) -> None:
     result = validate_manifest_filename(name)

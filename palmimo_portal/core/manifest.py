@@ -319,9 +319,8 @@ def _is_number_not_bool(value: Any) -> bool:
 
 
 def _is_finite_number(value: Any) -> bool:
-    # `manifest_snapshot`/`manifest_from_snapshot` round-trip through JSON, which -- unlike
-    # TOML -- has no literal syntax for inf/nan, so a non-finite default/min/max would only
-    # ever reach here from a value Python's own (non-standard) json.loads accepted.
+    # Both TOML (`inf`, `nan`, `-inf`) and JSON (via Python's own non-standard
+    # `json.loads` extension) can hand a non-finite float to a default/min/max.
     return _is_number_not_bool(value) and math.isfinite(value)
 
 

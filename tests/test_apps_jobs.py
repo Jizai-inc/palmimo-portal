@@ -459,8 +459,6 @@ def test_update_git_swaps_in_new_tree_and_updates_commit(harness: Harness) -> No
 
 
 def test_update_git_follows_the_catalog_to_its_latest_tag_for_an_official_devkit_app(harness: Harness) -> None:
-    # An official-catalog app's "update" must move the pin forward to the catalog's current
-    # release tag, not just re-fetch the same ref it is already pinned to.
     old_source = AppSource(
         type="git",
         url="https://github.com/Jizai-inc/palmimo-devkit",
@@ -611,8 +609,6 @@ def test_prepare_install_git_rejects_an_official_catalog_tag_at_the_wrong_commit
 
 
 def test_preview_git_rejects_an_official_catalog_tag_at_the_wrong_commit(harness: Harness) -> None:
-    # preview_git must apply the same catalog-commit verification as install/update --
-    # otherwise a force-moved tag passes preview and only fails later, at install time.
     expected = "catalog-commit"
     catalog = CatalogCache(
         FakeCatalogSource(asset=CatalogAsset(tag="v1.0.0", apps=(make_catalog_app(commit=expected),))), FakeStateStore()
@@ -652,8 +648,6 @@ def test_prepare_install_git_uses_blobless_sparse_clone_for_an_official_catalog_
 
 
 def test_install_git_leaves_an_unwritten_symlink_outside_the_app_subdir_alone(harness: Harness) -> None:
-    # Portal never *writes through* a symlink in the fetched tree, but a symlink outside the
-    # app subdir that nothing writes to is not itself a reason to refuse the install.
     def seed(dest: Path, *_: object) -> None:
         _seed_git_clone(dest / "app", "palmimo-teleop")
         dest.mkdir(exist_ok=True)
@@ -669,9 +663,6 @@ def test_install_git_leaves_an_unwritten_symlink_outside_the_app_subdir_alone(ha
 
 
 def test_install_git_does_not_follow_a_sync_json_symlink_at_the_clone_root(harness: Harness, tmp_path: Path) -> None:
-    # Portal writes sync.json at the clone root (staging_container), not inside the app
-    # subdir -- _chmod_group_rwx's symlink check only walks the subdir, so a repository that
-    # places sync.json itself as a symlink could otherwise redirect Portal's own write.
     victim = tmp_path / "victim.txt"
     victim.write_text("untouched", encoding="utf-8")
 

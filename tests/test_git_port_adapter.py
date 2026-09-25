@@ -19,12 +19,10 @@ def _run_git(argv: list[str], *, cwd: Path | None = None) -> None:
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="git is not on PATH")
 def test_clone_shallow_populates_the_working_tree_for_a_sparse_blobless_clone(tmp_path: Path) -> None:
-    # `--filter=blob:none --no-checkout` followed by `sparse-checkout set` with no checkout
-    # left the working tree empty (the official-catalog install/update path, design doc 3.10) --
-    # this exercises the real clone, not just its argv, so a fix that flips the flags back to
-    # an empty tree fails here even though a fake would happily report success.
     bare = tmp_path / "origin.git"
     _run_git(["init", "--bare", "--initial-branch=main", str(bare)])
+    # `file://` clones go through upload-pack; without this, `--filter=blob:none` is silently
+    # ignored and the test would clone the whole repo regardless of the fix under test.
     _run_git(["config", "uploadpack.allowFilter", "true"], cwd=bare)
 
     work = tmp_path / "work"

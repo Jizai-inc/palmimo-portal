@@ -82,10 +82,9 @@ class SubprocessGitPort(GitPort):
         # reject a leading `-`); this is the defense-in-depth half at the argv boundary.
         argv = ["git", "clone", "--depth", "1"]
         if blobless:
-            # `--sparse` checks out only the top-level files at first; the
-            # `sparse-checkout set` below widens that to include `sparse_subdir`
-            # and materializes it -- unlike `--no-checkout`, this never leaves
-            # the working tree empty.
+            # `--sparse` checks out the top-level files immediately; the
+            # `sparse-checkout set` below widens that to `sparse_subdir` and
+            # materializes it.
             argv.extend(["--filter=blob:none", "--sparse"])
         argv.extend(["--branch", ref, "--", url, str(dest)])
         self._run(argv, cwd=None, timeout=CLONE_TIMEOUT_SECONDS, env=env)

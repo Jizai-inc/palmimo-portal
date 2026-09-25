@@ -76,14 +76,15 @@ class AppBusyError(AppStartError):
 
 
 class AppJobInProgressStartError(AppStartError):
-    """Raised when ``name`` itself is the target of an in-flight install/update/delete job.
+    """Raised when any install/update/delete job is in flight, against any app.
 
     Distinct from :class:`~palmimo_portal.ports.AppsLockTimeoutError` (design
     doc 3.5): ``run.lock`` and ``apps.lock`` are independent axes, so a start
     request can acquire ``run.lock`` freely while an unrelated app's job is
-    running -- this checks the *ledger*'s ``current_job_app`` instead,
-    closing the window between a job's own prechecks and this one racing
-    ahead to start the same app mid-swap.
+    running -- this checks the *ledger*'s ``current_job_app`` instead. A
+    job's sync step runs untrusted build hooks as the same uid an app unit
+    runs as (design doc 3.10), so this must refuse every app's start, not
+    just the job's own target.
     """
 
     def __init__(self) -> None:
@@ -200,10 +201,6 @@ def _run_prechecks(deps: StartDeps, name: str, *, host: str) -> _StartPlan:
         raise AppNotFoundError(name)
 
     if apps_state.current_job_app is not None:
-        # Any install/update/delete job -- not just one against `name` -- runs its sync step
-        # as the same uid an app unit runs as (design doc 3.10); starting an unrelated app
-        # while that sync is in flight would let it read the job's secrets, or vice versa,
-        # via /proc/<pid>/environ.
         raise AppJobInProgressStartError()
 
     running = _other_active_app(deps, name, apps_state)

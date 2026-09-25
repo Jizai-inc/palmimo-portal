@@ -237,9 +237,6 @@ describe("AppsListPanel", () => {
     await waitFor(() => expect(updateStarted).toBe(true));
   });
 
-  // Without this, a stopped app's Start button would stay clickable while another app's
-  // install/update/delete sync is running as the same uid an app unit runs as -- the backend
-  // refuses the start with 409 app_job_in_progress, but only after the request round-trips.
   it("disables Start for every app while another app's install/update/delete is in progress", async () => {
     server.use(
       getListAppsApiV1AppsGetMockHandler({

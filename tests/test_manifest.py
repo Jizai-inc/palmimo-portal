@@ -37,10 +37,6 @@ def test_parse_manifest_rejects_invalid_fixture(path: Path) -> None:
 
 
 def test_manifest_from_snapshot_round_trips_a_control_character_in_a_string_value() -> None:
-    # apps.json is JSON, not TOML: a description containing U+007F (a valid JSON string
-    # character, invalid in a bare TOML string) must not corrupt the whole ledger entry on
-    # the next read -- manifest_from_snapshot must validate the dict directly, not by
-    # re-serializing it through TOML.
     manifest = parse_manifest(
         'schema = 1\nname = "app"\ndescription = "d"\ncommand = ["run"]\n\n'
         '[env.API_KEY]\ndescription = "has a \\u007f delete char"\n'
@@ -50,6 +46,16 @@ def test_manifest_from_snapshot_round_trips_a_control_character_in_a_string_valu
     restored = manifest_from_snapshot(snapshot)
 
     assert restored.env["API_KEY"].description == "has a \x7f delete char"
+
+
+@pytest.mark.parametrize("field", ["default", "min", "max"])
+@pytest.mark.parametrize("literal", ["inf", "-inf", "nan"])
+def test_parse_manifest_rejects_a_non_finite_param_bound(field: str, literal: str) -> None:
+    with pytest.raises(ManifestValidationError):
+        parse_manifest(
+            'schema = 1\nname = "app"\ndescription = "d"\ncommand = ["run"]\n\n'
+            f'[params.speed]\ntype = "float"\n{field} = {literal}\n'
+        )
 
 
 def test_manifest_from_snapshot_rejects_a_non_finite_param_default() -> None:

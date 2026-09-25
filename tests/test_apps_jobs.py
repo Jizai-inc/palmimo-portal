@@ -249,7 +249,7 @@ def test_install_zip_does_not_leave_sync_json_in_the_installed_app_tree(harness:
     assert not (harness.ctx.apps_dir / "palmimo-teleop" / "sync.json").exists()
 
 
-def test_install_uses_and_restores_only_the_target_apps_uv_cache(harness: Harness) -> None:
+def test_install_discards_a_cache_for_an_unregistered_id(harness: Harness) -> None:
     app_cache = harness.ctx.uv_cache_dir / ZIP_ID
     app_cache.mkdir(parents=True, exist_ok=True)
     (app_cache / "prior-cache").write_text("reusable")
@@ -267,8 +267,8 @@ def test_install_uses_and_restores_only_the_target_apps_uv_cache(harness: Harnes
     harness.sync_unit.start = tracking_start  # type: ignore[method-assign]
     install_zip(harness.ctx, AppsState(), _zip_bytes("palmimo-teleop"))
 
-    assert seen["entries"] == {"prior-cache"}
-    assert (app_cache / "prior-cache").is_file()
+    assert seen["entries"] == set()
+    assert not (app_cache / "prior-cache").exists()
     assert (other_cache / "private-cache").is_file()
     assert not (harness.ctx.apps_dir / ZIP_ID / ".uv-cache").exists()
 

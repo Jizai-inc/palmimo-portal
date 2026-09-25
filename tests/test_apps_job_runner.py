@@ -212,6 +212,32 @@ def test_start_install_keeps_the_failed_job_as_an_orphan_when_sync_fails(ctx: Ap
     assert state.last_orphan_job_app == ZIP_ID
 
 
+def test_failed_install_discards_its_cache_before_the_id_is_reused(ctx: AppsJobContext) -> None:
+    sync = cast(FakeSyncUnitPort, ctx.sync_unit)
+    sync.default_status = UnitStatus(active_state="failed", sub_state="failed", result="exit-code", exec_main_status=1)
+    state_store = FakeStateStore()
+    runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
+    prepared = prepare_install_zip(ctx, _zip_bytes())
+
+    def leave_cache(instance: str, timeout_s: float) -> UnitStatus:
+        (ctx.staging_dir / instance / ".uv-cache" / "untrusted").write_text("cached wheel")
+        return sync.default_status
+
+    sync.wait = leave_cache  # type: ignore[method-assign]
+    assert runner.start_install(prepared).state == "failed"
+
+    sync.default_status = UnitStatus(active_state="inactive", sub_state="dead", result="success", exec_main_status=0)
+    seen: set[str] = set()
+
+    def check_empty_cache(instance: str, timeout_s: float) -> UnitStatus:
+        seen.update(path.name for path in (ctx.staging_dir / instance / ".uv-cache").iterdir())
+        return sync.default_status
+
+    sync.wait = check_empty_cache  # type: ignore[method-assign]
+    assert runner.start_install(prepare_install_zip(ctx, _zip_bytes())).state == "done"
+    assert seen == set()
+
+
 def test_start_install_reports_a_failed_required_python_install(ctx: AppsJobContext) -> None:
     uv = cast(FakeUvPort, ctx.uv)
     uv.system_python_satisfies = False

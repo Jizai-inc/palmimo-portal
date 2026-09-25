@@ -41,6 +41,7 @@ from palmimo_portal.core import apps as apps_core
 from palmimo_portal.core.apps_jobs import (
     AppsJobContext,
     PreparedInstall,
+    _purge_uv_cache,
     commit_install,
     delete_from_ledger,
     purge_app_files,
@@ -186,6 +187,7 @@ class AppsJobRunner:
                         mask_authorization_lines(str(error)),
                     )
                     failed = self._fail_current_job(error, finished_at=time.time(), attach_to=name)
+                    _purge_uv_cache(self._ctx, name)
                     result["job"] = failed
             finally:
                 self._safe_cleanup(prepared)

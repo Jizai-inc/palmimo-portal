@@ -782,6 +782,7 @@ def commit_install(
         app_id = f"{namespace}.{suggest_app_name(namespace, prepared.manifest.name, state)}"
     if app_id in state.apps:
         raise AppExistsError(app_id)
+    _purge_uv_cache(ctx, app_id)
     on_step("sync")
     layout = resolve_layout(prepared.install_root, prepared.source.subdir)
     _chmod_group_rwx(prepared.project_dir)

@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Download, KeyRound, LayoutDashboard, Power, Wifi } from "lucide-react";
+import { Download, KeyRound, LayoutDashboard, Package, Power, Variable, Wifi } from "lucide-react";
 
 /** One entry in the dashboard family's navigation (mobile drawer, desktop sidebar, dashboard quick-action list). */
 export interface NavItem {
@@ -18,6 +18,9 @@ export interface NavItem {
  */
 export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/dashboard", icon: LayoutDashboard, labelKey: "nav.dashboard" },
+  { to: "/apps", icon: Package, labelKey: "nav.apps", descriptionKey: "nav.appsDescription" },
+  { to: "/env", icon: Variable, labelKey: "nav.env", descriptionKey: "nav.envDescription" },
+  { to: "/git-credentials", icon: KeyRound, labelKey: "nav.gitCredentials", descriptionKey: "nav.gitCredentialsDescription" },
   { to: "/wifi-settings", icon: Wifi, labelKey: "nav.wifi", descriptionKey: "nav.wifiDescription" },
   { to: "/ssh-keys", icon: KeyRound, labelKey: "nav.sshKeys", descriptionKey: "nav.sshKeysDescription" },
   { to: "/power", icon: Power, labelKey: "nav.power", descriptionKey: "nav.powerDescription" },

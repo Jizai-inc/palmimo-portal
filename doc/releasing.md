@@ -157,7 +157,10 @@ sudo systemctl restart palmimo-portal
 ```
 
 The dashboard's update check now resolves the newest published pre-release
-(not `releases/latest`) and allows applying it. The UI never exposes this
+(not `releases/latest`) and allows applying it. The same channel applies to
+the platform bundle (palmimo-image releases) and the app catalog
+(`examples-v*` palmimo-devkit releases), so a device on this channel also sees their `rc`
+tags. The UI never exposes this
 setting — it is a deliberate opt-in for dev machines, not a fleet control.
 Rolling back onto a previously installed rc is refused the same as applying
 one unless the device is still on the `prerelease` channel — flip the

@@ -50,6 +50,19 @@ frontend build as an asset, built by CI and attached automatically. See
 [How Palmimo Portal works](doc/palmimo-portal.md#update-model) for the
 update flow and [doc/releasing.md](doc/releasing.md) for the release procedure.
 
+## App platform reset (SSH fallback)
+
+`POST /api/v1/apps/reset` returns the app platform to its just-installed
+state. If the UI or API is unreachable, the same result over SSH is:
+`sudo systemctl stop 'palmimo-app@*'`, then empty (not remove)
+`/var/lib/palmimo/apps` and `/var/lib/palmimo/uv-cache` — e.g.
+`sudo find /var/lib/palmimo/apps /var/lib/palmimo/uv-cache -mindepth 1 -delete` —
+so their ownership and setgid bit survive, then
+`sudo rm -rf /var/lib/palmimo/secrets /run/palmimo/apps/* /var/lib/palmimo/portal/apps.json /var/lib/palmimo/portal/platform_update.json`,
+leaving `/var/lib/palmimo/portal/catalog_cache.json` in place, then
+`sudo systemctl restart palmimo-portal` and re-apply the platform bundle
+from the Portal if `GET /api/v1/platform` reports it is no longer ready.
+
 ## Repository layout
 
 ```

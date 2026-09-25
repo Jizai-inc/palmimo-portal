@@ -10,11 +10,15 @@ import asyncio
 from typing import Any, ClassVar, cast
 
 import pytest
+from dbus_fast import Variant
 from dbus_fast.aio import MessageBus
 from dbus_fast.aio.proxy_object import ProxyInterface
+from dbus_fast.errors import DBusError
 
-from palmimo_portal.adapters.systemd import SystemdSystemPort
-from palmimo_portal.ports import AdapterUnavailableError
+from palmimo_portal.adapters import systemd as systemd_module
+from palmimo_portal.adapters.systemd import SystemdAppUnitPort, SystemdSyncUnitPort, SystemdSystemPort
+from palmimo_portal.core.apps_start import derive_run_status
+from palmimo_portal.ports import AdapterUnavailableError, PolkitDeniedError, UnitStatus
 
 
 class _StubbedSystemPort(SystemdSystemPort):
@@ -324,3 +328,264 @@ async def test_a_timeout_is_never_retried() -> None:
 
     assert interface.call_count == 1
     assert port.open_bus_calls == 0
+
+
+class _StubbedAppUnitPort(SystemdAppUnitPort):
+    """Stubs `_call` directly -- for tests that only care what args reach it, not error translation."""
+
+    def __init__(self, script: dict[str, Any] | None = None, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.script: dict[str, Any] = script or {}
+        self.calls: list[tuple[str, tuple[Any, ...]]] = []
+
+    async def _call(self, member: str, args: tuple[Any, ...], *, unit: str, verb: str, **kwargs: Any) -> Any:
+        self.calls.append((member, args))
+        outcome = self.script.get(member, [None] * 10)
+        if isinstance(outcome, list):
+            outcome = outcome[len(self.calls) - 1] if len(self.calls) - 1 < len(outcome) else outcome[-1]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    def _status_for_unit(self, unit: str) -> UnitStatus:
+        return UnitStatus(active_state="inactive", sub_state="dead", result="success", exec_main_status=0)
+
+
+class _RawDBusInterface:
+    """Stands in for the `ProxyInterface` `SystemdAppUnitPort._connect` returns -- one scripted `call_<member>`."""
+
+    def __init__(self, member: str, outcome: Any) -> None:
+        setattr(self, f"call_{member}", self._make_method(outcome))
+
+    @staticmethod
+    def _make_method(outcome: Any) -> Any:
+        async def _method(*args: Any) -> Any:
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        return _method
+
+
+class _DBusErrorAppUnitPort(SystemdAppUnitPort):
+    """Stubs `_connect` (not `_call`) so `_call`'s own DBusError-to-PolkitDeniedError translation runs for real."""
+
+    def __init__(self, member: str, outcome: Any, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._interface = cast(ProxyInterface, _RawDBusInterface(member, outcome))
+        self._bus = cast(MessageBus, _FakeBus("stub"))
+
+    async def _connect(self) -> tuple[ProxyInterface, MessageBus]:
+        assert self._interface is not None and self._bus is not None
+        return self._interface, self._bus
+
+
+def test_set_device_allow_resets_before_setting_camera_expands_to_three_groups() -> None:
+    port = _StubbedAppUnitPort({"set_unit_properties": [None, None]})
+
+    port.set_device_allow("teleop", ["char-video4linux", "char-media", "char-dma_heap"])
+
+    assert [call[0] for call in port.calls] == ["set_unit_properties", "set_unit_properties"]
+    reset_props, set_props = (call[1][2] for call in port.calls)
+    assert reset_props == [("DeviceAllow", Variant("a(ss)", []))]
+    assert set_props == [
+        ("DeviceAllow", Variant("a(ss)", [("char-video4linux", "rw"), ("char-media", "rw"), ("char-dma_heap", "rw")]))
+    ]
+
+
+def test_set_device_allow_only_resets_when_no_devices_are_declared() -> None:
+    port = _StubbedAppUnitPort({"set_unit_properties": [None]})
+
+    port.set_device_allow("teleop", [])
+
+    assert [call[0] for call in port.calls] == ["set_unit_properties"]
+
+
+def test_start_calls_start_unit_with_replace_mode() -> None:
+    port = _StubbedAppUnitPort({"start_unit": None})
+
+    port.start("teleop")
+
+    assert port.calls == [("start_unit", ("palmimo-app@teleop.service", "replace"))]
+
+
+def test_stop_calls_stop_unit_with_replace_mode() -> None:
+    port = _StubbedAppUnitPort({"stop_unit": None})
+
+    port.stop("teleop")
+
+    assert port.calls == [("stop_unit", ("palmimo-app@teleop.service", "replace"))]
+
+
+def test_start_raises_polkit_denied_when_systemd_refuses_access() -> None:
+    port = _DBusErrorAppUnitPort("start_unit", DBusError("org.freedesktop.DBus.Error.AccessDenied", "nope"))
+
+    with pytest.raises(PolkitDeniedError) as excinfo:
+        port.start("teleop")
+
+    assert excinfo.value.unit == "palmimo-app@teleop.service"
+    assert excinfo.value.verb == "start"
+
+
+def test_start_raises_polkit_denied_on_interactive_authorization_required() -> None:
+    port = _DBusErrorAppUnitPort(
+        "start_unit", DBusError("org.freedesktop.DBus.Error.InteractiveAuthorizationRequired", "nope")
+    )
+
+    with pytest.raises(PolkitDeniedError):
+        port.start("teleop")
+
+
+def test_start_raises_adapter_unavailable_for_a_non_polkit_dbus_error() -> None:
+    port = _DBusErrorAppUnitPort("start_unit", DBusError("org.freedesktop.DBus.Error.NoReply", "gone"))
+
+    with pytest.raises(AdapterUnavailableError):
+        port.start("teleop")
+
+
+def test_status_reports_inactive_for_a_garbage_collected_template_instance() -> None:
+    # systemd unloads a stopped template instance's in-memory unit object; a naive `GetUnit`
+    # would surface that as a backend failure for every stopped app, not just a not-yet-started one.
+    port = _DBusErrorAppUnitPort("load_unit", DBusError("org.freedesktop.systemd1.NoSuchUnit", "not loaded"))
+
+    status = port.status("teleop")
+
+    assert status.active_state == "inactive"
+    assert status.sub_state == "dead"
+    assert status.result == "success"
+    assert status.exec_main_status == 0
+
+
+class _PropertiesReadAppUnitPort(SystemdAppUnitPort):
+    """Stubs the `LoadUnit` call and the properties `GetAll` round trip `status()` makes.
+
+    `unit_properties`/`service_properties` stand in for what the Unit and Service D-Bus
+    interfaces would each report for `GetAll` -- `status()` must merge both, since
+    `Result`/`ExecMainStatus`/`ExecMainStartTimestamp` live only on the Service interface.
+    """
+
+    def __init__(
+        self, unit_path: str, unit_properties: dict[str, Any], service_properties: dict[str, Any], **kwargs: Any
+    ) -> None:
+        super().__init__(**kwargs)
+        self._unit_path = unit_path
+        self._unit_properties = unit_properties
+        self._service_properties = service_properties
+
+    async def _call(self, member: str, args: tuple[Any, ...], *, unit: str, verb: str, **kwargs: Any) -> Any:
+        assert member == "load_unit"
+        return self._unit_path
+
+    def _read_unit_properties(self, unit_path: str, *, unit: str) -> dict[str, Any]:
+        assert unit_path == self._unit_path
+        return {**self._unit_properties, **self._service_properties}
+
+
+def test_status_reads_exec_main_status_from_the_service_interface() -> None:
+    # ExecMainStatus/Result live on org.freedesktop.systemd1.Service, not .Unit -- reading only
+    # the Unit interface silently drops them, and derive_run_status can no longer tell a crashed
+    # app (needing repair) from one that merely exited cleanly.
+    port = _PropertiesReadAppUnitPort(
+        "/org/freedesktop/systemd1/unit/palmimo_2dapp_40teleop_2eservice",
+        unit_properties={"ActiveState": "failed", "SubState": "failed"},
+        service_properties={"Result": "exit-code", "ExecMainStatus": 78, "ExecMainStartTimestamp": 123.0},
+    )
+
+    status = port.status("teleop")
+
+    assert derive_run_status(status).status == "needs_repair"
+
+
+class _ScriptedStatusAppUnitPort(SystemdAppUnitPort):
+    """Answers `_status_for_unit` from a fixed script, repeating the last entry once exhausted."""
+
+    def __init__(self, statuses: list[UnitStatus], **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._statuses = list(statuses)
+        self.status_calls = 0
+
+    def _status_for_unit(self, unit: str) -> UnitStatus:
+        self.status_calls += 1
+        index = min(self.status_calls - 1, len(self._statuses) - 1)
+        return self._statuses[index]
+
+    def _start_unit(self, unit: str) -> None:
+        pass
+
+
+def test_sync_unit_start_calls_start_unit_against_the_sync_template() -> None:
+    port = SystemdSyncUnitPort()
+    stub = _StubbedAppUnitPort({"start_unit": None})
+    port._unit_port = stub
+
+    port.start("jabc123")
+
+    assert stub.calls == [("start_unit", ("palmimo-app-sync@jabc123.service", "replace"))]
+
+
+def test_sync_unit_stop_calls_stop_unit_against_the_sync_template() -> None:
+    port = SystemdSyncUnitPort()
+    stub = _StubbedAppUnitPort({"stop_unit": None})
+    port._unit_port = stub
+
+    port.stop("jabc123")
+
+    assert stub.calls == [("stop_unit", ("palmimo-app-sync@jabc123.service", "replace"))]
+
+
+def test_sync_unit_wait_polls_until_the_unit_leaves_the_running_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(systemd_module, "_SYNC_POLL_INTERVAL_SECONDS", 0.0)
+    running = UnitStatus(active_state="activating", sub_state="start", result="success", exec_main_status=0)
+    done = UnitStatus(active_state="inactive", sub_state="dead", result="success", exec_main_status=0)
+    port = SystemdSyncUnitPort()
+    stub = _ScriptedStatusAppUnitPort([running, running, done])
+    port._unit_port = stub
+
+    status = port.wait("jabc123", timeout_s=5.0)
+
+    assert status is done
+    assert stub.status_calls == 3
+
+
+def test_sync_unit_wait_observes_the_started_invocation_before_accepting_its_result(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(systemd_module, "_SYNC_POLL_INTERVAL_SECONDS", 0.0)
+    previous = UnitStatus(
+        active_state="inactive", sub_state="dead", result="success", exec_main_status=0, exec_main_start_timestamp=1.0
+    )
+    running = UnitStatus(
+        active_state="activating",
+        sub_state="start",
+        result="success",
+        exec_main_status=0,
+        exec_main_start_timestamp=2.0,
+    )
+    failed = UnitStatus(
+        active_state="inactive",
+        sub_state="failed",
+        result="exit-code",
+        exec_main_status=1,
+        exec_main_start_timestamp=2.0,
+    )
+    port = SystemdSyncUnitPort()
+    stub = _ScriptedStatusAppUnitPort([previous, running, failed])
+    port._unit_port = stub
+
+    port.start("jabc123")
+    status = port.wait("jabc123", timeout_s=5.0)
+
+    assert status is failed
+    assert stub.status_calls == 3
+
+
+def test_sync_unit_wait_raises_timeout_error_when_still_running_past_the_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(systemd_module, "_SYNC_POLL_INTERVAL_SECONDS", 0.0)
+    running = UnitStatus(active_state="activating", sub_state="start", result="success", exec_main_status=0)
+    port = SystemdSyncUnitPort()
+    port._unit_port = _ScriptedStatusAppUnitPort([running])
+
+    with pytest.raises(TimeoutError):
+        port.wait("jabc123", timeout_s=0.01)

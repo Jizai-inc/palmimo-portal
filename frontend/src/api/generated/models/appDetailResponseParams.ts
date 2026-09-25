@@ -5,7 +5,4 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface ResetResponse {
-  auth_state?: string;
-  status?: string;
-}
+export type AppDetailResponseParams = { [key: string]: unknown };

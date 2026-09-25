@@ -19,7 +19,7 @@ import type {
 import type {
   ChangePasswordResponse,
   LoginResponse,
-  ResetResponse,
+  PalmimoPortalApiAuthResetResponse,
   StatusResponse
 } from '../models';
 
@@ -30,7 +30,7 @@ export const getLoginApiV1AuthLoginPostResponseMock = (overrideResponse: Partial
 
 export const getLogoutApiV1AuthLogoutPostResponseMock = (overrideResponse: Partial<Extract<StatusResponse, object>> = {}): StatusResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getResetApiV1AuthResetPostResponseMock = (overrideResponse: Partial<Extract<ResetResponse, object>> = {}): ResetResponse => ({auth_state: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+export const getResetApiV1AuthResetPostResponseMock = (overrideResponse: Partial<Extract<PalmimoPortalApiAuthResetResponse, object>> = {}): PalmimoPortalApiAuthResetResponse => ({auth_state: faker.string.alpha({length: {min: 10, max: 20}}), status: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getSetupApiV1AuthSetupPostResponseMock = (overrideResponse: Partial<Extract<StatusResponse, object>> = {}): StatusResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
@@ -71,7 +71,7 @@ export const getLogoutApiV1AuthLogoutPostMockHandler = (overrideResponse?: Statu
   }, options)
 }
 
-export const getResetApiV1AuthResetPostMockHandler = (overrideResponse?: ResetResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<ResetResponse> | ResetResponse), options?: RequestHandlerOptions) => {
+export const getResetApiV1AuthResetPostMockHandler = (overrideResponse?: PalmimoPortalApiAuthResetResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<PalmimoPortalApiAuthResetResponse> | PalmimoPortalApiAuthResetResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/auth/reset', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
 
 

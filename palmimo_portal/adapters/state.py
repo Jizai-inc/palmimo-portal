@@ -38,21 +38,39 @@ import fcntl
 import json
 import logging
 import os
+import re
 import secrets
 import time
 from collections.abc import Iterator
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
 from palmimo_portal.adapters.atomic_write import atomic_write_text, create_exclusive_text, ensure_private_dir, fsync_dir
+from palmimo_portal.core.apps import APP_ID_RE
 from palmimo_portal.core.auth import AUTH_LOCK_TIMEOUT_SECONDS
+from palmimo_portal.core.manifest import ManifestValidationError, manifest_from_snapshot, manifest_snapshot
+from palmimo_portal.core.platform_update import IDLE_PLATFORM_STATE
 from palmimo_portal.core.update import IDLE_UPDATE_JOB, IDLE_UPDATE_STATE, is_valid_release_tag
 from palmimo_portal.ports import (
+    AppJob,
+    AppRecord,
+    AppsLockTimeoutError,
+    AppSource,
+    AppsState,
+    AppsStateFileState,
     AuthAlreadyExistsError,
     AuthFileState,
     AuthLockTimeoutError,
     AuthState,
+    CatalogApp,
+    CatalogCacheState,
+    CatalogEnvSpec,
+    PlatformJob,
+    PlatformLockTimeoutError,
+    PlatformUpdateState,
     Release,
+    RunLockTimeoutError,
     StateStore,
     UpdateJob,
     UpdateState,
@@ -67,6 +85,20 @@ LAST_ATTEMPT_FILENAME = "last_attempt.json"
 INITIAL_SESSION_KEY_FILENAME = "initial_session_key.json"
 AUTH_LOCK_FILENAME = ".auth.json.lock"
 UPDATE_STATE_FILENAME = "update.json"
+APPS_STATE_FILENAME = "apps.json"
+APPS_LOCK_FILENAME = "apps.lock"
+RUN_LOCK_FILENAME = "run.lock"
+PLATFORM_UPDATE_STATE_FILENAME = "platform_update.json"
+PLATFORM_LOCK_FILENAME = "platform.lock"
+CATALOG_CACHE_FILENAME = "catalog_cache.json"
+
+_LEGACY_APP_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,39}$")
+
+_VALID_PLATFORM_JOB_STATES = frozenset({"idle", "running", "done", "failed"})
+
+#: Non-blocking: a second app job attempted while one is in flight must see
+#: an immediate 409, not queue behind a job that can run for minutes (uv sync).
+APPS_LOCK_TIMEOUT_SECONDS = 0.0
 
 #: Poll interval for :meth:`lock_auth`'s non-blocking ``flock`` retries --
 #: short enough to honor AUTH_LOCK_TIMEOUT_SECONDS closely, not so short it busy-spins.
@@ -77,6 +109,10 @@ _AUTH_LOCK_POLL_INTERVAL_SECONDS = 0.05
 #: :meth:`_parse_update_state` can validate with a plain ``in`` check.
 _VALID_UPDATE_JOB_STATES = frozenset({"idle", "checking", "running", "restarting", "done", "failed"})
 _VALID_UPDATE_JOB_KINDS = frozenset({"update", "rollback"})
+
+
+class LegacyAppsLedgerError(TypeError):
+    """Raised when an otherwise readable ledger uses pre-app-ID keys."""
 
 
 def _require_optional_type(value: Any, expected: type | tuple[type, ...], field_name: str) -> None:
@@ -185,6 +221,30 @@ class JsonFileStateStore(StateStore):
     def _update_state_path(self) -> Path:
         return self._state_dir / UPDATE_STATE_FILENAME
 
+    @property
+    def _apps_state_path(self) -> Path:
+        return self._state_dir / APPS_STATE_FILENAME
+
+    @property
+    def _apps_lock_path(self) -> Path:
+        return self._state_dir / APPS_LOCK_FILENAME
+
+    @property
+    def _run_lock_path(self) -> Path:
+        return self._state_dir / RUN_LOCK_FILENAME
+
+    @property
+    def _platform_update_state_path(self) -> Path:
+        return self._state_dir / PLATFORM_UPDATE_STATE_FILENAME
+
+    @property
+    def _platform_lock_path(self) -> Path:
+        return self._state_dir / PLATFORM_LOCK_FILENAME
+
+    @property
+    def _catalog_cache_path(self) -> Path:
+        return self._state_dir / CATALOG_CACHE_FILENAME
+
     @contextlib.contextmanager
     def lock_auth(self) -> Iterator[None]:
         """Hold an exclusive ``flock`` on a dedicated lockfile for the block's duration, bounded.
@@ -222,6 +282,131 @@ class JsonFileStateStore(StateStore):
                 fcntl.flock(fd, fcntl.LOCK_UN)
         finally:
             os.close(fd)
+
+    @staticmethod
+    def _parse_platform_update_state(text: str) -> PlatformUpdateState:
+        data: Any = json.loads(text)
+        if not isinstance(data, dict):
+            raise TypeError(f"platform_update.json top-level value is a {type(data).__name__}, expected an object")
+        job = data["job"]
+        if not isinstance(job, dict) or job.get("state") not in _VALID_PLATFORM_JOB_STATES:
+            raise TypeError("platform_update.json job is missing or has an invalid state")
+        target_version = job.get("target_version")
+        _require_optional_type(target_version, int, "job.target_version")
+        return PlatformUpdateState(
+            job=PlatformJob(
+                state=job["state"],
+                target_version=target_version,
+                step=job.get("step"),
+                error=job.get("error"),
+                started_at=job.get("started_at"),
+                finished_at=job.get("finished_at"),
+            )
+        )
+
+    def read_platform_update_state(self) -> PlatformUpdateState:
+        if not self._platform_update_state_path.is_file():
+            return IDLE_PLATFORM_STATE
+        try:
+            return self._parse_platform_update_state(self._platform_update_state_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, KeyError, OSError, TypeError, ValueError) as error:
+            logger.warning(
+                "platform update state file is corrupt or unreadable, treating as idle: %s (%s)",
+                self._platform_update_state_path,
+                error,
+            )
+            return IDLE_PLATFORM_STATE
+
+    def write_platform_update_state(self, state: PlatformUpdateState) -> None:
+        payload = {
+            "job": {
+                "state": state.job.state,
+                "target_version": state.job.target_version,
+                "step": state.job.step,
+                "error": state.job.error,
+                "started_at": state.job.started_at,
+                "finished_at": state.job.finished_at,
+            }
+        }
+        try:
+            atomic_write_text(self._platform_update_state_path, json.dumps(payload))
+        except OSError as error:
+            logger.error("failed to write state file %s: %s", self._platform_update_state_path, error)
+            raise
+
+    @contextlib.contextmanager
+    def lock_platform(self) -> Iterator[None]:
+        """Non-blocking exclusive ``flock`` on ``platform.lock``. See :meth:`~palmimo_portal.ports.StateStore.lock_platform`."""
+        ensure_private_dir(self._state_dir)
+        fd = os.open(self._platform_lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise PlatformLockTimeoutError() from None
+            try:
+                yield
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+    @staticmethod
+    def _parse_catalog_cache(text: str) -> CatalogCacheState:
+        data: Any = json.loads(text)
+        if not isinstance(data, dict) or data.get("schema") != 1:
+            raise TypeError("catalog_cache.json must be an object with schema == 1")
+        raw_apps = data.get("apps", [])
+        if not isinstance(raw_apps, list):
+            raise TypeError("catalog_cache.json apps must be a list")
+        apps = tuple(
+            CatalogApp(
+                name=str(entry["name"]),
+                description=str(entry["description"]),
+                source=AppSource(**entry["source"]),
+                env={name: CatalogEnvSpec(**spec) for name, spec in entry["env"].items()},
+                devices=tuple(entry["devices"]),
+            )
+            for entry in raw_apps
+        )
+        fetched_at = data.get("fetched_at")
+        _require_optional_type(fetched_at, (int, float), "catalog_cache.json fetched_at")
+        return CatalogCacheState(tag=data.get("tag"), apps=apps, fetched_at=fetched_at)
+
+    def read_catalog_cache(self) -> CatalogCacheState:
+        if not self._catalog_cache_path.is_file():
+            return CatalogCacheState(tag=None, apps=(), fetched_at=None)
+        try:
+            return self._parse_catalog_cache(self._catalog_cache_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, KeyError, OSError, TypeError, ValueError) as error:
+            logger.warning(
+                "catalog cache file is corrupt or unreadable, treating as never fetched: %s (%s)",
+                self._catalog_cache_path,
+                error,
+            )
+            return CatalogCacheState(tag=None, apps=(), fetched_at=None)
+
+    def write_catalog_cache(self, state: CatalogCacheState) -> None:
+        payload = {
+            "schema": 1,
+            "tag": state.tag,
+            "fetched_at": state.fetched_at,
+            "apps": [
+                {
+                    "name": app.name,
+                    "description": app.description,
+                    "source": asdict(app.source),
+                    "env": {name: asdict(spec) for name, spec in app.env.items()},
+                    "devices": list(app.devices),
+                }
+                for app in state.apps
+            ],
+        }
+        try:
+            atomic_write_text(self._catalog_cache_path, json.dumps(payload))
+        except OSError as error:
+            logger.error("failed to write state file %s: %s", self._catalog_cache_path, error)
+            raise
 
     @staticmethod
     def _parse_auth(text: str) -> AuthState:
@@ -547,3 +732,284 @@ class JsonFileStateStore(StateStore):
         except OSError as error:
             logger.error("failed to write state file %s: %s", self._update_state_path, error)
             raise
+
+    @staticmethod
+    def _parse_app_job(data: Any, *, field_prefix: str) -> AppJob:
+        if not isinstance(data, dict):
+            raise TypeError(f"{field_prefix} must be an object")
+        job_id, kind, job_state = data["id"], data["kind"], data["state"]
+        if not all(isinstance(value, str) for value in (job_id, kind, job_state)):
+            raise TypeError(f"{field_prefix}.id/kind/state must be strings")
+        for name in ("step", "error"):
+            _require_optional_type(data.get(name), str, f"{field_prefix}.{name}")
+        _require_optional_type(data.get("display_name"), str, f"{field_prefix}.display_name")
+        for name in ("started_at", "finished_at"):
+            _require_optional_type(data.get(name), (int, float), f"{field_prefix}.{name}")
+        dropped_bindings = tuple(data.get("dropped_bindings", ()))
+        dropped_params = tuple(data.get("dropped_params", ()))
+        return AppJob(
+            id=job_id,
+            kind=kind,
+            state=job_state,
+            step=data.get("step"),
+            error=data.get("error"),
+            started_at=data.get("started_at"),
+            finished_at=data.get("finished_at"),
+            display_name=data.get("display_name"),
+            lock_generated=bool(data.get("lock_generated", False)),
+            dropped_bindings=dropped_bindings,
+            dropped_params=dropped_params,
+        )
+
+    @staticmethod
+    def _source_payload(source: AppSource) -> dict[str, Any]:
+        """Serialize an :class:`AppSource`, omitting ``manifest`` when it is ``None`` (the default).
+
+        Keeps a ledger written before the manifest field existed byte-identical to one written
+        since, for every app installed from the default ``palmimo.toml``.
+        """
+        payload: dict[str, Any] = {
+            "type": source.type,
+            "url": source.url,
+            "ref": source.ref,
+            "ref_kind": source.ref_kind,
+            "subdir": source.subdir,
+            "commit": source.commit,
+        }
+        if source.manifest is not None:
+            payload["manifest"] = source.manifest
+        return payload
+
+    @staticmethod
+    def _dump_app_job(job: AppJob) -> dict[str, Any]:
+        return {
+            "id": job.id,
+            "kind": job.kind,
+            "state": job.state,
+            "step": job.step,
+            "error": job.error,
+            "started_at": job.started_at,
+            "finished_at": job.finished_at,
+            "display_name": job.display_name,
+            "lock_generated": job.lock_generated,
+            "dropped_bindings": list(job.dropped_bindings),
+            "dropped_params": list(job.dropped_params),
+        }
+
+    @classmethod
+    def _parse_apps_state(cls, text: str) -> AppsState:
+        """Parse ``apps.json`` text, raising on any decode, shape, or type problem.
+
+        Like ``auth.json`` (and unlike ``update.json``), a parse failure
+        here must surface as a distinct corrupt state, not silently as
+        "no apps installed" -- see :meth:`apps_state_file_state`.
+        """
+        data: Any = json.loads(text)
+        if not isinstance(data, dict) or data.get("schema") != 1:
+            raise TypeError("apps.json must be an object with schema == 1")
+        apps_data = data["apps"]
+        if not isinstance(apps_data, dict):
+            raise TypeError("apps.json apps must be an object")
+        if apps_data and all(cls._is_legacy_app_entry(name, entry) for name, entry in apps_data.items()):
+            raise LegacyAppsLedgerError("apps.json uses pre-app-ID app records")
+        apps: dict[str, AppRecord] = {}
+        for name, entry in apps_data.items():
+            if not isinstance(name, str) or APP_ID_RE.fullmatch(name) is None:
+                raise TypeError(f"apps.json apps key is not an app id: {name!r}")
+            if not isinstance(entry, dict):
+                raise TypeError(f"apps.json apps.{name} must be an object")
+            source_data = entry["source"]
+            if not isinstance(source_data, dict):
+                raise TypeError(f"apps.json apps.{name}.source must be an object")
+            source = AppSource(
+                type=source_data["type"],
+                url=source_data.get("url"),
+                ref=source_data.get("ref"),
+                ref_kind=source_data.get("ref_kind"),
+                subdir=source_data.get("subdir"),
+                commit=source_data.get("commit"),
+                manifest=source_data.get("manifest"),
+            )
+            last_job_data = entry.get("last_job")
+            last_job = (
+                cls._parse_app_job(last_job_data, field_prefix=f"apps.json apps.{name}.last_job")
+                if last_job_data is not None
+                else None
+            )
+            params = entry.get("params", {})
+            if not isinstance(params, dict):
+                raise TypeError(f"apps.json apps.{name}.params must be an object")
+            requires_python = entry.get("requires_python")
+            _require_optional_type(requires_python, str, f"apps.json apps.{name}.requires_python")
+            try:
+                manifest = manifest_snapshot(manifest_from_snapshot(entry["manifest"]))
+            except ManifestValidationError as error:
+                raise TypeError(f"apps.json apps.{name}.manifest is invalid: {error}") from error
+            apps[name] = AppRecord(
+                name=entry["name"],
+                source=source,
+                installed_at=entry.get("installed_at"),
+                params=params,
+                autostart=bool(entry.get("autostart", False)),
+                last_job=last_job,
+                broken_reason=entry.get("broken_reason"),
+                credential_rejected=bool(entry.get("credential_rejected", False)),
+                update_available=bool(entry.get("update_available", False)),
+                latest_commit=entry.get("latest_commit"),
+                manifest=manifest,
+                requires_python=requires_python,
+                id=name,
+            )
+        current_job_data = data.get("current_job")
+        current_job = (
+            cls._parse_app_job(current_job_data, field_prefix="apps.json current_job")
+            if current_job_data is not None
+            else None
+        )
+        current_job_app = data.get("current_job_app")
+        _require_optional_type(current_job_app, str, "apps.json current_job_app")
+        last_orphan_job_data = data.get("last_orphan_job")
+        last_orphan_job = (
+            cls._parse_app_job(last_orphan_job_data, field_prefix="apps.json last_orphan_job")
+            if last_orphan_job_data is not None
+            else None
+        )
+        last_orphan_job_app = data.get("last_orphan_job_app")
+        _require_optional_type(last_orphan_job_app, str, "apps.json last_orphan_job_app")
+        return AppsState(
+            apps=apps,
+            current_job=current_job,
+            current_job_app=current_job_app,
+            last_orphan_job=last_orphan_job,
+            last_orphan_job_app=last_orphan_job_app,
+        )
+
+    @staticmethod
+    def _is_legacy_app_entry(name: Any, entry: Any) -> bool:
+        if not isinstance(name, str) or _LEGACY_APP_NAME_RE.fullmatch(name) is None:
+            return False
+        if not isinstance(entry, dict) or "id" in entry or entry.get("name") != name:
+            return False
+        source = entry.get("source")
+        if not isinstance(source, dict) or source.get("type") not in {"git", "zip"}:
+            return False
+        if any(
+            value in source and source[value] is not None and not isinstance(source[value], str)
+            for value in ("url", "ref", "ref_kind", "subdir", "commit", "manifest")
+        ):
+            return False
+        if (
+            "installed_at" in entry
+            and entry["installed_at"] is not None
+            and not isinstance(entry["installed_at"], (int, float))
+        ):
+            return False
+        if "params" in entry and not isinstance(entry["params"], dict):
+            return False
+        if entry.get("last_job") is not None:
+            try:
+                JsonFileStateStore._parse_app_job(entry["last_job"], field_prefix="apps.json legacy app last_job")
+            except (KeyError, TypeError, ValueError):
+                return False
+        return all(
+            key not in entry or entry[key] is None or isinstance(entry[key], value_type)
+            for key, value_type in (
+                ("autostart", bool),
+                ("broken_reason", str),
+                ("credential_rejected", bool),
+                ("update_available", bool),
+                ("latest_commit", str),
+            )
+        )
+
+    def read_apps_state(self) -> AppsState:
+        if not self._apps_state_path.is_file():
+            return AppsState()
+        try:
+            return self._parse_apps_state(self._apps_state_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, KeyError, OSError, TypeError, ValueError) as error:
+            logger.error("apps: state file unreadable path=%s reason=%s", self._apps_state_path, error)
+            return AppsState()
+
+    def apps_state_file_state(self) -> AppsStateFileState:
+        if not self._apps_state_path.is_file():
+            return AppsStateFileState.ABSENT
+        try:
+            self._parse_apps_state(self._apps_state_path.read_text(encoding="utf-8"))
+        except LegacyAppsLedgerError as error:
+            logger.warning("apps: state file uses legacy keys path=%s reason=%s", self._apps_state_path, error)
+            return AppsStateFileState.LEGACY
+        except (json.JSONDecodeError, KeyError, OSError, TypeError, ValueError) as error:
+            logger.error("apps: state file unreadable path=%s reason=%s", self._apps_state_path, error)
+            return AppsStateFileState.CORRUPT
+        return AppsStateFileState.PRESENT
+
+    def write_apps_state(self, state: AppsState) -> None:
+        payload = {
+            "schema": 1,
+            "apps": {
+                name: {
+                    "name": record.name,
+                    "source": self._source_payload(record.source),
+                    "installed_at": record.installed_at,
+                    "params": record.params,
+                    "autostart": record.autostart,
+                    "last_job": self._dump_app_job(record.last_job) if record.last_job is not None else None,
+                    "broken_reason": record.broken_reason,
+                    "credential_rejected": record.credential_rejected,
+                    "update_available": record.update_available,
+                    "latest_commit": record.latest_commit,
+                    "manifest": record.manifest,
+                    "requires_python": record.requires_python,
+                }
+                for name, record in state.apps.items()
+            },
+            "current_job": self._dump_app_job(state.current_job) if state.current_job is not None else None,
+            "current_job_app": state.current_job_app,
+            "last_orphan_job": self._dump_app_job(state.last_orphan_job) if state.last_orphan_job is not None else None,
+            "last_orphan_job_app": state.last_orphan_job_app,
+        }
+        try:
+            atomic_write_text(self._apps_state_path, json.dumps(payload))
+        except OSError as error:
+            logger.error("failed to write state file %s: %s", self._apps_state_path, error)
+            raise
+
+    @contextlib.contextmanager
+    def lock_apps(self) -> Iterator[None]:
+        """Non-blocking exclusive ``flock`` on ``apps.lock``. See :meth:`~palmimo_portal.ports.StateStore.lock_apps`."""
+        ensure_private_dir(self._state_dir)
+        fd = os.open(self._apps_lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise AppsLockTimeoutError() from None
+            try:
+                yield
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)
+
+    @contextlib.contextmanager
+    def lock_run(self, timeout_s: float = 0.0) -> Iterator[None]:
+        """Non-blocking exclusive ``flock`` on ``run.lock``. See :meth:`~palmimo_portal.ports.StateStore.lock_run`."""
+        ensure_private_dir(self._state_dir)
+        fd = os.open(self._run_lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            deadline = time.monotonic() + timeout_s
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise RunLockTimeoutError() from None
+                    time.sleep(0.01)
+            try:
+                yield
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            os.close(fd)

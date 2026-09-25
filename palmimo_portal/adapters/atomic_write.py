@@ -16,35 +16,22 @@ hash/signing key, ``authorized_keys``) writes through
 
 from __future__ import annotations
 
-import contextlib
 import os
 import tempfile
-from collections.abc import Iterator
 from pathlib import Path
 
 
 _PRIVATE_DIR_MODE = 0o700
 
 
-@contextlib.contextmanager
-def _restrictive_umask() -> Iterator[None]:
-    """Temporarily set the process umask so newly created directories stay private.
-
-    ``os.umask`` only narrows the mode passed to ``mkdir``, never widens
-    it, so ``umask(0o077)`` guarantees no group/other bits regardless of
-    the ambient umask.
-    """
-    previous = os.umask(0o077)
-    try:
-        yield
-    finally:
-        os.umask(previous)
-
-
 def ensure_private_dir(path: Path) -> None:
     """Create ``path`` (and any missing parents) with mode ``0700``. No-op if it already exists; existing mode is left as-is."""
-    with _restrictive_umask():
-        path.mkdir(parents=True, exist_ok=True, mode=_PRIVATE_DIR_MODE)
+    # No umask games: os.umask is process-wide, and a thread writing an app's
+    # run directory at the same moment would inherit the tightened mask.
+    existed = path.is_dir()
+    path.mkdir(parents=True, exist_ok=True)
+    if not existed:
+        path.chmod(_PRIVATE_DIR_MODE)
 
 
 def fsync_dir(path: Path) -> None:

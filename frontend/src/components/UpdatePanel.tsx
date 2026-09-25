@@ -15,6 +15,7 @@ import {
 import type { UpdateJobInfo, UpdateStatusResponse } from "@/api/generated/models";
 import { PortalApiError } from "@/api/client";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
+import { PlatformUpdateCard } from "@/components/PlatformUpdateCard";
 import { ProgressBar } from "@/components/ProgressBar";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -304,6 +305,10 @@ export function UpdatePanel({
             rollbackError={rollback.error}
           />
         ) : null}
+        <PlatformUpdateCard
+          installedPortalVersion={status.installed.tag ?? undefined}
+          portalUpdateRunning={job?.state === "running" || job?.state === "restarting"}
+        />
       </div>
     </div>
   );

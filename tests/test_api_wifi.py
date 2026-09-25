@@ -484,7 +484,6 @@ def test_wifi_requires_a_session_when_password_already_set_even_while_unprovisio
 def test_login_still_works_while_unprovisioned_once_a_password_is_set(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
-    # Without this, a DIY device that set a password and later became
     # unprovisioned again could never log back in: require_provisioned_unless_identity
     # would otherwise block /auth/login until Wi-Fi is configured, but Wi-Fi
     # itself is now session-gated (the test above) -- a deadlock.

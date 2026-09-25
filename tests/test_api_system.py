@@ -32,6 +32,22 @@ def test_status_reports_the_machine_hostname(client: TestClient) -> None:
     assert response.json()["hostname"] == socket.gethostname()
 
 
+def test_status_reports_ntp_synchronized_from_the_clock_port(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    adapters.clock.synchronized = False
+
+    response = client.get("/api/v1/system/status")
+
+    assert response.json()["ntp_synchronized"] is False
+
+
+def test_status_reports_disk_free_bytes_from_the_disk_port(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    adapters.disk.free_bytes_value = 123
+
+    response = client.get("/api/v1/system/status")
+
+    assert response.json()["disk_free_bytes"] == 123
+
+
 def test_status_reports_auth_state_open_setup_before_setup(client: TestClient) -> None:
     response = client.get("/api/v1/system/status")
 

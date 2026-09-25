@@ -10,11 +10,12 @@ know which concrete class backs a port.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Literal, Protocol
+from pathlib import Path
+from typing import Any, Literal, Protocol
 
 
 class ConnectionState(StrEnum):
@@ -102,6 +103,30 @@ class NetworkPort(Protocol):
                 ``delete_connection()`` deletes the NetworkManager profile of the *active*
                 SSID on the link device, i.e. comitup's own hotspot profile, not a
                 home-network one.
+        """
+        ...
+
+
+class ClockPort(Protocol):
+    """Monotonic timekeeping and NTP-sync status. See :class:`~palmimo_portal.adapters.clock.SystemClockPort`.
+
+    ``monotonic()`` is what :mod:`palmimo_portal.core.periodic` schedules
+    against -- never wall-clock time, which a device without an RTC can
+    jump years on first NTP sync (design doc 3.3).
+    """
+
+    def monotonic(self) -> float:
+        """Return a monotonic clock reading, in seconds, comparable only to other readings from this port."""
+        ...
+
+    def ntp_synchronized(self) -> bool:
+        """Report whether the OS clock is NTP-synchronized.
+
+        Every periodic network task (git update checks, the catalog and
+        platform-latest refresh) is gated on this -- before sync, TLS to
+        GitHub/PyPI fails outright on a device with no RTC (design doc
+        3.6). A real adapter that cannot reach ``timedate1`` over D-Bus
+        reports ``False`` (fail closed) rather than raising.
         """
         ...
 
@@ -384,6 +409,85 @@ class ReleaseSource(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class CatalogEnvSpec:
+    """One catalog app's declared ``[env.*]`` entry -- the subset the release workflow publishes (design doc 4.1)."""
+
+    required: bool
+    description: str
+    #: ``None`` if absent or not a plain ``http(s)://`` URL -- see
+    #: :func:`~palmimo_portal.adapters.catalog._parse_env`.
+    help_url: str | None = None
+
+
+@dataclass(frozen=True)
+class CatalogApp:
+    """One official app, as listed in the devkit release's catalog asset (design doc 4.1)."""
+
+    name: str
+    description: str
+    source: AppSource
+    env: dict[str, CatalogEnvSpec]
+    devices: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class CatalogAsset:
+    """One fetched, verified, and schema-validated catalog release."""
+
+    tag: str
+    apps: tuple[CatalogApp, ...]
+
+
+class CatalogSourceError(Exception):
+    """Raised by :meth:`CatalogSource.fetch` when the release, asset, or its shape is unusable.
+
+    ``code``, when set, is a :class:`ReleaseSourceError`'s own ``code``
+    propagated through -- currently only ``"rate_limited"``, which
+    :class:`~palmimo_portal.core.catalog.CatalogCache` maps onto its own
+    ``reason`` instead of the generic ``"offline"``.
+    """
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        self.code = code
+        super().__init__(message)
+
+
+class CatalogSource(Protocol):
+    """Fetches and validates the official app catalog. See :class:`~palmimo_portal.adapters.catalog.GitHubCatalogSource`.
+
+    One call does the whole pipeline (find the selected devkit examples release,
+    download the catalog asset and its ``.sha256``, verify, parse, and
+    validate) -- unlike :class:`PlatformBundleSource`, there is no
+    multi-step job to report progress for.
+    """
+
+    def fetch(self) -> CatalogAsset:
+        """Return the latest official catalog.
+
+        Raises:
+            CatalogSourceError: the release/asset could not be fetched, the
+                checksum did not match, or the asset's shape is invalid
+                (wrong ``schema``, an app missing a required field).
+        """
+        ...
+
+
+@dataclass(frozen=True)
+class CatalogCacheState:
+    """The last-known-good catalog, persisted so a restart does not lose it (design doc 4.1/3.6).
+
+    ``fetched_at`` is a wall-clock ``time.time()`` reading -- display only,
+    never compared against for interval/staleness logic (design doc 3.3);
+    :class:`~palmimo_portal.core.catalog.CatalogCache` tracks its own
+    monotonic age separately, in memory only.
+    """
+
+    tag: str | None
+    apps: tuple[CatalogApp, ...]
+    fetched_at: float | None
+
+
 class UpdateStepError(Exception):
     """Raised by :meth:`Updater.apply` when one of its steps fails.
 
@@ -571,3 +675,907 @@ class StateStore(Protocol):
     def write_update_state(self, state: UpdateState) -> None:
         """Persist the update state, replacing whatever was stored before."""
         ...
+
+    def read_apps_state(self) -> AppsState:
+        """Return the persisted app ledger, defaulting to empty when absent.
+
+        Unlike ``update.json``, a corrupt (present but unparseable) file is
+        never conflated with "no apps installed" here -- see
+        :meth:`apps_state_file_state`. Callers that skip that check first
+        and read a corrupt ledger as empty would make every installed app
+        vanish from the UI and stop autostart from ever firing.
+        """
+        ...
+
+    def apps_state_file_state(self) -> AppsStateFileState:
+        """Classify ``apps.json`` as :attr:`AppsStateFileState.ABSENT`, :attr:`PRESENT`, or :attr:`CORRUPT`.
+
+        ``api/apps.py`` checks this before every apps-tab request; on
+        :attr:`~AppsStateFileState.CORRUPT` it answers 409
+        ``platform_state_corrupt`` for the whole apps tab rather than
+        guessing. Recovery is ``POST /apps/reset``.
+        """
+        ...
+
+    def write_apps_state(self, state: AppsState) -> None:
+        """Persist the app ledger, replacing whatever was stored before."""
+        ...
+
+    def lock_apps(self) -> AbstractContextManager[None]:
+        """Hold the exclusive lock serializing install/update/delete jobs (``apps.lock``).
+
+        Exactly one app job runs at a time (see the technical design's
+        "does not run concurrently" invariant): a second job attempted
+        while one is in flight must see a bounded, non-blocking failure,
+        not queue silently behind the first.
+
+        Raises:
+            AppsLockTimeoutError: the lock could not be acquired within
+                :data:`~palmimo_portal.core.apps_jobs.APPS_LOCK_TIMEOUT_SECONDS`.
+        """
+        ...
+
+    def lock_run(self, timeout_s: float = 0.0) -> AbstractContextManager[None]:
+        """Hold the exclusive, non-blocking lock serializing start/stop/autostart (``run.lock``).
+
+        Independent of :meth:`lock_apps` (design doc 2.1): an app can be
+        started while another is mid-install/update, but two starts (or a
+        start racing autostart) must never both observe "nothing running"
+        and both proceed.
+
+        ``timeout_s`` lets a start/stop wait briefly for read-side cleanup,
+        while the default preserves immediate conflict reporting for callers
+        that must not wait.
+
+        Raises:
+            RunLockTimeoutError: another start/stop/autostart already holds it.
+        """
+        ...
+
+    def read_platform_update_state(self) -> PlatformUpdateState:
+        """Return the persisted platform-update job, defaulting to idle when absent or corrupt.
+
+        Not security-bearing, same tolerant-read contract as
+        :meth:`read_update_state`: a missing or unparseable
+        ``platform_update.json`` is logged at WARNING and treated as "no
+        platform job has ever run".
+        """
+        ...
+
+    def write_platform_update_state(self, state: PlatformUpdateState) -> None:
+        """Persist the platform-update job, replacing whatever was stored before."""
+        ...
+
+    def lock_platform(self) -> AbstractContextManager[None]:
+        """Hold the exclusive, non-blocking lock serializing platform-bundle update jobs.
+
+        Mirrors :meth:`lock_run`'s non-blocking shape: a second ``POST
+        /platform/update`` while one is already running must see an
+        immediate, bounded failure, not queue behind it.
+
+        Raises:
+            PlatformLockTimeoutError: another platform update already holds it.
+        """
+        ...
+
+    def read_catalog_cache(self) -> CatalogCacheState:
+        """Return the last successfully fetched official catalog, or an empty state if none yet.
+
+        Tolerant read, same contract as :meth:`read_platform_update_state`:
+        a missing or unparseable ``catalog_cache.json`` is logged and
+        treated as "never fetched" rather than raised -- this cache is a
+        staleness fallback, not security- or ledger-bearing.
+        """
+        ...
+
+    def write_catalog_cache(self, state: CatalogCacheState) -> None:
+        """Persist the last successfully fetched official catalog, replacing whatever was stored before."""
+        ...
+
+
+class AppsLockTimeoutError(Exception):
+    """Raised by :meth:`StateStore.lock_apps` when another app job already holds the lock.
+
+    ``api/apps.py`` translates this into 409 ``app_job_in_progress``.
+    """
+
+
+class AppsStateFileState(StrEnum):
+    """The states ``apps.json`` can be in, including legacy pre-app-ID ledgers.
+
+    A corrupt ledger must never be treated as "no apps installed" -- doing
+    so would make every installed app silently disappear from the UI and
+    stop autostart from ever running. Recovery is manual: ``POST /apps/reset``.
+    """
+
+    ABSENT = "absent"
+    PRESENT = "present"
+    CORRUPT = "corrupt"
+    LEGACY = "legacy"
+
+
+AppSourceType = Literal["zip", "git"]
+AppRefKind = Literal["branch", "tag"]
+AppJobKind = Literal["install", "update", "delete"]
+AppJobState = Literal["running", "done", "failed"]
+
+
+@dataclass(frozen=True)
+class AppSource:
+    """Where an app's files came from -- persisted so ``update``/``preview`` know how to refetch it."""
+
+    type: AppSourceType
+    url: str | None = None
+    ref: str | None = None
+    ref_kind: AppRefKind | None = None
+    subdir: str | None = None
+    commit: str | None = None
+    #: The manifest file this app was installed from, when it is not the default
+    #: ``palmimo.toml`` -- ``None`` means the default. Fixed at install time; ``update`` re-reads
+    #: this same file.
+    manifest: str | None = None
+
+
+@dataclass(frozen=True)
+class AppJob:
+    """One install/update/delete attempt against a single app, persisted on :class:`AppRecord`."""
+
+    id: str
+    kind: AppJobKind
+    state: AppJobState
+    step: str | None
+    error: str | None
+    started_at: float | None
+    finished_at: float | None
+    display_name: str | None = None
+    #: The failure's machine-readable reason (a `GitCommandError.reason`, currently -- see
+    #: `core.apps_job_runner._fail_current_job`), for the same per-cause UI guidance a
+    #: synchronous preview/install git failure gets (`api/apps.py`'s `_raise_for_git_error`).
+    #: `None` for a non-git failure, or when the job has not failed.
+    error_code: str | None = None
+    #: True when no ``uv.lock`` was found in the app's project and one was generated --
+    #: surfaced so the UI can warn "reproducibility reduced" without failing the job.
+    lock_generated: bool = False
+    #: Env var request names whose binding no longer names a declared ``[env.*]`` entry
+    #: after this job (manifest changed) -- see design doc 3.4's "register" step.
+    dropped_bindings: tuple[str, ...] = ()
+    dropped_params: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class AppRecord:
+    """One entry in the app ledger (``apps.json``)."""
+
+    name: str
+    source: AppSource
+    installed_at: float | None
+    params: dict[str, Any]
+    autostart: bool
+    last_job: AppJob | None
+    #: Set by startup finalize when the manifest or ``.venv`` this record
+    #: points at is missing on disk -- see design doc 3.3's finalize rule.
+    broken_reason: str | None = None
+    #: Set when a git update/check got HTTP 401/403 from this app's credential --
+    #: further periodic checks stop until the credential is replaced (design doc 3.6).
+    credential_rejected: bool = False
+    #: Set by the periodic git-check sweep (:mod:`palmimo_portal.core.periodic`) for a
+    #: branch-pinned app with a newer upstream commit than `source.commit`.
+    update_available: bool = False
+    #: The upstream commit `update_available` refers to, or `None` before any check has run.
+    latest_commit: str | None = None
+    #: Validated manifest captured at install/update time. Runtime behavior
+    #: must use this rather than the mutable app checkout.
+    manifest: dict[str, Any] | None = None
+    #: The project's validated PEP 440 Python requirement used for sync and launch.
+    requires_python: str | None = None
+    #: Stable machine identifier; ``name`` is the manifest-provided display name.
+    id: str = ""
+
+
+@dataclass(frozen=True)
+class AppsState:
+    """The whole app ledger: every installed app, plus any job currently in flight.
+
+    ``current_job`` names the one app-job the ``apps.lock`` is guarding, if any --
+    distinct from each :class:`AppRecord`'s own ``last_job``, which is that app's
+    most recently *finished* (or interrupted) job, kept after ``current_job`` clears.
+
+    ``last_orphan_job``/``last_orphan_job_app`` hold the most recent finished job that has
+    no :class:`AppRecord` to live on as a ``last_job`` -- a fresh install's name is only
+    added to ``apps`` on success, so a failure before that has nowhere else to persist and
+    would otherwise vanish once ``current_job`` clears, leaving ``GET /apps/jobs/{id}``
+    404 for a job the caller was just told about. Cleared whenever a job of any kind
+    finishes and does attach to a record, and when a new job starts.
+    """
+
+    apps: dict[str, AppRecord] = field(default_factory=dict)
+    current_job: AppJob | None = None
+    current_job_app: str | None = None
+    last_orphan_job: AppJob | None = None
+    last_orphan_job_app: str | None = None
+
+
+class AppExistsError(Exception):
+    """Raised when installing over a name already in the ledger. ``api/apps.py`` maps this to 409 ``app_exists``."""
+
+
+class AppNotFoundError(Exception):
+    """Raised when an operation names an app absent from the ledger."""
+
+
+class AppJobInProgressError(Exception):
+    """Raised when an app job is attempted while another (any app) is already running.
+
+    Distinct from :class:`~palmimo_portal.ports.AppsLockTimeoutError`: this
+    is the use-case-level rule (:mod:`palmimo_portal.core.apps_jobs`), that
+    exception is the lock primitive itself -- both map to the same 409
+    ``app_job_in_progress``.
+    """
+
+
+class PortalUpdateInProgressError(Exception):
+    """Raised when starting an app job while a Portal self-update is running.
+
+    ``api/apps.py`` maps this to 409 ``update_in_progress`` -- the same
+    code an app job's own in-progress state maps onto for a Portal update
+    attempt (see ``api/update.py``), so the two features refuse each other
+    symmetrically.
+    """
+
+
+class DiskFullError(Exception):
+    """Raised by a job's disk-space precheck. ``api/apps.py`` maps this to 507 ``disk_full``."""
+
+
+class AppsDirUnavailableError(Exception):
+    """Raised by a job's disk-space precheck when ``apps_dir`` itself cannot be statted.
+
+    Distinct from :class:`DiskFullError`: ``apps_dir`` not existing means the
+    platform bundle's ``StateDirectory`` was never provisioned (or is not
+    yet mounted), not that the volume is full -- ``api/apps.py`` maps this
+    to 503 ``platform_not_ready`` rather than 507 ``disk_full``.
+    """
+
+
+class InvalidManifestSourceError(Exception):
+    """Raised when a job's fetched source fails validation (bad zip, no manifest, wrong app name, ...)."""
+
+
+@dataclass(frozen=True)
+class SecretRecord:
+    """One registered secret's metadata -- never its value. See :class:`SecretsStore`."""
+
+    name: str
+    updated_at: float
+
+
+@dataclass(frozen=True)
+class GitCredentialRecord:
+    """One registered GitHub host/owner credential's metadata -- never its token."""
+
+    host_owner: str
+    updated_at: float
+    #: Set by :meth:`SecretsStore.mark_git_credential_rejected` when a git operation using this
+    #: credential got HTTP 401/403 -- cleared back to `None` by :meth:`SecretsStore.set_git_credential`,
+    #: since a rewritten credential must resume periodic checks (design doc 3.6/4.2).
+    rejected_at: float | None = None
+    rejected_status: int | None = None
+
+
+class InvalidSecretNameError(Exception):
+    """Raised when a secret/store name does not match ``^[A-Z][A-Z0-9_]{0,63}$``."""
+
+
+class InvalidSecretValueError(Exception):
+    """Raised when a secret value contains a newline -- design doc 3.5's env-file line format forbids it."""
+
+
+class SecretNotFoundError(Exception):
+    """Raised by :meth:`SecretsStore.delete_secret` when no secret has the given name."""
+
+
+class SecretInUseError(Exception):
+    """Raised by :meth:`SecretsStore.delete_secret` when a binding still references it.
+
+    ``users`` lists ``(app_id, request_name)`` pairs still bound to the secret being
+    deleted -- bindings are keyed by app id, not display name (design doc 3.9).
+    ``api/secrets.py`` resolves each id's display name and returns both in the
+    409 ``secret_in_use`` body.
+    """
+
+    def __init__(self, users: list[tuple[str, str]]) -> None:
+        self.users = users
+        super().__init__(f"secret in use by: {users}")
+
+
+class UnknownSecretNameError(Exception):
+    """Raised by :meth:`SecretsStore.write_bindings` when a binding names an unregistered secret."""
+
+
+class InvalidHostOwnerError(Exception):
+    """Raised when a git-credential ``host_owner`` scope does not normalize to ``host/owner`` shape.
+
+    See :func:`~palmimo_portal.core.secrets.normalize_host_owner` for the
+    normalization/validation rule.
+    """
+
+
+class SecretsStore(Protocol):
+    """Persists registered secret values, per-app bindings, and git credentials.
+
+    Backed by ``secrets/{values,bindings,git_credentials}.json`` under
+    ``PALMIMO_SECRETS_DIR`` (0700; each file 0600) --
+    :mod:`palmimo_portal.adapters.secrets`. Values are write-only from the
+    API's point of view: nothing in ``api/`` ever reads
+    :meth:`get_secret_value` back out to a client.
+    """
+
+    def list_secrets(self) -> list[SecretRecord]:
+        """Return every registered secret's name and last-update time, never its value."""
+        ...
+
+    def set_secret(self, name: str, value: str) -> None:
+        """Register or overwrite a secret value.
+
+        Raises:
+            InvalidSecretNameError: ``name`` does not match ``^[A-Z][A-Z0-9_]{0,63}$``.
+            InvalidSecretValueError: ``value`` contains a newline.
+        """
+        ...
+
+    def get_secret_value(self, name: str) -> str | None:
+        """Return the raw value for ``name``, or ``None`` if unregistered. Never exposed via the API."""
+        ...
+
+    def delete_secret(self, name: str) -> None:
+        """Remove a registered secret.
+
+        Raises:
+            SecretNotFoundError: no secret is registered under ``name``.
+            SecretInUseError: some app's binding still references it.
+        """
+        ...
+
+    def read_bindings(self, app: str) -> dict[str, str]:
+        """Return ``app``'s ``{request_name: registered_secret_name}`` map, or ``{}`` if none set."""
+        ...
+
+    def write_bindings(self, app: str, bindings: dict[str, str]) -> None:
+        """Replace ``app``'s bindings wholesale.
+
+        Raises:
+            UnknownSecretNameError: some value in ``bindings`` names a secret that is not registered.
+        """
+        ...
+
+    def delete_bindings(self, app: str) -> None:
+        """Remove every binding for ``app`` (called when the app itself is deleted). A no-op if none exist."""
+        ...
+
+    def bindings_using(self, secret_name: str) -> list[tuple[str, str]]:
+        """Return every ``(app, request_name)`` pair currently bound to ``secret_name``."""
+        ...
+
+    def list_git_credentials(self) -> list[GitCredentialRecord]:
+        """Return every registered ``host/owner`` credential's metadata, never its token."""
+        ...
+
+    def set_git_credential(self, host_owner: str, token: str) -> None:
+        """Register or overwrite the token for ``host_owner`` (e.g. ``github.com/Jizai-inc``)."""
+        ...
+
+    def get_git_credential(self, host_owner: str) -> str | None:
+        """Return the raw token for ``host_owner``, or ``None`` if unregistered. Never exposed via the API."""
+        ...
+
+    def delete_git_credential(self, host_owner: str) -> None:
+        """Remove a registered git credential. A no-op if none exists."""
+        ...
+
+    def mark_git_credential_rejected(self, host_owner: str, status: int) -> None:
+        """Record that a git operation using ``host_owner``'s credential got HTTP ``status`` (401/403).
+
+        A no-op if ``host_owner`` is not registered. Called by
+        :func:`~palmimo_portal.core.periodic.run_git_check_sweep` in place
+        of the periodic check itself, so :meth:`list_git_credentials`
+        reflects the same rejection ``GET /git-credentials`` reports.
+        """
+        ...
+
+    def reset(self) -> None:
+        """Erase every secret value, binding, and git credential (``POST /apps/reset``, design doc 3.2)."""
+        ...
+
+
+class GitCommandError(Exception):
+    """Raised by a real :class:`GitPort` when a git subprocess fails, times out, or cannot start.
+
+    ``status_code`` is the HTTP status git's own stderr reported (401/403
+    for a rejected credential), when the real adapter could parse one out
+    -- see :mod:`palmimo_portal.core.periodic`'s credential-rejection
+    handling. ``None`` for every other failure (timeout, unknown ref, no
+    HTTP status in the output).
+    """
+
+    def __init__(self, message: str, *, status_code: int | None = None, reason: str = "git_unknown") -> None:
+        self.status_code = status_code
+        self.reason = reason
+        super().__init__(message)
+
+
+class GitPort(Protocol):
+    """Runs the ``git`` subprocesses an app install/update job needs. See :class:`~palmimo_portal.adapters.git_port.SubprocessGitPort`.
+
+    Every method is non-interactive and timeout-bounded
+    (``GIT_TERMINAL_PROMPT=0``, ``GIT_ASKPASS=/bin/true``): a stale or
+    revoked credential must fail fast, never hang the job waiting on a
+    prompt no one can answer.
+    """
+
+    def clone_shallow(
+        self,
+        url: str,
+        ref: str,
+        ref_kind: AppRefKind,
+        dest: Path,
+        *,
+        env: Mapping[str, str] | None = None,
+        blobless: bool = False,
+        sparse_subdir: str | None = None,
+    ) -> str:
+        """Shallow-clone ``url`` at ``ref`` into ``dest`` (created fresh). Returns the resulting commit SHA.
+
+        ``env`` carries git-credential ``GIT_CONFIG_*`` variables (design
+        doc 4.2) -- never passed as argv, which ``/proc/<pid>/cmdline``
+        exposes to every UID on the device. ``blobless``/``sparse_subdir``
+        are only used for verified official catalog sources.
+
+        Raises:
+            GitCommandError: the clone failed, timed out, or the ref does not exist.
+        """
+        ...
+
+    def fetch_commit(self, url: str, ref: str, ref_kind: AppRefKind, *, env: Mapping[str, str] | None = None) -> str:
+        """Resolve ``ref`` on ``url`` to a commit SHA without cloning -- used by ``update/check``.
+
+        Raises:
+            GitCommandError: the fetch failed, timed out, or the ref does not exist.
+        """
+        ...
+
+
+class UvPort(Protocol):
+    """Reports the ``uv`` binary's version. See :class:`~palmimo_portal.adapters.uv_port.SubprocessUvPort`.
+
+    Dependency sync no longer runs in the Portal's own process (design doc
+    2.2b): an untrusted app's ``pyproject.toml`` can run arbitrary code via
+    its build backend or path dependencies, so sync runs as ``palmimo-app``
+    through :class:`SyncUnitPort` instead. This port is left with only the
+    one call that never touches app code.
+    """
+
+    def version(self) -> str:
+        """Return ``uv --version``'s output, or ``"unknown"`` if it could not be determined.
+
+        Never raises -- consumed only by ``GET /apps/{id}/diagnostics``
+        (design doc 3.2), where a version string a support agent cannot get
+        is more useful than a 500.
+        """
+        ...
+
+    def find_system_python(self, requirement: str) -> str | None:
+        """Return a system interpreter satisfying ``requirement``, or None."""
+        ...
+
+    def install_python(self, requirement: str) -> None:
+        """Install a managed interpreter into the shared, read-only-to-apps store."""
+        ...
+
+
+class UvPythonInstallError(Exception):
+    """Raised when uv cannot install an interpreter required by an app."""
+
+
+class SyncFailedError(Exception):
+    """Raised by :mod:`palmimo_portal.core.apps_jobs` when a :class:`SyncUnitPort` job unit did not succeed.
+
+    Carries systemd's own ``Result``/``ExecMainStatus`` pair plus the
+    unit's masked journal tail (design doc 2.2b) -- ``str(error)`` is what
+    ends up in the job's persisted ``error`` field, shown to the operator.
+    """
+
+    def __init__(self, instance: str, result: str, exec_main_status: int, journal_tail: str) -> None:
+        self.result = result
+        self.exec_main_status = exec_main_status
+        message = f"dependency sync for {instance} failed: result={result} exec_main_status={exec_main_status}"
+        if journal_tail:
+            message = f"{message}\n{journal_tail}"
+        super().__init__(message)
+
+
+class SyncUnitPort(Protocol):
+    """Controls one app job's ``palmimo-app-sync@<instance>.service`` oneshot unit (design doc 2.2b).
+
+    ``instance`` is the ``.staging/<id>/`` directory name the job is
+    running against -- also the value the caller wrote into that
+    directory's ``sync.json`` before calling :meth:`start`. Runs as
+    ``palmimo-app``, the same uid as the app itself, never the Portal's own
+    -- an app author's ``pyproject.toml`` build backend/path dependencies
+    must not run with the Portal's privileges.
+    """
+
+    def start(self, instance: str) -> None:
+        """Ask systemd to start the sync unit for ``instance``. Returns once queued, not once finished."""
+        ...
+
+    def wait(self, instance: str, timeout_s: float) -> UnitStatus:
+        """Poll until the unit leaves ``active``/``activating``, returning its final status.
+
+        Raises:
+            TimeoutError: the unit was still running after ``timeout_s``.
+        """
+        ...
+
+    def stop(self, instance: str) -> None:
+        """Ask systemd to stop the sync unit for ``instance`` and wait for the stop job to finish."""
+        ...
+
+    def list_active_instances(self) -> list[str]:
+        """Return the instance names of every ``palmimo-app-sync@*`` unit that is active/activating/deactivating.
+
+        Used only at startup (design doc 2.2b): a process that died mid-job
+        can leave its sync unit running against a ``.staging/<id>/`` tree
+        :func:`~palmimo_portal.core.apps_jobs.cleanup_staging_and_trash` is
+        about to purge -- that unit must be stopped first.
+        """
+        ...
+
+
+class DiskPort(Protocol):
+    """Reports free disk space. See :class:`~palmimo_portal.adapters.disk.OsDiskPort`."""
+
+    def free_bytes(self, path: Path) -> int:
+        """Return the free space, in bytes, on the filesystem containing ``path``."""
+        ...
+
+
+class RunLockTimeoutError(Exception):
+    """Raised by :meth:`StateStore.lock_run` when start/stop/autostart's ``run.lock`` is already held.
+
+    ``api/apps.py`` translates this into 409 ``app_busy``. Distinct from
+    :class:`AppsLockTimeoutError`: install/update/delete and start/stop are
+    independent axes (design doc 2.1) -- an app can be started while
+    another is mid-update, but two starts (or a start racing autostart)
+    must never both observe "nothing running" and both proceed.
+    """
+
+
+@dataclass(frozen=True)
+class UnitStatus:
+    """systemd's view of one ``palmimo-app@<name>.service`` unit, as read by :meth:`AppUnitPort.status`.
+
+    ``result`` and ``exec_main_status`` are ``systemctl show``'s ``Result``/``ExecMainStatus``
+    properties, used as-is (design doc 3.5) rather than re-encoded -- ``core.apps_start``
+    derives the user-facing status from this pair.
+    """
+
+    active_state: str
+    sub_state: str
+    result: str
+    exec_main_status: int
+    exec_main_start_timestamp: float = 0.0
+
+
+class PolkitDeniedError(Exception):
+    """Raised by a real :class:`AppUnitPort` when systemd's D-Bus call is refused by polkit.
+
+    Distinct from :class:`AdapterUnavailableError` (design doc 3.5): a
+    stale polkit rule on the device, not a transient D-Bus outage --
+    ``api/apps.py`` maps this to a dedicated ``polkit_denied`` code instead
+    of retrying it like a generic backend hiccup.
+    """
+
+    def __init__(self, unit: str, verb: str) -> None:
+        self.unit = unit
+        self.verb = verb
+        super().__init__(f"polkit denied unit={unit} verb={verb}")
+
+
+class AppUnitPort(Protocol):
+    """Controls one app's ``palmimo-app@<name>.service`` unit over systemd's D-Bus API.
+
+    See :class:`~palmimo_portal.adapters.systemd.SystemdAppUnitPort`; every
+    method takes the bare app ``name``, not the unit string, and raises
+    :class:`PolkitDeniedError` rather than :class:`AdapterUnavailableError`
+    when systemd itself refuses the verb (design doc 2.6).
+    """
+
+    def set_device_allow(self, name: str, specs: list[str]) -> None:
+        """Reset, then set, ``DeviceAllow`` for ``name``'s runtime scope (design doc 2.4).
+
+        Always clears to the empty list first so a previous start's grants
+        never linger into this one, then applies ``specs`` (each a
+        ``"<class> rw"``-shaped systemd device-allow spec).
+        """
+        ...
+
+    def start(self, name: str) -> None:
+        """Ask systemd to start ``name``'s unit. Returns once queued (``activating``), not once running."""
+        ...
+
+    def stop(self, name: str) -> None:
+        """Ask systemd to stop ``name``'s unit and wait for the stop job to finish."""
+        ...
+
+    def status(self, name: str) -> UnitStatus:
+        """Read ``name``'s current ``ActiveState``/``SubState``/``Result``/``ExecMainStatus``."""
+        ...
+
+    def list_active_app_units(self) -> list[str]:
+        """Return the app names (not unit strings) of every ``palmimo-app@*`` unit that is active/activating/deactivating."""
+        ...
+
+
+class RunDirPort(Protocol):
+    """Writes/removes ``/run/palmimo/apps/<id>/`` for one app's next start (design doc 2.1/3.5 step 6).
+
+    See :class:`~palmimo_portal.adapters.rundir.TmpfsRunDirPort`.
+    """
+
+    def write(
+        self,
+        name: str,
+        *,
+        env: dict[str, str],
+        argv: list[str],
+        cwd: str,
+        project: str,
+        python: str | None = None,
+    ) -> None:
+        """Recreate ``name``'s run directory (removing any leftover first) and write ``env``/``argv.json`` into it.
+
+        ``env`` becomes ``KEY=value`` lines (0600, root-readable only --
+        PID1 reads it as ``EnvironmentFile=``); ``argv.json`` is
+        ``{"argv": argv, "cwd": cwd, "project": project, "python": python}`` (0640, read by
+        ``app-launch`` running as the app's own uid). Group ownership is
+        set to ``palmimo-apps`` when that group resolves on this host,
+        skipped silently otherwise (a dev machine with no such group).
+        """
+        ...
+
+    def remove(self, name: str) -> None:
+        """Remove ``name``'s run directory. A no-op if it does not exist."""
+        ...
+
+    def remove_all(self) -> None:
+        """Remove every app's run directory (``POST /apps/reset``, design doc 3.2). A no-op if none exist."""
+        ...
+
+
+@dataclass(frozen=True)
+class JournalEntry:
+    """One journal line read by :meth:`JournalPort.read`."""
+
+    message: str
+    timestamp: float | None
+    invocation_id: str | None
+
+
+@dataclass(frozen=True)
+class JournalInvocation:
+    """One systemd invocation and the time of its first journal entry."""
+
+    id: str
+    started_at: float | None
+
+
+@dataclass(frozen=True)
+class JournalPage:
+    """One page of journal entries, plus a cursor for the next page and every invocation id seen so far."""
+
+    entries: list[JournalEntry]
+    next_cursor: str | None
+    invocations: list[JournalInvocation]
+
+
+class JournalPort(Protocol):
+    """Reads a unit's journal. See :class:`~palmimo_portal.adapters.journal.JournalctlPort`."""
+
+    def read(self, unit: str, *, cursor: str | None, lines: int, invocation: str | None = None) -> JournalPage:
+        """Return up to ``lines`` journal entries for ``unit``, starting after ``cursor`` if given.
+
+        ``invocation``, when given, restricts to that one systemd
+        invocation (design doc 3.2's "pick a previous start" UI) --
+        :attr:`JournalPage.invocations` lists every id available to pick from.
+        """
+        ...
+
+    def can_read(self) -> bool:
+        """Report whether this process can read the journal at all.
+
+        Backed by ``systemd-journal`` group membership (``os.getgroups()``)
+        -- a Portal deployed without that supplementary group gets a
+        precheck failure instead of a confusing empty log (design doc 3.2).
+        """
+        ...
+
+
+@dataclass(frozen=True)
+class PlatformInstalled:
+    """The realtime platform bundle currently recorded on this device (``installed.json``, design doc 2.8)."""
+
+    version: int
+    installed_at: str
+    bundle_sha256: str
+
+
+@dataclass(frozen=True)
+class PlatformManifest:
+    """One platform bundle release's ``manifest.json`` (design doc 2.8)."""
+
+    version: int
+    requires_portal: str
+    restart_portal: bool
+    summary: str
+    reflash_required: bool
+
+
+@dataclass(frozen=True)
+class PlatformVerifyDiff:
+    """One line of ``install.sh verify``'s JSON output -- a single owned path that does not match the manifest.
+
+    ``expected``/``actual`` are set only for a ``"mode"``/``"owner"``/``"group"``
+    diff (see ``verify_platform.py``'s ``_diff``); ``None`` for a shape like
+    ``"missing"``/``"content"`` that carries no such pair.
+    """
+
+    path: str
+    kind: str
+    expected: str | None = None
+    actual: str | None = None
+
+
+class PlatformCommandError(Exception):
+    """Raised by a real :class:`PlatformPort` when ``install.sh`` exits non-zero, times out, or cannot start.
+
+    ``step`` is one of ``"verify"``/``"install"``/``"record"`` -- the
+    :class:`PlatformPort` method that failed, mirroring
+    :class:`UpdateStepError`'s ``step`` attribute.
+    """
+
+    def __init__(self, step: str, message: str) -> None:
+        self.step = step
+        super().__init__(f"{step}: {message}")
+
+
+class PlatformPort(Protocol):
+    """Reads/applies the realtime platform bundle (design doc 2.8). See :class:`~palmimo_portal.adapters.platform.SudoPlatformPort`.
+
+    The only port whose real implementation runs a command through
+    ``sudo`` -- :attr:`~palmimo_portal.settings.Settings.sudo_bin` is
+    referenced nowhere else in this tree (``tests/test_platform_sudo_contract.py``).
+    """
+
+    def read_installed(self) -> PlatformInstalled | None:
+        """Return the currently-recorded platform bundle, or ``None`` if ``installed.json`` is absent/unreadable."""
+        ...
+
+    def verify(self, bundle_dir: Path) -> list[PlatformVerifyDiff]:
+        """Run ``<bundle_dir>/install.sh verify --root /`` and return the differences it reports.
+
+        An empty list means the installed platform matches ``bundle_dir``'s manifest exactly.
+
+        Raises:
+            PlatformCommandError: the command could not be run or its
+                output could not be parsed.
+        """
+        ...
+
+    def install(self, bundle_dir: Path) -> None:
+        """Run ``<bundle_dir>/install.sh install --root /``.
+
+        Raises:
+            PlatformCommandError: the command exited non-zero, timed out, or could not start.
+        """
+        ...
+
+    def record(self, bundle_dir: Path, sha: str) -> None:
+        """Run ``<bundle_dir>/install.sh record --root / --sha <sha>``.
+
+        Raises:
+            PlatformCommandError: the command exited non-zero, timed out, or could not start.
+        """
+        ...
+
+
+class PlatformBundleFetchError(Exception):
+    """Raised by :meth:`PlatformBundleSource.fetch` when one of its steps fails.
+
+    ``step`` is one of ``"fetch"``, ``"verify_sha"``, ``"extract"`` --
+    mirrors :class:`UpdateStepError`'s shape.
+    """
+
+    def __init__(self, step: str, message: str) -> None:
+        self.step = step
+        super().__init__(f"{step}: {message}")
+
+
+class PlatformBundleSource(Protocol):
+    """Downloads, checksum-verifies, and extracts one platform bundle release.
+
+    Needs no elevated privilege (writes only into a Portal-owned staging
+    directory) -- kept separate from :class:`PlatformPort` so ``sudo`` stays
+    confined to the three verbs that actually need it.
+    """
+
+    def fetch_latest_manifest(self, tag: str) -> PlatformManifest:
+        """Fetch and verify just *tag*'s ``.manifest.json`` (+ ``.sha256``) asset -- no tarball.
+
+        Cheap enough to call on every latest-release check
+        (:class:`~palmimo_portal.core.platform.PlatformLatestCache`,
+        design doc 2.8): ``.fetch()`` downloads and extracts the whole
+        bundle, which the latest check has no other use for.
+
+        Raises:
+            PlatformBundleFetchError: the asset is absent (older
+                ``palmimo-image`` release, no manifest asset published
+                yet -- the caller falls back to :meth:`fetch`), could not
+                be fetched, or failed checksum/shape validation.
+        """
+        ...
+
+    def fetch(self, tag: str, dest_dir: Path, on_step: Callable[[str], None]) -> tuple[Path, str]:
+        """Fetch *tag*'s bundle into a fresh subdirectory of ``dest_dir``, calling ``on_step`` before each sub-step.
+
+        Sub-steps, in order: ``"fetch"``, ``"verify_sha"``, ``"extract"``.
+
+        Returns:
+            The extracted bundle's root directory (containing
+            ``install.sh``) and the tarball's verified sha256 hex digest.
+
+        Raises:
+            PlatformBundleFetchError: a sub-step failed.
+        """
+        ...
+
+
+#: States a :class:`PlatformJob` can be in -- mirrors :data:`UpdateJobState`'s idle/running/done/failed
+#: subset (no "checking"/"restarting": a platform job's readiness answer does not depend on Portal
+#: itself restarting -- see core/platform.py's module docstring).
+PlatformJobState = Literal["idle", "running", "done", "failed"]
+
+
+@dataclass(frozen=True)
+class PlatformJob:
+    """One in-flight (or just-finished) platform-bundle update attempt, persisted via :class:`StateStore`.
+
+    ``step`` is one of design doc 2.8's pipeline names (``"fetch"``,
+    ``"verify_sha"``, ``"extract"``, ``"preflight"``, ``"install"``,
+    ``"verify"``, ``"record"``, ``"restart"``), kept a plain ``str`` (not a
+    ``Literal``, mirroring :attr:`UpdateJob.step`) since a ``"preflight"``
+    failure encodes extra detail into ``error``
+    (``"reflash_required"``/``"portal_too_old"``), not into ``step``.
+    """
+
+    state: PlatformJobState
+    target_version: int | None
+    step: str | None
+    error: str | None
+    started_at: float | None
+    finished_at: float | None
+
+
+@dataclass(frozen=True)
+class PlatformUpdateState:
+    """The Portal's whole platform-update picture: just the one in-flight/last job, persisted state-wise."""
+
+    job: PlatformJob
+
+
+class PlatformLockTimeoutError(Exception):
+    """Raised when a platform update is requested while another one is already running.
+
+    Mirrors :class:`AppsLockTimeoutError`/:class:`RunLockTimeoutError`'s
+    role for their own axes -- ``api/platform.py`` translates this into 409
+    ``platform_update_in_progress``.
+    """

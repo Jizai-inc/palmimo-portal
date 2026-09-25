@@ -42,21 +42,53 @@ from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
+from palmimo_portal.api import apps as apps_api
 from palmimo_portal.api import auth as auth_api
+from palmimo_portal.api import catalog as catalog_api
+from palmimo_portal.api import platform as platform_api
+from palmimo_portal.api import secrets as secrets_api
 from palmimo_portal.api import ssh_keys as ssh_keys_api
 from palmimo_portal.api import system as system_api
 from palmimo_portal.api import update as update_api
 from palmimo_portal.api import wifi as wifi_api
+from palmimo_portal.core.apps import finalize_apps_state
+from palmimo_portal.core.apps_job_runner import AppsJobRunner
+from palmimo_portal.core.apps_jobs import (
+    AppsJobContext,
+    cleanup_staging_and_trash,
+    disk_state_checks,
+    sweep_orphan_app_dirs,
+)
+from palmimo_portal.core.apps_start import (
+    RUNNING_ACTIVE_STATES,
+    AppStartError,
+    StartDeps,
+    reconcile_run_dirs,
+    start_app,
+)
 from palmimo_portal.core.auth import SESSION_COOKIE_NAME, LoginRateLimiter, ResetRateLimiter, decode_session
+from palmimo_portal.core.catalog import CatalogCache
+from palmimo_portal.core.periodic import build_scheduler
+from palmimo_portal.core.platform import (
+    PlatformJobRunner,
+    PlatformLatestCache,
+    PlatformUpdateRunner,
+    compute_status,
+    run_verify,
+)
+from palmimo_portal.core.platform_update import finalize_after_restart as finalize_platform_after_restart
 from palmimo_portal.core.provisioning import is_provisioned
 from palmimo_portal.core.update import finalize_after_restart
 from palmimo_portal.core.update_runner import UpdateRunner
 from palmimo_portal.ports import (
     AdapterUnavailableError,
+    AppNotFoundError,
+    AppsStateFileState,
     AuthFileState,
     Identity,
     IdentityStore,
     NetworkPort,
+    PolkitDeniedError,
     StateStore,
 )
 from palmimo_portal.settings import Settings, get_settings
@@ -339,7 +371,8 @@ async def _handle_http_exception(request: Request, exc: Exception) -> JSONRespon
 
 async def _handle_validation_error(request: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, RequestValidationError)
-    return _error_envelope(422, "validation_error", {"errors": exc.errors()})
+    errors = [{key: value for key, value in item.items() if key != "ctx"} for item in exc.errors()]
+    return _error_envelope(422, "validation_error", {"errors": errors})
 
 
 async def _handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
@@ -379,7 +412,142 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("update: startup finalize -> job.state=%s job.target=%s", finalized.job.state, finalized.job.target)
     except Exception:
         logger.exception("update: finalize_after_restart failed at startup")
+
+    try:
+        ctx: AppsJobContext = app.state.apps_job_context
+        for instance in ctx.sync_unit.list_active_instances():
+            logger.warning("apps: stopped orphan sync unit instance=%s", instance)
+            ctx.sync_unit.stop(instance)
+        cleanup_staging_and_trash(ctx)
+        apps_state = adapters.state.read_apps_state()
+        # An unreadable or legacy ledger reads as empty; sweeping against it would trash every app.
+        apps_file_state = adapters.state.apps_state_file_state()
+        if apps_file_state is AppsStateFileState.PRESENT:
+            sweep_orphan_app_dirs(ctx, apps_state)
+        elif apps_file_state is AppsStateFileState.LEGACY:
+            logger.error("apps: legacy ledger; skipping the orphan app directory sweep")
+        else:
+            logger.error("apps: ledger corrupt; skipping the orphan app directory sweep")
+        manifest_exists, venv_exists = disk_state_checks(ctx, apps_state)
+        finalized_apps = finalize_apps_state(
+            apps_state, manifest_exists=manifest_exists, venv_exists=venv_exists, now=time.time()
+        )
+        if finalized_apps != apps_state:
+            adapters.state.write_apps_state(finalized_apps)
+        logger.info("apps: startup finalize -> current_job=%s", finalized_apps.current_job)
+        reconcile_run_dirs(adapters.app_unit, adapters.run_dir, finalized_apps)
+    except Exception:
+        logger.exception("apps: finalize_apps_state failed at startup")
+
+    try:
+        platform_state = adapters.state.read_platform_update_state()
+        finalized_platform = finalize_platform_after_restart(platform_state, time.time())
+        if finalized_platform is not platform_state:
+            adapters.state.write_platform_update_state(finalized_platform)
+        logger.info(
+            "app-platform: startup finalize -> state=%s step=%s",
+            finalized_platform.job.state,
+            finalized_platform.job.step,
+        )
+    except Exception:
+        logger.exception("app-platform: finalize_after_restart failed at startup")
+
+    try:
+        logger.info("app-platform: startup verify begin")
+        await anyio.to_thread.run_sync(_refresh_platform_readiness, app)
+        logger.info("app-platform: startup verify end")
+    except Exception:
+        # install.sh verify is a sudo-backed subprocess call -- a hang or an unexpected
+        # crash here must never keep the app from serving every other route.
+        logger.exception("app-platform: startup verify failed")
+
+    if app.state.settings.autostart_enabled:
+        try:
+            await anyio.to_thread.run_sync(_run_autostart, app)
+        except Exception:
+            logger.exception("autostart: startup autostart failed")
+
+    periodic_thread: threading.Thread | None = None
+    if app.state.settings.periodic_enabled:
+        periodic_thread = threading.Thread(
+            target=app.state.periodic_scheduler.run_forever, daemon=True, name="palmimo-portal-periodic"
+        )
+        periodic_thread.start()
+
     yield
+
+    if periodic_thread is not None:
+        app.state.periodic_scheduler.stop()
+        periodic_thread.join(timeout=5.0)
+
+
+def _refresh_platform_readiness(app: FastAPI) -> None:
+    """Recompute and cache the platform-bundle verify result and log the ready/not-ready transition.
+
+    Called at startup (before autostart, design doc 2.8) and after every
+    successful platform-update job. ``GET /platform`` without
+    ``?verify=true`` and ``StartDeps.platform_ready`` both read the cached
+    result this writes rather than re-running ``install.sh verify`` on
+    every request.
+    """
+    adapters: AdapterBundle = app.state.adapters
+    settings: Settings = app.state.settings
+    diffs = run_verify(adapters.platform, settings.platform_dir)
+    app.state.platform_verify_diffs = diffs
+    installed = adapters.platform.read_installed()
+    status = compute_status(installed, settings.required_platform_version, diffs, None, None, None)
+    if status["ready"]:
+        logger.info("app-platform: ready platform_version=%s", status["installed_version"])
+    else:
+        missing = [(d["kind"], d["path"]) for d in status["verify_diffs"]]
+        logger.warning(
+            "app-platform: not ready reason=%s installed_version=%s diffs=%s journal_readable=%s",
+            status["reason"],
+            status["installed_version"],
+            missing,
+            adapters.journal.can_read(),
+        )
+
+
+def _run_autostart(app: FastAPI) -> None:
+    """Start at most one `autostart: true` app at boot, name order (design doc 2.5).
+
+    Runs after both finalize blocks above, so it only ever sees an
+    already-reconciled ledger. Never raises out of startup: a device that
+    boots with autostart merely skipped is better than one that fails to
+    come up at all over one bad app.
+    """
+    adapters: AdapterBundle = app.state.adapters
+    apps_state = adapters.state.read_apps_state()
+    candidates = sorted(
+        name for name, record in apps_state.apps.items() if record.autostart and record.broken_reason is None
+    )
+    if not candidates:
+        logger.info("autostart: no app selected")
+        return
+
+    selected, *skipped = candidates
+    for name in skipped:
+        logger.warning("autostart: skipped name=%s", name)
+
+    deps: StartDeps = app.state.start_deps
+    if adapters.app_unit.status(selected).active_state in RUNNING_ACTIVE_STATES:
+        # The unit survived a Portal restart on its own systemd lifecycle (e.g. a Portal
+        # self-update) -- starting it again would reset DeviceAllow (always cleared first)
+        # out from under the still-running process.
+        logger.info("autostart: already running name=%s", selected)
+        return
+
+    logger.info("autostart: selected name=%s", selected)
+    try:
+        start_app(deps, selected, host=socket.gethostname())
+    except AppNotFoundError as error:
+        logger.warning("autostart: failed reason=%s", error)
+    except (AppStartError, PolkitDeniedError) as error:
+        reason = getattr(error, "code", None) or str(error)
+        logger.warning("autostart: failed reason=%s", reason)
+    except Exception:
+        logger.exception("autostart: failed reason=unexpected_error")
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -426,6 +594,71 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         restart_delay_seconds=float(settings.update_restart_delay_seconds),
         alive=app.state.update_runner_alive,
     )
+    # Built before AppsJobContext (below) so check_git_update's tag path can read it without
+    # a network call of its own -- the periodic task and GET /catalog keep it warm.
+    app.state.catalog_cache = CatalogCache(adapters.catalog, adapters.state)
+    # One AppsJobContext/AppsJobRunner for the whole app's lifetime, for the same reason as
+    # UpdateRunner above -- also reused by _lifespan's startup finalize.
+    app.state.apps_job_context = AppsJobContext(
+        apps_dir=settings.apps_dir,
+        uv_cache_dir=settings.uv_cache_dir,
+        git=adapters.git,
+        uv=adapters.uv,
+        sync_unit=adapters.sync_unit,
+        journal=adapters.journal,
+        disk=adapters.disk,
+        secrets=adapters.secrets,
+        app_unit=adapters.app_unit,
+        state=adapters.state,
+        run_dir=adapters.run_dir,
+        catalog_cache=app.state.catalog_cache,
+        catalog_repo=settings.catalog_repo,
+    )
+    app.state.apps_job_runner = AppsJobRunner(
+        adapters.state, app.state.apps_job_context, adapters.app_unit, run_in_thread=bool(settings.apps_run_in_thread)
+    )
+
+    # Populated by _refresh_platform_readiness (startup, and after every successful
+    # platform-update job) -- None until the first successful verification.
+    app.state.platform_verify_diffs = None
+    app.state.platform_latest_cache = PlatformLatestCache(
+        adapters.platform_releases, adapters.platform_bundle, adapters.state, settings.platform_dir
+    )
+    app.state.platform_update_runner = PlatformUpdateRunner(
+        adapters.state,
+        adapters.platform_bundle,
+        adapters.platform,
+        adapters.system,
+        settings.platform_dir,
+        portal_installed_version=portal_version(),
+        on_finish=lambda: _refresh_platform_readiness(app),
+    )
+    app.state.platform_job_runner = PlatformJobRunner(
+        adapters.state, app.state.platform_update_runner, run_in_thread=bool(settings.apps_run_in_thread)
+    )
+
+    app.state.periodic_scheduler = build_scheduler(
+        clock=adapters.clock,
+        apps_job_context=app.state.apps_job_context,
+        state_store=adapters.state,
+        catalog_cache=app.state.catalog_cache,
+        platform_latest_cache=app.state.platform_latest_cache,
+    )
+
+    def _platform_ready() -> bool:
+        installed = adapters.platform.read_installed()
+        status = compute_status(
+            installed, settings.required_platform_version, app.state.platform_verify_diffs, None, None, None
+        )
+        return bool(status["ready"])
+
+    app.state.start_deps = StartDeps(
+        state=adapters.state,
+        apps_job_ctx=app.state.apps_job_context,
+        app_unit=adapters.app_unit,
+        run_dir=adapters.run_dir,
+        platform_ready=_platform_ready,
+    )
 
     # Order matters: the last middleware added is the outermost, so adding
     # CSRF then Session then HostGuard makes requests hit HostGuard first.
@@ -446,6 +679,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(wifi_api.router)
     app.include_router(ssh_keys_api.router)
     app.include_router(update_api.router)
+    app.include_router(apps_api.router)
+    app.include_router(platform_api.router)
+    app.include_router(secrets_api.router)
+    app.include_router(catalog_api.router)
 
     _mount_frontend(app, settings.static_dir)
 

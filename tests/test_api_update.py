@@ -14,6 +14,8 @@ from palmimo_portal.ports import (
     AdapterUnavailableError,
     Identity,
     InstalledVersion,
+    PlatformJob,
+    PlatformUpdateState,
     Release,
     ReleaseSourceError,
     UpdateJob,
@@ -933,3 +935,23 @@ def test_apply_rejects_while_an_apps_job_holds_the_apps_lock(client: TestClient,
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "app_job_in_progress"
     assert adapters.updater.apply_calls == []
+
+
+def test_apply_reports_a_platform_update_before_the_shared_apps_lock(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    _log_in(client, adapters)
+    _check_v2(client, adapters)
+    adapters.state.write_platform_update_state(
+        PlatformUpdateState(
+            job=PlatformJob(
+                state="running", target_version=1, step="install", error=None, started_at=1, finished_at=None
+            )
+        )
+    )
+
+    with adapters.state.lock_apps():
+        response = client.post("/api/v1/update/apply", json={"tag": "v2.0.0"}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "platform_update_in_progress"

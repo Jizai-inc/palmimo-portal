@@ -247,13 +247,13 @@ def apply(
     """
     settings: Settings = request.app.state.settings
     with lock:
+        _ensure_no_platform_update_in_progress(state_store)
         apps_lock = state_store.lock_apps()
         try:
             apps_lock.__enter__()
         except AppsLockTimeoutError as error:
             raise PortalError(409, "app_job_in_progress") from error
         try:
-            _ensure_no_platform_update_in_progress(state_store)
             state = state_store.read_update_state()
             installed = updater.installed()
             try:
@@ -298,13 +298,13 @@ def rollback(
     """
     settings: Settings = request.app.state.settings
     with lock:
+        _ensure_no_platform_update_in_progress(state_store)
         apps_lock = state_store.lock_apps()
         try:
             apps_lock.__enter__()
         except AppsLockTimeoutError as error:
             raise PortalError(409, "app_job_in_progress") from error
         try:
-            _ensure_no_platform_update_in_progress(state_store)
             state = state_store.read_update_state()
             installed = updater.installed()
             try:

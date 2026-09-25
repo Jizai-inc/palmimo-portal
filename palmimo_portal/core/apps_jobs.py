@@ -35,6 +35,7 @@ import os
 import shutil
 import stat
 import time
+import tomllib
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass, field, replace
@@ -190,7 +191,13 @@ def _lock_exists(project: Path, clone_root: Path) -> bool:
 
 
 def _sync_dependencies(
-    ctx: AppsJobContext, instance: str, staging_container: Path, layout: LayoutPaths, clone_root: Path
+    ctx: AppsJobContext,
+    instance: str,
+    app_id: str,
+    staging_container: Path,
+    layout: LayoutPaths,
+    clone_root: Path,
+    requires_python: str | None,
 ) -> bool:
     """Sync ``layout.project``'s dependencies through the ``palmimo-app-sync@<instance>`` unit (design doc 2.2b).
 
@@ -199,8 +206,74 @@ def _sync_dependencies(
     with the Portal's privileges. Returns whether no ``uv.lock`` existed
     yet (the helper then generates one).
 
+    Swaps ``uv_cache_dir/<app_id>`` into the staging tree as ``.uv-cache``
+    for the duration of the sync and back out afterward (design doc 3.10) --
+    the cache is per app id so one app's sync can never read wheels another
+    app's build backend placed there.
+
     Raises:
         SyncFailedError: the unit did not finish successfully.
+    """
+    if requires_python is not None and ctx.uv.find_system_python(requires_python) is None:
+        ctx.uv.install_python(requires_python)
+
+    persistent_cache = ctx.uv_cache_dir / app_id
+    staged_cache = staging_container / ".uv-cache"
+    if staged_cache.exists() or staged_cache.is_symlink():
+        raise InvalidManifestSourceError(f"app source reserves internal cache path: {staged_cache}")
+    ctx.uv_cache_dir.mkdir(parents=True, exist_ok=True)
+    if persistent_cache.is_symlink():
+        raise InvalidManifestSourceError(f"app uv cache is a symlink: {persistent_cache}")
+    if persistent_cache.exists() and not persistent_cache.is_dir():
+        raise InvalidManifestSourceError(f"app uv cache is not a directory: {persistent_cache}")
+    persistent_cache.mkdir(parents=True, exist_ok=True)
+    _prepare_cache_for_sync(persistent_cache)
+    persistent_cache.rename(staged_cache)
+    _prepare_cache_for_sync(staged_cache)
+    try:
+        return _run_sync_dependencies(ctx, instance, staging_container, layout, clone_root)
+    finally:
+        # Best-effort restore: a raise here would replace whatever the try block raised
+        # (e.g. SyncFailedError) with an unrelated error, hiding the real failure from the
+        # caller. The cache is disposable (design doc 3.10), so on any anomaly we discard it
+        # rather than risk masking the sync outcome.
+        _restore_persistent_cache(staged_cache, persistent_cache)
+
+
+def _restore_persistent_cache(staged_cache: Path, persistent_cache: Path) -> None:
+    if not staged_cache.exists():
+        persistent_cache.mkdir(parents=True, exist_ok=True)
+        return
+    if persistent_cache.exists():
+        logger.warning("app uv cache reappeared during sync; discarding stale copy at %s", persistent_cache)
+        shutil.rmtree(persistent_cache, ignore_errors=True)
+    staged_cache.rename(persistent_cache)
+
+
+def _prepare_cache_for_sync(path: Path) -> None:
+    gid = apps_gid()
+    if gid is not None:
+        with contextlib.suppress(OSError):
+            os.chown(path, -1, gid)
+    with contextlib.suppress(OSError):
+        path.chmod(stat.S_ISGID | 0o775)
+
+
+def _run_sync_dependencies(
+    ctx: AppsJobContext,
+    instance: str,
+    staging_container: Path,
+    layout: LayoutPaths,
+    clone_root: Path,
+) -> bool:
+    """Run untrusted project dependency hooks inside the restricted sync unit.
+
+    ``sync.json`` carries no ``requires-python`` -- the on-device ``app-sync``
+    helper (palmimo-image) reads it straight from the project's own
+    ``pyproject.toml`` rather than trusting a value from Portal. The
+    interpreter search/install (design doc 3.10, shared Python) still
+    happens here, before the unit starts, so the sync unit itself never
+    needs the requirement passed to it.
     """
     _prepare_staging_for_sync(staging_container)
     lock_generated = not _lock_exists(layout.project, clone_root)
@@ -312,6 +385,18 @@ def _stored_manifest(resolved_manifest_filename: str) -> str | None:
 def _check_pyproject(project_dir: Path) -> None:
     if not (project_dir / _PYPROJECT_FILENAME).is_file():
         raise InvalidManifestSourceError(f"{_PYPROJECT_FILENAME} not found in {project_dir}")
+
+
+def _read_requires_python(project_dir: Path) -> str | None:
+    try:
+        data = tomllib.loads((project_dir / _PYPROJECT_FILENAME).read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return None
+    project = data.get("project")
+    if not isinstance(project, dict):
+        return None
+    requirement = project.get("requires-python")
+    return requirement if isinstance(requirement, str) else None
 
 
 def _chmod_group_rwx(root: Path) -> None:
@@ -522,6 +607,7 @@ class PreparedInstall:
     staging_container: Path
     source: AppSource
     commit: str | None
+    requires_python: str | None = None
     app_id: str | None = None
 
 
@@ -560,6 +646,7 @@ def prepare_install_zip(
         staging_container=staging_container,
         source=AppSource(type="zip", manifest=_stored_manifest(resolved_manifest)),
         commit=None,
+        requires_python=_read_requires_python(install_root),
     )
 
 
@@ -614,6 +701,7 @@ def prepare_install_git(
             type="git", url=url, ref=ref, ref_kind=ref_kind, subdir=subdir, manifest=_stored_manifest(resolved_manifest)
         ),
         commit=commit,
+        requires_python=_read_requires_python(project_dir),
     )
 
 
@@ -638,7 +726,15 @@ def commit_install(
     on_step("sync")
     layout = resolve_layout(prepared.install_root, prepared.source.subdir)
     _chmod_group_rwx(prepared.project_dir)
-    lock_generated = _sync_dependencies(ctx, prepared.job_id, prepared.staging_container, layout, prepared.install_root)
+    lock_generated = _sync_dependencies(
+        ctx,
+        prepared.job_id,
+        app_id,
+        prepared.staging_container,
+        layout,
+        prepared.install_root,
+        prepared.requires_python,
+    )
     on_step("swap")
     dest = ctx.app_dir(app_id)
     prepared.install_root.rename(dest)
@@ -662,6 +758,7 @@ def commit_install(
         autostart=False,
         last_job=job,
         manifest=manifest_snapshot(prepared.manifest),
+        requires_python=prepared.requires_python,
         id=app_id,
     )
     new_state = AppsState(apps={**state.apps, app_id: record})
@@ -768,10 +865,13 @@ def update_git(
         project_dir = resolve_subdir(staging_container, record.source.subdir)
         manifest = _read_manifest(project_dir, _manifest_filename_for(record.source))
         _check_pyproject(project_dir)
+        requires_python = _read_requires_python(project_dir)
         _chmod_group_rwx(project_dir)
         on_step("sync")
         layout = resolve_layout(staging_container, record.source.subdir)
-        lock_generated = _sync_dependencies(ctx, job_id, staging_container, layout, staging_container)
+        lock_generated = _sync_dependencies(
+            ctx, job_id, record.id, staging_container, layout, staging_container, requires_python
+        )
 
         # Computed before the swap (the dropped set depends on the new manifest, fetched
         # above) but only ever written at "register", after a successful swap -- a failed
@@ -824,6 +924,7 @@ def update_git(
             autostart=record.autostart,
             last_job=job,
             manifest=manifest_snapshot(manifest),
+            requires_python=requires_python,
             id=record.id,
         )
         new_state = AppsState(apps={**state.apps, name: new_record})
@@ -885,10 +986,35 @@ def purge_app_files(ctx: AppsJobContext, name: str, on_step: Callable[[str], Non
     ctx.secrets.delete_bindings(name)
     if ctx.run_dir is not None:
         ctx.run_dir.remove(name)
-    if trash is None:
-        return None
-    on_step("cleanup")
-    return purge_path(ctx, trash)
+    try:
+        if trash is None:
+            return None
+        on_step("cleanup")
+        return purge_path(ctx, trash)
+    finally:
+        _purge_uv_cache(ctx, name)
+
+
+def _purge_uv_cache(ctx: AppsJobContext, name: str) -> None:
+    """Escalate a deleted app's uv cache through the same trash-then-purge contract as ``purge_path``.
+
+    Cache contents are written by the sync unit's ``palmimo-app`` uid
+    (design doc 3.10); a bare ``rmtree`` from Portal's own uid can EACCES,
+    the same reason ``purge_path`` refuses anything not already staged in
+    ``.trash/``.
+    """
+    cache = ctx.uv_cache_dir / name
+    if not cache.exists() and not cache.is_symlink():
+        return
+    trash = ctx.trash_dir / ctx.new_id()
+    ctx.trash_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        cache.rename(trash)
+    except OSError as error:
+        logger.warning("apps: could not move uv cache into .trash name=%s: %s", name, error)
+        return
+    if purge_path(ctx, trash) is not None:
+        logger.warning("apps: purge left a leftover uv cache name=%s", name)
 
 
 def _is_official_devkit_source(url: str | None, catalog_repo: str) -> bool:

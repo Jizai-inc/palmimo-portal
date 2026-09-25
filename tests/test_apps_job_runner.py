@@ -48,14 +48,15 @@ PALMIMO_OTHER_ID = "zip.palmimo-other"
 GIT_ID = "git.palmimo-teleop"
 
 
-def _zip_bytes(name: str = "palmimo-teleop") -> bytes:
+def _zip_bytes(name: str = "palmimo-teleop", requires_python: str | None = None) -> bytes:
     import io
     import zipfile
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w") as archive:
         archive.writestr("palmimo.toml", f'schema = 1\nname = "{name}"\ndescription = "d"\ncommand = ["run"]\n')
-        archive.writestr("pyproject.toml", "[project]\nname='app'\nversion='0'\n")
+        requirement = f"requires-python = '{requires_python}'\n" if requires_python else ""
+        archive.writestr("pyproject.toml", f"[project]\nname='app'\nversion='0'\n{requirement}")
     return buffer.getvalue()
 
 
@@ -209,6 +210,20 @@ def test_start_install_keeps_the_failed_job_as_an_orphan_when_sync_fails(ctx: Ap
     assert state.last_orphan_job is not None
     assert state.last_orphan_job.id == job.id
     assert state.last_orphan_job_app == ZIP_ID
+
+
+def test_start_install_reports_a_failed_required_python_install(ctx: AppsJobContext) -> None:
+    uv = cast(FakeUvPort, ctx.uv)
+    uv.system_python_satisfies = False
+    uv.raise_on_install_python = RuntimeError("Python >=3.13 download failed")
+    state_store = FakeStateStore()
+    runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
+
+    job = runner.start_install(prepare_install_zip(ctx, _zip_bytes(requires_python=">=3.13")))
+
+    assert job.state == "failed"
+    assert "Python >=3.13 download failed" in (job.error or "")
+    assert state_store.read_apps_state().last_orphan_job is not None
 
 
 def test_a_later_successful_install_clears_a_previous_orphan_job(ctx: AppsJobContext) -> None:

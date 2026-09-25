@@ -88,7 +88,12 @@ def _write_app(
 
 
 def _record(
-    name: str, *, params: dict | None = None, source: AppSource | None = None, manifest: str = _DEFAULT_MANIFEST
+    name: str,
+    *,
+    params: dict | None = None,
+    source: AppSource | None = None,
+    manifest: str = _DEFAULT_MANIFEST,
+    requires_python: str | None = ">=3.12",
 ) -> AppRecord:
     return AppRecord(
         name=name,
@@ -98,6 +103,7 @@ def _record(
         autostart=False,
         last_job=None,
         manifest=manifest_snapshot(parse_manifest(manifest)),
+        requires_python=requires_python,
         id=name,
     )
 
@@ -338,6 +344,7 @@ def test_start_app_argv_json_for_a_plain_app_has_matching_cwd_and_project(deps: 
     expected = str(apps_dir / "app")
     assert written["cwd"] == expected
     assert written["project"] == expected
+    assert written["python"] == ">=3.12"
 
 
 @pytest.mark.parametrize("workspace", [False, True])

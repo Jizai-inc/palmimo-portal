@@ -740,9 +740,22 @@ class FakeUvPort(UvPort):
     """Scriptable :class:`UvPort`. Reports a fixed version string by default."""
 
     version_value: str = "uv 0.0.0-fake"
+    system_python_satisfies: bool = True
+    system_python_calls: list[str] = field(default_factory=list)
+    install_python_calls: list[str] = field(default_factory=list)
+    raise_on_install_python: Exception | None = None
 
     def version(self) -> str:
         return self.version_value
+
+    def find_system_python(self, requirement: str) -> str | None:
+        self.system_python_calls.append(requirement)
+        return "/usr/bin/python3" if self.system_python_satisfies else None
+
+    def install_python(self, requirement: str) -> None:
+        self.install_python_calls.append(requirement)
+        if self.raise_on_install_python is not None:
+            raise self.raise_on_install_python
 
 
 @dataclass
@@ -972,10 +985,19 @@ class FakeRunDirPort(RunDirPort):
     written: dict[str, dict[str, Any]] = field(default_factory=dict)
     raise_on_write: Exception | None = None
 
-    def write(self, name: str, *, env: dict[str, str], argv: list[str], cwd: str, project: str) -> None:
+    def write(
+        self,
+        name: str,
+        *,
+        env: dict[str, str],
+        argv: list[str],
+        cwd: str,
+        project: str,
+        python: str | None = None,
+    ) -> None:
         if self.raise_on_write is not None:
             raise self.raise_on_write
-        self.written[name] = {"env": dict(env), "argv": list(argv), "cwd": cwd, "project": project}
+        self.written[name] = {"env": dict(env), "argv": list(argv), "cwd": cwd, "project": project, "python": python}
 
     def remove(self, name: str) -> None:
         self.written.pop(name, None)

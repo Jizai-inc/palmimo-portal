@@ -862,6 +862,8 @@ class AppRecord:
     #: Validated manifest captured at install/update time. Runtime behavior
     #: must use this rather than the mutable app checkout.
     manifest: dict[str, Any] | None = None
+    #: The project's validated PEP 440 Python requirement used for sync and launch.
+    requires_python: str | None = None
     #: Stable machine identifier; ``name`` is the manifest-provided display name.
     id: str = ""
 
@@ -1157,6 +1159,18 @@ class UvPort(Protocol):
         """
         ...
 
+    def find_system_python(self, requirement: str) -> str | None:
+        """Return a system interpreter satisfying ``requirement``, or None."""
+        ...
+
+    def install_python(self, requirement: str) -> None:
+        """Install a managed interpreter into the shared, read-only-to-apps store."""
+        ...
+
+
+class UvPythonInstallError(Exception):
+    """Raised when uv cannot install an interpreter required by an app."""
+
 
 class SyncFailedError(Exception):
     """Raised by :mod:`palmimo_portal.core.apps_jobs` when a :class:`SyncUnitPort` job unit did not succeed.
@@ -1304,12 +1318,21 @@ class RunDirPort(Protocol):
     See :class:`~palmimo_portal.adapters.rundir.TmpfsRunDirPort`.
     """
 
-    def write(self, name: str, *, env: dict[str, str], argv: list[str], cwd: str, project: str) -> None:
+    def write(
+        self,
+        name: str,
+        *,
+        env: dict[str, str],
+        argv: list[str],
+        cwd: str,
+        project: str,
+        python: str | None = None,
+    ) -> None:
         """Recreate ``name``'s run directory (removing any leftover first) and write ``env``/``argv.json`` into it.
 
         ``env`` becomes ``KEY=value`` lines (0600, root-readable only --
         PID1 reads it as ``EnvironmentFile=``); ``argv.json`` is
-        ``{"argv": argv, "cwd": cwd, "project": project}`` (0640, read by
+        ``{"argv": argv, "cwd": cwd, "project": project, "python": python}`` (0640, read by
         ``app-launch`` running as the app's own uid). Group ownership is
         set to ``palmimo-apps`` when that group resolves on this host,
         skipped silently otherwise (a dev machine with no such group).

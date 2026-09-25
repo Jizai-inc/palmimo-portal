@@ -36,7 +36,16 @@ class TmpfsRunDirPort(RunDirPort):
     def _app_dir(self, name: str) -> Path:
         return self._run_dir / name
 
-    def write(self, name: str, *, env: dict[str, str], argv: list[str], cwd: str, project: str) -> None:
+    def write(
+        self,
+        name: str,
+        *,
+        env: dict[str, str],
+        argv: list[str],
+        cwd: str,
+        project: str,
+        python: str | None = None,
+    ) -> None:
         app_dir = self._app_dir(name)
         shutil.rmtree(app_dir, ignore_errors=True)
         app_dir.mkdir(parents=True, exist_ok=True)
@@ -50,7 +59,9 @@ class TmpfsRunDirPort(RunDirPort):
         env_path.chmod(0o600)
 
         argv_path = app_dir / _ARGV_FILENAME
-        argv_path.write_text(json.dumps({"argv": argv, "cwd": cwd, "project": project}), encoding="utf-8")
+        argv_path.write_text(
+            json.dumps({"argv": argv, "cwd": cwd, "project": project, "python": python}), encoding="utf-8"
+        )
         argv_path.chmod(0o640)
 
         gid = apps_gid()

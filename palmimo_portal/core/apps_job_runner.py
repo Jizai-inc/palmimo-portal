@@ -85,6 +85,7 @@ def _merge_job_record(current: AppRecord | None, job_record: AppRecord) -> AppRe
         params=params,
         last_job=job_record.last_job,
         manifest=job_record.manifest,
+        requires_python=job_record.requires_python,
     )
 
 

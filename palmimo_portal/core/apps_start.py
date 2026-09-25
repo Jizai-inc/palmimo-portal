@@ -316,7 +316,14 @@ def _start_app_locked(deps: StartDeps, name: str, *, host: str) -> None:
     plan = _run_prechecks(deps, name, host=host)
     device_specs = [spec for device in plan.devices for spec in DEVICE_ALLOW_SPECS[device]]
 
-    deps.run_dir.write(name, env=plan.env, argv=plan.argv, cwd=str(plan.layout.cwd), project=str(plan.layout.project))
+    deps.run_dir.write(
+        name,
+        env=plan.env,
+        argv=plan.argv,
+        cwd=str(plan.layout.cwd),
+        project=str(plan.layout.project),
+        python=plan.record.requires_python,
+    )
     try:
         deps.app_unit.set_device_allow(name, device_specs)
         logger.info(

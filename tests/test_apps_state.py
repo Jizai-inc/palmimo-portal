@@ -42,6 +42,7 @@ def _record(
         update_available=update_available,
         latest_commit=latest_commit,
         manifest=_MANIFEST,
+        requires_python=">=3.12",
         id=APP_ID,
     )
 

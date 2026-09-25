@@ -248,6 +248,56 @@ def test_install_zip_does_not_leave_sync_json_in_the_installed_app_tree(harness:
     assert not (harness.ctx.apps_dir / "palmimo-teleop" / "sync.json").exists()
 
 
+def test_install_uses_and_restores_only_the_target_apps_uv_cache(harness: Harness) -> None:
+    app_cache = harness.ctx.uv_cache_dir / ZIP_ID
+    app_cache.mkdir(parents=True, exist_ok=True)
+    (app_cache / "prior-cache").write_text("reusable")
+    other_cache = harness.ctx.uv_cache_dir / "zip.other-app"
+    other_cache.mkdir()
+    (other_cache / "private-cache").write_text("other")
+    seen: dict[str, set[str]] = {}
+    original_start = harness.sync_unit.start
+
+    def tracking_start(instance: str) -> None:
+        staged_cache = harness.ctx.staging_dir / instance / ".uv-cache"
+        seen["entries"] = {path.name for path in staged_cache.iterdir()}
+        original_start(instance)
+
+    harness.sync_unit.start = tracking_start  # type: ignore[method-assign]
+    install_zip(harness.ctx, AppsState(), _zip_bytes("palmimo-teleop"))
+
+    assert seen["entries"] == {"prior-cache"}
+    assert (app_cache / "prior-cache").is_file()
+    assert (other_cache / "private-cache").is_file()
+    assert not (harness.ctx.apps_dir / ZIP_ID / ".uv-cache").exists()
+
+
+def test_sync_requests_interpreter_when_system_python_does_not_satisfy_requirement(harness: Harness) -> None:
+    upload = io.BytesIO()
+    with zipfile.ZipFile(upload, "w") as archive:
+        archive.writestr("palmimo.toml", 'schema = 1\nname = "app"\ndescription = "d"\ncommand = ["run"]\n')
+        archive.writestr("pyproject.toml", "[project]\nname='app'\nversion='0'\nrequires-python='>=3.13'\n")
+    harness.uv.system_python_satisfies = False
+
+    _, record = install_zip(harness.ctx, AppsState(), upload.getvalue())
+
+    assert harness.uv.install_python_calls == [">=3.13"]
+    assert harness.uv.system_python_calls == [">=3.13"]
+    assert record.requires_python == ">=3.13"
+
+
+def test_sync_skips_interpreter_install_when_system_python_satisfies_requirement(harness: Harness) -> None:
+    upload = io.BytesIO()
+    with zipfile.ZipFile(upload, "w") as archive:
+        archive.writestr("palmimo.toml", 'schema = 1\nname = "app"\ndescription = "d"\ncommand = ["run"]\n')
+        archive.writestr("pyproject.toml", "[project]\nname='app'\nversion='0'\nrequires-python='>=3.12'\n")
+
+    install_zip(harness.ctx, AppsState(), upload.getvalue())
+
+    assert harness.uv.install_python_calls == []
+    assert harness.uv.system_python_calls == [">=3.12"]
+
+
 def test_install_zip_sync_failure_raises_with_masked_journal_tail(harness: Harness) -> None:
     harness.sync_unit.default_status = UnitStatus(
         active_state="failed", sub_state="failed", result="exit-code", exec_main_status=1
@@ -459,6 +509,27 @@ def test_update_git_leaves_running_tree_untouched_when_sync_fails(harness: Harne
     assert sorted((harness.ctx.apps_dir / record.id).rglob("*")) == original_contents
 
 
+def test_update_git_reuses_and_restores_the_apps_uv_cache(harness: Harness) -> None:
+    harness.git.on_clone = lambda dest, *_: _seed_git_clone(dest, "palmimo-teleop")
+    state, record = install_git(harness.ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")
+    app_cache = harness.ctx.uv_cache_dir / record.id
+    app_cache.mkdir(parents=True, exist_ok=True)
+    (app_cache / "prior-cache").write_text("reusable")
+    seen: list[set[str]] = []
+    original_start = harness.sync_unit.start
+
+    def tracking_start(instance: str) -> None:
+        seen.append({path.name for path in (harness.ctx.staging_dir / instance / ".uv-cache").iterdir()})
+        original_start(instance)
+
+    harness.sync_unit.start = tracking_start  # type: ignore[method-assign]
+    update_git(harness.ctx, state, record.id)
+
+    assert seen == [{"prior-cache"}]
+    assert (app_cache / "prior-cache").is_file()
+    assert not (harness.ctx.apps_dir / record.id / ".uv-cache").exists()
+
+
 def test_install_git_rejects_a_dangling_symlink_in_the_staging_tree_before_the_swap(harness: Harness) -> None:
     def seed_with_symlink(dest: Path, *_: object) -> None:
         _seed_git_clone(dest, "palmimo-teleop")
@@ -640,6 +711,16 @@ def test_purge_app_files_keeps_bindings_when_the_directory_move_fails(
 def test_delete_from_ledger_unknown_app_raises_not_found() -> None:
     with pytest.raises(AppNotFoundError):
         delete_from_ledger(AppsState(), "missing-app")
+
+
+def test_purge_app_files_removes_the_deleted_apps_uv_cache(harness: Harness) -> None:
+    _, record = install_zip(harness.ctx, AppsState(), _zip_bytes("palmimo-teleop"))
+    app_cache = harness.ctx.uv_cache_dir / record.id
+    (app_cache / "artifact").write_text("cached")
+
+    purge_app_files(harness.ctx, record.id)
+
+    assert not app_cache.exists()
 
 
 def test_sweep_orphan_app_dirs_removes_unledgered_directory_and_allows_reinstall(harness: Harness) -> None:

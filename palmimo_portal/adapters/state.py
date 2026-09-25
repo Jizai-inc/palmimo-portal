@@ -839,6 +839,8 @@ class JsonFileStateStore(StateStore):
             params = entry.get("params", {})
             if not isinstance(params, dict):
                 raise TypeError(f"apps.json apps.{name}.params must be an object")
+            requires_python = entry.get("requires_python")
+            _require_optional_type(requires_python, str, f"apps.json apps.{name}.requires_python")
             try:
                 manifest = manifest_snapshot(manifest_from_snapshot(entry["manifest"]))
             except ManifestValidationError as error:
@@ -855,6 +857,7 @@ class JsonFileStateStore(StateStore):
                 update_available=bool(entry.get("update_available", False)),
                 latest_commit=entry.get("latest_commit"),
                 manifest=manifest,
+                requires_python=requires_python,
                 id=name,
             )
         current_job_data = data.get("current_job")
@@ -957,6 +960,7 @@ class JsonFileStateStore(StateStore):
                     "update_available": record.update_available,
                     "latest_commit": record.latest_commit,
                     "manifest": record.manifest,
+                    "requires_python": record.requires_python,
                 }
                 for name, record in state.apps.items()
             },

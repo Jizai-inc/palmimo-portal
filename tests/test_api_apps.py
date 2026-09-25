@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import io
+import time
 import zipfile
 from dataclasses import replace
 from pathlib import Path
@@ -285,6 +287,60 @@ def test_install_git_source_records_source_and_commit(client: TestClient, adapte
     detail = client.get(f"/api/v1/apps/{GIT_APP_ID}")
     assert detail.status_code == 200
     assert detail.json()["source"]["commit"] == "abc123"
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/api/v1/apps/preview", "/api/v1/apps/install"],
+    ids=["preview", "install"],
+)
+def test_git_source_endpoint_does_not_block_other_requests_while_cloning(
+    app: FastAPI, adapters: FakeAdapterBundle, path: str
+) -> None:
+    # TestClient serializes requests through its own portal, so it cannot show a blocked
+    # event loop; this drives the ASGI app directly, the same way a real deployment's
+    # single event loop serves every request.
+    def slow_clone(dest: Path, url: str, ref: str, ref_kind: str) -> None:
+        time.sleep(0.2)
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "palmimo.toml").write_text('schema = 1\nname = "palmimo-git-app"\ndescription = "d"\ncommand=["run"]\n')
+        (dest / "pyproject.toml").write_text("[project]\nname='app'\nversion='0'\n")
+
+    adapters.git.on_clone = slow_clone
+
+    async def _run() -> tuple[bool, int, int]:
+        async with app.router.lifespan_context(app):
+            transport = httpx.ASGITransport(app=app)
+            async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as ac:
+                await ac.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
+                adapters.network.known_networks.add("home")
+                await ac.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
+
+                slow_task = asyncio.ensure_future(
+                    ac.post(
+                        path,
+                        json={
+                            "source": {
+                                "type": "git",
+                                "url": "https://example.com/repo",
+                                "ref": "main",
+                                "ref_kind": "branch",
+                            }
+                        },
+                        headers=CSRF_HEADERS,
+                    )
+                )
+                await asyncio.sleep(0.05)
+                list_response = await ac.get("/api/v1/apps")
+                still_cloning = not slow_task.done()
+                slow_response = await slow_task
+        return still_cloning, slow_response.status_code, list_response.status_code
+
+    still_cloning, slow_status, list_status = asyncio.run(_run())
+
+    assert still_cloning
+    assert list_status == 200
+    assert slow_status in (200, 202)
 
 
 @pytest.mark.parametrize(

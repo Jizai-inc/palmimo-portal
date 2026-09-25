@@ -15,10 +15,13 @@ with nothing to attach it to) for a later poll to see.
 
 Installing is special: the app's ``name`` is not known until its manifest is
 read, so :func:`~palmimo_portal.core.apps_jobs.prepare_install_zip`/
-``prepare_install_git`` (fetch + read manifest, fast) run synchronously in
-this request -- their failures (bad zip/manifest, disk full, a bad git ref)
+``prepare_install_git`` (fetch + read manifest) run in this request, off the
+event loop (:func:`anyio.to_thread.run_sync` -- a zip extraction or git
+clone can take seconds, and blocking the loop for that would stall every
+other request); their failures (bad zip/manifest, disk full, a bad git ref)
 do surface directly, as 422/507/409. Only the unbounded step (``uv sync``)
 in :func:`~palmimo_portal.core.apps_jobs.commit_install` is backgrounded.
+``preview`` runs the same fetch+validate functions the same way.
 
 ``lock_apps`` doubles as the mutual-exclusion signal with a Portal
 self-update (``api/update.py`` probes it before starting an apply/rollback);
@@ -28,6 +31,7 @@ starting a job.
 
 from __future__ import annotations
 
+import functools
 import logging
 import os
 import re
@@ -38,6 +42,7 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Literal, NoReturn, cast
 
+import anyio.to_thread
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, ValidationError, field_validator
@@ -778,16 +783,19 @@ async def preview(
     upload, git_source, zip_manifest, requested_name = await _read_zip_or_git(request)
     try:
         if upload is not None:
-            manifest = apps_jobs.preview_zip(ctx, upload, zip_manifest)
+            manifest = await anyio.to_thread.run_sync(apps_jobs.preview_zip, ctx, upload, zip_manifest)
         else:
             assert git_source is not None
-            manifest = apps_jobs.preview_git(
-                ctx,
-                url=git_source.url,
-                ref=git_source.ref,
-                ref_kind=git_source.ref_kind,
-                subdir=git_source.subdir,
-                manifest_filename=git_source.manifest,
+            manifest = await anyio.to_thread.run_sync(
+                functools.partial(
+                    apps_jobs.preview_git,
+                    ctx,
+                    url=git_source.url,
+                    ref=git_source.ref,
+                    ref_kind=git_source.ref_kind,
+                    subdir=git_source.subdir,
+                    manifest_filename=git_source.manifest,
+                )
             )
     except ManifestValidationError as error:
         raise PortalError(422, "manifest_invalid", errors=error.errors) from error
@@ -847,16 +855,21 @@ async def install(
     upload, git_source, zip_manifest, requested_name = await _read_zip_or_git(request)
     try:
         if upload is not None:
-            prepared = apps_jobs.prepare_install_zip(ctx, upload, manifest_filename=zip_manifest)
+            prepared = await anyio.to_thread.run_sync(
+                functools.partial(apps_jobs.prepare_install_zip, ctx, upload, manifest_filename=zip_manifest)
+            )
         else:
             assert git_source is not None
-            prepared = apps_jobs.prepare_install_git(
-                ctx,
-                url=git_source.url,
-                ref=git_source.ref,
-                ref_kind=git_source.ref_kind,
-                subdir=git_source.subdir,
-                manifest_filename=git_source.manifest,
+            prepared = await anyio.to_thread.run_sync(
+                functools.partial(
+                    apps_jobs.prepare_install_git,
+                    ctx,
+                    url=git_source.url,
+                    ref=git_source.ref,
+                    ref_kind=git_source.ref_kind,
+                    subdir=git_source.subdir,
+                    manifest_filename=git_source.manifest,
+                )
             )
     except ManifestValidationError as error:
         raise PortalError(422, "manifest_invalid", errors=error.errors) from error

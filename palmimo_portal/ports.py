@@ -715,13 +715,17 @@ class StateStore(Protocol):
         """
         ...
 
-    def lock_run(self) -> AbstractContextManager[None]:
+    def lock_run(self, timeout_s: float = 0.0) -> AbstractContextManager[None]:
         """Hold the exclusive, non-blocking lock serializing start/stop/autostart (``run.lock``).
 
         Independent of :meth:`lock_apps` (design doc 2.1): an app can be
         started while another is mid-install/update, but two starts (or a
         start racing autostart) must never both observe "nothing running"
         and both proceed.
+
+        ``timeout_s`` lets a start/stop wait briefly for read-side cleanup,
+        while the default preserves immediate conflict reporting for callers
+        that must not wait.
 
         Raises:
             RunLockTimeoutError: another start/stop/autostart already holds it.

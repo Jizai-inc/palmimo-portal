@@ -56,6 +56,7 @@ DEVICE_ALLOW_SPECS: dict[str, tuple[str, ...]] = {
 #: resetting `DeviceAllow` on one (`set_device_allow` always clears first) would revoke device
 #: access out from under an already-running process.
 RUNNING_ACTIVE_STATES = frozenset({"active", "activating", "deactivating"})
+RUN_LOCK_WAIT_SECONDS = 0.1
 
 
 def app_unit_name(name: str) -> str:
@@ -174,7 +175,7 @@ def start_app(deps: StartDeps, name: str, *, host: str) -> None:
         apps_lock_cm.__enter__()
     except AppsLockTimeoutError:
         raise AppJobInProgressStartError() from None
-    lock_cm = deps.state.lock_run()
+    lock_cm = deps.state.lock_run(timeout_s=RUN_LOCK_WAIT_SECONDS)
     try:
         lock_cm.__enter__()
     except RunLockTimeoutError:
@@ -359,7 +360,7 @@ def stop_app(deps: StartDeps, name: str) -> None:
         AppNotFoundError: no app named ``name`` is installed.
         AppBusyError: another start/stop/autostart already holds ``run.lock``.
     """
-    lock_cm = deps.state.lock_run()
+    lock_cm = deps.state.lock_run(timeout_s=RUN_LOCK_WAIT_SECONDS)
     try:
         lock_cm.__enter__()
     except RunLockTimeoutError:

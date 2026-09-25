@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import threading
 import time
 import zipfile
 from dataclasses import replace
@@ -278,6 +279,36 @@ def test_list_apps_keeps_a_run_directory_while_start_holds_the_run_lock(
 
     assert response.status_code == 200
     assert ZIP_TELEOP_ID in adapters.run_dir.written
+
+
+def test_start_waits_for_list_cleanup_holding_the_run_lock(
+    client: TestClient, adapters: FakeAdapterBundle, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _authenticated_client(client, adapters)
+    _install_zip(client)
+    _touch_venv(settings, ZIP_TELEOP_ID)
+    adapters.run_dir.write(
+        ZIP_TELEOP_ID, env={"API_KEY": "sekrit"}, argv=["run"], cwd="/apps/palmimo-teleop", project="p"
+    )
+    cleanup_started = threading.Event()
+    allow_cleanup = threading.Event()
+    original_remove = adapters.run_dir.remove
+
+    def block_cleanup(name: str) -> None:
+        cleanup_started.set()
+        allow_cleanup.wait(timeout=1)
+        original_remove(name)
+
+    monkeypatch.setattr(adapters.run_dir, "remove", block_cleanup)
+    list_thread = threading.Thread(target=lambda: client.get("/api/v1/apps"))
+    list_thread.start()
+    assert cleanup_started.wait(timeout=1)
+    threading.Timer(0.01, allow_cleanup.set).start()
+
+    response = client.post(f"/api/v1/apps/{ZIP_TELEOP_ID}/start", headers=CSRF_HEADERS)
+
+    list_thread.join(timeout=1)
+    assert response.status_code == 202
 
 
 def test_install_zip_over_existing_name_uses_a_suffix(client: TestClient, adapters: FakeAdapterBundle) -> None:

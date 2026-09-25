@@ -993,15 +993,20 @@ class JsonFileStateStore(StateStore):
             os.close(fd)
 
     @contextlib.contextmanager
-    def lock_run(self) -> Iterator[None]:
+    def lock_run(self, timeout_s: float = 0.0) -> Iterator[None]:
         """Non-blocking exclusive ``flock`` on ``run.lock``. See :meth:`~palmimo_portal.ports.StateStore.lock_run`."""
         ensure_private_dir(self._state_dir)
         fd = os.open(self._run_lock_path, os.O_CREAT | os.O_RDWR, 0o600)
         try:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                raise RunLockTimeoutError() from None
+            deadline = time.monotonic() + timeout_s
+            while True:
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise RunLockTimeoutError() from None
+                    time.sleep(0.01)
             try:
                 yield
             finally:

@@ -395,9 +395,9 @@ class FakeStateStore(StateStore):
             self._apps_lock.release()
 
     @contextlib.contextmanager
-    def lock_run(self) -> Iterator[None]:
+    def lock_run(self, timeout_s: float = 0.0) -> Iterator[None]:
         """Non-blocking `threading.Lock` stand-in, mirroring the real adapter's non-blocking `flock`."""
-        if not self._run_lock.acquire(blocking=False):
+        if not self._run_lock.acquire(timeout=timeout_s):
             raise RunLockTimeoutError()
         try:
             yield

@@ -575,6 +575,16 @@ def purge_path(ctx: AppsJobContext, path: Path) -> str | None:
     except OSError:
         pass
 
+    if path.parent == ctx.staging_dir:
+        moved_path = ctx.trash_dir / ctx.new_id()
+        try:
+            ctx.trash_dir.mkdir(parents=True, exist_ok=True)
+            path.rename(moved_path)
+        except OSError as error:
+            logger.warning("apps: could not move staging path into trash path=%s: %s", path, error)
+            return str(path)
+        path = moved_path
+
     instance = f"purge-{ctx.new_id()}"
     staging_container = ctx.staging_dir / instance
     staging_container.mkdir(parents=True, exist_ok=True)

@@ -22,6 +22,7 @@ from palmimo_portal.core.apps_jobs import (
     prepare_install_zip,
     preview_git,
     purge_app_files,
+    purge_path,
     sweep_orphan_app_dirs,
     sync_unit_name,
     update_git,
@@ -127,6 +128,27 @@ def test_install_zip_removes_staging_directory_on_failure(harness: Harness) -> N
         install_zip(harness.ctx, AppsState(), b"not a zip")
 
     assert list(harness.ctx.staging_dir.glob("*")) == []
+
+
+def test_purge_path_moves_an_undeletable_staging_directory_to_trash_before_escalating(
+    harness: Harness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from palmimo_portal.core import apps_jobs
+
+    path = harness.ctx.staging_dir / "orphan"
+    path.mkdir(parents=True)
+    (path / "untrusted").write_text("x")
+    harness.sync_unit.staging_dir = harness.ctx.staging_dir
+
+    def deny_portal_removal(_: Path) -> None:
+        raise PermissionError("owned by palmimo-app")
+
+    monkeypatch.setattr(apps_jobs, "_remove", deny_portal_removal)
+
+    leftover = purge_path(harness.ctx, path)
+    spec = next(iter(harness.sync_unit.sync_specs.values()))
+    assert Path(spec["purge"]).parent == harness.ctx.trash_dir
+    assert leftover is None or Path(leftover).parent == harness.ctx.trash_dir
 
 
 def test_install_zip_chmods_the_fetched_tree_before_sync_unit_starts(harness: Harness) -> None:

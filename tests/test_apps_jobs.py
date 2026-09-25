@@ -503,7 +503,7 @@ def test_update_git_registers_the_new_record_before_purging_the_old_tree(
     assert registered[-1].source.commit == "v2"
 
 
-def test_update_git_follows_the_catalog_to_its_latest_tag_for_an_official_devkit_app(harness: Harness) -> None:
+def test_update_git_follows_the_catalog_entries_ref_for_an_official_devkit_app(harness: Harness) -> None:
     old_source = AppSource(
         type="git",
         url="https://github.com/Jizai-inc/palmimo-devkit",
@@ -529,7 +529,7 @@ def test_update_git_follows_the_catalog_to_its_latest_tag_for_an_official_devkit
         source=replace(make_catalog_app(subdir="examples/teleop", commit="new-commit").source, ref="examples-v0.1.1"),
     )
     catalog = CatalogCache(
-        FakeCatalogSource(asset=CatalogAsset(tag="examples-v0.1.1", apps=(latest_app,))), FakeStateStore()
+        FakeCatalogSource(asset=CatalogAsset(tag="different-catalog-release", apps=(latest_app,))), FakeStateStore()
     )
     catalog.get(ntp_synchronized=True)
     ctx = replace(harness.ctx, catalog_cache=catalog, catalog_repo="Jizai-inc/palmimo-devkit")
@@ -893,14 +893,21 @@ def _tag_record(url: str, ref: str) -> AppRecord:
 def test_check_git_update_reports_update_available_for_an_official_devkit_tag_behind_the_catalog(
     harness: Harness,
 ) -> None:
-    catalog = CatalogCache(FakeCatalogSource(asset=CatalogAsset(tag="v0.3.0", apps=())), FakeStateStore())
+    catalog_app = replace(
+        make_catalog_app(commit="entry-commit"),
+        source=replace(make_catalog_app(commit="entry-commit").source, ref="v0.3.0"),
+    )
+    catalog = CatalogCache(
+        FakeCatalogSource(asset=CatalogAsset(tag="unrelated-release", apps=(catalog_app,))), FakeStateStore()
+    )
     catalog.get(ntp_synchronized=True)
     ctx = replace(harness.ctx, catalog_cache=catalog, catalog_repo="Jizai-inc/palmimo-devkit")
     record = _tag_record("https://github.com/Jizai-inc/palmimo-devkit", "v0.2.0")
+    record = replace(record, source=replace(record.source, commit="old-commit"))
 
     available, latest = check_git_update(ctx, record)
 
-    assert (available, latest) == (True, "v0.3.0")
+    assert (available, latest) == (True, "entry-commit")
 
 
 def test_check_git_update_reports_no_update_for_a_tag_pinned_app_from_a_non_official_repo(harness: Harness) -> None:

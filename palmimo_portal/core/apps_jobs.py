@@ -1096,23 +1096,20 @@ def _is_official_devkit_source(url: str | None, catalog_repo: str) -> bool:
     return app_namespace("git", url, catalog_repo) == "palmimo"
 
 
-def _official_catalog_target_ref(ctx: AppsJobContext, source: AppSource) -> str:
-    """The ref an official-catalog tag-pinned source should update to.
+def _official_catalog_source(ctx: AppsJobContext, source: AppSource) -> AppSource | None:
+    """Return the catalog entry matching an official app's repository location.
 
-    The catalog's entry for this exact ``url``/``subdir``/``manifest`` may
-    now point at a newer release tag than the one this app installed at --
-    updating a catalog app re-pins it to that tag and commit (design doc
-    3.10). Any other source (a community fork, a non-catalog tag) keeps its
-    own pinned ref -- there is no catalog entry to follow.
+    Both availability detection and fetching use this entry's ``ref`` and
+    ``commit``. Any other source (a community fork or a non-catalog tag)
+    keeps its own pinned ref because it has no catalog entry to follow.
     """
-    assert source.ref is not None
     if (
         ctx.catalog_cache is None
         or ctx.catalog_repo is None
         or source.ref_kind != "tag"
         or not _is_official_devkit_source(source.url, ctx.catalog_repo)
     ):
-        return source.ref
+        return None
     requested_url = normalize_git_url(source.url or "")
     for app in ctx.catalog_cache.peek().apps:
         candidate = app.source
@@ -1122,9 +1119,14 @@ def _official_catalog_target_ref(ctx: AppsJobContext, source: AppSource) -> str:
             and candidate.subdir == source.subdir
             and candidate.manifest == source.manifest
         ):
-            assert candidate.ref is not None
-            return candidate.ref
-    return source.ref
+            return candidate
+    return None
+
+
+def _official_catalog_target_ref(ctx: AppsJobContext, source: AppSource) -> str:
+    assert source.ref is not None
+    candidate = _official_catalog_source(ctx, source)
+    return candidate.ref if candidate is not None and candidate.ref is not None else source.ref
 
 
 def check_git_update(ctx: AppsJobContext, record: AppRecord) -> tuple[bool, str | None]:
@@ -1132,9 +1134,8 @@ def check_git_update(ctx: AppsJobContext, record: AppRecord) -> tuple[bool, str 
 
     A branch-pinned app is checked with a live ``git ls-remote``. A
     tag-pinned app is checked only when its source is the official devkit
-    repo (:attr:`AppsJobContext.catalog_repo`) -- its pin is compared
-    against the latest release tag :attr:`AppsJobContext.catalog_cache`
-    already holds, never fetched here. Any other tag-pinned app (a
+    repo (:attr:`AppsJobContext.catalog_repo`) -- its pin is compared with
+    the matching cached catalog entry, never fetched here. Any other tag-pinned app (a
     community fork, a private tag-locked repo) has no catalog entry to
     compare against, so it always reports no update available; raising its
     pin is a manual ``PUT /apps/{id}/source`` instead.
@@ -1146,10 +1147,13 @@ def check_git_update(ctx: AppsJobContext, record: AppRecord) -> tuple[bool, str 
             return False, None
         if not _is_official_devkit_source(record.source.url, ctx.catalog_repo):
             return False, None
-        latest_tag = ctx.catalog_cache.peek().tag
-        if latest_tag is None:
+        candidate = _official_catalog_source(ctx, record.source)
+        if candidate is None or candidate.ref is None:
             return False, None
-        return latest_tag != record.source.ref, latest_tag
+        return (
+            candidate.ref != record.source.ref or candidate.commit != record.source.commit,
+            candidate.commit,
+        )
     if record.source.ref_kind != "branch":
         return False, None
     assert record.source.url is not None and record.source.ref is not None

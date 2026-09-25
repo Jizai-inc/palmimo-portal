@@ -492,7 +492,7 @@ def _refresh_platform_readiness(app: FastAPI) -> None:
     adapters: AdapterBundle = app.state.adapters
     settings: Settings = app.state.settings
     diffs = run_verify(adapters.platform, settings.platform_dir)
-    app.state.platform_verify_diffs = diffs or []
+    app.state.platform_verify_diffs = diffs
     installed = adapters.platform.read_installed()
     status = compute_status(installed, settings.required_platform_version, diffs, None, None, None)
     if status["ready"]:
@@ -618,8 +618,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     # Populated by _refresh_platform_readiness (startup, and after every successful
-    # platform-update job) -- [] until the first refresh runs.
-    app.state.platform_verify_diffs = []
+    # platform-update job) -- None until the first successful verification.
+    app.state.platform_verify_diffs = None
     app.state.platform_latest_cache = PlatformLatestCache(
         adapters.platform_releases, adapters.platform_bundle, adapters.state, settings.platform_dir
     )

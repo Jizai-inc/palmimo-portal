@@ -185,8 +185,6 @@ def start_update(
     """
     _ensure_apps_ledger_is_current(state_store)
     _ensure_no_portal_update_in_progress(state_store)
-    _ensure_no_apps_job_in_progress(state_store)
-
     cache = request.app.state.platform_latest_cache
     ntp_synchronized = request.app.state.adapters.clock.ntp_synchronized()
     manifest, tag, error = cache.get(ntp_synchronized=ntp_synchronized, force=True)
@@ -196,6 +194,8 @@ def start_update(
     runner = request.app.state.platform_job_runner
     try:
         runner.start(tag, manifest.version)
+    except AppsLockTimeoutError as error:
+        raise PortalError(409, "app_job_in_progress") from error
     except (PlatformLockTimeoutError, PlatformUpdateInProgressError) as error:
         raise PortalError(409, "platform_update_in_progress") from error
 

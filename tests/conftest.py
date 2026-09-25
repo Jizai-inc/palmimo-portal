@@ -58,14 +58,14 @@ def settings(tmp_path: Path) -> Settings:
     # behavior depend on whether `make build` happens to have been run on
     # the machine running them (see test_app.py's SPA-fallback tests, which
     # override this on purpose). See Settings.static_dir's docstring.
+    platform_dir = tmp_path / "platform"
+    current = platform_dir / "current"
+    current.mkdir(parents=True)
+    (current / "install.sh").write_text("#!/bin/sh\n", encoding="utf-8")
     return Settings(
         allowed_hosts=frozenset({"testserver"}),
         static_dir=tmp_path / "static-not-built",
-        # A real path even in "fake" adapter mode: _refresh_platform_readiness's cached-bundle
-        # probe (core/platform.py's run_verify) is a plain Path.is_file() check, not routed
-        # through a port -- pointed at an empty tmp dir so it never depends on whatever (if
-        # anything) happens to sit at the real default on the machine running the suite.
-        platform_dir=tmp_path / "platform",
+        platform_dir=platform_dir,
         # No test drives the real background loop -- tests call
         # PeriodicScheduler.tick() directly against the fake clock instead
         # (see core/periodic.py's module docstring).

@@ -133,6 +133,9 @@ class AppsJobRunner:
         try:
             if name in state.apps:
                 raise AppExistsError(name)
+            active = self._app_unit.list_active_app_units()
+            if active:
+                raise AppRunningError(active[0])
             job = AppJob(
                 id=prepared.job_id,
                 kind="install",
@@ -203,8 +206,9 @@ class AppsJobRunner:
             state = self._state.read_apps_state()
             if name not in state.apps:
                 raise AppNotFoundError(name)
-            if self._app_unit.status(name).active_state in RUNNING_ACTIVE_STATES:
-                raise AppRunningError(name)
+            active = self._app_unit.list_active_app_units()
+            if active:
+                raise AppRunningError(active[0])
             job = AppJob(
                 id=job_id,
                 kind="update",

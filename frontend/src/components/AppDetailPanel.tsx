@@ -10,6 +10,7 @@ import {
   getListAppsApiV1AppsGetQueryKey,
   useDeleteAppApiV1AppsNameDelete,
   useGetAppApiV1AppsNameGet,
+  useListAppsApiV1AppsGet,
   usePutAutostartApiV1AppsNameAutostartPut,
   usePutBindingsApiV1AppsNameBindingsPut,
   usePutParamsApiV1AppsNameParamsPut,
@@ -94,6 +95,8 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
   const updateApp = useUpdateAppApiV1AppsNameUpdatePost({
     mutation: { onSuccess: (data) => setJob({ id: data.job.id, kind: "update" }) },
   });
+  const { data: appsData } = useListAppsApiV1AppsGet();
+  const appRunning = (appsData?.apps ?? []).some((candidate) => ["running", "starting", "stopping"].includes(candidate.status));
   const deleteApp = useDeleteAppApiV1AppsNameDelete({
     mutation: {
       onSuccess: (data) => {
@@ -171,7 +174,7 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
       ) : null}
 
       <AutostartSection app={app} onSaved={invalidate} />
-      <SourceSection app={app} onUpdate={() => updateApp.mutate({ name: id })} updatePending={updateApp.isPending} updateCompleted={updateCompleted} />
+      <SourceSection app={app} onUpdate={() => updateApp.mutate({ name: id })} updatePending={updateApp.isPending} updateCompleted={updateCompleted} appRunning={appRunning} />
 
       <Section title={t("appDetail.dangerZoneTitle")}>
         <Button variant="destructive" className="w-fit" onClick={() => setDeleteOpen(true)}>
@@ -485,11 +488,13 @@ function SourceSection({
   onUpdate,
   updatePending,
   updateCompleted,
+  appRunning,
 }: {
   app: AppDetailResponse;
   onUpdate: () => void;
   updatePending: boolean;
   updateCompleted: number;
+  appRunning: boolean;
 }) {
   const { t } = useTranslation();
   const [editingRef, setEditingRef] = useState(false);
@@ -533,7 +538,8 @@ function SourceSection({
         updateCheck.data.update_available ? (
           <div className="flex items-center gap-2">
             <p className="text-sm">{t("apps.updateAvailableChip")}</p>
-            <Button size="sm" onClick={onUpdate} disabled={updatePending}>{t("appDetail.updateButton")}</Button>
+            <Button size="sm" onClick={onUpdate} disabled={updatePending || appRunning} title={appRunning ? t("appDetail.updateDisabledAppRunning") : undefined}>{t("appDetail.updateButton")}</Button>
+            {appRunning ? <p className="text-sm text-muted-foreground">{t("appDetail.updateDisabledAppRunning")}</p> : null}
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">{t("appDetail.checkForUpdatesUpToDate")}</p>

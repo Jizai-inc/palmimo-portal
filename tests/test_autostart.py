@@ -16,12 +16,18 @@ from palmimo_portal.testing.fakes import FakeAdapterBundle
 
 
 def _settings(tmp_path: Path, **overrides: object) -> Settings:
+    platform_dir = overrides.get("platform_dir", tmp_path / "platform")
+    assert isinstance(platform_dir, Path)
+    current = platform_dir / "current"
+    current.mkdir(parents=True, exist_ok=True)
+    (current / "install.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    values = {"platform_dir": platform_dir, **overrides}
     return Settings(
         allowed_hosts=frozenset({"testserver"}),
         static_dir=tmp_path / "static-not-built",
         apps_dir=tmp_path / "apps",
         uv_cache_dir=tmp_path / "uv-cache",
-        **overrides,  # type: ignore[arg-type]
+        **values,  # type: ignore[arg-type]
     )
 
 

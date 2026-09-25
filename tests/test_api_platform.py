@@ -31,12 +31,16 @@ READY_MANIFEST = {
 def settings(tmp_path: Path) -> Settings:
     # apps_run_in_thread=False also drives PlatformJobRunner inline (api/app.py
     # reuses the same flag) so assertions below see a job's final state directly.
+    platform_dir = tmp_path / "platform"
+    current = platform_dir / "current"
+    current.mkdir(parents=True)
+    (current / "install.sh").write_text("#!/bin/sh\n", encoding="utf-8")
     return Settings(
         allowed_hosts=frozenset({"testserver"}),
         static_dir=tmp_path / "static-not-built",
         apps_dir=tmp_path / "apps",
         uv_cache_dir=tmp_path / "uv-cache",
-        platform_dir=tmp_path / "platform",
+        platform_dir=platform_dir,
         apps_run_in_thread=False,
     )
 
@@ -107,6 +111,19 @@ def test_get_platform_reports_ready_when_installed_meets_the_required_version(
     body = response.json()
     assert body["ready"] is True
     assert body["installed_version"] == DEFAULT_REQUIRED_PLATFORM_VERSION  # FakePlatformPort's default
+
+
+def test_get_platform_reports_verify_unavailable_when_startup_verify_could_not_run(
+    app: FastAPI, client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    client = _authenticated_client(client, adapters)
+    app.state.platform_verify_diffs = None
+
+    response = client.get("/api/v1/platform")
+
+    assert response.status_code == 200
+    assert response.json()["ready"] is False
+    assert response.json()["reason"] == "platform_verify_unavailable"
 
 
 def test_get_platform_reports_not_ready_when_no_bundle_is_installed(

@@ -290,6 +290,7 @@
     "app_job_in_progress": "Another app install, update, or delete is already in progress.",
     "app_not_found": "No app with this name is installed.",
     "app_running": "Another app is already running. Stop it first.",
+    "app_stop_failed": "The app did not stop. Nothing was reset.",
     "auth_already_set": "A password has already been set for this device.",
     "auth_change_conflict": "This password was already changed from another session. Log in again.",
     "auth_change_in_progress": "Another password change is already in progress. Try again in a moment.",
@@ -433,6 +434,7 @@
     "envHelpLink": "Learn more",
     "devicesTitle": "Devices",
     "installButton": "Install",
+    "installDisabledAppRunning": "Stop the running app before installing another app.",
     "confirmInstallTitle": "Install app",
     "githubUrlLabel": "Repository URL",
     "githubRefKindLabel": "Ref type",
@@ -451,6 +453,7 @@
   },
   "appDetail": {
     "updateButton": "Update",
+    "updateDisabledAppRunning": "Stop the running app before updating an app.",
     "bindingsTitle": "Environment variable bindings",
     "bindingsNotBound": "Not bound",
     "bindingsUnboundRequiredWarning": "This required variable is not bound.",

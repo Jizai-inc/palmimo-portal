@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PortalApiError } from "@/api/client";
-import { getListAppsApiV1AppsGetQueryKey } from "@/api/generated/apps/apps";
+import { getListAppsApiV1AppsGetQueryKey, useListAppsApiV1AppsGet } from "@/api/generated/apps/apps";
 import { useGetCatalogApiV1CatalogGet } from "@/api/generated/catalog/catalog";
 import { useListSecretsApiV1SecretsGet } from "@/api/generated/secrets/secrets";
 import type { AppJobInfo, CatalogAppInfo, ManifestPreviewResponse } from "@/api/generated/models";
@@ -44,6 +44,8 @@ export function AddAppPanel({ onInstalled = () => undefined }: { onInstalled?: (
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>("catalog");
   const [installJob, setInstallJob] = useState<{ jobId: string; name: string } | null>(null);
+  const { data: appsData } = useListAppsApiV1AppsGet();
+  const appRunning = (appsData?.apps ?? []).some((app) => ["running", "starting", "stopping"].includes(app.status));
 
   function handleJobDone(job: AppJobInfo) {
     void queryClient.invalidateQueries({ queryKey: getListAppsApiV1AppsGetQueryKey() });
@@ -68,11 +70,11 @@ export function AddAppPanel({ onInstalled = () => undefined }: { onInstalled?: (
       </div>
 
       {tab === "catalog" ? (
-        <CatalogTab onInstalled={startInstallJob} />
+        <CatalogTab onInstalled={startInstallJob} appRunning={appRunning} />
       ) : tab === "github" ? (
-        <GithubTab onInstalled={startInstallJob} />
+        <GithubTab onInstalled={startInstallJob} appRunning={appRunning} />
       ) : (
-        <ZipTab onInstalled={startInstallJob} />
+        <ZipTab onInstalled={startInstallJob} appRunning={appRunning} />
       )}
 
       <AppJobDialog
@@ -154,11 +156,13 @@ function InstallFlow({
   getSource,
   sourceKey,
   canPreview,
+  appRunning,
   onInstalled,
 }: {
   getSource: () => InstallSource;
   sourceKey: unknown;
   canPreview: boolean;
+  appRunning: boolean;
   onInstalled: (jobId: string, displayName: string) => void;
 }) {
   const { t } = useTranslation();
@@ -204,7 +208,8 @@ function InstallFlow({
   return (
     <div className="flex flex-col gap-3">
       <Button
-        disabled={!canPreview}
+        disabled={!canPreview || appRunning}
+        title={appRunning ? t("appAdd.installDisabledAppRunning") : undefined}
         onClick={() => {
           setDialogOpen(true);
           setPreview(null);
@@ -214,6 +219,7 @@ function InstallFlow({
       >
         {t("appAdd.installButton")}
       </Button>
+      {appRunning ? <p className="text-sm text-muted-foreground">{t("appAdd.installDisabledAppRunning")}</p> : null}
       <AlertDialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -239,7 +245,7 @@ function InstallFlow({
   );
 }
 
-function CatalogTab({ onInstalled }: { onInstalled: (jobId: string, displayName: string) => void }) {
+function CatalogTab({ onInstalled, appRunning }: { onInstalled: (jobId: string, displayName: string) => void; appRunning: boolean }) {
   const { t } = useTranslation();
   const { data, isLoading } = useGetCatalogApiV1CatalogGet();
 
@@ -257,7 +263,7 @@ function CatalogTab({ onInstalled }: { onInstalled: (jobId: string, displayName:
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {(data?.apps ?? []).map((catalogApp) => (
-            <CatalogCard key={catalogApp.name} app={catalogApp} onInstalled={onInstalled} />
+            <CatalogCard key={catalogApp.name} app={catalogApp} onInstalled={onInstalled} appRunning={appRunning} />
           ))}
         </div>
       )}
@@ -268,9 +274,11 @@ function CatalogTab({ onInstalled }: { onInstalled: (jobId: string, displayName:
 function CatalogCard({
   app,
   onInstalled,
+  appRunning,
 }: {
   app: CatalogAppInfo;
   onInstalled: (jobId: string, displayName: string) => void;
+  appRunning: boolean;
 }) {
   const { t } = useTranslation();
   const env = app.env.map((entry) => ({
@@ -304,6 +312,7 @@ function CatalogCard({
           getSource={() => source}
           sourceKey={`${source.url}\u0000${source.ref_kind}\u0000${source.ref}\u0000${source.subdir ?? ""}\u0000${source.manifest ?? ""}`}
           canPreview
+          appRunning={appRunning}
           onInstalled={onInstalled}
         />
       ) : null}
@@ -311,7 +320,7 @@ function CatalogCard({
   );
 }
 
-function GithubTab({ onInstalled }: { onInstalled: (jobId: string, displayName: string) => void }) {
+function GithubTab({ onInstalled, appRunning }: { onInstalled: (jobId: string, displayName: string) => void; appRunning: boolean }) {
   const { t } = useTranslation();
   const [url, setUrl] = useState("");
   const [refKind, setRefKind] = useState<"branch" | "tag">("branch");
@@ -365,12 +374,12 @@ function GithubTab({ onInstalled }: { onInstalled: (jobId: string, displayName: 
           placeholder="palmimo.toml"
         />
       </div>
-      <InstallFlow getSource={() => source} sourceKey={sourceKey} canPreview={canPreview} onInstalled={onInstalled} />
+      <InstallFlow getSource={() => source} sourceKey={sourceKey} canPreview={canPreview} appRunning={appRunning} onInstalled={onInstalled} />
     </div>
   );
 }
 
-function ZipTab({ onInstalled }: { onInstalled: (jobId: string, displayName: string) => void }) {
+function ZipTab({ onInstalled, appRunning }: { onInstalled: (jobId: string, displayName: string) => void; appRunning: boolean }) {
   const { t } = useTranslation();
   const [file, setFile] = useState<File | null>(null);
   const [manifest, setManifest] = useState("");
@@ -420,6 +429,7 @@ function ZipTab({ onInstalled }: { onInstalled: (jobId: string, displayName: str
         getSource={() => ({ type: "zip", file: file as File, ...(manifest ? { manifest } : {}) })}
         sourceKey={sourceKey}
         canPreview={file !== null}
+        appRunning={appRunning}
         onInstalled={onInstalled}
       />
     </div>

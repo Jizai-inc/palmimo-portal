@@ -500,14 +500,21 @@ class PlatformJobRunner:
             PlatformUpdateInProgressError: the persisted job is already ``"running"``
                 (defense in depth -- the lock above is the primary guard).
         """
+        apps_lock_cm = self._state.lock_apps()
+        apps_lock_cm.__enter__()
         lock_cm = self._state.lock_platform()
-        lock_cm.__enter__()
+        try:
+            lock_cm.__enter__()
+        except BaseException:
+            apps_lock_cm.__exit__(None, None, None)
+            raise
         try:
             state = self._state.read_platform_update_state()
             new_state = start_update(state, target_version, time.time())
             self._state.write_platform_update_state(new_state)
         except BaseException:
             lock_cm.__exit__(None, None, None)
+            apps_lock_cm.__exit__(None, None, None)
             raise
 
         def run() -> None:
@@ -515,8 +522,14 @@ class PlatformJobRunner:
                 self._updater.run(tag, target_version)
             finally:
                 lock_cm.__exit__(None, None, None)
+                apps_lock_cm.__exit__(None, None, None)
 
         if self._run_in_thread:
-            threading.Thread(target=run, daemon=True, name="palmimo-portal-platform-update").start()
+            try:
+                threading.Thread(target=run, daemon=True, name="palmimo-portal-platform-update").start()
+            except BaseException:
+                lock_cm.__exit__(None, None, None)
+                apps_lock_cm.__exit__(None, None, None)
+                raise
         else:
             run()

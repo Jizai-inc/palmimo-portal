@@ -96,11 +96,16 @@ def settings(tmp_path: Path) -> Settings:
     # apps_run_in_thread=False: runs install/update/delete jobs inline, so
     # assertions below can inspect the result deterministically without
     # waiting on (or racing) a background thread -- see AppsJobRunner.
+    platform_dir = tmp_path / "platform"
+    current = platform_dir / "current"
+    current.mkdir(parents=True)
+    (current / "install.sh").write_text("#!/bin/sh\n", encoding="utf-8")
     return Settings(
         allowed_hosts=frozenset({"testserver"}),
         static_dir=tmp_path / "static-not-built",
         apps_dir=tmp_path / "apps",
         uv_cache_dir=tmp_path / "uv-cache",
+        platform_dir=platform_dir,
         apps_run_in_thread=False,
     )
 
@@ -205,6 +210,18 @@ def test_install_zip_over_existing_name_uses_a_suffix(client: TestClient, adapte
 
     assert response.status_code == 202
     assert response.json()["job"]["app_id"] == "zip.palmimo-teleop-2"
+
+
+def test_install_refuses_while_an_app_unit_is_active(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+    adapters.app_unit.simulate_active_state(
+        "palmimo.other", UnitStatus(active_state="active", sub_state="running", result="success", exec_main_status=0)
+    )
+
+    response = _install_zip(client)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "app_running"
 
 
 def test_install_over_capacity_disk_returns_507(client: TestClient, adapters: FakeAdapterBundle) -> None:

@@ -4,6 +4,7 @@ import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
 import { getGetCatalogApiV1CatalogGetMockHandler } from "@/api/generated/catalog/catalog.msw";
+import { getListAppsApiV1AppsGetMockHandler } from "@/api/generated/apps/apps.msw";
 import { getListSecretsApiV1SecretsGetMockHandler } from "@/api/generated/secrets/secrets.msw";
 import type { CatalogResponse } from "@/api/generated/models";
 import { AddAppPanel } from "@/components/AddAppPanel";
@@ -51,6 +52,19 @@ function installDialog() {
 }
 
 describe("AddAppPanel", () => {
+  it("disables install while an app is running", async () => {
+    server.use(
+      getGetCatalogApiV1CatalogGetMockHandler(CATALOG),
+      getListAppsApiV1AppsGetMockHandler({
+        apps: [{ id: "palmimo.teleop", name: "teleop", status: "running", autostart: false, broken_reason: null, credential_rejected: false, installed_at: 1, last_job: null, latest_commit: null, update_available: false, source: { type: "git", official: false, url: "https://github.com/x/y", subdir: null, manifest: null, ref_kind: "tag", ref: "v1", commit: "abc" } }],
+      }),
+    );
+    renderWithProviders(<AddAppPanel />);
+
+    expect((await screen.findByRole("button", { name: "Install" })).closest("button")).toBeDisabled();
+    expect(screen.getByText("Stop the running app before installing another app.")).toBeInTheDocument();
+  });
+
   it("shows a catalog card's required and optional env badges", async () => {
     server.use(getGetCatalogApiV1CatalogGetMockHandler(CATALOG));
     renderWithProviders(<AddAppPanel />);

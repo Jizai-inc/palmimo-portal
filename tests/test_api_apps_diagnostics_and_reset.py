@@ -22,12 +22,17 @@ CSRF_HEADERS = {"X-Requested-With": "PalmimoPortal"}
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
+    platform_dir = tmp_path / "platform"
+    current = platform_dir / "current"
+    current.mkdir(parents=True)
+    (current / "install.sh").write_text("#!/bin/sh\n", encoding="utf-8")
     return Settings(
         allowed_hosts=frozenset({"testserver"}),
         static_dir=tmp_path / "static-not-built",
         apps_dir=tmp_path / "apps",
         uv_cache_dir=tmp_path / "uv-cache",
         secrets_dir=tmp_path / "secrets",
+        platform_dir=platform_dir,
         apps_run_in_thread=False,
     )
 

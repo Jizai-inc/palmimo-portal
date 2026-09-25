@@ -10,6 +10,7 @@ update in progress); this module assumes it already holds both locks.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,6 +20,13 @@ from palmimo_portal.ports import AppsState, AppUnitPort, RunDirPort, SecretsStor
 
 
 logger = logging.getLogger("palmimo_portal")
+
+STOP_WAIT_TIMEOUT_SECONDS = 20.0
+STOP_WAIT_POLL_SECONDS = 0.1
+
+
+class ResetStopError(Exception):
+    """Raised when a reset cannot confirm that every app unit stopped."""
 
 
 def _clear_staging_or_trash(ctx: AppsJobContext, base: Path) -> list[str]:
@@ -84,8 +92,22 @@ def reset_platform(
     in ``ResetResult.leftover_paths`` rather than silently dropped or
     failing the whole reset -- every other step still runs.
     """
-    for name in sorted(app_unit.list_active_app_units()):
+    active = sorted(app_unit.list_active_app_units())
+    for name in active:
         app_unit.stop(name)
+
+    deadline = time.monotonic() + STOP_WAIT_TIMEOUT_SECONDS
+    pending = set(active)
+    while pending:
+        try:
+            pending = {name for name in pending if app_unit.status(name).active_state != "inactive"}
+        except Exception as error:
+            raise ResetStopError("could not confirm app shutdown") from error
+        if not pending:
+            break
+        if time.monotonic() >= deadline:
+            raise ResetStopError("timed out waiting for app shutdown")
+        time.sleep(STOP_WAIT_POLL_SECONDS)
 
     deleted = [str(ctx.apps_dir), str(ctx.uv_cache_dir)]
     leftover_paths: list[str] = []

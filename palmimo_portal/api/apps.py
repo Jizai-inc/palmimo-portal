@@ -72,7 +72,7 @@ from palmimo_portal.core.apps import (
 from palmimo_portal.core.apps_diagnostics import AppDiagnosticsInput, build_diagnostics
 from palmimo_portal.core.apps_job_runner import AppsJobRunner
 from palmimo_portal.core.apps_jobs import AppsJobContext
-from palmimo_portal.core.apps_reset import reset_platform
+from palmimo_portal.core.apps_reset import ResetStopError, reset_platform
 from palmimo_portal.core.apps_start import (
     RUNNING_ACTIVE_STATES,
     AppBusyError,
@@ -869,6 +869,9 @@ async def install(
     except AppsLockTimeoutError as error:
         shutil.rmtree(prepared.staging_container, ignore_errors=True)
         raise PortalError(409, "app_job_in_progress") from error
+    except AppStartError as error:
+        shutil.rmtree(prepared.staging_container, ignore_errors=True)
+        _raise_for_start_error(error)
     return AppJobAcceptedResponse(job=_job_info(job, _app_id_for_job(state_store.read_apps_state(), job)))
 
 
@@ -1363,4 +1366,6 @@ def reset_apps(
         raise PortalError(409, "app_job_in_progress") from error
     except RunLockTimeoutError as error:
         raise PortalError(409, "app_busy") from error
+    except ResetStopError as error:
+        raise PortalError(409, "app_stop_failed") from error
     return ResetResponse(paths=result.deleted, leftover_paths=result.leftover_paths)

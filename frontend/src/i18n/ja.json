@@ -290,6 +290,7 @@
     "app_job_in_progress": "別のアプリのインストール・更新・削除が既に進行中です。",
     "app_not_found": "このアプリはインストールされていません。",
     "app_running": "別のアプリが起動中です。先に停止してください。",
+    "app_stop_failed": "アプリが停止しませんでした。リセットは実行されていません。",
     "auth_already_set": "このデバイスにはすでにパスワードが設定されています。",
     "auth_change_conflict": "このパスワードは別のセッションですでに変更されています。もう一度ログインしてください。",
     "auth_change_in_progress": "別のパスワード変更が進行中です。しばらくしてからもう一度お試しください。",
@@ -433,6 +434,7 @@
     "envHelpLink": "詳細",
     "devicesTitle": "デバイス",
     "installButton": "インストール",
+    "installDisabledAppRunning": "別のアプリをインストールする前に、起動中のアプリを停止してください。",
     "confirmInstallTitle": "アプリをインストール",
     "githubUrlLabel": "リポジトリ URL",
     "githubRefKindLabel": "参照の種類",
@@ -451,6 +453,7 @@
   },
   "appDetail": {
     "updateButton": "更新",
+    "updateDisabledAppRunning": "アプリを更新する前に、起動中のアプリを停止してください。",
     "bindingsTitle": "環境変数の割り当て",
     "bindingsNotBound": "未割り当て",
     "bindingsUnboundRequiredWarning": "この必須変数は割り当てられていません。",

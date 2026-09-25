@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from palmimo_portal.core.apps_jobs import AppsJobContext
-from palmimo_portal.core.apps_reset import reset_platform
+from palmimo_portal.core.apps_reset import ResetStopError, reset_platform
 from palmimo_portal.ports import AppRecord, AppSource, AppsState, UnitStatus
 from palmimo_portal.testing.fakes import (
     FakeAppUnitPort,
@@ -72,6 +72,56 @@ def test_reset_platform_stops_active_units_before_deleting_anything(ctx: AppsJob
     reset_platform(state, ctx, app_unit, run_dir, secrets)
 
     assert order == ["stop:running-app", "remove_all"]
+
+
+def test_reset_platform_waits_for_inactive_before_deleting_anything(ctx: AppsJobContext) -> None:
+    state = FakeStateStore()
+    app_unit = FakeAppUnitPort()
+    app_unit.simulate_active_state(
+        "running-app", UnitStatus(active_state="active", sub_state="running", result="success", exec_main_status=0)
+    )
+    original_stop = app_unit.stop
+    statuses = iter(
+        (
+            UnitStatus(active_state="deactivating", sub_state="stop", result="success", exec_main_status=0),
+            UnitStatus(active_state="inactive", sub_state="dead", result="success", exec_main_status=0),
+        )
+    )
+    status_calls = 0
+
+    def delayed_status(name: str) -> UnitStatus:
+        nonlocal status_calls
+        status_calls += 1
+        return next(statuses)
+
+    app_unit.stop = lambda name: original_stop(name)  # type: ignore[method-assign]
+    app_unit.status = delayed_status  # type: ignore[method-assign]
+    run_dir = FakeRunDirPort()
+    original_remove_all = run_dir.remove_all
+
+    def assert_stopped_before_remove() -> None:
+        assert status_calls == 2
+        original_remove_all()
+
+    run_dir.remove_all = assert_stopped_before_remove  # type: ignore[method-assign]
+
+    reset_platform(state, ctx, app_unit, run_dir, FakeSecretsStore())
+
+
+def test_reset_platform_leaves_data_untouched_when_a_unit_does_not_stop(
+    monkeypatch: pytest.MonkeyPatch, ctx: AppsJobContext
+) -> None:
+    app_unit = FakeAppUnitPort()
+    app_unit.simulate_active_state(
+        "running-app", UnitStatus(active_state="active", sub_state="running", result="success", exec_main_status=0)
+    )
+    app_unit.stop = lambda name: None  # type: ignore[method-assign]
+    monkeypatch.setattr("palmimo_portal.core.apps_reset.STOP_WAIT_TIMEOUT_SECONDS", 0.0)
+
+    with pytest.raises(ResetStopError):
+        reset_platform(FakeStateStore(), ctx, app_unit, FakeRunDirPort(), FakeSecretsStore())
+
+    assert (ctx.apps_dir / "some-app").exists()
 
 
 def test_reset_platform_empties_apps_and_uv_cache_directories_without_removing_them(ctx: AppsJobContext) -> None:

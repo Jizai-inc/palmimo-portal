@@ -205,6 +205,8 @@ def _raise_for_git_error(error: GitCommandError, status_code: int) -> NoReturn:
         raise PortalError(status_code, "git_not_found", detail=str(error)) from error
     if error.reason == "git_commit_mismatch":
         raise PortalError(status_code, "git_commit_mismatch", detail=str(error)) from error
+    if error.reason == "catalog_unavailable":
+        raise PortalError(status_code, "catalog_unavailable", detail=str(error)) from error
     if error.reason == "git_network_unreachable":
         raise PortalError(status_code, "git_network_unreachable", detail=str(error)) from error
     raise PortalError(status_code, "git_unknown", detail=str(error)) from error

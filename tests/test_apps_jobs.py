@@ -633,6 +633,20 @@ def test_prepare_install_git_rejects_an_official_catalog_tag_at_the_wrong_commit
     assert excinfo.value.reason == "git_commit_mismatch"
 
 
+def test_prepare_install_git_rejects_an_official_tag_when_the_catalog_is_unavailable(harness: Harness) -> None:
+    ctx = replace(harness.ctx, catalog_repo="Jizai-inc/palmimo-devkit")
+
+    with pytest.raises(GitCommandError, match="catalog") as excinfo:
+        prepare_install_git(
+            ctx,
+            url="https://github.com/Jizai-inc/palmimo-devkit",
+            ref="v1.0.0",
+            ref_kind="tag",
+        )
+
+    assert excinfo.value.reason == "catalog_unavailable"
+
+
 def test_preview_git_rejects_an_official_catalog_tag_at_the_wrong_commit(harness: Harness) -> None:
     expected = "catalog-commit"
     catalog = CatalogCache(

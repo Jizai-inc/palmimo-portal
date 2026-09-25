@@ -368,8 +368,10 @@ def _catalog_commit_for_source(
     keeps user-selected refs on the normal git-source path while making the
     catalog's signed commit pin authoritative for its own entries.
     """
-    if ctx.catalog_cache is None or ref_kind != "tag":
+    if ref_kind != "tag" or ctx.catalog_repo is None or not _is_official_devkit_source(url, ctx.catalog_repo):
         return None
+    if ctx.catalog_cache is None:
+        raise GitCommandError("official catalog is unavailable", reason="catalog_unavailable")
     requested_url = normalize_git_url(url)
     for app in ctx.catalog_cache.peek().apps:
         source = app.source
@@ -384,7 +386,7 @@ def _catalog_commit_for_source(
             if not isinstance(source.commit, str) or not source.commit:
                 raise GitCommandError("official catalog source has no commit pin", reason="git_commit_mismatch")
             return source.commit
-    return None
+    raise GitCommandError("official source is absent from the catalog", reason="catalog_unavailable")
 
 
 def _verify_catalog_commit(expected: str | None, actual: str) -> None:

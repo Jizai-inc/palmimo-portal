@@ -23,7 +23,14 @@ from palmimo_portal.core.apps_jobs import (
     prepare_install_zip,
 )
 from palmimo_portal.core.apps_start import AppRunningError
-from palmimo_portal.ports import AppExistsError, AppsLockTimeoutError, AppsState, GitCommandError, UnitStatus
+from palmimo_portal.ports import (
+    AppExistsError,
+    AppsLockTimeoutError,
+    AppsState,
+    GitCommandError,
+    PolkitDeniedError,
+    UnitStatus,
+)
 from palmimo_portal.testing.fakes import (
     FakeAppUnitPort,
     FakeDiskPort,
@@ -255,6 +262,31 @@ def test_install_rejects_a_reused_id_when_its_stale_cache_cannot_be_purged(
     assert job.state == "failed"
     assert "stale uv cache" in (job.error or "")
     assert cast(FakeSyncUnitPort, ctx.sync_unit).start_calls == []
+
+
+def test_install_releases_the_lock_when_cleanup_purge_is_denied(
+    monkeypatch: pytest.MonkeyPatch, ctx: AppsJobContext
+) -> None:
+    from palmimo_portal.core import apps_jobs
+
+    sync = cast(FakeSyncUnitPort, ctx.sync_unit)
+    sync.default_status = UnitStatus(active_state="failed", sub_state="failed", result="exit-code", exec_main_status=1)
+    original_wait = sync.wait
+
+    def fail_sync_then_deny_purge(instance: str, timeout_s: float) -> UnitStatus:
+        sync.raise_on_start = PolkitDeniedError("palmimo-app-sync@purge.service", "start")
+        return original_wait(instance, timeout_s)
+
+    sync.wait = fail_sync_then_deny_purge  # type: ignore[method-assign]
+    monkeypatch.setattr(apps_jobs, "_remove", lambda _path: (_ for _ in ()).throw(PermissionError("owned by app")))
+    state_store = FakeStateStore()
+    runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
+
+    job = runner.start_install(prepare_install_zip(ctx, _zip_bytes()))
+
+    assert job.state == "failed"
+    with state_store.lock_apps():
+        pass
 
 
 def test_start_install_reports_a_failed_required_python_install(ctx: AppsJobContext) -> None:
@@ -495,7 +527,7 @@ def test_start_delete_reports_a_removal_failure_that_purge_mode_also_cannot_fix(
     trash_container = ctx.trash_dir / "stuck-trash"
     real_rmtree = shutil.rmtree
 
-    def fail_only_the_trash_container(path: str | os.PathLike[str], ignore_errors: bool = False) -> None:
+    def fail_only_the_trash_container(path: str | os.PathLike[str], ignore_errors: bool = False, **_: object) -> None:
         if Path(path) == trash_container:
             raise OSError("busy")
         real_rmtree(path, ignore_errors=ignore_errors)

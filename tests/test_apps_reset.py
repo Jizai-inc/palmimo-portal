@@ -169,7 +169,7 @@ def test_reset_platform_moves_an_undeletable_app_dir_into_trash_and_purges_it_th
     trash_container = ctx.trash_dir / "stuck-trash"
     real_rmtree = shutil.rmtree
 
-    def fail_only_the_trash_container(path: str | Path, ignore_errors: bool = False) -> None:
+    def fail_only_the_trash_container(path: str | Path, ignore_errors: bool = False, **_: object) -> None:
         if Path(path) == trash_container:
             raise OSError("busy")
         real_rmtree(path, ignore_errors=ignore_errors)

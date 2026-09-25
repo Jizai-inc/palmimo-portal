@@ -29,6 +29,7 @@ from palmimo_portal.core.manifest import (
 from palmimo_portal.ports import (
     AppNotFoundError,
     AppRecord,
+    AppsLockTimeoutError,
     AppsState,
     AppUnitPort,
     InvalidManifestSourceError,
@@ -166,19 +167,24 @@ def start_app(deps: StartDeps, name: str, *, host: str) -> None:
         AppStartError: one of steps 0-9 refused (see the module docstring
             for the subclass-per-code shape).
     """
-    # A `@contextlib.contextmanager`-decorated `lock_run()` only actually attempts the
-    # acquire on `__enter__()`, not on the call that builds the context manager -- entered
-    # by hand here (rather than a `with` statement) so `RunLockTimeoutError` from a failed
-    # acquire is caught, instead of only ever seeing an acquire that succeeds.
+    # Every path that takes both locks acquires apps.lock before run.lock. Holding both through
+    # systemd start makes a job unable to begin after the prechecks but before the unit starts.
+    apps_lock_cm = deps.state.lock_apps()
+    try:
+        apps_lock_cm.__enter__()
+    except AppsLockTimeoutError:
+        raise AppJobInProgressStartError() from None
     lock_cm = deps.state.lock_run()
     try:
         lock_cm.__enter__()
     except RunLockTimeoutError:
+        apps_lock_cm.__exit__(None, None, None)
         raise AppBusyError() from None
     try:
         _start_app_locked(deps, name, host=host)
     finally:
         lock_cm.__exit__(None, None, None)
+        apps_lock_cm.__exit__(None, None, None)
 
 
 @dataclass(frozen=True)

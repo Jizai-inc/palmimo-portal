@@ -27,7 +27,15 @@ from palmimo_portal.core.apps_start import (
     stop_app,
 )
 from palmimo_portal.core.manifest import manifest_snapshot, parse_manifest
-from palmimo_portal.ports import AppNotFoundError, AppRecord, AppSource, AppsState, PolkitDeniedError, UnitStatus
+from palmimo_portal.ports import (
+    AppNotFoundError,
+    AppRecord,
+    AppsLockTimeoutError,
+    AppSource,
+    AppsState,
+    PolkitDeniedError,
+    UnitStatus,
+)
 from palmimo_portal.testing.fakes import (
     FakeAppUnitPort,
     FakeDiskPort,
@@ -170,6 +178,20 @@ def test_start_app_raises_app_busy_when_run_lock_is_already_held(deps: StartDeps
     _install(deps, apps_dir, "app")
     with _state(deps).lock_run(), pytest.raises(AppBusyError):
         start_app(deps, "app", host="host")
+
+
+def test_start_app_holds_apps_lock_through_the_unit_start(deps: StartDeps, apps_dir: Path) -> None:
+    _install(deps, apps_dir, "app")
+    original_start = _app_unit(deps).start
+
+    def start_while_job_is_blocked(name: str) -> None:
+        with pytest.raises(AppsLockTimeoutError), _state(deps).lock_apps():
+            pass
+        original_start(name)
+
+    _app_unit(deps).start = start_while_job_is_blocked  # type: ignore[method-assign]
+
+    start_app(deps, "app", host="host")
 
 
 @pytest.mark.parametrize("active_state", ["active", "activating", "deactivating"])

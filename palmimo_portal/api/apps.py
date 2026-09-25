@@ -61,6 +61,7 @@ from palmimo_portal.api.deps import (
 from palmimo_portal.api.errors import PortalError
 from palmimo_portal.core import apps_jobs
 from palmimo_portal.core.apps import (
+    InvalidGitSourceError,
     app_namespace,
     clear_credential_rejected,
     host_owner_from_url,
@@ -395,6 +396,14 @@ class AutostartRequest(BaseModel):
 class SourceUpdateRequest(BaseModel):
     ref: str
     ref_kind: AppRefKind
+
+    @field_validator("ref")
+    @classmethod
+    def validate_ref(cls, value: str) -> str:
+        try:
+            return validate_git_ref(value)
+        except InvalidGitSourceError as error:
+            raise ValueError(str(error)) from error
 
 
 class StartResponse(BaseModel):

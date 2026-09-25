@@ -987,6 +987,17 @@ def test_put_source_updates_ref_for_a_git_sourced_app(client: TestClient, adapte
     assert record.source.ref_kind == "tag"
 
 
+def test_put_source_rejects_a_ref_that_looks_like_a_git_option(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+    _install_zip(client)
+
+    response = client.put(
+        "/api/v1/apps/zip.palmimo-teleop/source", json={"ref": "-x", "ref_kind": "tag"}, headers=CSRF_HEADERS
+    )
+
+    assert response.status_code == 422
+
+
 def _mark_job_in_progress(adapters: FakeAdapterBundle, name: str) -> None:
     state = adapters.state.read_apps_state()
     job = AppJob(id="j1", kind="update", state="running", step="fetch", error=None, started_at=0.0, finished_at=None)

@@ -59,6 +59,24 @@ _NO_DEFAULT = object()
 ParamType = Literal["string", "int", "float", "enum", "bool"]
 
 
+def _is_safe_pattern(pattern: str) -> bool:
+    in_class = False
+    escaped = False
+    for char in pattern:
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\":
+            escaped = True
+        elif char == "[" and not in_class:
+            in_class = True
+        elif char == "]" and in_class:
+            in_class = False
+        elif not in_class and char in "()|":
+            return False
+    return not escaped and not in_class
+
+
 class InvalidManifestFilenameError(ValueError):
     """Raised by :func:`validate_manifest_filename`.
 
@@ -301,6 +319,9 @@ def _parse_param_by_type(
                 return None
             if _has_nested_quantifier(pattern):
                 errors.append(f"params.{name}.pattern contains a nested quantifier: {pattern!r}")
+                return None
+            if not _is_safe_pattern(pattern):
+                errors.append(f"params.{name}.pattern uses unsupported syntax: {pattern!r}")
                 return None
             try:
                 re.compile(pattern)

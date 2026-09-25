@@ -371,7 +371,8 @@ async def _handle_http_exception(request: Request, exc: Exception) -> JSONRespon
 
 async def _handle_validation_error(request: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, RequestValidationError)
-    return _error_envelope(422, "validation_error", {"errors": exc.errors()})
+    errors = [{key: value for key, value in item.items() if key != "ctx"} for item in exc.errors()]
+    return _error_envelope(422, "validation_error", {"errors": errors})
 
 
 async def _handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:

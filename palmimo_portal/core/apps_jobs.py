@@ -233,10 +233,7 @@ def _sync_dependencies(
     try:
         return _run_sync_dependencies(ctx, instance, staging_container, layout, clone_root)
     finally:
-        # Best-effort restore: a raise here would replace whatever the try block raised
-        # (e.g. SyncFailedError) with an unrelated error, hiding the real failure from the
-        # caller. The cache is disposable (design doc 3.10), so on any anomaly we discard it
-        # rather than risk masking the sync outcome.
+        # A raise here (e.g. from rename()) replaces a real SyncFailedError from the try block above.
         _restore_persistent_cache(staged_cache, persistent_cache)
 
 

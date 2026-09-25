@@ -301,7 +301,7 @@ def test_git_source_endpoint_does_not_block_other_requests_while_cloning(
     # event loop; this drives the ASGI app directly, the same way a real deployment's
     # single event loop serves every request.
     def slow_clone(dest: Path, url: str, ref: str, ref_kind: str) -> None:
-        time.sleep(0.2)
+        time.sleep(0.5)
         dest.mkdir(parents=True, exist_ok=True)
         (dest / "palmimo.toml").write_text('schema = 1\nname = "palmimo-git-app"\ndescription = "d"\ncommand=["run"]\n')
         (dest / "pyproject.toml").write_text("[project]\nname='app'\nversion='0'\n")

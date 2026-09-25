@@ -1230,6 +1230,13 @@ def put_source(
     _ensure_no_app_job_in_progress(state, name)
     if record.source.type != "git":
         raise PortalError(409, "source_update_git_only")
+    if (
+        app_namespace(record.source.type, record.source.url, ctx.catalog_repo) == "palmimo"
+        and record.source.ref_kind == "tag"
+        and body.ref_kind == "tag"
+        and body.ref != record.source.ref
+    ):
+        raise PortalError(409, "official_tag_ref_managed")
     new_record = replace(record, source=replace(record.source, ref=body.ref, ref_kind=body.ref_kind))
     new_state = AppsState(
         apps={**state.apps, name: new_record}, current_job=state.current_job, current_job_app=state.current_job_app

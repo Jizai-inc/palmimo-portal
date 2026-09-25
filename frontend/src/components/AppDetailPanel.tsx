@@ -509,6 +509,7 @@ function SourceSection({
   }, [resetUpdateCheck, updateCompleted]);
 
   const isGit = app.source.type === "git";
+  const isOfficialTag = app.source.official && app.source.ref_kind === "tag";
 
   return (
     <Section title={t("appDetail.sourceTitle")}>
@@ -523,7 +524,7 @@ function SourceSection({
       </dl>
       {isGit ? (
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={() => setEditingRef((value) => !value)}>{t("appDetail.sourceEditRefButton")}</Button>
+          {!isOfficialTag ? <Button variant="outline" size="sm" onClick={() => setEditingRef((value) => !value)}>{t("appDetail.sourceEditRefButton")}</Button> : null}
           <Button
             variant="outline"
             size="sm"
@@ -534,6 +535,7 @@ function SourceSection({
           </Button>
         </div>
       ) : null}
+      {isOfficialTag ? <p className="text-sm text-muted-foreground">{t("appDetail.sourceOfficialTagManaged")}</p> : null}
       {updateCheck.data ? (
         updateCheck.data.update_available ? (
           <div className="flex items-center gap-2">
@@ -546,7 +548,7 @@ function SourceSection({
         )
       ) : null}
       <ApiErrorAlert error={updateCheck.error} />
-      {editingRef ? (
+      {editingRef && !isOfficialTag ? (
         <div className="flex flex-col gap-2">
           <p className="text-sm font-medium">{t("appDetail.sourceEditRefTitle")}</p>
           <div className="flex flex-wrap items-end gap-2">

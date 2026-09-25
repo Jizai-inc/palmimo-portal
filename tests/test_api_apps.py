@@ -1117,6 +1117,32 @@ def test_put_source_updates_ref_for_a_git_sourced_app(client: TestClient, adapte
     assert record.source.ref_kind == "tag"
 
 
+def test_put_source_rejects_a_tag_change_for_an_official_app(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+    record = AppRecord(
+        id="palmimo.teleop",
+        name="teleop",
+        source=AppSource(
+            type="git",
+            url="https://github.com/Jizai-inc/palmimo-devkit",
+            ref="v1.0.0",
+            ref_kind="tag",
+        ),
+        installed_at=1.0,
+        params={},
+        autostart=False,
+        last_job=None,
+    )
+    adapters.state.write_apps_state(AppsState(apps={record.id: record}))
+
+    response = client.put(
+        "/api/v1/apps/palmimo.teleop/source", json={"ref": "v2.0.0", "ref_kind": "tag"}, headers=CSRF_HEADERS
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "official_tag_ref_managed"
+
+
 def test_put_source_rejects_a_ref_that_looks_like_a_git_option(client: TestClient, adapters: FakeAdapterBundle) -> None:
     client = _authenticated_client(client, adapters)
     _install_zip(client)

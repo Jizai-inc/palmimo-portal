@@ -281,7 +281,10 @@
     "platformReflashRequired": "この更新には SD カードの再書き込みが必要で、そのままでは適用できません。",
     "platformPortalTooOld": "実機の基盤を更新する前に、Portal 自体を先に更新してください。",
     "platformVerifyDiffBanner": "実機の基盤が記録上のバージョンからずれています。再適用して修正してください。",
-    "platformLegacyLedger": "先にアプリをリセットしてから、デバイス基盤を更新してください。"
+    "platformLegacyLedger": "先にアプリをリセットしてから、デバイス基盤を更新してください。",
+    "platformLatestErrorClockUnsynced": "時刻同期を待ってから更新を確認します。",
+    "platformLatestErrorRateLimited": "確認の間隔が短すぎます。しばらくしてからもう一度お試しください。",
+    "platformLatestErrorUnknown": "最新バージョンを確認できませんでした。"
   },
   "errors": {
     "app_broken": "このアプリのファイルが見つからないか壊れています。再インストールしてください。",

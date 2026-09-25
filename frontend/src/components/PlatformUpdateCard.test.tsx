@@ -20,11 +20,54 @@ const BASE_PLATFORM: PlatformStatusResponse = {
 };
 
 describe("PlatformUpdateCard", () => {
-  it("shows up to date when there is no newer platform version", async () => {
-    server.use(http.get("*/api/v1/platform", () => HttpResponse.json(BASE_PLATFORM)));
+  it("shows up to date when the latest release matches the installed version", async () => {
+    server.use(
+      http.get("*/api/v1/platform", () =>
+        HttpResponse.json({
+          ...BASE_PLATFORM,
+          latest: { version: 1, tag: "v1", summary: "", requires_portal: "0.1.0", restart_portal: false, reflash_required: false },
+        }),
+      ),
+    );
     renderWithProviders(<PlatformUpdateCard installedPortalVersion="0.1.0" />);
 
     expect(await screen.findByText("Up to date")).toBeInTheDocument();
+  });
+
+  // Bug: `latest: null` used to fall through to the "up to date" branch, so a device that
+  // could not reach GitHub (or whose clock had not synced yet) silently reported itself
+  // current instead of telling the operator why it does not know.
+  it.each([
+    ["clock_unsynced", "Waiting for the clock to sync before checking for updates."],
+    ["rate_limited", "Checked for updates too recently; try again in a moment."],
+    ["no_release: repository has no releases", "Could not check for the latest version."],
+  ])("does not claim to be up to date when the latest version could not be fetched (%s)", async (latestError, expectedText) => {
+    server.use(
+      http.get("*/api/v1/platform", () => HttpResponse.json({ ...BASE_PLATFORM, latest: null, latest_error: latestError })),
+    );
+    renderWithProviders(<PlatformUpdateCard installedPortalVersion="0.1.0" />);
+
+    expect(await screen.findByText(expectedText)).toBeInTheDocument();
+    expect(screen.queryByText("Up to date")).not.toBeInTheDocument();
+  });
+
+  // Bug: a never-installed bundle (`installed_version: null`) with a `latest.version` of 0
+  // would compare as `0 > (null ?? 0)`, i.e. false, and render "up to date" for a device that
+  // has never had the platform applied at all.
+  it("does not claim to be up to date when the installed version is unknown", async () => {
+    server.use(
+      http.get("*/api/v1/platform", () =>
+        HttpResponse.json({
+          ...BASE_PLATFORM,
+          installed_version: null,
+          latest: { version: 0, tag: "v0", summary: "", requires_portal: "0.1.0", restart_portal: false, reflash_required: false },
+        }),
+      ),
+    );
+    renderWithProviders(<PlatformUpdateCard installedPortalVersion="0.1.0" />);
+
+    await screen.findByRole("button", { name: "Update" });
+    expect(screen.queryByText("Up to date")).not.toBeInTheDocument();
   });
 
   // Without this, starting a platform update whose Portal requirement this device does not meet

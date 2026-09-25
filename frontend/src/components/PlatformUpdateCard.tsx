@@ -16,6 +16,23 @@ function isSilentRateLimit(error: unknown): boolean {
 }
 
 /**
+ * `platform.latest_error`'s two named codes get their own message; anything else (``no_release``,
+ * a missing release asset, or any other fetch/parse failure -- see `core/platform.py`'s
+ * `PlatformLatestCache._refresh`) is free text, not a small enum, so it collapses into one
+ * generic "could not check" message rather than being shown verbatim.
+ */
+function PlatformLatestErrorMessage({ error }: { error: string | null }) {
+  const { t } = useTranslation();
+  if (error === "clock_unsynced") {
+    return <p className="text-sm text-muted-foreground">{t("update.platformLatestErrorClockUnsynced")}</p>;
+  }
+  if (error === "rate_limited") {
+    return <p className="text-sm text-muted-foreground">{t("update.platformLatestErrorRateLimited")}</p>;
+  }
+  return <p className="text-sm text-muted-foreground">{t("update.platformLatestErrorUnknown")}</p>;
+}
+
+/**
  * The update screen's "device platform" row (design doc 2.8/3.7): installed vs. latest bundle
  * version, a verify-diff warning, and the same update job the apps-tab banner triggers (shared
  * via `usePlatformUpdate`).
@@ -36,7 +53,9 @@ export function PlatformUpdateCard({
     return <ApiErrorAlert error={platformError} />;
   }
 
-  const updateAvailable = platform.latest !== null && platform.latest.version > (platform.installed_version ?? 0);
+  const latestKnown = platform.latest !== null;
+  const upToDate = latestKnown && platform.installed_version !== null && platform.latest!.version <= platform.installed_version;
+  const updateAvailable = latestKnown && !upToDate;
   const portalTooOld =
     updateAvailable &&
     installedPortalVersion !== undefined &&
@@ -128,7 +147,9 @@ export function PlatformUpdateCard({
         <Alert>
           <AlertDescription>{t("update.platformPortalTooOld")}</AlertDescription>
         </Alert>
-      ) : !updateAvailable ? (
+      ) : !latestKnown ? (
+        <PlatformLatestErrorMessage error={platform.latest_error} />
+      ) : upToDate ? (
         <p className="text-sm text-muted-foreground">{t("update.platformUpToDate")}</p>
       ) : (
         <Button

@@ -281,7 +281,10 @@
     "platformReflashRequired": "This update requires reflashing the SD card; it cannot be applied in place.",
     "platformPortalTooOld": "Update the Portal itself before updating the device platform.",
     "platformVerifyDiffBanner": "The device platform has drifted from its recorded version. Reapply the update to fix it.",
-    "platformLegacyLedger": "Reset the apps first, then update the device platform."
+    "platformLegacyLedger": "Reset the apps first, then update the device platform.",
+    "platformLatestErrorClockUnsynced": "Waiting for the clock to sync before checking for updates.",
+    "platformLatestErrorRateLimited": "Checked for updates too recently; try again in a moment.",
+    "platformLatestErrorUnknown": "Could not check for the latest version."
   },
   "errors": {
     "app_broken": "This app's files are missing or damaged. Reinstall it to continue.",

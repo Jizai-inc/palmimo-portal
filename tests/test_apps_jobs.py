@@ -458,6 +458,54 @@ def test_update_git_swaps_in_new_tree_and_updates_commit(harness: Harness) -> No
     assert not marker.exists()  # the old tree was replaced, not merged into
 
 
+def test_update_git_follows_the_catalog_to_its_latest_tag_for_an_official_devkit_app(harness: Harness) -> None:
+    # An official-catalog app's "update" must move the pin forward to the catalog's current
+    # release tag, not just re-fetch the same ref it is already pinned to.
+    old_source = AppSource(
+        type="git",
+        url="https://github.com/Jizai-inc/palmimo-devkit",
+        ref="examples-v0.1.0",
+        ref_kind="tag",
+        commit="old-commit",
+        subdir="examples/teleop",
+    )
+    record = AppRecord(
+        id="palmimo.teleop",
+        name="palmimo-teleop",
+        source=old_source,
+        installed_at=1.0,
+        params={},
+        autostart=False,
+        last_job=None,
+    )
+    state = AppsState(apps={record.id: record})
+    (harness.ctx.apps_dir / record.id).mkdir(parents=True)
+
+    latest_app = replace(
+        make_catalog_app(subdir="examples/teleop", commit="new-commit"),
+        source=replace(
+            make_catalog_app(subdir="examples/teleop", commit="new-commit").source, ref="examples-v0.1.1"
+        ),
+    )
+    catalog = CatalogCache(
+        FakeCatalogSource(asset=CatalogAsset(tag="examples-v0.1.1", apps=(latest_app,))), FakeStateStore()
+    )
+    catalog.get(ntp_synchronized=True)
+    ctx = replace(harness.ctx, catalog_cache=catalog, catalog_repo="Jizai-inc/palmimo-devkit")
+    harness.git.remote_commits[
+        ("https://github.com/Jizai-inc/palmimo-devkit", "examples-v0.1.1", "tag")
+    ] = "new-commit"
+    harness.git.on_clone = lambda dest, *_: _seed_git_clone(dest / "examples" / "teleop", "palmimo-teleop")
+
+    _, new_record = update_git(ctx, state, record.id)
+
+    assert new_record.source.ref == "examples-v0.1.1"
+    assert new_record.source.commit == "new-commit"
+
+    available, _ = check_git_update(ctx, new_record)
+    assert available is False
+
+
 def test_update_git_accepts_a_manifest_name_change_and_keeps_the_id(harness: Harness) -> None:
     # Without this, an author renaming their app upstream would either be rejected outright or
     # silently reassigned a new id, breaking every binding/param/autostart flag the id owns.

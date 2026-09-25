@@ -878,12 +878,13 @@ def update_git(
     job_id = job_id or ctx.new_id()
     started = started if started is not None else ctx.now()
     staging_container = ctx.staging_dir / job_id
+    target_ref = _official_catalog_target_ref(ctx, record.source)
     try:
         on_step("fetch")
         commit = _fetch_git_source(
             ctx,
             url=record.source.url,
-            ref=record.source.ref,
+            ref=target_ref,
             ref_kind=record.source.ref_kind,
             subdir=record.source.subdir,
             manifest=record.source.manifest,
@@ -946,7 +947,7 @@ def update_git(
         )
         new_record = AppRecord(
             name=manifest.name,
-            source=replace(record.source, commit=commit),
+            source=replace(record.source, ref=target_ref, commit=commit),
             installed_at=record.installed_at,
             params={key: value for key, value in record.params.items() if key not in dropped_params},
             autostart=record.autostart,
@@ -1047,6 +1048,37 @@ def _purge_uv_cache(ctx: AppsJobContext, name: str) -> None:
 
 def _is_official_devkit_source(url: str | None, catalog_repo: str) -> bool:
     return app_namespace("git", url, catalog_repo) == "palmimo"
+
+
+def _official_catalog_target_ref(ctx: AppsJobContext, source: AppSource) -> str:
+    """The ref an official-catalog tag-pinned source should update to.
+
+    The catalog's entry for this exact ``url``/``subdir``/``manifest`` may
+    now point at a newer release tag than the one this app installed at --
+    updating a catalog app re-pins it to that tag and commit (design doc
+    3.10). Any other source (a community fork, a non-catalog tag) keeps its
+    own pinned ref -- there is no catalog entry to follow.
+    """
+    assert source.ref is not None
+    if (
+        ctx.catalog_cache is None
+        or ctx.catalog_repo is None
+        or source.ref_kind != "tag"
+        or not _is_official_devkit_source(source.url, ctx.catalog_repo)
+    ):
+        return source.ref
+    requested_url = normalize_git_url(source.url or "")
+    for app in ctx.catalog_cache.peek().apps:
+        candidate = app.source
+        if (
+            candidate.type == "git"
+            and normalize_git_url(candidate.url or "") == requested_url
+            and candidate.subdir == source.subdir
+            and candidate.manifest == source.manifest
+        ):
+            assert candidate.ref is not None
+            return candidate.ref
+    return source.ref
 
 
 def check_git_update(ctx: AppsJobContext, record: AppRecord) -> tuple[bool, str | None]:

@@ -82,7 +82,6 @@ describe("AppsListPanel", () => {
     expect(screen.getByText("Update available")).toBeInTheDocument();
   });
 
-  // Without this, an operator would have no way to tell from the apps list that an app's git
   // credential was rejected (e.g. revoked token) and needs re-registering before it can update.
   it("shows a rejected-credential badge only on the app whose credential was rejected", async () => {
     server.use(
@@ -100,7 +99,6 @@ describe("AppsListPanel", () => {
     expect(okRow && within(okRow).queryByText("Credential rejected")).not.toBeInTheDocument();
   });
 
-  // Without this, two apps installed from different sources under the same manifest `name`
   // (design doc 3.9's "same owner, two branches" case) would be indistinguishable in the list
   // -- same visible label, no way to tell which row starts which app.
   it("shows two apps with the same manifest name as separate rows distinguished by id and source", async () => {
@@ -167,7 +165,6 @@ describe("AppsListPanel", () => {
     expect(await screen.findByText("No apps installed yet.")).toBeInTheDocument();
   });
 
-  // Without this, an unreadable app ledger would leave the operator unable to recover from the apps screen.
   it("resets an unreadable ledger after confirmation", async () => {
     const user = userEvent.setup();
     let reset = false;
@@ -209,7 +206,6 @@ describe("AppsListPanel", () => {
     expect(screen.getByText("/var/lib/palmimo/apps/alice.app")).toBeInTheDocument();
   });
 
-  // Without this, a device stuck on an old platform version would let the operator kick off an
   // install/start that the backend will 409 on (platform_not_ready) instead of being steered to
   // the update banner first.
   it("shows the platform-not-ready banner and disables Start until the platform is updated", async () => {

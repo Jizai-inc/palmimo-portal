@@ -58,7 +58,6 @@ describe("apps child routes through the real route tree", () => {
     expect(await screen.findByRole("heading", { name: "Add app" })).toBeInTheDocument();
   });
 
-  // Without this, "Expand" in the detail screen's logs section could point at a broken route, or
   // "Close" could strand the operator on the full logs page instead of returning to the app.
   it("expands to the full logs page from the detail screen and closes back to it", async () => {
     const app: AppDetailResponse = {
@@ -106,7 +105,6 @@ describe("apps child routes through the real route tree", () => {
     expect(await screen.findByRole("button", { name: "Delete this app" })).toBeInTheDocument();
   });
 
-  // Without this, an app id with a namespace (every app id has one, design doc 3.9) would 404 on
   // direct navigation or a reload -- only a route parameter named `$id` (not `$name`) routes a
   // URL segment containing a `.` to the detail screen at all.
   it("opens the detail screen directly at a dotted app id, as a fresh navigation would see on reload", async () => {

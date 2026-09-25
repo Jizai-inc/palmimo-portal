@@ -120,7 +120,6 @@ def test_write_then_read_apps_state_round_trips(tmp_path: Path) -> None:
 
 
 def test_write_then_read_apps_state_round_trips_periodic_check_fields(tmp_path: Path) -> None:
-    # Without this, a fresh JsonFileStateStore instance (a Portal restart) would silently
     # forget every periodic git-check result: update_available/latest_commit reset to their
     # defaults, and a rejected credential would resume being checked as if never rejected.
     store = JsonFileStateStore(tmp_path / "state")

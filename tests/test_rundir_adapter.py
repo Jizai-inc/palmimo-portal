@@ -12,7 +12,6 @@ from palmimo_portal.adapters.rundir import TmpfsRunDirPort
 
 #: systemd's own character classes (src/fundamental/string-util.h) and the set that needs
 #: backslash-unescaping inside a double-quoted value (src/basic/escape.h, SHELL_NEED_ESCAPE),
-#: fetched from github.com/systemd/systemd -- exact strings, not recalled from memory.
 _NEWLINE = "\n\r"
 _WHITESPACE = " \t\n\r"
 _SHELL_NEED_ESCAPE = '"\\`$'
@@ -132,7 +131,6 @@ def test_write_gives_the_app_directory_and_argv_group_readable_modes_under_any_u
     ids=["double_quote", "backslash", "surrounding_whitespace", "dollar_and_backtick", "mixed"],
 )
 def test_write_env_value_round_trips_through_systemds_environmentfile_parser(tmp_path: Path, value: str) -> None:
-    # Without quoting, systemd's EnvironmentFile= parser trims unquoted leading/trailing
     # whitespace and treats a bare "\" or "\"" as parse-breaking syntax -- an app whose env value
     # needs any of these (a token with a trailing space, a Windows-style path, a value that
     # happens to contain a quote) would silently receive a corrupted value at launch.

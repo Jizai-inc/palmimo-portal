@@ -86,7 +86,6 @@ describe("installApp/previewApp", () => {
     expect(form?.get("manifest")).toBeNull();
   });
 
-  // Without this, the device-name-part a caller passes (design doc 3.9) could be dropped
   // instead of reaching the backend, silently falling back to a server-derived name.
   it("sends the given name as a sibling of source in a git install's JSON body", async () => {
     let body: unknown;

@@ -420,7 +420,6 @@ def _seed_git_clone_with_two_manifests(dest: Path) -> None:
 
 
 def test_install_git_with_a_named_manifest_installs_the_app_it_declares(harness: Harness) -> None:
-    # Without this, a directory shipping several manifests could only ever install whatever
     # app palmimo.toml declares, no matter which manifest file the caller asked for.
     harness.git.on_clone = lambda dest, url, ref, ref_kind: _seed_git_clone_with_two_manifests(dest)
 
@@ -439,7 +438,6 @@ def test_install_git_with_a_named_manifest_installs_the_app_it_declares(harness:
 
 
 def test_update_git_re_reads_the_records_own_non_default_manifest(harness: Harness) -> None:
-    # Without this, updating an app installed from a non-default manifest would silently fall
     # back to reading palmimo.toml, either missing entirely or belonging to a different app.
     harness.git.on_clone = lambda dest, url, ref, ref_kind: _seed_git_clone_with_two_manifests(dest)
     state, _ = install_git(
@@ -548,7 +546,6 @@ def test_update_git_follows_the_catalog_to_its_latest_tag_for_an_official_devkit
 
 
 def test_update_git_accepts_a_manifest_name_change_and_keeps_the_id(harness: Harness) -> None:
-    # Without this, an author renaming their app upstream would either be rejected outright or
     # silently reassigned a new id, breaking every binding/param/autostart flag the id owns.
     harness.git.on_clone = lambda dest, url, ref, ref_kind: _seed_git_clone(dest, "palmimo-teleop")
     state, record = install_git(harness.ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")

@@ -76,7 +76,6 @@ describe("AddAppPanel", () => {
     expect(screen.getByText("Optional")).toBeInTheDocument();
   });
 
-  // Without this, an operator would see the raw manifest device id ("camera") instead of a
   // readable label.
   it("shows a human-readable label for a catalog app's declared device instead of its raw id", async () => {
     server.use(getGetCatalogApiV1CatalogGetMockHandler(CATALOG));
@@ -86,7 +85,6 @@ describe("AddAppPanel", () => {
     expect(screen.queryByText("camera")).not.toBeInTheDocument();
   });
 
-  // Without this, confirming then installing a catalog app would silently fail to reach the
   // backend with a correctly-shaped git source and the chosen device-name part, or the job
   // dialog + the caller's completion callback would never fire once the job finishes.
   //
@@ -138,7 +136,6 @@ describe("AddAppPanel", () => {
     await waitFor(() => expect(onInstalled).toHaveBeenCalledWith("palmimo.teleop"));
   });
 
-  // Without this, opening the confirmation dialog could submit an install before the operator
   // explicitly confirms it.
   it("does not install when the confirmation dialog is cancelled", async () => {
     const user = userEvent.setup();
@@ -163,7 +160,6 @@ describe("AddAppPanel", () => {
     expect(installRequests).toBe(0);
   });
 
-  // Without this, the namespace segment could be typed over (letting an operator claim to be
   // "palmimo." on a fork) or a device-name-part change could fail to reach the install request
   // (design doc 3.9's add-app screen: namespace read-only, name part editable and sent).
   it("shows the namespace as read-only and sends an edited device name part on install", async () => {
@@ -197,7 +193,6 @@ describe("AddAppPanel", () => {
     await waitFor(() => expect(installedName).toBe("my-fork"));
   });
 
-  // Without this, a name-part collision discovered only at install time (design doc 3.9: preview
   // and install can race) would leave the operator stuck retrying an id that will never install,
   // instead of being shown a fresh suggested name.
   it("re-runs preview and shows a new suggested name when install returns app_exists", async () => {
@@ -325,7 +320,6 @@ describe("AddAppPanel", () => {
     await waitFor(() => expect(manifests).toEqual(["palmimo.realtime.toml", "palmimo.realtime.toml"]));
   });
 
-  // Without this, a manifest whose help_url predates the backend's scheme validation (or a
   // future backend regression) could get a `javascript:` URL turned into a clickable link,
   // letting an installed app's manifest execute script in the operator's browser session.
   it("only renders an env help_url as a link when its scheme is http(s)", async () => {
@@ -350,7 +344,6 @@ describe("AddAppPanel", () => {
     expect(screen.queryByRole("link", { name: "Learn more" })?.getAttribute("href")).toBe("https://example.com/docs");
   });
 
-  // Without this, an "offline" catalog fetch failure would show the same generic stale message
   // as a clock-sync or rate-limit failure, leaving the operator without a next step.
   it("shows the offline-specific stale-catalog message distinct from the generic one", async () => {
     server.use(getGetCatalogApiV1CatalogGetMockHandler({ ...CATALOG, stale: true, reason: "offline" }));
@@ -360,7 +353,6 @@ describe("AddAppPanel", () => {
     expect(screen.queryByText("Showing the last known catalog — could not refresh it just now.")).not.toBeInTheDocument();
   });
 
-  // Without this, an operator previewing a private app could install it without noticing a
   // required secret was never registered, and only find out once the app fails to start.
   it("marks a required preview env var with no matching secret as not yet registered", async () => {
     const user = userEvent.setup();
@@ -395,7 +387,6 @@ describe("AddAppPanel", () => {
     expect(wifiRow && within(wifiRow).queryByText("Not yet registered")).not.toBeInTheDocument();
   });
 
-  // Without this, typing a device name part outside the backend's `^[a-z][a-z0-9-]{0,39}$`
   // pattern would only be caught after a round trip to /install, instead of being flagged
   // (and blocking Install) right in the form.
   it("disables Install and shows a hint when the device name part is invalid", async () => {

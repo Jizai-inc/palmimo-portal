@@ -395,7 +395,6 @@ def test_update_completion_keeps_a_concurrent_autostart_change_to_the_same_app(c
 
 def test_start_update_records_the_git_failure_reason_on_the_failed_job(ctx: AppsJobContext) -> None:
     # A 403 mid-update must land on `last_job.error_code`, not just its free-text `error` --
-    # without it, the update-job dialog has no way to tell an operator "your PAT was rejected"
     # apart from "install_failed" (see `api/apps.py`'s `_raise_for_git_error` for the preview/
     # install-time equivalent this update path lacked).
     def seed(dest: Path, url: str, ref: str, ref_kind: str) -> None:

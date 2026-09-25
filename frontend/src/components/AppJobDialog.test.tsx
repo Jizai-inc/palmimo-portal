@@ -43,7 +43,6 @@ describe("AppJobDialog", () => {
     expect(callCount).toBe(callsAfterFirstError);
   });
 
-  // Without `error_code` driving the message, a background update job's 403 shows only the raw
   // git stderr tail instead of the same "check your PAT's scope" guidance a synchronous
   // preview/install 403 already gets from ApiErrorAlert.
   it("shows the PAT-scope guidance for a failed job with a git_credential_rejected error_code", async () => {

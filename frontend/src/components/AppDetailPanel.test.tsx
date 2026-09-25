@@ -48,7 +48,6 @@ describe("AppDetailPanel", () => {
     server.use(getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }));
   });
 
-  // Without this, saving bindings could accidentally submit a secret's value instead of its
   // name (the payload must be {REQ_NAME: STORE_NAME}, never {REQ_NAME: value}), and an unbound
   // required variable would go unnoticed until the app fails to start.
   it("highlights an unbound required variable and saves bindings by secret name only", async () => {
@@ -175,7 +174,6 @@ describe("AppDetailPanel", () => {
     await waitFor(() => expect(putBody).toEqual({ enabled: true }));
   });
 
-  // Without this, a permission-denied journal read would render nothing (or leak raw JSON)
   // where the operator expects either log lines or an explanation.
   it("shows a readable message instead of log lines when logs are unavailable", async () => {
     server.use(
@@ -188,7 +186,6 @@ describe("AppDetailPanel", () => {
     expect(await screen.findByText("Palmimo cannot read this app's logs right now.")).toBeInTheDocument();
   });
 
-  // Without this, an operator would see the raw manifest device id ("motor_display") instead of
   // a readable label.
   it("shows a human-readable label for a declared device instead of its raw id", async () => {
     server.use(
@@ -201,7 +198,6 @@ describe("AppDetailPanel", () => {
     expect(screen.queryByText("motor_display")).not.toBeInTheDocument();
   });
 
-  // Without this, an operator would see a param's name and type but not the manifest author's
   // explanation of what it does, even though the backend now sends it.
   it("shows a param's description as helper text, but not when it has none", async () => {
     server.use(

@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { formatSourceSummary } from "@/lib/appSourceSummary";
 
 describe("formatSourceSummary", () => {
-  // Without this, the apps-list row (design doc 3.7) would have no way to tell two apps with
   // the same manifest name apart by where their code actually came from.
   it("summarizes a git source as owner/repo, subdir, and ref", () => {
     expect(

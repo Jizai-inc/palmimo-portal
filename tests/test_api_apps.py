@@ -154,7 +154,6 @@ def _zip_bytes_with_two_manifests() -> bytes:
 def test_install_zip_with_a_manifest_field_installs_the_app_it_declares(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
-    # Without this, a zip shipping several manifests could only ever install whatever app
     # palmimo.toml declares, no matter which manifest the 'manifest' form field named.
     client = _authenticated_client(client, adapters)
 
@@ -486,7 +485,6 @@ def test_put_params_rejects_value_outside_declared_range(client: TestClient, ada
     assert response.json()["error"]["code"] == "params_invalid"
 
 
-# Without this, the apps-list "official" badge (design doc 3.9/3.7) would key off the app id's
 # namespace segment instead of the source field the design explicitly calls for, silently
 # breaking the moment id-derivation and the official check diverge.
 def test_list_apps_marks_official_only_for_the_devkit_repo_source(
@@ -633,7 +631,6 @@ def test_update_app_returns_409_platform_not_ready_when_the_platform_bundle_is_n
 
 
 def test_update_job_exposes_the_git_failure_reason_code(client: TestClient, adapters: FakeAdapterBundle) -> None:
-    # Without `error_code` on the job response, an operator sees only a free-text git stderr
     # tail for a background update failure and gets none of the "check your PAT's scope"
     # guidance a synchronous preview/install 403 already gets (see `_raise_for_git_error`).
     client = _authenticated_client(client, adapters)
@@ -1087,7 +1084,6 @@ def _mark_job_in_progress(adapters: FakeAdapterBundle, name: str) -> None:
 def test_settings_write_refused_while_a_job_targets_the_app(
     client: TestClient, adapters: FakeAdapterBundle, path: str, body: dict
 ) -> None:
-    # Without this guard, a job completing after the write would overwrite it with its own
     # stale snapshot (params/autostart), or a stale write during a delete could resurrect the
     # app entirely.
     client = _authenticated_client(client, adapters)

@@ -218,7 +218,6 @@ def test_list_git_credentials_shows_rejected_at_after_a_periodic_sweep_rejection
 def test_list_git_credentials_reports_the_apps_installed_from_its_host_owner(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
-    # Without this, an operator deleting/rotating a credential has no way to see which
     # installed apps depend on it before they act.
     client = _authenticated_client(client, adapters)
     client.put("/api/v1/git-credentials/github.com%2FJizai-inc", json={"value": "ghp_token"}, headers=CSRF_HEADERS)

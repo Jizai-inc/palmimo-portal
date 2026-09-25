@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import i18n from "@/i18n";
 import { appStatusLabel } from "@/lib/appStatus";
 
-// Without this, a failed app with no exit code (e.g. killed by a signal) would render the
 // exit-code sentence with an empty/undefined placeholder instead of falling back to the plain
 // "Failed" label.
 describe("appStatusLabel", () => {

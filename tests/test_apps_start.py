@@ -166,7 +166,6 @@ def test_start_app_raises_app_not_found_when_app_is_not_installed(deps: StartDep
 
 
 def test_start_app_raises_app_busy_when_run_lock_is_already_held(deps: StartDeps, apps_dir: Path) -> None:
-    # Without this, two concurrent starts (or a start racing autostart) could both
     # observe "nothing running" and both proceed -- the whole point of run.lock.
     _install(deps, apps_dir, "app")
     with _state(deps).lock_run(), pytest.raises(AppBusyError):

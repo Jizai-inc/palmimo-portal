@@ -65,7 +65,6 @@ describe("PlatformUpdateCard", () => {
     expect(screen.queryByText("Up to date")).not.toBeInTheDocument();
   });
 
-  // Without this, starting a platform update whose Portal requirement this device does not meet
   // would let the operator kick off a bundle apply that assumes newer Portal behavior it lacks.
   it("shows the portal-too-old note instead of an update button when Portal is behind requires_portal", async () => {
     server.use(

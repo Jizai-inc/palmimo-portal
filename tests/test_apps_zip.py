@@ -33,7 +33,6 @@ def test_extract_zip_to_staging_finds_manifest_at_depth_zero(tmp_path: Path) -> 
 
 
 def test_extract_zip_to_staging_locates_root_by_a_given_manifest_filename(tmp_path: Path) -> None:
-    # Without this, a directory shipping several manifests (one app each) could only ever
     # install the app declared in palmimo.toml, no matter which manifest the caller asked for.
     entries = {
         "palmimo.toml": 'schema = 1\nname = "app-default"\n',

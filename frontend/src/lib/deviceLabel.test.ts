@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import i18n from "@/i18n";
 import { deviceLabel } from "@/lib/deviceLabel";
 
-// Without this, a device id a newer backend added before the Portal shipped a label for it
 // would render as an empty string instead of the raw id.
 describe("deviceLabel", () => {
   it.each([

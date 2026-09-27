@@ -17,6 +17,7 @@ import { PortalApiError } from "@/api/client";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { PlatformUpdateCard } from "@/components/PlatformUpdateCard";
 import { ProgressBar } from "@/components/ProgressBar";
+import { useRetryCountdown } from "@/lib/useRetryCountdown";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -346,6 +347,7 @@ function UpdateCard({
   applyError: unknown;
   restartTimedOut: boolean;
 }) {
+  const checkErrorShown = useRetryCountdown(checkError);
   const { t } = useTranslation();
 
   return (
@@ -420,7 +422,7 @@ function UpdateCard({
 
       <p className="text-xs text-muted-foreground">{t("update.notes")}</p>
       {/* A manual "Check now" failure must be visible; 429 stays silent, matching auto-check. */}
-      <ApiErrorAlert error={checkError} />
+      <ApiErrorAlert error={checkErrorShown} />
       <ApiErrorAlert error={applyError} />
 
       <div className="flex flex-col gap-3 md:flex-row">

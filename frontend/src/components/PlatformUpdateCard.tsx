@@ -9,6 +9,7 @@ import { ProgressBar } from "@/components/ProgressBar";
 import { isVersionAtLeast } from "@/lib/compareVersions";
 import { formatUtcTimestamp } from "@/lib/formatTimestamp";
 import { usePlatformUpdate } from "@/lib/usePlatformUpdate";
+import { useRetryCountdown } from "@/lib/useRetryCountdown";
 
 /**
  * `platform.latest_error`'s two named codes get their own message; anything else (``no_release``,
@@ -43,6 +44,7 @@ export function PlatformUpdateCard({
   const { t } = useTranslation();
   const { platform, platformError, job, startUpdate, starting, startError, checkNow, checking, checkError } =
     usePlatformUpdate();
+  const checkErrorShown = useRetryCountdown(checkError);
 
   if (!platform) {
     return <ApiErrorAlert error={platformError} />;
@@ -123,11 +125,7 @@ export function PlatformUpdateCard({
       ) : null}
       <ApiErrorAlert error={startError instanceof PortalApiError && startError.code === "ledger_legacy" ? undefined : startError} />
       <ApiErrorAlert
-        error={
-          checkError instanceof PortalApiError && checkError.code === "ledger_legacy"
-            ? undefined
-            : checkError
-        }
+        error={checkError instanceof PortalApiError && checkError.code === "ledger_legacy" ? undefined : checkErrorShown}
       />
 
       {platform.latest?.reflash_required ? (

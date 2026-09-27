@@ -292,7 +292,8 @@ def test_check_is_rate_limited_within_a_minute_of_the_last_check(
 
     assert response.status_code == 429
     assert response.json()["error"]["code"] == "update_check_rate_limited"
-    assert response.json()["error"]["params"]["retry_after_seconds"] > 0
+    retry_after = response.json()["error"]["params"]["retry_after_seconds"]
+    assert isinstance(retry_after, int) and retry_after > 0
 
 
 def test_check_conflicts_with_an_in_progress_job(client: TestClient, adapters: FakeAdapterBundle) -> None:

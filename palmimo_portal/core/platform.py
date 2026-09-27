@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import shutil
 import tempfile
 import threading
@@ -264,7 +265,7 @@ class PlatformLatestCache:
         if self._fetched_at is not None:
             elapsed = self._now() - self._fetched_at
             if 0 <= elapsed < CHECK_RATE_LIMIT_SECONDS:
-                raise PlatformCheckRateLimitedError(CHECK_RATE_LIMIT_SECONDS - elapsed)
+                raise PlatformCheckRateLimitedError(math.ceil(CHECK_RATE_LIMIT_SECONDS - elapsed))
         return self.get(ntp_synchronized=ntp_synchronized, force=True)
 
     def _recently_attempted(self) -> bool:

@@ -16,6 +16,7 @@ section):
 from __future__ import annotations
 
 import logging
+import math
 
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
@@ -195,7 +196,7 @@ def login(
         raise PortalError(409, "auth_not_set")
 
     if not rate_limiter.try_attempt():
-        raise PortalError(429, "auth_rate_limited", retry_after_seconds=rate_limiter.seconds_remaining())
+        raise PortalError(429, "auth_rate_limited", retry_after_seconds=math.ceil(rate_limiter.seconds_remaining()))
 
     # Every path MUST resolve the try_attempt() reservation exactly once:
     # record_failure/record_success on a judged credential, else release().
@@ -320,7 +321,7 @@ def change_password_endpoint(
         raise PortalError(401, "invalid_current_password")
 
     if not rate_limiter.try_attempt():
-        raise PortalError(429, "auth_rate_limited", retry_after_seconds=rate_limiter.seconds_remaining())
+        raise PortalError(429, "auth_rate_limited", retry_after_seconds=math.ceil(rate_limiter.seconds_remaining()))
 
     # Every path MUST resolve the try_attempt() reservation exactly once.
     outcome_recorded = False
@@ -412,7 +413,9 @@ def reset(
             timeout.
     """
     if reset_rate_limiter.is_locked():
-        raise PortalError(429, "auth_rate_limited", retry_after_seconds=reset_rate_limiter.seconds_remaining())
+        raise PortalError(
+            429, "auth_rate_limited", retry_after_seconds=math.ceil(reset_rate_limiter.seconds_remaining())
+        )
 
     identity = identity_store.read_identity_uncached()
     portal_state = compute_auth_state(state.auth_state(), identity)
@@ -425,7 +428,9 @@ def reset(
         raise PortalError(409, "auth_not_set")
 
     if not reset_rate_limiter.try_acquire():
-        raise PortalError(429, "auth_rate_limited", retry_after_seconds=reset_rate_limiter.seconds_remaining())
+        raise PortalError(
+            429, "auth_rate_limited", retry_after_seconds=math.ceil(reset_rate_limiter.seconds_remaining())
+        )
 
     client_host = request.client.host if request.client is not None else "unknown"
     device_id = identity.device_id if isinstance(identity, Identity) else None

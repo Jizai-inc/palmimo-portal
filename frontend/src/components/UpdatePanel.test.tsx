@@ -406,7 +406,7 @@ describe("UpdatePanel", () => {
     expect(await screen.findByText("Palmimo could not reach the update service. Try again shortly.")).toBeInTheDocument();
   });
 
-  it("stays silent on a manual check-now 429", async () => {
+  it("tells the operator when to retry after a manual check-now 429", async () => {
     const user = userEvent.setup();
     useStatus(BASE_STATUS);
     server.use(
@@ -417,7 +417,7 @@ describe("UpdatePanel", () => {
     await screen.findByText("Up to date");
     await user.click(screen.getByRole("button", { name: "Check now" }));
 
-    expect(screen.queryByText("You just checked for updates. Try again in 30 seconds.")).not.toBeInTheDocument();
+    expect(await screen.findByText("You just checked for updates. Try again in 30 seconds.")).toBeInTheDocument();
   });
 
   it("labels the failed step through stepLabel rather than the raw backend step name", async () => {

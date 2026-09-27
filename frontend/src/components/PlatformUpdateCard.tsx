@@ -10,11 +10,6 @@ import { isVersionAtLeast } from "@/lib/compareVersions";
 import { formatUtcTimestamp } from "@/lib/formatTimestamp";
 import { usePlatformUpdate } from "@/lib/usePlatformUpdate";
 
-/** A 429 rate limit is not actionable, so it stays silent, matching UpdatePanel's own check button. */
-function isSilentRateLimit(error: unknown): boolean {
-  return error instanceof PortalApiError && error.status === 429;
-}
-
 /**
  * `platform.latest_error`'s two named codes get their own message; anything else (``no_release``,
  * a missing release asset, or any other fetch/parse failure -- see `core/platform.py`'s
@@ -129,7 +124,7 @@ export function PlatformUpdateCard({
       <ApiErrorAlert error={startError instanceof PortalApiError && startError.code === "ledger_legacy" ? undefined : startError} />
       <ApiErrorAlert
         error={
-          isSilentRateLimit(checkError) || (checkError instanceof PortalApiError && checkError.code === "ledger_legacy")
+          checkError instanceof PortalApiError && checkError.code === "ledger_legacy"
             ? undefined
             : checkError
         }

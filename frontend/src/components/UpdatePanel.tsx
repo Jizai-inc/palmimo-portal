@@ -95,8 +95,8 @@ function stepLabel(t: TFunction, step: string | null): string {
   }
 }
 
-/** A 429 rate limit is not actionable, so it stays silent. */
-function isSilentRateLimit(error: unknown): boolean {
+/** The automatic on-mount check's 429 is not something the operator asked for, so it stays silent. */
+function isRateLimit(error: unknown): boolean {
   return error instanceof PortalApiError && error.status === 429;
 }
 
@@ -119,6 +119,7 @@ export function UpdatePanel({
   const [dialogKind, setDialogKind] = useState<DialogKind>(null);
   const [restartTimedOut, setRestartTimedOut] = useState(false);
   const hasAutoCheckedRef = useRef(false);
+  const [manualCheck, setManualCheck] = useState(false);
   const queryClient = useQueryClient();
   const statusQueryKey = getGetStatusApiV1UpdateStatusGetQueryKey();
 
@@ -173,6 +174,7 @@ export function UpdatePanel({
     hasAutoCheckedRef.current = true;
     const stale = status.checked_at === null || Date.now() / 1000 - status.checked_at > STALE_CHECK_SECONDS;
     if (stale) {
+      setManualCheck(false);
       check.mutate(undefined, { onError: () => undefined });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -286,8 +288,11 @@ export function UpdatePanel({
           dialogKind={dialogKind}
           setDialogKind={setDialogKind}
           checkPending={check.isPending}
-          checkError={check.error}
-          onCheckNow={() => check.mutate(undefined, { onError: () => undefined })}
+          checkError={!manualCheck && isRateLimit(check.error) ? null : check.error}
+          onCheckNow={() => {
+            setManualCheck(true);
+            check.mutate(undefined, { onError: () => undefined });
+          }}
           onConfirmUpdate={() => status.latest && apply.mutate({ data: { tag: status.latest.tag } })}
           onRetry={() => job?.target && apply.mutate({ data: { tag: job.target } })}
           applyPending={apply.isPending}
@@ -415,7 +420,7 @@ function UpdateCard({
 
       <p className="text-xs text-muted-foreground">{t("update.notes")}</p>
       {/* A manual "Check now" failure must be visible; 429 stays silent, matching auto-check. */}
-      <ApiErrorAlert error={isSilentRateLimit(checkError) ? undefined : checkError} />
+      <ApiErrorAlert error={checkError} />
       <ApiErrorAlert error={applyError} />
 
       <div className="flex flex-col gap-3 md:flex-row">

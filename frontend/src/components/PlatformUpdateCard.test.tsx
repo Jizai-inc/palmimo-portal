@@ -149,4 +149,25 @@ describe("PlatformUpdateCard", () => {
 
     expect(await screen.findByText("3 (v3)")).toBeInTheDocument();
   });
+
+  it("tells the operator when to retry after a rate-limited check", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/v1/platform", () =>
+        HttpResponse.json({
+          ...BASE_PLATFORM,
+          latest: { version: 2, tag: "v2", summary: null, requires_portal: "0.1.0", restart_portal: false, reflash_required: false },
+        }),
+      ),
+      http.post("*/api/v1/platform/check", () =>
+        HttpResponse.json({ error: { code: "platform_check_rate_limited", params: { retry_after_seconds: 12 } } }, { status: 429 }),
+      ),
+    );
+    renderWithProviders(<PlatformUpdateCard installedPortalVersion="0.1.0" />);
+    await screen.findByText("2 (v2)");
+
+    await user.click(await screen.findByRole("button", { name: "Check platform updates" }));
+
+    expect(await screen.findByText("You just checked for updates. Try again in 12 seconds.")).toBeInTheDocument();
+  });
 });

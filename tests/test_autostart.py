@@ -156,6 +156,18 @@ def test_startup_does_not_sweep_orphan_app_dirs_when_the_ledger_is_corrupt(
     assert _messages(caplog, "apps: ledger corrupt; skipping the orphan app directory sweep")
 
 
+def test_startup_sweeps_orphan_app_dirs_when_the_ledger_is_absent(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    orphan = settings.apps_dir / "not-an-id"
+    orphan.mkdir(parents=True)
+    app = create_app(settings)
+
+    with TestClient(app):
+        pass
+
+    assert not orphan.exists()
+
+
 def test_autostart_runs_after_startup_finalize(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     app = create_app(_settings(tmp_path))
     caplog.set_level(logging.INFO, logger="palmimo_portal")

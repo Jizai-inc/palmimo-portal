@@ -361,8 +361,8 @@ class SystemdAppUnitPort(AppUnitPort):
     def status(self, name: str) -> UnitStatus:
         return self._status_for_unit(app_unit_name(name))
 
-    def _start_unit(self, unit: str) -> None:
-        self._call_sync("start_unit", unit, "replace", unit=unit, verb="start")
+    def _start_unit(self, unit: str) -> str:
+        return str(self._call_sync("start_unit", unit, "replace", unit=unit, verb="start"))
 
     def _stop_unit(self, unit: str) -> None:
         self._call_sync("stop_unit", unit, "replace", unit=unit, verb="stop")
@@ -433,7 +433,11 @@ class SystemdAppUnitPort(AppUnitPort):
 
 _SYNC_UNIT_TEMPLATE = "palmimo-app-sync@{name}.service"
 
-#: How often `SystemdSyncUnitPort.wait` re-reads the unit's status while it is still running.
+_JOB_NOT_FOUND_DBUS_ERRORS = frozenset(
+    {"org.freedesktop.systemd1.NoSuchJob", "org.freedesktop.DBus.Error.UnknownObject"}
+)
+
+#: How often `SystemdSyncUnitPort.wait` checks whether its StartUnit job still exists.
 _SYNC_POLL_INTERVAL_SECONDS = 0.5
 
 
@@ -452,13 +456,10 @@ class SystemdSyncUnitPort(SyncUnitPort):
 
     def __init__(self, *, loop_thread: SharedEventLoopThread | None = None) -> None:
         self._unit_port = SystemdAppUnitPort(loop_thread=loop_thread)
-        self._started_after: dict[str, float] = {}
+        self._jobs: dict[str, str] = {}
 
     def start(self, instance: str) -> None:
-        self._started_after[instance] = self._unit_port._status_for_unit(
-            sync_unit_name(instance)
-        ).exec_main_start_timestamp
-        self._unit_port._start_unit(sync_unit_name(instance))
+        self._jobs[instance] = self._unit_port._start_unit(sync_unit_name(instance))
 
     def stop(self, instance: str) -> None:
         self._unit_port._stop_unit(sync_unit_name(instance))
@@ -469,12 +470,21 @@ class SystemdSyncUnitPort(SyncUnitPort):
     def wait(self, instance: str, timeout_s: float) -> UnitStatus:
         unit = sync_unit_name(instance)
         deadline = time.monotonic() + timeout_s
-        started_after = self._started_after.get(instance)
+        job_path = self._jobs[instance]
+        job_id = int(job_path.rsplit("/", 1)[-1])
         while time.monotonic() < deadline:
-            status = self._unit_port._status_for_unit(unit)
-            invocation_started = started_after is None or status.exec_main_start_timestamp > started_after
-            if invocation_started and status.active_state not in _UNIT_START_STATES:
-                self._started_after.pop(instance, None)
-                return status
+            try:
+                self._unit_port._call_sync(
+                    "get_job",
+                    job_id,
+                    unit=unit,
+                    verb="wait",
+                    reraise_dbus_errors=_JOB_NOT_FOUND_DBUS_ERRORS,
+                )
+            except DBusError as error:
+                if error.type in _JOB_NOT_FOUND_DBUS_ERRORS:
+                    self._jobs.pop(instance, None)
+                    return self._unit_port._status_for_unit(unit)
+                raise
             time.sleep(_SYNC_POLL_INTERVAL_SECONDS)
         raise TimeoutError(f"sync unit {instance} did not finish within {timeout_s:g}s")

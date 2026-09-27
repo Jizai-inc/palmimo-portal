@@ -496,21 +496,30 @@ def test_status_reads_exec_main_status_from_the_service_interface() -> None:
     assert derive_run_status(status).status == "needs_repair"
 
 
-class _ScriptedStatusAppUnitPort(SystemdAppUnitPort):
-    """Answers `_status_for_unit` from a fixed script, repeating the last entry once exhausted."""
+class _ScriptedSyncJobAppUnitPort(SystemdAppUnitPort):
+    """Supplies StartUnit/GetJob responses and final unit status for sync-job tests."""
 
-    def __init__(self, statuses: list[UnitStatus], **kwargs: Any) -> None:
+    def __init__(self, job_states: list[Any], final_status: UnitStatus, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._statuses = list(statuses)
+        self._job_states = list(job_states)
+        self._final_status = final_status
+        self.get_job_calls = 0
         self.status_calls = 0
+
+    async def _call(self, member: str, args: tuple[Any, ...], *, unit: str, verb: str, **kwargs: Any) -> Any:
+        if member == "start_unit":
+            return "/org/freedesktop/systemd1/job/42"
+        assert member == "get_job"
+        self.get_job_calls += 1
+        index = min(self.get_job_calls - 1, len(self._job_states) - 1)
+        outcome = self._job_states[index]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
 
     def _status_for_unit(self, unit: str) -> UnitStatus:
         self.status_calls += 1
-        index = min(self.status_calls - 1, len(self._statuses) - 1)
-        return self._statuses[index]
-
-    def _start_unit(self, unit: str) -> None:
-        pass
+        return self._final_status
 
 
 def test_sync_unit_start_calls_start_unit_against_the_sync_template() -> None:
@@ -523,6 +532,52 @@ def test_sync_unit_start_calls_start_unit_against_the_sync_template() -> None:
     assert stub.calls == [("start_unit", ("palmimo-app-sync@jabc123.service", "replace"))]
 
 
+def test_sync_unit_wait_returns_success_when_finished_job_has_been_garbage_collected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(systemd_module, "_SYNC_POLL_INTERVAL_SECONDS", 0.0)
+    done = UnitStatus(active_state="inactive", sub_state="dead", result="success", exec_main_status=0)
+    port = SystemdSyncUnitPort()
+    stub = _ScriptedSyncJobAppUnitPort([DBusError("org.freedesktop.systemd1.NoSuchJob", "finished")], done)
+    port._unit_port = stub
+
+    port.start("jabc123")
+    status = port.wait("jabc123", timeout_s=5.0)
+
+    assert status is done
+    assert stub.get_job_calls == 1
+    assert stub.status_calls == 1
+
+
+def test_sync_unit_wait_returns_failed_status_after_job_finishes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(systemd_module, "_SYNC_POLL_INTERVAL_SECONDS", 0.0)
+    failed = UnitStatus(active_state="failed", sub_state="failed", result="exit-code", exec_main_status=1)
+    port = SystemdSyncUnitPort()
+    stub = _ScriptedSyncJobAppUnitPort([DBusError("org.freedesktop.systemd1.NoSuchJob", "finished")], failed)
+    port._unit_port = stub
+
+    port.start("jabc123")
+    status = port.wait("jabc123", timeout_s=5.0)
+
+    assert status is failed
+
+
+def test_sync_unit_wait_does_not_return_until_its_start_job_is_removed(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(systemd_module, "_SYNC_POLL_INTERVAL_SECONDS", 0.0)
+    done = UnitStatus(active_state="inactive", sub_state="dead", result="success", exec_main_status=0)
+    job_path = "/org/freedesktop/systemd1/job/42"
+    port = SystemdSyncUnitPort()
+    stub = _ScriptedSyncJobAppUnitPort([job_path, DBusError("org.freedesktop.systemd1.NoSuchJob", "finished")], done)
+    port._unit_port = stub
+
+    port.start("jabc123")
+    status = port.wait("jabc123", timeout_s=5.0)
+
+    assert status is done
+    assert stub.get_job_calls == 2
+    assert stub.status_calls == 1
+
+
 def test_sync_unit_stop_calls_stop_unit_against_the_sync_template() -> None:
     port = SystemdSyncUnitPort()
     stub = _StubbedAppUnitPort({"stop_unit": None})
@@ -533,50 +588,22 @@ def test_sync_unit_stop_calls_stop_unit_against_the_sync_template() -> None:
     assert stub.calls == [("stop_unit", ("palmimo-app-sync@jabc123.service", "replace"))]
 
 
-def test_sync_unit_wait_polls_until_the_unit_leaves_the_running_state(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sync_unit_wait_polls_until_the_start_job_is_removed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(systemd_module, "_SYNC_POLL_INTERVAL_SECONDS", 0.0)
-    running = UnitStatus(active_state="activating", sub_state="start", result="success", exec_main_status=0)
     done = UnitStatus(active_state="inactive", sub_state="dead", result="success", exec_main_status=0)
     port = SystemdSyncUnitPort()
-    stub = _ScriptedStatusAppUnitPort([running, running, done])
-    port._unit_port = stub
-
-    status = port.wait("jabc123", timeout_s=5.0)
-
-    assert status is done
-    assert stub.status_calls == 3
-
-
-def test_sync_unit_wait_observes_the_started_invocation_before_accepting_its_result(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(systemd_module, "_SYNC_POLL_INTERVAL_SECONDS", 0.0)
-    previous = UnitStatus(
-        active_state="inactive", sub_state="dead", result="success", exec_main_status=0, exec_main_start_timestamp=1.0
+    job_path = "/org/freedesktop/systemd1/job/42"
+    stub = _ScriptedSyncJobAppUnitPort(
+        [job_path, job_path, DBusError("org.freedesktop.systemd1.NoSuchJob", "finished")], done
     )
-    running = UnitStatus(
-        active_state="activating",
-        sub_state="start",
-        result="success",
-        exec_main_status=0,
-        exec_main_start_timestamp=2.0,
-    )
-    failed = UnitStatus(
-        active_state="inactive",
-        sub_state="failed",
-        result="exit-code",
-        exec_main_status=1,
-        exec_main_start_timestamp=2.0,
-    )
-    port = SystemdSyncUnitPort()
-    stub = _ScriptedStatusAppUnitPort([previous, running, failed])
     port._unit_port = stub
 
     port.start("jabc123")
     status = port.wait("jabc123", timeout_s=5.0)
 
-    assert status is failed
-    assert stub.status_calls == 3
+    assert status is done
+    assert stub.get_job_calls == 3
+    assert stub.status_calls == 1
 
 
 def test_sync_unit_wait_raises_timeout_error_when_still_running_past_the_budget(
@@ -585,7 +612,8 @@ def test_sync_unit_wait_raises_timeout_error_when_still_running_past_the_budget(
     monkeypatch.setattr(systemd_module, "_SYNC_POLL_INTERVAL_SECONDS", 0.0)
     running = UnitStatus(active_state="activating", sub_state="start", result="success", exec_main_status=0)
     port = SystemdSyncUnitPort()
-    port._unit_port = _ScriptedStatusAppUnitPort([running])
+    port._unit_port = _ScriptedSyncJobAppUnitPort(["/org/freedesktop/systemd1/job/42"], running)
+    port.start("jabc123")
 
     with pytest.raises(TimeoutError):
         port.wait("jabc123", timeout_s=0.01)

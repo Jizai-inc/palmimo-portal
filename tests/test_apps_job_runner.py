@@ -257,7 +257,8 @@ def test_install_rejects_a_reused_id_when_its_stale_cache_cannot_be_purged(
     state_store = FakeStateStore()
     runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
 
-    job = runner.start_install(prepare_install_zip(ctx, _zip_bytes()))
+    prepared = prepare_install_zip(ctx, _zip_bytes())
+    job = runner.start_install(prepared)
 
     assert job.state == "failed"
     assert "stale uv cache" in (job.error or "")
@@ -282,7 +283,8 @@ def test_install_releases_the_lock_when_cleanup_purge_is_denied(
     state_store = FakeStateStore()
     runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
 
-    job = runner.start_install(prepare_install_zip(ctx, _zip_bytes()))
+    prepared = prepare_install_zip(ctx, _zip_bytes())
+    job = runner.start_install(prepared)
 
     assert job.state == "failed"
     with state_store.lock_apps():
@@ -596,7 +598,8 @@ def test_sync_wait_failure_stops_the_unit_before_releasing_the_apps_lock(
     sync.raise_on_stop = stop_error
     runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
 
-    job = runner.start_install(prepare_install_zip(ctx, _zip_bytes()))
+    prepared = prepare_install_zip(ctx, _zip_bytes())
+    job = runner.start_install(prepared)
 
     assert job.state == "failed"
     assert sync.stop_calls
@@ -604,5 +607,7 @@ def test_sync_wait_failure_stops_the_unit_before_releasing_the_apps_lock(
         with state_store.lock_apps():
             pass
     else:
+        assert job.error_code == "sync_unit_uncontained"
+        assert prepared.staging_container.exists()
         with pytest.raises(AppsLockTimeoutError):
             runner.start_install(prepare_install_zip(ctx, _zip_bytes("other-app")))

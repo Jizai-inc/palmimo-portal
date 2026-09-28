@@ -282,6 +282,10 @@ def _write_reserved_json(path: Path, data: object) -> None:
         handle.write(json.dumps(data))
 
 
+class SyncUnitContainmentError(Exception):
+    """Raised when a failed sync unit could not be confirmed inactive."""
+
+
 def _run_sync_dependencies(
     ctx: AppsJobContext,
     instance: str,
@@ -307,10 +311,24 @@ def _run_sync_dependencies(
     }
     _write_reserved_json(staging_container / "sync.json", sync_spec)
     ctx.sync_unit.start(instance)
+    contained = False
     try:
         status = ctx.sync_unit.wait(instance, timeout_s=SYNC_TIMEOUT_SECONDS)
+        contained = True
+    except Exception as error:
+        try:
+            ctx.sync_unit.stop(instance)
+            if instance in ctx.sync_unit.list_active_instances():
+                raise SyncUnitContainmentError(f"sync unit {instance} is still active")
+        except SyncUnitContainmentError:
+            raise
+        except Exception as stop_error:
+            raise SyncUnitContainmentError(f"could not stop sync unit {instance}: {stop_error}") from error
+        contained = True
+        raise
     finally:
-        (staging_container / "sync.json").unlink(missing_ok=True)
+        if contained:
+            (staging_container / "sync.json").unlink(missing_ok=True)
     if status.result != "success" or status.exec_main_status != 0:
         raise SyncFailedError(instance, status.result, status.exec_main_status, _sync_journal_tail(ctx, instance))
     return lock_generated

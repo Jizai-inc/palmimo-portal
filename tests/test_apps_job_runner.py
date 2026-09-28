@@ -584,3 +584,25 @@ def test_start_install_releases_the_lock_when_the_worker_thread_fails_to_start(
 
     with state_store.lock_apps():
         pass  # the lock must be free again despite the failed spawn
+
+
+@pytest.mark.parametrize("stop_error", [None, OSError("dbus unavailable")], ids=["stopped", "stop-failed"])
+def test_sync_wait_failure_stops_the_unit_before_releasing_the_apps_lock(
+    ctx: AppsJobContext, stop_error: Exception | None
+) -> None:
+    state_store = FakeStateStore()
+    sync = cast(FakeSyncUnitPort, ctx.sync_unit)
+    sync.raise_on_wait = TimeoutError("sync timed out")
+    sync.raise_on_stop = stop_error
+    runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
+
+    job = runner.start_install(prepare_install_zip(ctx, _zip_bytes()))
+
+    assert job.state == "failed"
+    assert sync.stop_calls
+    if stop_error is None:
+        with state_store.lock_apps():
+            pass
+    else:
+        with pytest.raises(AppsLockTimeoutError):
+            runner.start_install(prepare_install_zip(ctx, _zip_bytes("other-app")))

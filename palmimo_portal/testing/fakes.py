@@ -786,6 +786,7 @@ class FakeSyncUnitPort(SyncUnitPort):
     stop_calls: list[str] = field(default_factory=list)
     raise_on_start: Exception | None = None
     raise_on_wait: Exception | None = None
+    raise_on_stop: Exception | None = None
     #: Root the real ``app-sync`` helper reads ``<instance>/sync.json`` under (``ctx.staging_dir``).
     #: ``None`` unless a test needs to exercise the unit's actual work (e.g. purge mode).
     staging_dir: Path | None = None
@@ -804,12 +805,14 @@ class FakeSyncUnitPort(SyncUnitPort):
         self.start_calls.append(instance)
         if self.raise_on_start is not None:
             raise self.raise_on_start
+        self.active_instances.add(instance)
 
     def wait(self, instance: str, timeout_s: float) -> UnitStatus:
         self.wait_calls.append(instance)
         if self.raise_on_wait is not None:
             raise self.raise_on_wait
         status = self.statuses.get(instance, self.default_status)
+        self.active_instances.discard(instance)
         if status.result == "success" and status.exec_main_status == 0:
             self._simulate_unit_work(instance)
         return status
@@ -838,6 +841,8 @@ class FakeSyncUnitPort(SyncUnitPort):
 
     def stop(self, instance: str) -> None:
         self.stop_calls.append(instance)
+        if self.raise_on_stop is not None:
+            raise self.raise_on_stop
         self.active_instances.discard(instance)
 
     def list_active_instances(self) -> list[str]:

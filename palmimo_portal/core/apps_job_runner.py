@@ -41,6 +41,7 @@ from palmimo_portal.core import apps as apps_core
 from palmimo_portal.core.apps_jobs import (
     AppsJobContext,
     PreparedInstall,
+    SyncUnitContainmentError,
     _purge_uv_cache,
     commit_install,
     delete_from_ledger,
@@ -99,6 +100,7 @@ class AppsJobRunner:
         self._ctx = ctx
         self._app_unit = app_unit
         self._run_in_thread = run_in_thread
+        self._contained_lock: contextlib.AbstractContextManager[None] | None = None
 
     def _acquire_lock(self) -> contextlib.AbstractContextManager[None]:
         lock_cm = self._state.lock_apps()
@@ -166,6 +168,7 @@ class AppsJobRunner:
             self._advance(name, step)
 
         def run() -> None:
+            keep_lock = False
             try:
                 latest = self._state.read_apps_state()
                 try:
@@ -188,11 +191,16 @@ class AppsJobRunner:
                         mask_authorization_lines(str(error)),
                     )
                     failed = self._fail_current_job(error, finished_at=time.time(), attach_to=name)
-                    _purge_uv_cache(self._ctx, name)
+                    if isinstance(error, SyncUnitContainmentError):
+                        keep_lock = True
+                        self._contained_lock = lock_cm
+                    else:
+                        _purge_uv_cache(self._ctx, name)
                     result["job"] = failed
             finally:
-                self._safe_cleanup(prepared)
-                lock_cm.__exit__(None, None, None)
+                if not keep_lock:
+                    self._safe_cleanup(prepared)
+                    lock_cm.__exit__(None, None, None)
 
         self._spawn(run, lock_cm)
         return result.get("job", job)

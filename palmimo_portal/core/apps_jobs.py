@@ -293,12 +293,22 @@ class SyncUnitContainmentError(Exception):
 def _contain_sync_unit(ctx: AppsJobContext, instance: str, cause: Exception) -> None:
     try:
         ctx.sync_unit.stop(instance)
-        if instance in ctx.sync_unit.list_active_instances():
-            raise SyncUnitContainmentError(f"sync unit {instance} is still active")
-    except SyncUnitContainmentError:
-        raise
+        still_active = instance in ctx.sync_unit.list_active_instances()
     except Exception as error:
+        _log_uncontained(instance, str(error))
         raise SyncUnitContainmentError(f"could not stop sync unit {instance}: {error}") from cause
+    if still_active:
+        _log_uncontained(instance, "still active after stop")
+        raise SyncUnitContainmentError(f"sync unit {instance} is still active") from cause
+
+
+def _log_uncontained(instance: str, reason: str) -> None:
+    logger.error(
+        "apps: sync unit instance=%s could not be confirmed stopped (%s); "
+        "app jobs and app starts stay blocked until the Portal restarts",
+        instance,
+        reason,
+    )
 
 
 def _run_sync_dependencies(

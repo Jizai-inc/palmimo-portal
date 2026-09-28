@@ -120,6 +120,31 @@ describe("AppDetailPanel", () => {
     expect(within(select).getByRole("option", { name: "trot" })).toBeInTheDocument();
   });
 
+  it("shows each param's manifest default until a value is stored", async () => {
+    server.use(
+      getGetAppApiV1AppsNameGetMockHandler(
+        detail({
+          params: {},
+          manifest: {
+            devices: [],
+            env: [],
+            params: [
+              { name: "port", type: "int", default: 8765, min: null, max: null, choices: null, pattern: null, flag: null },
+              { name: "message", type: "string", default: "hello", min: null, max: null, choices: null, pattern: null, flag: null },
+              { name: "no_camera", type: "bool", default: true, min: null, max: null, choices: null, pattern: null, flag: "--no-camera" },
+            ],
+          },
+        }),
+      ),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+    );
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
+
+    expect(await screen.findByLabelText("port")).toHaveValue(8765);
+    expect(screen.getByLabelText("message")).toHaveValue("hello");
+    expect(screen.getByLabelText("no_camera")).toBeChecked();
+  });
+
   it("shows only the selected invocation's logs", async () => {
     const user = userEvent.setup();
     let lastInvocationParam: string | null = null;

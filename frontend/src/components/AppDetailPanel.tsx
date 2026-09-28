@@ -334,7 +334,7 @@ function ParamsSection({ app, onSaved }: { app: AppDetailResponse; onSaved: () =
       ) : (
         <div className="flex flex-col gap-2">
           {specs.map((spec) => {
-            const value = values[spec.name];
+            const value = values[spec.name] ?? spec.default;
             const id = `param-${spec.name}`;
             return (
               <div key={spec.name} className="flex flex-col gap-1">

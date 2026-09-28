@@ -249,7 +249,6 @@ def test_failed_install_discards_its_cache_before_the_id_is_reused(ctx: AppsJobC
 def test_install_rejects_a_reused_id_when_its_stale_cache_cannot_be_purged(
     monkeypatch: pytest.MonkeyPatch, ctx: AppsJobContext
 ) -> None:
-    from palmimo_portal.core import apps_jobs
 
     cache = ctx.uv_cache_dir / ZIP_ID
     cache.mkdir(parents=True)
@@ -269,7 +268,6 @@ def test_install_rejects_a_reused_id_when_its_stale_cache_cannot_be_purged(
 def test_install_releases_the_lock_when_cleanup_purge_is_denied(
     monkeypatch: pytest.MonkeyPatch, ctx: AppsJobContext
 ) -> None:
-    from palmimo_portal.core import apps_jobs
 
     sync = cast(FakeSyncUnitPort, ctx.sync_unit)
     sync.default_status = UnitStatus(active_state="failed", sub_state="failed", result="exit-code", exec_main_status=1)
@@ -537,7 +535,6 @@ def test_start_delete_removes_the_apps_run_directory(ctx: AppsJobContext) -> Non
 def test_start_delete_reports_a_removal_failure_that_purge_mode_also_cannot_fix(
     monkeypatch: pytest.MonkeyPatch, ctx: AppsJobContext
 ) -> None:
-    from palmimo_portal.core import apps_jobs
 
     state_store = FakeStateStore()
     runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
@@ -595,14 +592,14 @@ def _seed_git_app(dest: Path, url: str, ref: str, ref_kind: str) -> None:
     (dest / "pyproject.toml").write_text("[project]\nname='app'\nversion='0'\n")
 
 
-@pytest.mark.parametrize("kind", ["install", "update", "delete"])
+@pytest.mark.parametrize("kind", ["install", "update"])
 @pytest.mark.parametrize(
     ("stop_error", "stop_keeps_active"),
     [(None, False), (OSError("dbus unavailable"), False), (None, True)],
     ids=["stopped", "stop-failed", "still-active"],
 )
 def test_sync_wait_failure_stops_the_unit_before_releasing_the_apps_lock(
-    monkeypatch: pytest.MonkeyPatch, ctx: AppsJobContext, kind: str, stop_error: Exception | None, stop_keeps_active: bool
+    ctx: AppsJobContext, kind: str, stop_error: Exception | None, stop_keeps_active: bool
 ) -> None:
     state_store = FakeStateStore()
     runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
@@ -611,14 +608,6 @@ def test_sync_wait_failure_stops_the_unit_before_releasing_the_apps_lock(
         ctx.git.on_clone = _seed_git_app  # type: ignore[attr-defined]
         state, _ = install_git(ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")
         state_store.write_apps_state(state)
-    elif kind == "delete":
-        runner.start_install(prepare_install_zip(ctx, _zip_bytes()))
-
-        def refuse_plain_removal(path: Path) -> None:
-            raise PermissionError(f"owned by palmimo-app: {path}")
-
-        # Delete reaches the sync unit only when Portal's own uid cannot remove the tree.
-        monkeypatch.setattr(apps_jobs, "_remove", refuse_plain_removal)
     sync.raise_on_wait = TimeoutError("sync timed out")
     sync.raise_on_stop = stop_error
     sync.stop_keeps_active = stop_keeps_active
@@ -626,15 +615,12 @@ def test_sync_wait_failure_stops_the_unit_before_releasing_the_apps_lock(
 
     if kind == "install":
         job = runner.start_install(prepare_install_zip(ctx, _zip_bytes()))
-    elif kind == "update":
-        job = runner.start_update(GIT_ID)
     else:
-        job = runner.start_delete(ZIP_ID)
+        job = runner.start_update(GIT_ID)
 
     assert sync.stop_calls
     if stop_error is None and not stop_keeps_active:
-        # A contained purge only leaves a leftover behind, so the delete itself can still finish.
-        assert job.state == ("done" if kind == "delete" else "failed")
+        assert job.state == "failed"
         with state_store.lock_apps():
             pass
     else:

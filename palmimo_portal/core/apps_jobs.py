@@ -235,10 +235,16 @@ def _sync_dependencies(
     persistent_cache.rename(staged_cache)
     _prepare_cache_for_sync(staged_cache)
     try:
-        return _run_sync_dependencies(ctx, instance, staging_container, layout, clone_root)
-    finally:
+        result = _run_sync_dependencies(ctx, instance, staging_container, layout, clone_root)
+    except SyncUnitContainmentError:
+        # The unit may still be writing into the staged cache; it stays with the staging tree.
+        raise
+    except BaseException:
         # A raise here (e.g. from rename()) replaces a real SyncFailedError from the try block above.
         _restore_persistent_cache(staged_cache, persistent_cache)
+        raise
+    _restore_persistent_cache(staged_cache, persistent_cache)
+    return result
 
 
 def _restore_persistent_cache(staged_cache: Path, persistent_cache: Path) -> None:

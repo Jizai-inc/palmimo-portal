@@ -67,6 +67,7 @@ logger = logging.getLogger("palmimo_portal")
 
 # A generator-backed lock context would release its file descriptor when collected.
 _UNCONTAINED_LOCKS: list[contextlib.AbstractContextManager[None]] = []
+_ADAPTER_ERROR_CODE = "sync_unit_uncontained"
 
 
 def _merge_job_record(current: AppRecord | None, job_record: AppRecord) -> AppRecord:
@@ -441,7 +442,7 @@ class AppsJobRunner:
             error_code = (
                 error.reason
                 if isinstance(error, GitCommandError)
-                else "sync_unit_uncontained"
+                else _ADAPTER_ERROR_CODE
                 if isinstance(error, SyncUnitContainmentError)
                 else None
             )

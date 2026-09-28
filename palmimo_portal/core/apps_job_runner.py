@@ -67,6 +67,13 @@ logger = logging.getLogger("palmimo_portal")
 
 # A generator-backed lock context would release its file descriptor when collected.
 _UNCONTAINED_LOCKS: list[contextlib.AbstractContextManager[None]] = []
+
+
+def retain_apps_lock_until_exit(lock_cm: contextlib.AbstractContextManager[None]) -> None:
+    """Keep an entered ``apps.lock`` held for the rest of this process's life."""
+    _UNCONTAINED_LOCKS.append(lock_cm)
+
+
 _ADAPTER_ERROR_CODE = "sync_unit_uncontained"
 
 
@@ -203,7 +210,7 @@ class AppsJobRunner:
                     )
                     if isinstance(error, SyncUnitContainmentError):
                         keep_lock = True
-                        _UNCONTAINED_LOCKS.append(lock_cm)
+                        retain_apps_lock_until_exit(lock_cm)
                     else:
                         _purge_uv_cache(self._ctx, name)
                     failed = self._fail_current_job(error, finished_at=time.time(), attach_to=name)
@@ -288,7 +295,7 @@ class AppsJobRunner:
                     )
                     if isinstance(error, SyncUnitContainmentError):
                         keep_lock = True
-                        _UNCONTAINED_LOCKS.append(lock_cm)
+                        retain_apps_lock_until_exit(lock_cm)
                     result["job"] = self._fail_current_job(error, finished_at=time.time(), attach_to=name)
             finally:
                 if not keep_lock:
@@ -392,7 +399,7 @@ class AppsJobRunner:
                 result["job"] = failed
                 if isinstance(error, SyncUnitContainmentError):
                     keep_lock = True
-                    _UNCONTAINED_LOCKS.append(lock_cm)
+                    retain_apps_lock_until_exit(lock_cm)
             finally:
                 if not keep_lock:
                     lock_cm.__exit__(None, None, None)

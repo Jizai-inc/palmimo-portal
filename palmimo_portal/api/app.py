@@ -52,7 +52,7 @@ from palmimo_portal.api import system as system_api
 from palmimo_portal.api import update as update_api
 from palmimo_portal.api import wifi as wifi_api
 from palmimo_portal.core.apps import finalize_apps_state
-from palmimo_portal.core.apps_job_runner import AppsJobRunner
+from palmimo_portal.core.apps_job_runner import AppsJobRunner, retain_apps_lock_until_exit
 from palmimo_portal.core.apps_jobs import (
     AppsJobContext,
     cleanup_staging_and_trash,
@@ -392,6 +392,31 @@ async def _handle_adapter_unavailable(request: Request, exc: Exception) -> JSONR
     return _error_envelope(503, exc.code, {})
 
 
+def _stop_orphan_sync_units(adapters: AdapterBundle, ctx: AppsJobContext) -> bool:
+    """Stop every ``palmimo-app-sync@`` unit a previous Portal process left running.
+
+    Returns ``False`` when one could not be confirmed stopped. ``apps.lock`` is then held for
+    the rest of this process, so no app job or app start runs beside untrusted build code.
+    """
+    try:
+        for instance in ctx.sync_unit.list_active_instances():
+            logger.warning("apps: stopped orphan sync unit instance=%s", instance)
+            ctx.sync_unit.stop(instance)
+        return True
+    except Exception:
+        logger.exception(
+            "apps: could not stop an orphan sync unit; app jobs and app starts stay blocked until the next restart"
+        )
+    try:
+        lock_cm = adapters.state.lock_apps()
+        lock_cm.__enter__()
+    except Exception:
+        logger.exception("apps: could not hold apps.lock after an orphan sync unit failed to stop")
+        return False
+    retain_apps_lock_until_exit(lock_cm)
+    return False
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Resolve a ``"restarting"`` update job left over from before this process started.
@@ -413,12 +438,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:
         logger.exception("update: finalize_after_restart failed at startup")
 
+    ctx: AppsJobContext = app.state.apps_job_context
+    orphans_stopped = _stop_orphan_sync_units(adapters, ctx)
     try:
-        ctx: AppsJobContext = app.state.apps_job_context
-        for instance in ctx.sync_unit.list_active_instances():
-            logger.warning("apps: stopped orphan sync unit instance=%s", instance)
-            ctx.sync_unit.stop(instance)
-        cleanup_staging_and_trash(ctx)
+        if orphans_stopped:
+            cleanup_staging_and_trash(ctx)
         apps_state = adapters.state.read_apps_state()
         # An unreadable or legacy ledger reads as empty; sweeping against it would trash every app.
         apps_file_state = adapters.state.apps_state_file_state()

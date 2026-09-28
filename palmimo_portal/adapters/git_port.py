@@ -106,11 +106,15 @@ class SubprocessGitPort(GitPort):
     def fetch_commit(self, url: str, ref: str, ref_kind: AppRefKind, *, env: Mapping[str, str] | None = None) -> str:
         # `git ls-remote` needs no local checkout at all -- cheaper than a clone for a check.
         qualified_ref = f"refs/{'tags' if ref_kind == 'tag' else 'heads'}/{ref}"
+        peeled_ref = f"{qualified_ref}^{{}}"
+        # ls-remote prints an annotated tag's peeled commit only when the `^{}` form is a pattern too.
         result = self._run(
-            ["git", "ls-remote", "--", url, qualified_ref], cwd=None, timeout=FETCH_TIMEOUT_SECONDS, env=env
+            ["git", "ls-remote", "--", url, qualified_ref, peeled_ref],
+            cwd=None,
+            timeout=FETCH_TIMEOUT_SECONDS,
+            env=env,
         )
         entries = [line.split() for line in result.stdout.strip().splitlines()]
-        peeled_ref = f"{qualified_ref}^{{}}"
         commit = next((entry[0] for entry in entries if len(entry) == 2 and entry[1] == peeled_ref), "")
         if not commit:
             commit = next((entry[0] for entry in entries if len(entry) == 2 and entry[1] == qualified_ref), "")

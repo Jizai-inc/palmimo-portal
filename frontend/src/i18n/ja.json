@@ -309,7 +309,7 @@
     "git_not_found": "リポジトリまたは指定した ref が見つかりません。{{detail}}",
     "git_commit_mismatch": "公式アプリの取得元がカタログと一致しません。カタログを更新して、もう一度試してください。{{detail}}",
     "sync_unit_uncontained": "依存の取得を止められませんでした。デバイスを再起動してください。再起動するまで他のアプリ操作と起動はできません。{{detail}}",
-    "git_ref_kind_mismatch": "タグと同じ名前のブランチがあるため取得できません。{{detail}}",
+    "git_ref_kind_mismatch": "指定した種類（タグまたはブランチ）の参照として取得できませんでした。同じ名前のタグとブランチがあるか、種類の指定が違います。{{detail}}",
     "catalog_unavailable": "公式カタログを取得できないか、このアプリが含まれていません。カタログを更新して、もう一度試してください。{{detail}}",
     "git_network_unreachable": "Git サーバーに到達できません。ネットワーク接続を確認してください。{{detail}}",
     "git_unknown": "Git 操作に失敗しました。{{detail}}",

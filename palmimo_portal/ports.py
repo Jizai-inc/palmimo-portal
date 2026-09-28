@@ -888,8 +888,9 @@ class AppsState:
     no :class:`AppRecord` to live on as a ``last_job`` -- a fresh install's name is only
     added to ``apps`` on success, so a failure before that has nowhere else to persist and
     would otherwise vanish once ``current_job`` clears, leaving ``GET /apps/jobs/{id}``
-    404 for a job the caller was just told about. Cleared whenever a job of any kind
-    finishes and does attach to a record, and when a new job starts.
+    404 for a job the caller was just told about. A successful delete also lands here. Cleared
+    whenever a job of any kind finishes and does attach to a record; a new job leaves it in
+    place, so the previous orphan job stays pollable while the next one runs.
     """
 
     apps: dict[str, AppRecord] = field(default_factory=dict)

@@ -315,3 +315,40 @@ def test_startup_keeps_app_directories_when_the_ledger_is_corrupt(tmp_path: Path
         pass
 
     assert (installed / "palmimo.toml").is_file()
+
+
+def test_startup_blocks_app_jobs_but_still_finalizes_when_an_orphan_sync_unit_cannot_be_stopped(
+    tmp_path: Path,
+) -> None:
+    from dataclasses import replace
+
+    from palmimo_portal.core.apps_jobs import AppsJobContext
+    from palmimo_portal.ports import AppJob, AppsLockTimeoutError
+    from palmimo_portal.testing.fakes import FakeSyncUnitPort
+
+    settings = _settings(tmp_path)
+    app = create_app(settings)
+    adapters: FakeAdapterBundle = app.state.adapters
+    ctx: AppsJobContext = app.state.apps_job_context
+    sync_unit = ctx.sync_unit
+    assert isinstance(sync_unit, FakeSyncUnitPort)
+    sync_unit.active_instances.add("jstuck")
+    sync_unit.raise_on_stop = OSError("dbus unavailable")
+    staged = ctx.staging_dir / "jstuck"
+    staged.mkdir(parents=True)
+    running = AppJob(
+        id="jrunning", kind="update", state="running", step="sync", started_at=1.0, error=None, finished_at=None
+    )
+    adapters.state.write_apps_state(
+        replace(
+            AppsState(apps={"app-a": _record("app-a", autostart=False)}), current_job=running, current_job_app="app-a"
+        )
+    )
+
+    with TestClient(app):
+        pass
+
+    assert staged.exists()
+    assert adapters.state.read_apps_state().current_job is None
+    with pytest.raises(AppsLockTimeoutError), adapters.state.lock_apps():
+        pass

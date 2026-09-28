@@ -309,7 +309,7 @@
     "git_not_found": "The repository or requested ref was not found. {{detail}}",
     "git_commit_mismatch": "The official app source no longer matches the catalog. Refresh the catalog and try again. {{detail}}",
     "sync_unit_uncontained": "Could not stop dependency setup. Restart the device; other app operations and starts are unavailable until then. {{detail}}",
-    "git_ref_kind_mismatch": "Could not fetch this ref because a branch has the same name as tag {{detail}}",
+    "git_ref_kind_mismatch": "Could not fetch this ref as the selected kind (tag or branch). A tag and a branch share this name, or the kind is wrong. {{detail}}",
     "catalog_unavailable": "The official catalog is unavailable or does not contain this app. Refresh the catalog and try again. {{detail}}",
     "git_network_unreachable": "Could not reach the Git server. Check the network connection. {{detail}}",
     "git_unknown": "Git operation failed. {{detail}}",

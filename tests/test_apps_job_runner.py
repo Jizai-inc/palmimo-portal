@@ -596,9 +596,13 @@ def _seed_git_app(dest: Path, url: str, ref: str, ref_kind: str) -> None:
 
 
 @pytest.mark.parametrize("kind", ["install", "update", "delete"])
-@pytest.mark.parametrize("stop_error", [None, OSError("dbus unavailable")], ids=["stopped", "stop-failed"])
+@pytest.mark.parametrize(
+    ("stop_error", "stop_keeps_active"),
+    [(None, False), (OSError("dbus unavailable"), False), (None, True)],
+    ids=["stopped", "stop-failed", "still-active"],
+)
 def test_sync_wait_failure_stops_the_unit_before_releasing_the_apps_lock(
-    monkeypatch: pytest.MonkeyPatch, ctx: AppsJobContext, kind: str, stop_error: Exception | None
+    monkeypatch: pytest.MonkeyPatch, ctx: AppsJobContext, kind: str, stop_error: Exception | None, stop_keeps_active: bool
 ) -> None:
     state_store = FakeStateStore()
     runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
@@ -617,6 +621,7 @@ def test_sync_wait_failure_stops_the_unit_before_releasing_the_apps_lock(
         monkeypatch.setattr(apps_jobs, "_remove", refuse_plain_removal)
     sync.raise_on_wait = TimeoutError("sync timed out")
     sync.raise_on_stop = stop_error
+    sync.stop_keeps_active = stop_keeps_active
     staging_before = set(ctx.staging_dir.iterdir()) if ctx.staging_dir.exists() else set()
 
     if kind == "install":
@@ -627,7 +632,7 @@ def test_sync_wait_failure_stops_the_unit_before_releasing_the_apps_lock(
         job = runner.start_delete(ZIP_ID)
 
     assert sync.stop_calls
-    if stop_error is None:
+    if stop_error is None and not stop_keeps_active:
         # A contained purge only leaves a leftover behind, so the delete itself can still finish.
         assert job.state == ("done" if kind == "delete" else "failed")
         with state_store.lock_apps():

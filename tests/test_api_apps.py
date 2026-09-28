@@ -1124,6 +1124,65 @@ def test_put_autostart_persists_the_flag(client: TestClient, adapters: FakeAdapt
     assert adapters.state.read_apps_state().apps["zip.palmimo-teleop"].autostart is True
 
 
+def test_put_autostart_keeps_a_concurrent_job_completion(
+    client: TestClient, adapters: FakeAdapterBundle, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _authenticated_client(client, adapters)
+    _install_zip(client)
+    _install_zip(client, "other-app")
+    target = ZIP_TELEOP_ID
+    other = "zip.other-app"
+    state = adapters.state.read_apps_state()
+    other_record = state.apps[other]
+    assert other_record.last_job is not None
+    adapters.state.write_apps_state(
+        replace(
+            state,
+            apps={**state.apps, other: replace(other_record, last_job=replace(other_record.last_job, state="failed"))},
+        )
+    )
+    original_read = adapters.state.read_apps_state
+    completion_done = threading.Event()
+    completion_thread: threading.Thread | None = None
+
+    def complete_job(current: AppsState) -> AppsState:
+        record = current.apps[other]
+        assert record.last_job is not None
+        return replace(
+            current, apps={**current.apps, other: replace(record, last_job=replace(record.last_job, state="done"))}
+        )
+
+    def read_with_completion() -> AppsState:
+        nonlocal completion_thread
+        snapshot = original_read()
+        if completion_thread is None:
+
+            def complete() -> None:
+                try:
+                    adapters.state.update_apps_state(complete_job)
+                finally:
+                    completion_done.set()
+
+            completion_thread = threading.Thread(target=complete)
+            completion_thread.start()
+            completion_done.wait(timeout=0.5)
+        return snapshot
+
+    monkeypatch.setattr(adapters.state, "read_apps_state", read_with_completion)
+
+    response = client.put(f"/api/v1/apps/{target}/autostart", json={"enabled": True}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 200
+    assert completion_thread is not None
+    completion_thread.join(timeout=5)
+    assert not completion_thread.is_alive()
+    final = original_read()
+    assert final.apps[target].autostart is True
+    completed_job = final.apps[other].last_job
+    assert completed_job is not None
+    assert completed_job.state == "done"
+
+
 def test_put_source_rejects_a_zip_sourced_app(client: TestClient, adapters: FakeAdapterBundle) -> None:
     client = _authenticated_client(client, adapters)
     _install_zip(client)

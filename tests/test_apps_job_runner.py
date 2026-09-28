@@ -398,42 +398,6 @@ def test_job_completion_does_not_clobber_a_concurrent_write_to_another_apps_reco
     assert ZIP_ID in final.apps
 
 
-def test_apps_state_updates_keep_an_autostart_change_and_a_job_completion(ctx: AppsJobContext) -> None:
-    state_store = FakeStateStore()
-    AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False).start_install(
-        prepare_install_zip(ctx, _zip_bytes("other-app"))
-    )
-    AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False).start_install(
-        prepare_install_zip(ctx, _zip_bytes())
-    )
-    ready = threading.Barrier(3)
-
-    def set_autostart(state: AppsState) -> AppsState:
-        return replace(state, apps={**state.apps, ZIP_ID: replace(state.apps[ZIP_ID], autostart=True)})
-
-    def complete_other_job(state: AppsState) -> AppsState:
-        record = state.apps[OTHER_APP_ID]
-        assert record.last_job is not None
-        completed = replace(record.last_job, state="done")
-        return replace(state, apps={**state.apps, OTHER_APP_ID: replace(record, last_job=completed)})
-
-    handler = threading.Thread(target=lambda: (ready.wait(), state_store.update_apps_state(set_autostart)))
-    completion = threading.Thread(target=lambda: (ready.wait(), state_store.update_apps_state(complete_other_job)))
-    handler.start()
-    completion.start()
-    ready.wait()
-    handler.join(timeout=5)
-    completion.join(timeout=5)
-    assert not handler.is_alive()
-    assert not completion.is_alive()
-
-    final = state_store.read_apps_state()
-    assert final.apps[ZIP_ID].autostart is True
-    completed_job = final.apps[OTHER_APP_ID].last_job
-    assert completed_job is not None
-    assert completed_job.state == "done"
-
-
 def test_update_completion_keeps_a_concurrent_autostart_change_to_the_same_app(ctx: AppsJobContext) -> None:
     """The update job reads `apps.json` at the start of its fetch/sync -- a `PUT .../autostart`
     landing on the *same* app while sync is in flight must survive the job's own write-back,

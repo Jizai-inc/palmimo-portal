@@ -64,7 +64,6 @@ from palmimo_portal.core.manifest import (
 from palmimo_portal.core.os_group import apps_gid
 from palmimo_portal.core.secrets import mask_authorization_lines
 from palmimo_portal.ports import (
-    AdapterUnavailableError,
     AppExistsError,
     AppJob,
     AppNotFoundError,
@@ -80,7 +79,6 @@ from palmimo_portal.ports import (
     GitPort,
     InvalidManifestSourceError,
     JournalPort,
-    PolkitDeniedError,
     RunDirPort,
     SecretsStore,
     StateStore,
@@ -624,10 +622,19 @@ def purge_path(ctx: AppsJobContext, path: Path) -> str | None:
         _write_reserved_json(staging_container / "sync.json", {"purge": str(path)})
         ctx.sync_unit.start(instance)
         ctx.sync_unit.wait(instance, timeout_s=SYNC_TIMEOUT_SECONDS)
-    except (AdapterUnavailableError, OSError, PolkitDeniedError, TimeoutError) as error:
+    except Exception as error:
+        try:
+            ctx.sync_unit.stop(instance)
+            if instance in ctx.sync_unit.list_active_instances():
+                raise SyncUnitContainmentError(f"purge unit {instance} is still active")
+        except SyncUnitContainmentError:
+            raise
+        except Exception as stop_error:
+            raise SyncUnitContainmentError(f"could not stop purge unit {instance}: {stop_error}") from error
         logger.warning("apps: purge request failed path=%s: %s", path, error)
     finally:
-        shutil.rmtree(staging_container, ignore_errors=True)
+        if instance not in ctx.sync_unit.list_active_instances():
+            shutil.rmtree(staging_container, ignore_errors=True)
 
     if path.exists() or path.is_symlink():
         logger.warning("apps: purge left a leftover path=%s", path)

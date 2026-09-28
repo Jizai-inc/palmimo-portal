@@ -252,6 +252,7 @@ class AppsJobRunner:
             self._advance(name, step)
 
         def run() -> None:
+            keep_lock = False
             try:
                 latest = self._state.read_apps_state()
                 try:
@@ -275,8 +276,12 @@ class AppsJobRunner:
                         mask_authorization_lines(str(error)),
                     )
                     result["job"] = self._fail_current_job(error, finished_at=time.time(), attach_to=name)
+                    if isinstance(error, SyncUnitContainmentError):
+                        keep_lock = True
+                        self._contained_lock = lock_cm
             finally:
-                lock_cm.__exit__(None, None, None)
+                if not keep_lock:
+                    lock_cm.__exit__(None, None, None)
 
         self._spawn(run, lock_cm)
         return result.get("job", job)
@@ -318,6 +323,7 @@ class AppsJobRunner:
 
         def run() -> None:
             original_record = None
+            keep_lock = False
             try:
 
                 def unregister(current: AppsState) -> AppsState:
@@ -371,8 +377,12 @@ class AppsJobRunner:
 
                 self._state.update_apps_state(fail_delete)
                 result["job"] = failed
+                if isinstance(error, SyncUnitContainmentError):
+                    keep_lock = True
+                    self._contained_lock = lock_cm
             finally:
-                lock_cm.__exit__(None, None, None)
+                if not keep_lock:
+                    lock_cm.__exit__(None, None, None)
 
         self._spawn(run, lock_cm)
         return result.get("job", job)

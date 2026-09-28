@@ -439,6 +439,7 @@ _JOB_NOT_FOUND_DBUS_ERRORS = frozenset(
 
 #: How often `SystemdSyncUnitPort.wait` checks whether its StartUnit job still exists.
 _SYNC_POLL_INTERVAL_SECONDS = 0.5
+_SYNC_STOP_TIMEOUT_SECONDS = 120.0
 
 
 def sync_unit_name(instance: str) -> str:
@@ -462,7 +463,14 @@ class SystemdSyncUnitPort(SyncUnitPort):
         self._jobs[instance] = self._unit_port._start_unit(sync_unit_name(instance))
 
     def stop(self, instance: str) -> None:
-        self._unit_port._stop_unit(sync_unit_name(instance))
+        unit = sync_unit_name(instance)
+        self._unit_port._stop_unit(unit)
+        deadline = time.monotonic() + _SYNC_STOP_TIMEOUT_SECONDS
+        while time.monotonic() < deadline:
+            if self._unit_port._status_for_unit(unit).active_state in {"inactive", "failed"}:
+                return
+            time.sleep(_SYNC_POLL_INTERVAL_SECONDS)
+        raise TimeoutError(f"sync unit {instance} did not stop within {_SYNC_STOP_TIMEOUT_SECONDS:g}s")
 
     def list_active_instances(self) -> list[str]:
         return self._unit_port._list_active_units("palmimo-app-sync@")

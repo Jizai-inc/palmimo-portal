@@ -201,12 +201,12 @@ class AppsJobRunner:
                         last_step,
                         mask_authorization_lines(str(error)),
                     )
-                    failed = self._fail_current_job(error, finished_at=time.time(), attach_to=name)
                     if isinstance(error, SyncUnitContainmentError):
                         keep_lock = True
                         _UNCONTAINED_LOCKS.append(lock_cm)
                     else:
                         _purge_uv_cache(self._ctx, name)
+                    failed = self._fail_current_job(error, finished_at=time.time(), attach_to=name)
                     result["job"] = failed
             finally:
                 if not keep_lock:
@@ -286,10 +286,10 @@ class AppsJobRunner:
                         last_step,
                         mask_authorization_lines(str(error)),
                     )
-                    result["job"] = self._fail_current_job(error, finished_at=time.time(), attach_to=name)
                     if isinstance(error, SyncUnitContainmentError):
                         keep_lock = True
                         _UNCONTAINED_LOCKS.append(lock_cm)
+                    result["job"] = self._fail_current_job(error, finished_at=time.time(), attach_to=name)
             finally:
                 if not keep_lock:
                     lock_cm.__exit__(None, None, None)

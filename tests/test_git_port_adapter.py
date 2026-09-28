@@ -73,6 +73,33 @@ def test_clone_shallow_populates_nested_root_application_for_a_blobless_clone(tm
     assert (dest / "src" / "application.py").is_file()
 
 
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not on PATH")
+def test_git_ref_kind_selects_the_matching_branch_or_tag(tmp_path: Path) -> None:
+    bare = tmp_path / "origin.git"
+    work = tmp_path / "work"
+    _run_git(["init", "--bare", "--initial-branch=main", str(bare)])
+    _run_git(["clone", str(bare), str(work)])
+    (work / "version").write_text("tag\n", encoding="utf-8")
+    _run_git(["add", "version"], cwd=work)
+    _run_git(["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "tag"], cwd=work)
+    _run_git(["tag", "release"], cwd=work)
+    (work / "version").write_text("branch\n", encoding="utf-8")
+    _run_git(["commit", "-am", "branch"], cwd=work)
+    _run_git(["branch", "release"], cwd=work)
+    _run_git(["push", "origin", "main", "refs/heads/release:refs/heads/release", "refs/tags/release"], cwd=work)
+    tag_commit = subprocess.check_output(["git", "rev-parse", "refs/tags/release^{}"], cwd=work, text=True).strip()
+    branch_commit = subprocess.check_output(["git", "rev-parse", "refs/heads/release"], cwd=work, text=True).strip()
+    port = SubprocessGitPort()
+
+    with pytest.raises(GitCommandError) as excinfo:
+        port.clone_shallow(f"file://{bare}", "release", "tag", tmp_path / "tag")
+
+    assert excinfo.value.reason == "git_ref_kind_mismatch"
+    assert port.clone_shallow(f"file://{bare}", "release", "branch", tmp_path / "branch") == branch_commit
+    assert port.fetch_commit(f"file://{bare}", "release", "tag") == tag_commit
+    assert port.fetch_commit(f"file://{bare}", "release", "branch") == branch_commit
+
+
 class _RecordingRunner:
     def __init__(self) -> None:
         self.calls: list[list[str]] = []

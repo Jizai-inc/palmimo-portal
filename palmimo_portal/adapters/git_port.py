@@ -88,6 +88,12 @@ class SubprocessGitPort(GitPort):
             argv.extend(["--filter=blob:none", "--sparse"])
         argv.extend(["--branch", ref, "--", url, str(dest)])
         self._run(argv, cwd=None, timeout=CLONE_TIMEOUT_SECONDS, env=env)
+        head_ref = self._run(
+            ["git", "rev-parse", "--symbolic-full-name", "HEAD"], cwd=dest, timeout=FETCH_TIMEOUT_SECONDS, env=env
+        ).stdout.strip()
+        expected_head = f"refs/heads/{ref}" if ref_kind == "branch" else "HEAD"
+        if head_ref != expected_head:
+            raise GitCommandError(f"{ref_kind} ref {ref!r} resolved to {head_ref!r}", reason="git_ref_kind_mismatch")
         if sparse_subdir is not None:
             self._run(
                 ["git", "sparse-checkout", "set", "--cone", "--", sparse_subdir],
@@ -99,9 +105,15 @@ class SubprocessGitPort(GitPort):
 
     def fetch_commit(self, url: str, ref: str, ref_kind: AppRefKind, *, env: Mapping[str, str] | None = None) -> str:
         # `git ls-remote` needs no local checkout at all -- cheaper than a clone for a check.
-        result = self._run(["git", "ls-remote", "--", url, ref], cwd=None, timeout=FETCH_TIMEOUT_SECONDS, env=env)
-        line = result.stdout.strip().splitlines()[0] if result.stdout.strip() else ""
-        commit = line.split()[0] if line else ""
+        qualified_ref = f"refs/{'tags' if ref_kind == 'tag' else 'heads'}/{ref}"
+        result = self._run(
+            ["git", "ls-remote", "--", url, qualified_ref], cwd=None, timeout=FETCH_TIMEOUT_SECONDS, env=env
+        )
+        entries = [line.split() for line in result.stdout.strip().splitlines()]
+        peeled_ref = f"{qualified_ref}^{{}}"
+        commit = next((entry[0] for entry in entries if len(entry) == 2 and entry[1] == peeled_ref), "")
+        if not commit:
+            commit = next((entry[0] for entry in entries if len(entry) == 2 and entry[1] == qualified_ref), "")
         if not commit:
             raise GitCommandError(f"ref {ref!r} not found on {url}", reason="git_not_found")
         return commit

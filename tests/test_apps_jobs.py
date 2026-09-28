@@ -506,6 +506,19 @@ def test_update_git_swaps_in_new_tree_and_updates_commit(harness: Harness) -> No
     assert not marker.exists()  # the old tree was replaced, not merged into
 
 
+def test_update_git_records_when_the_new_version_was_installed(harness: Harness) -> None:
+    clock = iter(float(n) for n in range(100, 200))
+    ctx = replace(harness.ctx, now=lambda: next(clock))
+    harness.git.on_clone = lambda dest, url, ref, ref_kind: _seed_git_clone(dest, "palmimo-teleop")
+    state, record = install_git(ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")
+
+    _, new_record = update_git(ctx, state, record.id)
+
+    assert record.installed_at is not None
+    assert new_record.installed_at is not None
+    assert new_record.installed_at > record.installed_at
+
+
 def test_update_git_registers_the_new_record_before_purging_the_old_tree(
     harness: Harness, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -1047,7 +1047,7 @@ def update_git(
         new_record = AppRecord(
             name=manifest.name,
             source=replace(record.source, ref=target_ref, commit=commit),
-            installed_at=record.installed_at,
+            installed_at=ctx.now(),
             params={key: value for key, value in record.params.items() if key not in dropped_params},
             autostart=record.autostart,
             last_job=job,

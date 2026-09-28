@@ -65,6 +65,9 @@ from palmimo_portal.ports import (
 
 logger = logging.getLogger("palmimo_portal")
 
+# A generator-backed lock context would release its file descriptor when collected.
+_UNCONTAINED_LOCKS: list[contextlib.AbstractContextManager[None]] = []
+
 
 def _merge_job_record(current: AppRecord | None, job_record: AppRecord) -> AppRecord:
     """Merge only the fields an install/update job owns onto ``current``, the freshly re-read record.
@@ -100,7 +103,6 @@ class AppsJobRunner:
         self._ctx = ctx
         self._app_unit = app_unit
         self._run_in_thread = run_in_thread
-        self._contained_lock: contextlib.AbstractContextManager[None] | None = None
 
     def _acquire_lock(self) -> contextlib.AbstractContextManager[None]:
         lock_cm = self._state.lock_apps()
@@ -193,7 +195,7 @@ class AppsJobRunner:
                     failed = self._fail_current_job(error, finished_at=time.time(), attach_to=name)
                     if isinstance(error, SyncUnitContainmentError):
                         keep_lock = True
-                        self._contained_lock = lock_cm
+                        _UNCONTAINED_LOCKS.append(lock_cm)
                     else:
                         _purge_uv_cache(self._ctx, name)
                     result["job"] = failed
@@ -278,7 +280,7 @@ class AppsJobRunner:
                     result["job"] = self._fail_current_job(error, finished_at=time.time(), attach_to=name)
                     if isinstance(error, SyncUnitContainmentError):
                         keep_lock = True
-                        self._contained_lock = lock_cm
+                        _UNCONTAINED_LOCKS.append(lock_cm)
             finally:
                 if not keep_lock:
                     lock_cm.__exit__(None, None, None)
@@ -379,7 +381,7 @@ class AppsJobRunner:
                 result["job"] = failed
                 if isinstance(error, SyncUnitContainmentError):
                     keep_lock = True
-                    self._contained_lock = lock_cm
+                    _UNCONTAINED_LOCKS.append(lock_cm)
             finally:
                 if not keep_lock:
                     lock_cm.__exit__(None, None, None)
@@ -436,7 +438,13 @@ class AppsJobRunner:
         def fail(current: AppsState) -> AppsState:
             nonlocal failed
             assert current.current_job is not None
-            error_code = error.reason if isinstance(error, GitCommandError) else None
+            error_code = (
+                error.reason
+                if isinstance(error, GitCommandError)
+                else "sync_unit_uncontained"
+                if isinstance(error, SyncUnitContainmentError)
+                else None
+            )
             failed = replace(
                 current.current_job, state="failed", error=str(error), error_code=error_code, finished_at=finished_at
             )

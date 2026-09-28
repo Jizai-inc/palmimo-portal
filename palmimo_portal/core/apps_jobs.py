@@ -284,6 +284,17 @@ class SyncUnitContainmentError(Exception):
     """Raised when a failed sync unit could not be confirmed inactive."""
 
 
+def _contain_sync_unit(ctx: AppsJobContext, instance: str, cause: Exception) -> None:
+    try:
+        ctx.sync_unit.stop(instance)
+        if instance in ctx.sync_unit.list_active_instances():
+            raise SyncUnitContainmentError(f"sync unit {instance} is still active")
+    except SyncUnitContainmentError:
+        raise
+    except Exception as error:
+        raise SyncUnitContainmentError(f"could not stop sync unit {instance}: {error}") from cause
+
+
 def _run_sync_dependencies(
     ctx: AppsJobContext,
     instance: str,
@@ -314,14 +325,7 @@ def _run_sync_dependencies(
         status = ctx.sync_unit.wait(instance, timeout_s=SYNC_TIMEOUT_SECONDS)
         contained = True
     except Exception as error:
-        try:
-            ctx.sync_unit.stop(instance)
-            if instance in ctx.sync_unit.list_active_instances():
-                raise SyncUnitContainmentError(f"sync unit {instance} is still active")
-        except SyncUnitContainmentError:
-            raise
-        except Exception as stop_error:
-            raise SyncUnitContainmentError(f"could not stop sync unit {instance}: {stop_error}") from error
+        _contain_sync_unit(ctx, instance, error)
         contained = True
         raise
     finally:
@@ -618,22 +622,18 @@ def purge_path(ctx: AppsJobContext, path: Path) -> str | None:
     staging_container = ctx.staging_dir / instance
     staging_container.mkdir(parents=True, exist_ok=True)
     _prepare_staging_for_sync(staging_container)
+    contained = False
     try:
         _write_reserved_json(staging_container / "sync.json", {"purge": str(path)})
         ctx.sync_unit.start(instance)
         ctx.sync_unit.wait(instance, timeout_s=SYNC_TIMEOUT_SECONDS)
+        contained = True
     except Exception as error:
-        try:
-            ctx.sync_unit.stop(instance)
-            if instance in ctx.sync_unit.list_active_instances():
-                raise SyncUnitContainmentError(f"purge unit {instance} is still active")
-        except SyncUnitContainmentError:
-            raise
-        except Exception as stop_error:
-            raise SyncUnitContainmentError(f"could not stop purge unit {instance}: {stop_error}") from error
+        _contain_sync_unit(ctx, instance, error)
+        contained = True
         logger.warning("apps: purge request failed path=%s: %s", path, error)
     finally:
-        if instance not in ctx.sync_unit.list_active_instances():
+        if contained:
             shutil.rmtree(staging_container, ignore_errors=True)
 
     if path.exists() or path.is_symlink():

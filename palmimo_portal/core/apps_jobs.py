@@ -959,6 +959,7 @@ def update_git(
     started = started if started is not None else ctx.now()
     staging_container = ctx.staging_dir / job_id
     target_ref = _official_catalog_target_ref(ctx, record.source)
+    uncontained = False
     try:
         on_step("fetch")
         commit = _fetch_git_source(
@@ -1044,8 +1045,14 @@ def update_git(
             on_registered(new_record)
         new_state = AppsState(apps={**state.apps, name: new_record})
         return new_state, new_record
+    except SyncUnitContainmentError:
+        # The unit may still be using the staging tree; the startup sweep removes it after
+        # stopping the unit.
+        uncontained = True
+        raise
     finally:
-        purge_path(ctx, staging_container)
+        if not uncontained:
+            purge_path(ctx, staging_container)
 
 
 def _reconcile_dropped(

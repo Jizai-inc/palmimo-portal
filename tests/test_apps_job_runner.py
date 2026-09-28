@@ -13,6 +13,7 @@ from typing import cast
 
 import pytest
 
+from palmimo_portal.core import apps_jobs
 from palmimo_portal.core.apps import finalize_apps_state
 from palmimo_portal.core.apps_job_runner import AppsJobRunner
 from palmimo_portal.core.apps_jobs import (
@@ -588,26 +589,52 @@ def test_start_install_releases_the_lock_when_the_worker_thread_fails_to_start(
         pass  # the lock must be free again despite the failed spawn
 
 
+def _seed_git_app(dest: Path, url: str, ref: str, ref_kind: str) -> None:
+    dest.mkdir(parents=True, exist_ok=True)
+    (dest / "palmimo.toml").write_text('schema = 1\nname = "palmimo-teleop"\ndescription = "d"\ncommand=["run"]\n')
+    (dest / "pyproject.toml").write_text("[project]\nname='app'\nversion='0'\n")
+
+
+@pytest.mark.parametrize("kind", ["install", "update", "delete"])
 @pytest.mark.parametrize("stop_error", [None, OSError("dbus unavailable")], ids=["stopped", "stop-failed"])
 def test_sync_wait_failure_stops_the_unit_before_releasing_the_apps_lock(
-    ctx: AppsJobContext, stop_error: Exception | None
+    monkeypatch: pytest.MonkeyPatch, ctx: AppsJobContext, kind: str, stop_error: Exception | None
 ) -> None:
     state_store = FakeStateStore()
+    runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
     sync = cast(FakeSyncUnitPort, ctx.sync_unit)
+    if kind == "update":
+        ctx.git.on_clone = _seed_git_app  # type: ignore[attr-defined]
+        state, _ = install_git(ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")
+        state_store.write_apps_state(state)
+    elif kind == "delete":
+        runner.start_install(prepare_install_zip(ctx, _zip_bytes()))
+
+        def refuse_plain_removal(path: Path) -> None:
+            raise PermissionError(f"owned by palmimo-app: {path}")
+
+        # Delete reaches the sync unit only when Portal's own uid cannot remove the tree.
+        monkeypatch.setattr(apps_jobs, "_remove", refuse_plain_removal)
     sync.raise_on_wait = TimeoutError("sync timed out")
     sync.raise_on_stop = stop_error
-    runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
+    staging_before = set(ctx.staging_dir.iterdir()) if ctx.staging_dir.exists() else set()
 
-    prepared = prepare_install_zip(ctx, _zip_bytes())
-    job = runner.start_install(prepared)
+    if kind == "install":
+        job = runner.start_install(prepare_install_zip(ctx, _zip_bytes()))
+    elif kind == "update":
+        job = runner.start_update(GIT_ID)
+    else:
+        job = runner.start_delete(ZIP_ID)
 
-    assert job.state == "failed"
     assert sync.stop_calls
     if stop_error is None:
+        # A contained purge only leaves a leftover behind, so the delete itself can still finish.
+        assert job.state == ("done" if kind == "delete" else "failed")
         with state_store.lock_apps():
             pass
     else:
+        assert job.state == "failed"
         assert job.error_code == "sync_unit_uncontained"
-        assert prepared.staging_container.exists()
+        assert set(ctx.staging_dir.iterdir()) - staging_before
         with pytest.raises(AppsLockTimeoutError):
             runner.start_install(prepare_install_zip(ctx, _zip_bytes("other-app")))

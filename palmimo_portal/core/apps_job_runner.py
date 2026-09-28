@@ -70,6 +70,14 @@ _UNCONTAINED_LOCKS: list[contextlib.AbstractContextManager[None]] = []
 _ADAPTER_ERROR_CODE = "sync_unit_uncontained"
 
 
+def _job_error_code(error: Exception) -> str | None:
+    if isinstance(error, GitCommandError):
+        return error.reason
+    if isinstance(error, SyncUnitContainmentError):
+        return _ADAPTER_ERROR_CODE
+    return None
+
+
 def _merge_job_record(current: AppRecord | None, job_record: AppRecord) -> AppRecord:
     """Merge only the fields an install/update job owns onto ``current``, the freshly re-read record.
 
@@ -359,7 +367,9 @@ class AppsJobRunner:
                     job_id,
                     mask_authorization_lines(str(error)),
                 )
-                failed = replace(job, state="failed", error=str(error), finished_at=time.time())
+                failed = replace(
+                    job, state="failed", error=str(error), error_code=_job_error_code(error), finished_at=time.time()
+                )
 
                 def fail_delete(final: AppsState) -> AppsState:
                     final_apps = dict(final.apps)
@@ -439,13 +449,7 @@ class AppsJobRunner:
         def fail(current: AppsState) -> AppsState:
             nonlocal failed
             assert current.current_job is not None
-            error_code = (
-                error.reason
-                if isinstance(error, GitCommandError)
-                else _ADAPTER_ERROR_CODE
-                if isinstance(error, SyncUnitContainmentError)
-                else None
-            )
+            error_code = _job_error_code(error)
             failed = replace(
                 current.current_job, state="failed", error=str(error), error_code=error_code, finished_at=finished_at
             )

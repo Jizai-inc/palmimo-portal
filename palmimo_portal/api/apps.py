@@ -899,7 +899,9 @@ async def install(
             upload.unlink(missing_ok=True)
 
     try:
-        job = runner.start_install(prepared, requested_name=requested_name)
+        job = await anyio.to_thread.run_sync(
+            functools.partial(runner.start_install, prepared, requested_name=requested_name)
+        )
     except AppExistsError as error:
         shutil.rmtree(prepared.staging_container, ignore_errors=True)
         raise PortalError(409, "app_exists") from error

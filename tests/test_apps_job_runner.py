@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import gc
 import os
 import re
 import shutil
 import threading
 import time
+from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
@@ -601,7 +603,11 @@ def _seed_git_app(dest: Path, url: str, ref: str, ref_kind: str) -> None:
     ids=["stopped", "stop-failed", "still-active"],
 )
 def test_sync_wait_failure_stops_the_unit_before_releasing_the_apps_lock(
-    ctx: AppsJobContext, kind: str, stop_error: Exception | None, stop_keeps_active: bool
+    monkeypatch: pytest.MonkeyPatch,
+    ctx: AppsJobContext,
+    kind: str,
+    stop_error: Exception | None,
+    stop_keeps_active: bool,
 ) -> None:
     state_store = FakeStateStore()
     runner = AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False)
@@ -610,6 +616,21 @@ def test_sync_wait_failure_stops_the_unit_before_releasing_the_apps_lock(
         ctx.git.on_clone = _seed_git_app  # type: ignore[attr-defined]
         state, _ = install_git(ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")
         state_store.write_apps_state(state)
+    events: list[str] = []
+    real_lock_apps, real_stop = state_store.lock_apps, sync.stop
+
+    @contextlib.contextmanager
+    def recording_lock_apps() -> Iterator[None]:
+        with real_lock_apps():
+            yield
+        events.append("release")
+
+    def recording_stop(instance: str) -> None:
+        events.append("stop")
+        real_stop(instance)
+
+    monkeypatch.setattr(state_store, "lock_apps", recording_lock_apps)
+    monkeypatch.setattr(sync, "stop", recording_stop)
     sync.raise_on_wait = TimeoutError("sync timed out")
     sync.raise_on_stop = stop_error
     sync.stop_keeps_active = stop_keeps_active
@@ -623,12 +644,14 @@ def test_sync_wait_failure_stops_the_unit_before_releasing_the_apps_lock(
     assert sync.stop_calls
     if stop_error is None and not stop_keeps_active:
         assert job.state == "failed"
+        assert events[-2:] == ["stop", "release"]
         with state_store.lock_apps():
             pass
     else:
         assert job.state == "failed"
         assert job.error_code == "sync_unit_uncontained"
         assert set(ctx.staging_dir.iterdir()) - staging_before
+        assert "release" not in events
         with pytest.raises(AppsLockTimeoutError):
             runner.start_install(prepare_install_zip(ctx, _zip_bytes("other-app")))
 

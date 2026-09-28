@@ -84,7 +84,7 @@ def test_git_ref_kind_selects_the_matching_branch_or_tag(tmp_path: Path) -> None
     _run_git(["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "tag"], cwd=work)
     _run_git(["-c", "user.name=Test", "-c", "user.email=test@example.com", "tag", "-a", "release", "-m", "r"], cwd=work)
     (work / "version").write_text("branch\n", encoding="utf-8")
-    _run_git(["commit", "-am", "branch"], cwd=work)
+    _run_git(["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-am", "branch"], cwd=work)
     _run_git(["branch", "release"], cwd=work)
     _run_git(["push", "origin", "main", "refs/heads/release:refs/heads/release", "refs/tags/release"], cwd=work)
     tag_commit = subprocess.check_output(["git", "rev-parse", "refs/tags/release^{}"], cwd=work, text=True).strip()

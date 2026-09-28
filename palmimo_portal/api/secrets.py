@@ -186,7 +186,7 @@ def put_git_credential(
     if state_store.apps_state_file_state() is not AppsStateFileState.PRESENT:
         logger.warning("git-credential: set host=%s, apps.json ledger is unavailable, skipped", host_owner)
     else:
-        state_store.write_apps_state(clear_credential_rejected(state_store.read_apps_state(), host_owner))
+        state_store.update_apps_state(lambda state: clear_credential_rejected(state, host_owner))
     updated = next(r for r in store.list_git_credentials() if r.host_owner == host_owner)
     logger.info("git-credential: set host=%s", host_owner)
     return GitCredentialRecordInfo(host_owner=updated.host_owner, updated_at=updated.updated_at)

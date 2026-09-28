@@ -1004,11 +1004,16 @@ def put_params(
         validate_param_values(manifest, body.params)
     except ManifestValidationError as error:
         raise PortalError(422, "params_invalid", errors=error.errors) from error
-    new_record = replace(record, params={**record.params, **body.params})
-    new_state = AppsState(
-        apps={**state.apps, name: new_record}, current_job=state.current_job, current_job_app=state.current_job_app
-    )
-    state_store.write_apps_state(new_state)
+
+    def update(current: AppsState) -> AppsState:
+        latest = current.apps.get(name)
+        if latest is None:
+            raise PortalError(404, "app_not_found")
+        _ensure_no_app_job_in_progress(current, name)
+        return replace(current, apps={**current.apps, name: replace(latest, params={**latest.params, **body.params})})
+
+    new_state = state_store.update_apps_state(update)
+    new_record = new_state.apps[name]
     return _detail(new_record, new_state, ctx, secrets, app_unit, deps, _request_host(request))
 
 
@@ -1102,7 +1107,7 @@ def update_check(
     if record.source.ref_kind == "branch" and record.source.url is not None:
         host_owner = host_owner_from_url(record.source.url)
         if host_owner is not None:
-            state_store.write_apps_state(clear_credential_rejected(state_store.read_apps_state(), host_owner))
+            state_store.update_apps_state(lambda state: clear_credential_rejected(state, host_owner))
     return UpdateCheckResponse(update_available=available, remote_commit=remote_commit)
 
 
@@ -1195,11 +1200,16 @@ def put_autostart(
     if record is None:
         raise PortalError(404, "app_not_found")
     _ensure_no_app_job_in_progress(state, name)
-    new_record = replace(record, autostart=body.enabled)
-    new_state = AppsState(
-        apps={**state.apps, name: new_record}, current_job=state.current_job, current_job_app=state.current_job_app
-    )
-    state_store.write_apps_state(new_state)
+
+    def update(current: AppsState) -> AppsState:
+        latest = current.apps.get(name)
+        if latest is None:
+            raise PortalError(404, "app_not_found")
+        _ensure_no_app_job_in_progress(current, name)
+        return replace(current, apps={**current.apps, name: replace(latest, autostart=body.enabled)})
+
+    new_state = state_store.update_apps_state(update)
+    new_record = new_state.apps[name]
     logger.info("autostart: toggled name=%s enabled=%s", name, body.enabled)
     return _detail(new_record, new_state, ctx, secrets, app_unit, deps, _request_host(request))
 
@@ -1237,11 +1247,22 @@ def put_source(
         and body.ref != record.source.ref
     ):
         raise PortalError(409, "official_tag_ref_managed")
-    new_record = replace(record, source=replace(record.source, ref=body.ref, ref_kind=body.ref_kind))
-    new_state = AppsState(
-        apps={**state.apps, name: new_record}, current_job=state.current_job, current_job_app=state.current_job_app
-    )
-    state_store.write_apps_state(new_state)
+
+    def update(current: AppsState) -> AppsState:
+        latest = current.apps.get(name)
+        if latest is None:
+            raise PortalError(404, "app_not_found")
+        _ensure_no_app_job_in_progress(current, name)
+        return replace(
+            current,
+            apps={
+                **current.apps,
+                name: replace(latest, source=replace(latest.source, ref=body.ref, ref_kind=body.ref_kind)),
+            },
+        )
+
+    new_state = state_store.update_apps_state(update)
+    new_record = new_state.apps[name]
     return _detail(new_record, new_state, ctx, secrets, app_unit, deps, _request_host(request))
 
 

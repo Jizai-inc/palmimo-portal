@@ -433,7 +433,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             apps_state, manifest_exists=manifest_exists, venv_exists=venv_exists, now=time.time()
         )
         if finalized_apps != apps_state:
-            adapters.state.write_apps_state(finalized_apps)
+            adapters.state.update_apps_state(lambda _: finalized_apps)
         logger.info("apps: startup finalize -> current_job=%s", finalized_apps.current_job)
         reconcile_run_dirs(adapters.app_unit, adapters.run_dir, finalized_apps)
     except Exception:

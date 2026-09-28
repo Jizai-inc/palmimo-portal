@@ -829,6 +829,19 @@ def test_get_job_returns_the_recorded_install_job(client: TestClient, adapters: 
     assert response.json()["state"] == "done"
 
 
+def test_get_job_returns_a_completed_delete_job(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+    _install_zip(client)
+
+    delete_response = client.delete("/api/v1/apps/zip.palmimo-teleop", headers=CSRF_HEADERS)
+
+    assert delete_response.status_code == 202
+    job_id = delete_response.json()["job"]["id"]
+    response = client.get(f"/api/v1/apps/jobs/{job_id}")
+    assert response.status_code == 200
+    assert response.json()["state"] == "done"
+
+
 def test_get_job_returns_404_for_unknown_id(client: TestClient, adapters: FakeAdapterBundle) -> None:
     client = _authenticated_client(client, adapters)
 

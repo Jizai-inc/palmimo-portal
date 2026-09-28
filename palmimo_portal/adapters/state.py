@@ -40,8 +40,9 @@ import logging
 import os
 import re
 import secrets
+import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
@@ -200,6 +201,7 @@ class JsonFileStateStore(StateStore):
 
     def __init__(self, state_dir: Path) -> None:
         self._state_dir = state_dir
+        self._apps_state_lock = threading.Lock()
 
     @property
     def _auth_path(self) -> Path:
@@ -974,6 +976,12 @@ class JsonFileStateStore(StateStore):
         except OSError as error:
             logger.error("failed to write state file %s: %s", self._apps_state_path, error)
             raise
+
+    def update_apps_state(self, fn: Callable[[AppsState], AppsState]) -> AppsState:
+        with self._apps_state_lock:
+            state = fn(self.read_apps_state())
+            self.write_apps_state(state)
+            return state
 
     @contextlib.contextmanager
     def lock_apps(self) -> Iterator[None]:

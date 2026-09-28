@@ -25,7 +25,7 @@ from palmimo_portal.core.apps import host_owner_from_url
 from palmimo_portal.core.apps_jobs import AppsJobContext
 from palmimo_portal.core.catalog import CatalogCache
 from palmimo_portal.core.platform import PlatformLatestCache
-from palmimo_portal.ports import AppRecord, AppsLockTimeoutError, ClockPort, GitCommandError, StateStore
+from palmimo_portal.ports import AppRecord, AppsLockTimeoutError, AppsState, ClockPort, GitCommandError, StateStore
 
 
 logger = logging.getLogger("palmimo_portal")
@@ -172,24 +172,27 @@ def run_git_check_sweep(ctx: AppsJobContext, state_store: StateStore) -> None:
         logger.info("apps: periodic check discarded reason=job_started_during_sweep")
         return
     try:
-        current = state_store.read_apps_state()
-        # Merge only the three sweep-derived fields into each freshly re-read record --
-        # never replace it wholesale, or a concurrent write to the same app (e.g. PUT
-        # .../autostart) landing while this sweep's network calls were in flight would be
-        # lost. Skips an app no longer present in the ledger -- it may have been deleted
-        # while this sweep's network calls were in flight.
-        merged = dict(current.apps)
-        for name, update in updates.items():
-            current_record = merged.get(name)
-            if current_record is None:
-                continue
-            merged[name] = replace(
-                current_record,
-                update_available=update.update_available,
-                latest_commit=update.latest_commit,
-                credential_rejected=update.credential_rejected,
-            )
-        state_store.write_apps_state(replace(current, apps=merged))
+
+        def merge_updates(current: AppsState) -> AppsState:
+            # Merge only the three sweep-derived fields into each freshly re-read record --
+            # never replace it wholesale, or a concurrent write to the same app (e.g. PUT
+            # .../autostart) landing while this sweep's network calls were in flight would be
+            # lost. Skips an app no longer present in the ledger -- it may have been deleted
+            # while this sweep's network calls were in flight.
+            merged = dict(current.apps)
+            for name, update in updates.items():
+                current_record = merged.get(name)
+                if current_record is None:
+                    continue
+                merged[name] = replace(
+                    current_record,
+                    update_available=update.update_available,
+                    latest_commit=update.latest_commit,
+                    credential_rejected=update.credential_rejected,
+                )
+            return replace(current, apps=merged)
+
+        state_store.update_apps_state(merge_updates)
     finally:
         lock_cm.__exit__(None, None, None)
 

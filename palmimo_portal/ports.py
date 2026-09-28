@@ -701,6 +701,10 @@ class StateStore(Protocol):
         """Persist the app ledger, replacing whatever was stored before."""
         ...
 
+    def update_apps_state(self, fn: Callable[[AppsState], AppsState]) -> AppsState:
+        """Apply ``fn`` to the current app ledger and persist its result atomically within this Portal process."""
+        ...
+
     def lock_apps(self) -> AbstractContextManager[None]:
         """Hold the exclusive lock serializing install/update/delete jobs (``apps.lock``).
 

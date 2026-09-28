@@ -293,6 +293,7 @@ class FakeStateStore(StateStore):
     apps_state_corrupt: bool = False
     apps_state_legacy: bool = False
     _apps_state_written: bool = field(default=False, init=False, repr=False)
+    _apps_state_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _apps_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _run_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _platform_update_state: PlatformUpdateState = field(default_factory=lambda: IDLE_PLATFORM_STATE)
@@ -383,6 +384,12 @@ class FakeStateStore(StateStore):
         self._apps_state_written = True
         self.apps_state_corrupt = False
         self.apps_state_legacy = False
+
+    def update_apps_state(self, fn: Callable[[AppsState], AppsState]) -> AppsState:
+        with self._apps_state_lock:
+            state = fn(self.read_apps_state())
+            self.write_apps_state(state)
+            return state
 
     @contextlib.contextmanager
     def lock_apps(self) -> Iterator[None]:

@@ -123,7 +123,7 @@ def reset_platform(
     secrets.reset()
     deleted.append("secrets")
 
-    state.write_apps_state(AppsState())
+    state.update_apps_state(lambda _: AppsState())
     deleted.append("apps.json")
 
     state.write_platform_update_state(IDLE_PLATFORM_STATE)

@@ -85,6 +85,7 @@ def _merge_job_record(current: AppRecord | None, job_record: AppRecord) -> AppRe
         installed_at=job_record.installed_at,
         params=params,
         last_job=job_record.last_job,
+        broken_reason=job_record.broken_reason,
         manifest=job_record.manifest,
         requires_python=job_record.requires_python,
     )
@@ -129,31 +130,31 @@ class AppsJobRunner:
         lock_cm = self._acquire_lock()
         started = time.time()
         namespace = apps_core.app_namespace(prepared.source.type, prepared.source.url, self._ctx.catalog_repo)
-        state = self._state.read_apps_state()
-        desired_name = requested_name or apps_core.suggest_app_name(namespace, prepared.manifest.name, state)
-        name = f"{namespace}.{desired_name}"
-        prepared = replace(prepared, app_id=name)
+        name = ""
+        job: AppJob | None = None
         try:
-            if name in state.apps:
-                raise AppExistsError(name)
             active = self._app_unit.list_active_app_units()
             if active:
                 raise AppRunningError(active[0])
-            job = AppJob(
-                id=prepared.job_id,
-                kind="install",
-                state="running",
-                step="fetch",
-                error=None,
-                started_at=started,
-                finished_at=None,
-                display_name=prepared.manifest.name,
-            )
-            self._state.write_apps_state(AppsState(apps=state.apps, current_job=job, current_job_app=name))
+
+            def begin(state: AppsState) -> AppsState:
+                nonlocal name, job, prepared
+                desired_name = requested_name or apps_core.suggest_app_name(namespace, prepared.manifest.name, state)
+                name = f"{namespace}.{desired_name}"
+                prepared = replace(prepared, app_id=name)
+                if name in state.apps:
+                    raise AppExistsError(name)
+                job = AppJob(
+                    prepared.job_id, "install", "running", "fetch", None, started, None, prepared.manifest.name
+                )
+                return replace(state, current_job=job, current_job_app=name)
+
+            self._state.update_apps_state(begin)
         except BaseException:
             lock_cm.__exit__(None, None, None)
             raise
 
+        assert job is not None
         logger.info("apps: install started job_id=%s name=%s source=%s", prepared.job_id, name, prepared.source.type)
         result: dict[str, AppJob] = {}
         last_step = "fetch"
@@ -207,9 +208,6 @@ class AppsJobRunner:
         job_id = apps_core.new_job_id()
         started = time.time()
         try:
-            state = self._state.read_apps_state()
-            if name not in state.apps:
-                raise AppNotFoundError(name)
             active = self._app_unit.list_active_app_units()
             if active:
                 raise AppRunningError(active[0])
@@ -221,9 +219,17 @@ class AppsJobRunner:
                 error=None,
                 started_at=started,
                 finished_at=None,
-                display_name=state.apps[name].name,
+                display_name=None,
             )
-            self._state.write_apps_state(AppsState(apps=state.apps, current_job=job, current_job_app=name))
+
+            def begin(state: AppsState) -> AppsState:
+                nonlocal job
+                if name not in state.apps:
+                    raise AppNotFoundError(name)
+                job = replace(job, display_name=state.apps[name].name)
+                return replace(state, current_job=job, current_job_app=name)
+
+            self._state.update_apps_state(begin)
         except BaseException:
             lock_cm.__exit__(None, None, None)
             raise
@@ -278,9 +284,6 @@ class AppsJobRunner:
         job_id = apps_core.new_job_id()
         started = time.time()
         try:
-            state = self._state.read_apps_state()
-            if name not in state.apps:
-                raise AppNotFoundError(name)
             if self._app_unit.status(name).active_state in RUNNING_ACTIVE_STATES:
                 raise AppRunningError(name)
             job = AppJob(
@@ -292,7 +295,13 @@ class AppsJobRunner:
                 started_at=started,
                 finished_at=None,
             )
-            self._state.write_apps_state(AppsState(apps=state.apps, current_job=job, current_job_app=name))
+
+            def begin(state: AppsState) -> AppsState:
+                if name not in state.apps:
+                    raise AppNotFoundError(name)
+                return replace(state, current_job=job, current_job_app=name)
+
+            self._state.update_apps_state(begin)
         except BaseException:
             lock_cm.__exit__(None, None, None)
             raise
@@ -302,22 +311,31 @@ class AppsJobRunner:
         def run() -> None:
             original_record = None
             try:
-                current = self._state.read_apps_state()
-                new_state, original_record = delete_from_ledger(current, name)
-                self._state.write_apps_state(
-                    AppsState(apps=new_state.apps, current_job=replace(job, step="cleanup"), current_job_app=name)
-                )
+
+                def unregister(current: AppsState) -> AppsState:
+                    nonlocal original_record
+                    new_state, original_record = delete_from_ledger(current, name)
+                    return replace(new_state, current_job=replace(job, step="cleanup"), current_job_app=name)
+
+                self._state.update_apps_state(unregister)
                 leftover = purge_app_files(self._ctx, name, on_step=lambda step: self._advance(name, step))
-                final = self._state.read_apps_state()
-                final_apps = {app_name: record for app_name, record in final.apps.items() if app_name != name}
-                self._state.write_apps_state(AppsState(apps=final_apps, current_job=None, current_job_app=None))
-                result["job"] = replace(
+                done = replace(
                     job,
                     state="done",
                     step="cleanup",
                     finished_at=time.time(),
                     error=(f"could not remove {leftover}" if leftover else None),
                 )
+                self._state.update_apps_state(
+                    lambda final: AppsState(
+                        apps={app_name: record for app_name, record in final.apps.items() if app_name != name},
+                        current_job=None,
+                        current_job_app=None,
+                        last_orphan_job=done,
+                        last_orphan_job_app=name,
+                    )
+                )
+                result["job"] = done
             except Exception as error:
                 logger.warning(
                     "apps: job failed job_id=%s step=cleanup stderr_tail=%s",
@@ -325,25 +343,25 @@ class AppsJobRunner:
                     mask_authorization_lines(str(error)),
                 )
                 failed = replace(job, state="failed", error=str(error), finished_at=time.time())
-                final = self._state.read_apps_state()
-                final_apps = dict(final.apps)
-                if original_record is not None:
-                    # The ledger entry (dropped by `delete_from_ledger` before file
-                    # cleanup ran) must come back rather than vanish -- a delete
-                    # that fails midway must leave a visible, retryable app, not
-                    # a silent hole in the ledger.
-                    final_apps[name] = replace(original_record, last_job=failed)
-                    self._state.write_apps_state(AppsState(apps=final_apps, current_job=None, current_job_app=None))
-                else:
-                    self._state.write_apps_state(
-                        AppsState(
-                            apps=final_apps,
-                            current_job=None,
-                            current_job_app=None,
-                            last_orphan_job=failed,
-                            last_orphan_job_app=name,
-                        )
+
+                def fail_delete(final: AppsState) -> AppsState:
+                    final_apps = dict(final.apps)
+                    if original_record is not None:
+                        # The ledger entry (dropped by `delete_from_ledger` before file
+                        # cleanup ran) must come back rather than vanish -- a delete
+                        # that fails midway must leave a visible, retryable app, not
+                        # a silent hole in the ledger.
+                        final_apps[name] = replace(original_record, last_job=failed)
+                        return AppsState(apps=final_apps, current_job=None, current_job_app=None)
+                    return AppsState(
+                        apps=final_apps,
+                        current_job=None,
+                        current_job_app=None,
+                        last_orphan_job=failed,
+                        last_orphan_job_app=name,
                     )
+
+                self._state.update_apps_state(fail_delete)
                 result["job"] = failed
             finally:
                 lock_cm.__exit__(None, None, None)
@@ -367,23 +385,25 @@ class AppsJobRunner:
         3.6) also un-marks ``credential_rejected`` on every other app sharing this app's
         git host/owner -- a completed clone/fetch proves the credential works again.
         """
-        final = self._state.read_apps_state()
-        merged = _merge_job_record(final.apps.get(name), record)
-        apps = {**final.apps, name: merged}
-        if clear_credential_for_host_owner and merged.source.url is not None:
-            host_owner = apps_core.host_owner_from_url(merged.source.url)
-            if host_owner is not None:
-                apps = apps_core.clear_credential_rejected(
-                    AppsState(apps=apps, current_job=None, current_job_app=None), host_owner
-                ).apps
-        self._state.write_apps_state(AppsState(apps=apps, current_job=None, current_job_app=None))
+
+        def write(final: AppsState) -> AppsState:
+            merged = _merge_job_record(final.apps.get(name), record)
+            apps = {**final.apps, name: merged}
+            if clear_credential_for_host_owner and merged.source.url is not None:
+                host_owner = apps_core.host_owner_from_url(merged.source.url)
+                if host_owner is not None:
+                    apps = apps_core.clear_credential_rejected(replace(final, apps=apps), host_owner).apps
+            return AppsState(apps=apps, current_job=None, current_job_app=None)
+
+        self._state.update_apps_state(write)
 
     def _advance(self, name: str, step: str) -> None:
-        current = self._state.read_apps_state()
-        if current.current_job is not None and current.current_job_app == name:
-            self._state.write_apps_state(
-                AppsState(apps=current.apps, current_job=replace(current.current_job, step=step), current_job_app=name)
-            )
+        def advance(current: AppsState) -> AppsState:
+            if current.current_job is not None and current.current_job_app == name:
+                return replace(current, current_job=replace(current.current_job, step=step))
+            return current
+
+        self._state.update_apps_state(advance)
 
     def _fail_current_job(self, error: Exception, *, finished_at: float, attach_to: str | None = None) -> AppJob:
         """Persist ``current_job`` as failed, attached to ``attach_to``'s record when it has one.
@@ -393,25 +413,25 @@ class AppsJobRunner:
         instead (see :class:`~palmimo_portal.ports.AppsState`), or the caller's ``GET
         /apps/jobs/{id}`` for this job would 404 the moment this write lands.
         """
-        current = self._state.read_apps_state()
-        job = current.current_job
-        assert job is not None
-        error_code = error.reason if isinstance(error, GitCommandError) else None
-        failed = replace(job, state="failed", error=str(error), error_code=error_code, finished_at=finished_at)
-        apps = dict(current.apps)
-        if attach_to is not None and attach_to in apps:
-            apps[attach_to] = replace(apps[attach_to], last_job=failed)
-            self._state.write_apps_state(AppsState(apps=apps, current_job=None, current_job_app=None))
-        else:
-            self._state.write_apps_state(
-                AppsState(
-                    apps=apps,
-                    current_job=None,
-                    current_job_app=None,
-                    last_orphan_job=failed,
-                    last_orphan_job_app=attach_to,
-                )
+        failed: AppJob | None = None
+
+        def fail(current: AppsState) -> AppsState:
+            nonlocal failed
+            assert current.current_job is not None
+            error_code = error.reason if isinstance(error, GitCommandError) else None
+            failed = replace(
+                current.current_job, state="failed", error=str(error), error_code=error_code, finished_at=finished_at
             )
+            apps = dict(current.apps)
+            if attach_to is not None and attach_to in apps:
+                apps[attach_to] = replace(apps[attach_to], last_job=failed)
+                return AppsState(apps=apps, current_job=None, current_job_app=None)
+            return AppsState(
+                apps=apps, current_job=None, current_job_app=None, last_orphan_job=failed, last_orphan_job_app=attach_to
+            )
+
+        self._state.update_apps_state(fail)
+        assert failed is not None
         return failed
 
     def _safe_cleanup(self, prepared: PreparedInstall) -> None:

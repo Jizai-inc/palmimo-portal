@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import os
 import re
 import shutil
@@ -13,6 +14,7 @@ from typing import cast
 
 import pytest
 
+from palmimo_portal.adapters.state import JsonFileStateStore
 from palmimo_portal.core import apps_jobs
 from palmimo_portal.core.apps import finalize_apps_state
 from palmimo_portal.core.apps_job_runner import AppsJobRunner
@@ -629,3 +631,24 @@ def test_sync_wait_failure_stops_the_unit_before_releasing_the_apps_lock(
         assert set(ctx.staging_dir.iterdir()) - staging_before
         with pytest.raises(AppsLockTimeoutError):
             runner.start_install(prepare_install_zip(ctx, _zip_bytes("other-app")))
+
+
+def test_an_uncontained_sync_keeps_the_real_apps_lock_after_the_job_is_collected(
+    ctx: AppsJobContext, tmp_path: Path
+) -> None:
+    state_store = JsonFileStateStore(tmp_path / "state")
+    sync = cast(FakeSyncUnitPort, ctx.sync_unit)
+    sync.raise_on_wait = TimeoutError("sync timed out")
+    sync.raise_on_stop = OSError("dbus unavailable")
+
+    AppsJobRunner(state_store, ctx, FakeAppUnitPort(), run_in_thread=False).start_install(
+        prepare_install_zip(ctx, _zip_bytes())
+    )
+    # The fake's pre-built errors carry tracebacks that reach the job's frames; production
+    # errors do not outlive the job, so drop them before checking what still holds the lock.
+    sync.raise_on_wait = None
+    sync.raise_on_stop = None
+    gc.collect()
+
+    with pytest.raises(AppsLockTimeoutError), state_store.lock_apps():
+        pass

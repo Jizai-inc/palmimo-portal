@@ -588,6 +588,41 @@ def test_sync_unit_stop_calls_stop_unit_against_the_sync_template() -> None:
     assert stub.calls == [("stop_unit", ("palmimo-app-sync@jabc123.service", "replace"))]
 
 
+class _StopStatusAppUnitPort(_StubbedAppUnitPort):
+    def __init__(self, statuses: list[str]) -> None:
+        super().__init__({"stop_unit": None})
+        self._statuses = statuses
+        self.status_calls = 0
+
+    def _status_for_unit(self, unit: str) -> UnitStatus:
+        state = self._statuses[min(self.status_calls, len(self._statuses) - 1)]
+        self.status_calls += 1
+        return UnitStatus(active_state=state, sub_state="stop", result="success", exec_main_status=0)
+
+
+def test_sync_unit_stop_returns_only_once_the_unit_is_inactive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(systemd_module, "_SYNC_POLL_INTERVAL_SECONDS", 0.0)
+    port = SystemdSyncUnitPort()
+    stub = _StopStatusAppUnitPort(["deactivating", "deactivating", "inactive"])
+    port._unit_port = stub
+
+    port.stop("jabc123")
+
+    assert stub.status_calls == 3
+
+
+def test_sync_unit_stop_raises_timeout_error_while_the_unit_keeps_deactivating(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(systemd_module, "_SYNC_POLL_INTERVAL_SECONDS", 0.0)
+    monkeypatch.setattr(systemd_module, "_SYNC_STOP_TIMEOUT_SECONDS", 0.01)
+    port = SystemdSyncUnitPort()
+    port._unit_port = _StopStatusAppUnitPort(["deactivating"])
+
+    with pytest.raises(TimeoutError):
+        port.stop("jabc123")
+
+
 def test_sync_unit_wait_polls_until_the_start_job_is_removed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(systemd_module, "_SYNC_POLL_INTERVAL_SECONDS", 0.0)
     done = UnitStatus(active_state="inactive", sub_state="dead", result="success", exec_main_status=0)

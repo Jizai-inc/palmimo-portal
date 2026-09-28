@@ -341,7 +341,6 @@ class AppsJobRunner:
 
         def run() -> None:
             original_record = None
-            keep_lock = False
             try:
 
                 def unregister(current: AppsState) -> AppsState:
@@ -397,12 +396,8 @@ class AppsJobRunner:
 
                 self._state.update_apps_state(fail_delete)
                 result["job"] = failed
-                if isinstance(error, SyncUnitContainmentError):
-                    keep_lock = True
-                    retain_apps_lock_until_exit(lock_cm)
             finally:
-                if not keep_lock:
-                    lock_cm.__exit__(None, None, None)
+                lock_cm.__exit__(None, None, None)
 
         self._spawn(run, lock_cm)
         return result.get("job", job)

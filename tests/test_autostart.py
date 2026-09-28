@@ -317,8 +317,9 @@ def test_startup_keeps_app_directories_when_the_ledger_is_corrupt(tmp_path: Path
     assert (installed / "palmimo.toml").is_file()
 
 
+@pytest.mark.parametrize("failure", ["stop-raises", "still-active"])
 def test_startup_blocks_app_jobs_but_still_finalizes_when_an_orphan_sync_unit_cannot_be_stopped(
-    tmp_path: Path,
+    tmp_path: Path, failure: str
 ) -> None:
     from dataclasses import replace
 
@@ -333,7 +334,10 @@ def test_startup_blocks_app_jobs_but_still_finalizes_when_an_orphan_sync_unit_ca
     sync_unit = ctx.sync_unit
     assert isinstance(sync_unit, FakeSyncUnitPort)
     sync_unit.active_instances.add("jstuck")
-    sync_unit.raise_on_stop = OSError("dbus unavailable")
+    if failure == "stop-raises":
+        sync_unit.raise_on_stop = OSError("dbus unavailable")
+    else:
+        sync_unit.stop_keeps_active = True
     staged = ctx.staging_dir / "jstuck"
     staged.mkdir(parents=True)
     running = AppJob(

@@ -399,14 +399,24 @@ def _stop_orphan_sync_units(adapters: AdapterBundle, ctx: AppsJobContext) -> boo
     the rest of this process, so no app job or app start runs beside untrusted build code.
     """
     try:
-        for instance in ctx.sync_unit.list_active_instances():
-            logger.warning("apps: stopped orphan sync unit instance=%s", instance)
-            ctx.sync_unit.stop(instance)
-        return True
+        orphans = ctx.sync_unit.list_active_instances()
     except Exception:
-        logger.exception(
-            "apps: could not stop an orphan sync unit; app jobs and app starts stay blocked until the next restart"
-        )
+        logger.exception("apps: could not list sync units; app jobs and app starts stay blocked until the next restart")
+        orphans = None
+    if orphans is not None:
+        try:
+            for instance in orphans:
+                ctx.sync_unit.stop(instance)
+                logger.warning("apps: stopped orphan sync unit instance=%s", instance)
+            still_active = set(orphans) & set(ctx.sync_unit.list_active_instances())
+        except Exception:
+            logger.exception(
+                "apps: could not stop an orphan sync unit; app jobs and app starts stay blocked until the next restart"
+            )
+            still_active = set(orphans)
+        if not still_active:
+            return True
+        logger.error("apps: orphan sync units still active after stop instances=%s", sorted(still_active))
     try:
         lock_cm = adapters.state.lock_apps()
         lock_cm.__enter__()

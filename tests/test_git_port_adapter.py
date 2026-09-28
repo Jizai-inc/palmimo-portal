@@ -106,7 +106,10 @@ class _RecordingRunner:
 
     def __call__(self, argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         self.calls.append(argv)
-        stdout = "deadbeef" if argv[1] == "rev-parse" else "deadbeef\trefs/heads/main\n"
+        if argv[1] == "rev-parse" and "--symbolic-full-name" in argv:
+            stdout = "refs/heads/main\n"
+        else:
+            stdout = "deadbeef" if argv[1] == "rev-parse" else "deadbeef\trefs/heads/main\n"
         return subprocess.CompletedProcess(argv, 0, stdout=stdout, stderr="")
 
 

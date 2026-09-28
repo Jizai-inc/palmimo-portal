@@ -629,8 +629,12 @@ def purge_path(ctx: AppsJobContext, path: Path) -> str | None:
         ctx.sync_unit.wait(instance, timeout_s=SYNC_TIMEOUT_SECONDS)
         contained = True
     except Exception as error:
-        _contain_sync_unit(ctx, instance, error)
-        contained = True
+        try:
+            ctx.sync_unit.stop(instance)
+        except Exception as stop_error:
+            logger.warning("apps: could not stop failed purge unit instance=%s: %s", instance, stop_error)
+        else:
+            contained = True
         logger.warning("apps: purge request failed path=%s: %s", path, error)
     finally:
         if contained:

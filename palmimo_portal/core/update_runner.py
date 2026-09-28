@@ -15,6 +15,7 @@ import logging
 import threading
 import time
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 
 from palmimo_portal.core.update import advance, mark_failed, mark_restarting
 from palmimo_portal.ports import AdapterUnavailableError, StateStore, SystemPort, Updater, UpdateStepError
@@ -63,13 +64,25 @@ class UpdateRunner:
         self._alive = alive
         self._busy_lock = threading.Lock()
 
-    def start(self, target: str) -> None:
+    def start(self, target: str, *, job_lock: AbstractContextManager[None] | None = None) -> None:
         """Start applying *target*, in a background thread unless ``run_in_thread`` is ``False``."""
+
+        def run() -> None:
+            try:
+                self._run(target)
+            finally:
+                if job_lock is not None:
+                    job_lock.__exit__(None, None, None)
+
         if self._run_in_thread:
-            thread = threading.Thread(target=self._run, args=(target,), daemon=True, name="palmimo-portal-update")
-            thread.start()
+            try:
+                threading.Thread(target=run, daemon=True, name="palmimo-portal-update").start()
+            except BaseException:
+                if job_lock is not None:
+                    job_lock.__exit__(None, None, None)
+                raise
         else:
-            self._run(target)
+            run()
 
     def _run(self, target: str) -> None:
         if not self._busy_lock.acquire(blocking=False):

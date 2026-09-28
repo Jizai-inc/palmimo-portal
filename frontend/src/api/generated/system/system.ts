@@ -236,6 +236,9 @@ export const useShutdownApiV1SystemShutdownPost = <TError = unknown,
  * ``adapters`` and ``state_dir`` expose what this process is actually
  * running as, so a device on fake adapters or the wrong state directory
  * is diagnosable from a client request.
+ *
+ * ``ntp_synchronized`` and ``disk_free_bytes`` back the "clock not synced
+ * yet" / "disk almost full" UI warnings (design doc 3.6).
  * @summary Get Status
  */
 export const getStatusApiV1SystemStatusGet = async ( options?: RequestInit): Promise<SystemStatus> => {

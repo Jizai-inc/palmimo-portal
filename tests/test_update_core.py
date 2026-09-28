@@ -166,7 +166,7 @@ def test_start_check_raises_rate_limited_within_the_window() -> None:
     with pytest.raises(UpdateCheckRateLimitedError) as excinfo:
         start_check(state, now=1010.0)
 
-    assert excinfo.value.retry_after_seconds == pytest.approx(50.0)
+    assert excinfo.value.retry_after_seconds == pytest.approx(5.0)
 
 
 def test_start_check_succeeds_once_the_rate_limit_window_has_passed() -> None:

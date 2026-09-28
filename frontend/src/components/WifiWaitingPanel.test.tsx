@@ -18,6 +18,8 @@ const CONNECTING_STATUS = {
   last_wifi_attempt: null,
   adapters: "fake",
   state_dir: "/tmp",
+  disk_free_bytes: 5_000_000_000,
+  ntp_synchronized: true,
 };
 
 describe("WifiWaitingPanel", () => {

@@ -12,24 +12,65 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from palmimo_portal.adapters.catalog import GitHubCatalogSource
+from palmimo_portal.adapters.clock import SystemClockPort
 from palmimo_portal.adapters.comitup import ComitupNetworkPort
+from palmimo_portal.adapters.disk import OsDiskPort
+from palmimo_portal.adapters.git_port import SubprocessGitPort
 from palmimo_portal.adapters.git_uv_updater import GitUvUpdater
 from palmimo_portal.adapters.github_releases import GitHubReleaseSource
 from palmimo_portal.adapters.identity import FileIdentityStore
+from palmimo_portal.adapters.journal import JournalctlPort
+from palmimo_portal.adapters.platform import GitHubPlatformBundleSource, SudoPlatformPort
+from palmimo_portal.adapters.rundir import TmpfsRunDirPort
+from palmimo_portal.adapters.secrets import JsonSecretsStore
 from palmimo_portal.adapters.ssh_keys import AuthorizedKeysSshKeyPort
 from palmimo_portal.adapters.state import JsonFileStateStore, preflight_state_dir
 from palmimo_portal.adapters.static_asset import repair_static_dir
-from palmimo_portal.adapters.systemd import SystemdSystemPort
-from palmimo_portal.ports import IdentityStore, NetworkPort, ReleaseSource, SshKeyPort, StateStore, SystemPort, Updater
+from palmimo_portal.adapters.systemd import SystemdAppUnitPort, SystemdSyncUnitPort, SystemdSystemPort
+from palmimo_portal.adapters.uv_port import SubprocessUvPort
+from palmimo_portal.ports import (
+    AppUnitPort,
+    CatalogSource,
+    ClockPort,
+    DiskPort,
+    GitPort,
+    IdentityStore,
+    JournalPort,
+    NetworkPort,
+    PlatformBundleSource,
+    PlatformPort,
+    ReleaseSource,
+    RunDirPort,
+    SecretsStore,
+    SshKeyPort,
+    StateStore,
+    SyncUnitPort,
+    SystemPort,
+    Updater,
+    UvPort,
+)
 from palmimo_portal.settings import Settings
 from palmimo_portal.testing.fakes import (
+    FakeAppUnitPort,
+    FakeCatalogSource,
+    FakeClockPort,
+    FakeDiskPort,
+    FakeGitPort,
     FakeIdentityStore,
+    FakeJournalPort,
     FakeNetworkPort,
+    FakePlatformBundleSource,
+    FakePlatformPort,
     FakeReleaseSource,
+    FakeRunDirPort,
+    FakeSecretsStore,
     FakeSshKeyPort,
     FakeStateStore,
+    FakeSyncUnitPort,
     FakeSystemPort,
     FakeUpdater,
+    FakeUvPort,
 )
 
 
@@ -37,6 +78,8 @@ from palmimo_portal.testing.fakes import (
 # the rest of this process's own persisted state -- see
 # palmimo_portal.adapters.comitup's module docstring for why it exists.
 KNOWN_NETWORK_MARKER_FILENAME = "network_known.marker"
+# GitHub exposes one releases/latest per repository; devkit mixes SDK and examples releases.
+CATALOG_RELEASE_TAG_PREFIX = "examples-v"
 
 
 @dataclass(frozen=True)
@@ -50,6 +93,19 @@ class AdapterBundle:
     identity: IdentityStore
     releases: ReleaseSource
     updater: Updater
+    secrets: SecretsStore
+    git: GitPort
+    uv: UvPort
+    sync_unit: SyncUnitPort
+    disk: DiskPort
+    app_unit: AppUnitPort
+    run_dir: RunDirPort
+    journal: JournalPort
+    platform: PlatformPort
+    platform_bundle: PlatformBundleSource
+    platform_releases: ReleaseSource
+    clock: ClockPort
+    catalog: CatalogSource
 
 
 def build_adapters(settings: Settings) -> AdapterBundle:
@@ -76,6 +132,19 @@ def build_adapters(settings: Settings) -> AdapterBundle:
             identity=FakeIdentityStore(),
             releases=FakeReleaseSource(),
             updater=FakeUpdater(),
+            secrets=FakeSecretsStore(),
+            git=FakeGitPort(),
+            uv=FakeUvPort(),
+            sync_unit=FakeSyncUnitPort(),
+            disk=FakeDiskPort(),
+            app_unit=FakeAppUnitPort(),
+            run_dir=FakeRunDirPort(),
+            journal=FakeJournalPort(),
+            platform=FakePlatformPort(),
+            platform_bundle=FakePlatformBundleSource(),
+            platform_releases=FakeReleaseSource(),
+            clock=FakeClockPort(),
+            catalog=FakeCatalogSource(),
         )
     preflight_state_dir(settings.state_dir)
     real_state = JsonFileStateStore(settings.state_dir)
@@ -90,4 +159,24 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         identity=FileIdentityStore(settings.identity_file),
         releases=GitHubReleaseSource(repo=settings.update_repo, channel=settings.update_channel),
         updater=GitUvUpdater(portal_dir=settings.portal_dir, uv_bin=settings.uv_bin, update_repo=settings.update_repo),
+        secrets=JsonSecretsStore(settings.secrets_dir),
+        git=SubprocessGitPort(),
+        uv=SubprocessUvPort(uv_bin=settings.uv_bin),
+        sync_unit=SystemdSyncUnitPort(),
+        disk=OsDiskPort(),
+        app_unit=SystemdAppUnitPort(),
+        run_dir=TmpfsRunDirPort(settings.run_dir),
+        journal=JournalctlPort(),
+        platform=SudoPlatformPort(installed_path=settings.platform_dir / "installed.json", sudo_bin=settings.sudo_bin),
+        platform_bundle=GitHubPlatformBundleSource(platform_repo=settings.platform_repo),
+        platform_releases=GitHubReleaseSource(repo=settings.platform_repo, channel=settings.update_channel),
+        clock=SystemClockPort(),
+        catalog=GitHubCatalogSource(
+            catalog_repo=settings.catalog_repo,
+            release_source=GitHubReleaseSource(
+                repo=settings.catalog_repo,
+                channel=settings.update_channel,
+                tag_prefix=CATALOG_RELEASE_TAG_PREFIX,
+            ),
+        ),
     )

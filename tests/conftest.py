@@ -58,7 +58,19 @@ def settings(tmp_path: Path) -> Settings:
     # behavior depend on whether `make build` happens to have been run on
     # the machine running them (see test_app.py's SPA-fallback tests, which
     # override this on purpose). See Settings.static_dir's docstring.
-    return Settings(allowed_hosts=frozenset({"testserver"}), static_dir=tmp_path / "static-not-built")
+    platform_dir = tmp_path / "platform"
+    current = platform_dir / "current"
+    current.mkdir(parents=True)
+    (current / "install.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    return Settings(
+        allowed_hosts=frozenset({"testserver"}),
+        static_dir=tmp_path / "static-not-built",
+        platform_dir=platform_dir,
+        # No test drives the real background loop -- tests call
+        # PeriodicScheduler.tick() directly against the fake clock instead
+        # (see core/periodic.py's module docstring).
+        periodic_enabled=False,
+    )
 
 
 @pytest.fixture

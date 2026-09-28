@@ -59,11 +59,35 @@ function systemStatusAlwaysOkHandler() {
       last_wifi_attempt: null,
       adapters: "fake",
       state_dir: "/tmp",
+      disk_free_bytes: 5_000_000_000,
+      ntp_synchronized: true,
+    }),
+  );
+}
+
+/** Default `GET /platform` used by every test below (PlatformUpdateCard, rendered inside UpdatePanel, always fetches it) -- ready, no update, nothing to warn about. Individual tests override via `server.use(...)` when the platform row itself is under test. */
+function platformReadyHandler() {
+  return http.get("*/api/v1/platform", () =>
+    HttpResponse.json({
+      installed_at: null,
+      installed_version: 1,
+      latest: null,
+      latest_error: null,
+      ready: true,
+      reason: null,
+      required_version: 1,
+      verify_diffs: [],
     }),
   );
 }
 
 describe("UpdatePanel", () => {
+  // PlatformUpdateCard fetches `GET /platform` unconditionally; give every test a working
+  // default so pre-existing update/rollback scenarios don't need to know about it.
+  beforeEach(() => {
+    server.use(platformReadyHandler());
+  });
+
   it("renders the installed version, latest release, and last checked date", async () => {
     useStatus(BASE_STATUS);
     renderWithProviders(<UpdatePanel />);
@@ -137,6 +161,8 @@ describe("UpdatePanel", () => {
           last_wifi_attempt: null,
           adapters: "fake",
           state_dir: "/tmp",
+          disk_free_bytes: 5_000_000_000,
+          ntp_synchronized: true,
         });
       }),
     );
@@ -182,6 +208,8 @@ describe("UpdatePanel", () => {
             last_wifi_attempt: null,
             adapters: "fake",
             state_dir: "/tmp",
+            disk_free_bytes: 5_000_000_000,
+            ntp_synchronized: true,
           }),
         ),
       );
@@ -378,7 +406,7 @@ describe("UpdatePanel", () => {
     expect(await screen.findByText("Palmimo could not reach the update service. Try again shortly.")).toBeInTheDocument();
   });
 
-  it("stays silent on a manual check-now 429", async () => {
+  it("tells the operator when to retry after a manual check-now 429", async () => {
     const user = userEvent.setup();
     useStatus(BASE_STATUS);
     server.use(
@@ -389,7 +417,7 @@ describe("UpdatePanel", () => {
     await screen.findByText("Up to date");
     await user.click(screen.getByRole("button", { name: "Check now" }));
 
-    expect(screen.queryByText("You just checked for updates. Try again in 30 seconds.")).not.toBeInTheDocument();
+    expect(await screen.findByText("You just checked for updates. Try again in 30 seconds.")).toBeInTheDocument();
   });
 
   it("labels the failed step through stepLabel rather than the raw backend step name", async () => {

@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from contextlib import AbstractContextManager
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
@@ -33,6 +34,7 @@ from palmimo_portal.api.deps import (
 from palmimo_portal.api.errors import PortalError
 from palmimo_portal.core import update as update_core
 from palmimo_portal.ports import (
+    AppsLockTimeoutError,
     InstalledVersion,
     ReleaseSource,
     ReleaseSourceError,
@@ -51,6 +53,30 @@ router = APIRouter(
     tags=["update"],
     dependencies=[Depends(require_provisioned), Depends(require_auth), Depends(require_full_session)],
 )
+
+
+def _ensure_no_apps_job_in_progress(state_store: StateStore) -> None:
+    """Refuse to start a Portal self-update while an app install/update/delete job holds ``apps.lock``.
+
+    Probes the lock rather than holding it: this call only needs to know
+    whether a job is *currently* in flight, not to block one from starting
+    the instant after. See ``api/apps.py``'s module docstring for the
+    symmetric check in the other direction.
+    """
+    try:
+        with state_store.lock_apps():
+            pass
+    except AppsLockTimeoutError as error:
+        raise PortalError(409, "app_job_in_progress") from error
+
+
+def _ensure_no_platform_update_in_progress(state_store: StateStore) -> None:
+    """Refuse a Portal self-update while a platform-bundle update (``api/platform.py``) is running.
+
+    Symmetric with :func:`_ensure_no_apps_job_in_progress`.
+    """
+    if state_store.read_platform_update_state().job.state == "running":
+        raise PortalError(409, "platform_update_in_progress")
 
 
 class InstalledInfo(BaseModel):
@@ -221,25 +247,34 @@ def apply(
     """
     settings: Settings = request.app.state.settings
     with lock:
-        state = state_store.read_update_state()
-        installed = updater.installed()
+        _ensure_no_platform_update_in_progress(state_store)
+        apps_lock = state_store.lock_apps()
         try:
-            state = update_core.start_apply(
-                state, installed, body.tag, now=time.time(), channel=settings.update_channel
-            )
-        except update_core.UpdateInProgressError as error:
-            raise PortalError(409, "update_in_progress") from error
-        except update_core.InvalidReleaseTagError as error:
-            raise PortalError(400, "invalid_release_tag") from error
-        except update_core.PrereleaseRefusedError as error:
-            raise PortalError(409, "prerelease_refused") from error
-        except update_core.NoReleaseCheckedError as error:
-            raise PortalError(409, "no_release_checked") from error
-        except update_core.UpdateTargetMismatch as error:
-            raise PortalError(409, "update_target_mismatch") from error
-        state_store.write_update_state(state)
-
-    _start_runner(request, body.tag)
+            apps_lock.__enter__()
+        except AppsLockTimeoutError as error:
+            raise PortalError(409, "app_job_in_progress") from error
+        try:
+            state = state_store.read_update_state()
+            installed = updater.installed()
+            try:
+                state = update_core.start_apply(
+                    state, installed, body.tag, now=time.time(), channel=settings.update_channel
+                )
+            except update_core.UpdateInProgressError as error:
+                raise PortalError(409, "update_in_progress") from error
+            except update_core.InvalidReleaseTagError as error:
+                raise PortalError(400, "invalid_release_tag") from error
+            except update_core.PrereleaseRefusedError as error:
+                raise PortalError(409, "prerelease_refused") from error
+            except update_core.NoReleaseCheckedError as error:
+                raise PortalError(409, "no_release_checked") from error
+            except update_core.UpdateTargetMismatch as error:
+                raise PortalError(409, "update_target_mismatch") from error
+            state_store.write_update_state(state)
+        except BaseException:
+            apps_lock.__exit__(None, None, None)
+            raise
+        _start_runner(request, body.tag, apps_lock)
     return _status_response(state_store.read_update_state(), updater.installed(), channel=settings.update_channel)
 
 
@@ -263,31 +298,40 @@ def rollback(
     """
     settings: Settings = request.app.state.settings
     with lock:
-        state = state_store.read_update_state()
-        installed = updater.installed()
+        _ensure_no_platform_update_in_progress(state_store)
+        apps_lock = state_store.lock_apps()
         try:
-            state = update_core.start_rollback(state, installed, now=time.time(), channel=settings.update_channel)
-        except update_core.UpdateInProgressError as error:
-            raise PortalError(409, "update_in_progress") from error
-        except update_core.NoPreviousVersionError as error:
-            raise PortalError(409, "no_previous_version") from error
-        except update_core.InvalidReleaseTagError as error:
-            raise PortalError(400, "invalid_release_tag") from error
-        except update_core.PrereleaseRefusedError as error:
-            raise PortalError(409, "prerelease_refused") from error
-        state_store.write_update_state(state)
-
-    target = state.job.target
+            apps_lock.__enter__()
+        except AppsLockTimeoutError as error:
+            raise PortalError(409, "app_job_in_progress") from error
+        try:
+            state = state_store.read_update_state()
+            installed = updater.installed()
+            try:
+                state = update_core.start_rollback(state, installed, now=time.time(), channel=settings.update_channel)
+            except update_core.UpdateInProgressError as error:
+                raise PortalError(409, "update_in_progress") from error
+            except update_core.NoPreviousVersionError as error:
+                raise PortalError(409, "no_previous_version") from error
+            except update_core.InvalidReleaseTagError as error:
+                raise PortalError(400, "invalid_release_tag") from error
+            except update_core.PrereleaseRefusedError as error:
+                raise PortalError(409, "prerelease_refused") from error
+            state_store.write_update_state(state)
+        except BaseException:
+            apps_lock.__exit__(None, None, None)
+            raise
+        target = state.job.target
     assert target is not None  # start_rollback always sets job.target = previous_tag
-    _start_runner(request, target)
+    _start_runner(request, target, apps_lock)
     return _status_response(state_store.read_update_state(), updater.installed(), channel=settings.update_channel)
 
 
-def _start_runner(request: Request, target: str) -> None:
+def _start_runner(request: Request, target: str, apps_lock: AbstractContextManager[None]) -> None:
     """Start *target* applying on the app's shared :class:`~palmimo_portal.core.update_runner.UpdateRunner`.
 
     Uses the single instance constructed at app startup (``api/app.py``'s
     ``create_app``) so its ``_busy_lock`` guards across requests and jobs.
     """
     runner = request.app.state.update_runner
-    runner.start(target)
+    runner.start(target, job_lock=apps_lock)

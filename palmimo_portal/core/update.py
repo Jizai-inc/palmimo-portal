@@ -22,6 +22,7 @@ covers any step failing along the way.
 from __future__ import annotations
 
 import logging
+import math
 import re
 import threading
 
@@ -32,7 +33,7 @@ logger = logging.getLogger("palmimo_portal")
 
 
 #: How long a successful check protects the Portal from another one.
-CHECK_RATE_LIMIT_SECONDS = 60.0
+CHECK_RATE_LIMIT_SECONDS = 15.0
 
 #: Single source of truth for the frontend build's GitHub Release asset name.
 #: The release workflow, ``GitUvUpdater``'s ``assets`` step, and the
@@ -165,7 +166,7 @@ def start_check(state: UpdateState, now: float) -> UpdateState:
         # (e.g. a power-cut reboot with no RTC) -- treat that as an expired
         # rate limit, the same rule resolve_attempt uses (core/wifi_attempt.py).
         if 0 <= elapsed < CHECK_RATE_LIMIT_SECONDS:
-            raise UpdateCheckRateLimitedError(CHECK_RATE_LIMIT_SECONDS - elapsed)
+            raise UpdateCheckRateLimitedError(math.ceil(CHECK_RATE_LIMIT_SECONDS - elapsed))
     return state
 
 

@@ -179,7 +179,6 @@ def test_every_api_route_is_allowlisted_or_carries_require_auth(app: FastAPI) ->
 def test_the_contract_function_itself_catches_an_ungated_route() -> None:
     # A white-box self-test: build a throwaway app with a single, genuinely
     # ungated /api/v1/x route and confirm _find_unexplained_routes actually
-    # flags it. Without this, a bug in the walk itself (e.g. the API_PREFIX
     # filter silently matching nothing) could make the real test above pass
     # vacuously -- the same failure mode the mount tests below had before
     # this rewrite.
@@ -236,7 +235,6 @@ def test_openapi_and_docs_mounts_are_not_under_api_prefix(tmp_path: Path) -> Non
     # -- not the conftest `app` fixture, whose default settings
     # (enable_docs=False, a nonexistent static_dir) mean /docs, /redoc,
     # /openapi.json, and the frontend-assets mount are never actually
-    # registered at all. Without this, the loop below iterates zero
     # matching entries and the test passes vacuously, never having checked
     # anything.
     static_dir = _built_static_dir(tmp_path)

@@ -30,3 +30,28 @@ export function formatUtcTimestamp(timestampSeconds: number, { withYear = true, 
   }
   return `${datePart} ${pad2(date.getUTCHours())}:${pad2(date.getUTCMinutes())} UTC`;
 }
+
+export interface FormatLocalTimestampOptions {
+  /** Include the year in the date portion. Default `true`. */
+  withYear?: boolean;
+  /** BCP 47 locale to format with, e.g. the current `i18n.language` -- omit to use the
+   * runtime's default locale (the browser's, not necessarily the UI's chosen language). */
+  locale?: string;
+}
+
+/** Formats a Unix timestamp (seconds) in the given locale's local wall-clock time. */
+export function formatLocalTimestamp(
+  timestampSeconds: number | null,
+  { withYear = true, locale }: FormatLocalTimestampOptions = {},
+): string {
+  if (timestampSeconds === null || !Number.isFinite(timestampSeconds)) {
+    return "--";
+  }
+  return new Intl.DateTimeFormat(locale, {
+    year: withYear ? "numeric" : undefined,
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(timestampSeconds * 1000);
+}

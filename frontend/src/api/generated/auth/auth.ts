@@ -19,8 +19,8 @@ import type {
   ChangePasswordResponse,
   HTTPValidationError,
   LoginResponse,
+  PalmimoPortalApiAuthResetResponse,
   PasswordRequest,
-  ResetResponse,
   StatusResponse
 } from '../models';
 
@@ -372,9 +372,9 @@ export const useLogoutApiV1AuthLogoutPost = <TError = unknown,
  *         timeout.
  * @summary Reset
  */
-export const resetApiV1AuthResetPost = async ( options?: RequestInit): Promise<ResetResponse> => {
+export const resetApiV1AuthResetPost = async ( options?: RequestInit): Promise<PalmimoPortalApiAuthResetResponse> => {
 
-  return customFetch<ResetResponse>(getResetApiV1AuthResetPostUrl(),
+  return customFetch<PalmimoPortalApiAuthResetResponse>(getResetApiV1AuthResetPostUrl(),
   {
     ...options,
     method: 'POST'

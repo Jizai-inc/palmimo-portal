@@ -47,7 +47,9 @@ export async function customFetch<T>(url: string, options: RequestInit = {}): Pr
   const method = (options.method ?? "GET").toUpperCase();
   const headers = new Headers(options.headers);
   headers.set("Accept", "application/json");
-  if (options.body !== undefined && !headers.has("Content-Type")) {
+  // A FormData body must keep the Content-Type fetch derives itself: the
+  // multipart boundary lives in that header, and a hand-set value drops it.
+  if (options.body !== undefined && !(options.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   if (STATE_CHANGING_METHODS.has(method)) {

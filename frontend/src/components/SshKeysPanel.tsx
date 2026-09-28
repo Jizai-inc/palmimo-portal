@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { copyText } from "@/lib/copyText";
 import { generateEd25519KeyPair, probeEd25519KeygenSupport } from "@/lib/sshKeygen";
 
 const LAST_KEY_CONFIRMATION = "last-key";
@@ -109,7 +110,7 @@ function SshCommandHint() {
   const command = `ssh -i ~/.ssh/${PRIVATE_KEY_FILENAME} user@${systemStatus.hostname}.local`;
 
   async function handleCopy() {
-    await navigator.clipboard.writeText(command);
+    if (!(await copyText(command))) return;
     setCopied(true);
     setTimeout(() => setCopied(false), COPIED_RESET_MS);
   }

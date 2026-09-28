@@ -3,8 +3,12 @@ import { useTranslation } from "react-i18next";
 
 import { useGetStatusApiV1SystemStatusGet } from "@/api/generated/system/system";
 import { useGetStatusApiV1WifiStatusGet } from "@/api/generated/wifi/wifi";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+
+/** Below this, `dashboard.diskLowWarning` is shown (design doc 3.4's own 1 GB free-space gate). */
+const LOW_DISK_BYTES = 1_000_000_000;
 
 /**
  * The dashboard's status card (routes/dashboard.tsx). Fetches its own data so it can be
@@ -37,6 +41,18 @@ export function DashboardStatusCard({ portalBadge }: { portalBadge?: React.React
         <KvRow label={t("dashboard.hostnameLabel")} value={systemStatus?.hostname} />
         <KvRow label={t("dashboard.deviceIdLabel")} value={systemStatus?.device_id} />
       </dl>
+      {systemStatus && !systemStatus.ntp_synchronized ? (
+        <Alert>
+          <AlertDescription>{t("dashboard.ntpBanner")}</AlertDescription>
+        </Alert>
+      ) : null}
+      {systemStatus && systemStatus.disk_free_bytes < LOW_DISK_BYTES ? (
+        <Alert variant="destructive">
+          <AlertDescription>
+            {t("dashboard.diskLowWarning", { freeGb: (systemStatus.disk_free_bytes / 1_000_000_000).toFixed(1) })}
+          </AlertDescription>
+        </Alert>
+      ) : null}
     </div>
   );
 }

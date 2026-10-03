@@ -1,10 +1,12 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getGetAppApiV1AppsNameGetMockHandler, getGetLogsApiV1AppsNameLogsGetMockHandler } from "@/api/generated/apps/apps.msw";
 import type { AppDetailResponse } from "@/api/generated/models";
+import { AppDetailPanel } from "@/components/AppDetailPanel";
+import { getListSecretsApiV1SecretsGetMockHandler } from "@/api/generated/secrets/secrets.msw";
 import { AppLogsPanel } from "@/components/AppLogsPanel";
 import { LOG_POLL_INTERVAL_MS } from "@/lib/useAppLogs";
 import { renderWithRouter } from "@/test/render";
@@ -221,4 +223,51 @@ describe("AppLogsPanel", () => {
       expect(firstRequestForX?.cursor).toBeNull();
     });
   });
+});
+
+describe("log display settings and copying", () => {
+  let clipboardDescriptor: PropertyDescriptor | undefined;
+  beforeEach(() => {
+    localStorage.clear();
+    clipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", { configurable: true, get: () => undefined });
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (clipboardDescriptor) Object.defineProperty(navigator, "clipboard", clipboardDescriptor);
+    else Reflect.deleteProperty(navigator, "clipboard");
+    localStorage.clear();
+  });
+
+  it("copies raw logs even when pretty JSON is enabled", async () => {
+    const raw = '{"arguments":"{\\"reason\\":\\"\\\\u58c1\\"}"}';
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.spyOn(navigator, "clipboard", "get").mockReturnValue({ writeText } as unknown as Clipboard);
+    server.use(
+      getGetAppApiV1AppsNameGetMockHandler(detail()),
+      getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [{ message: raw, timestamp: null, invocation_id: null }], invocations: [], next_cursor: null }),
+    );
+    renderWithRouter(<AppLogsPanel id="palmimo.teleop" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Display" }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Pretty JSON" }));
+    await waitFor(() => expect(screen.getByRole("region", { name: "Logs" })).toHaveTextContent("壁"));
+    fireEvent.click(screen.getByRole("button", { name: "Copy logs" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(raw));
+  });
+
+  it("shares persisted wrapping from the detail panel to the expanded panel", async () => {
+    server.use(
+      getGetAppApiV1AppsNameGetMockHandler(detail()),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+      getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }),
+    );
+    const inline = renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Display" }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Wrap lines" }));
+    inline.unmount();
+    renderWithRouter(<AppLogsPanel id="palmimo.teleop" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Display" }));
+    expect(screen.getByRole("menuitemcheckbox", { name: "Wrap lines" })).toHaveAttribute("aria-checked", "false");
+  });
+
 });

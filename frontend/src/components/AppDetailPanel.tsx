@@ -25,6 +25,7 @@ import type { AppDetailResponse, ParamSpecInfo, SourceUpdateRequestRefKind } fro
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { AppIdLabel, appIdNamePart } from "@/components/AppIdLabel";
 import { AppJobDialog } from "@/components/AppJobDialog";
+import { LogViewer } from "@/components/LogViewer";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -40,9 +41,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { appStatusLabel, appStatusTone, isAppStatusBusy } from "@/lib/appStatus";
-import { copyText } from "@/lib/copyText";
 import { deviceLabel } from "@/lib/deviceLabel";
-import { formatLocalTimestamp, formatUtcTimestamp } from "@/lib/formatTimestamp";
+import { formatUtcTimestamp } from "@/lib/formatTimestamp";
 import { useAppLogs } from "@/lib/useAppLogs";
 
 export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string; onDeleted?: () => void }) {
@@ -402,60 +402,28 @@ function ParamsSection({ app, onSaved }: { app: AppDetailResponse; onSaved: () =
 }
 
 function LogsSection({ id, status }: { id: string; status: string }) {
-  const { t, i18n } = useTranslation();
-  const [copied, setCopied] = useState(false);
-  const [copyFailed, setCopyFailed] = useState(false);
-  const { unavailable, invocations, invocation, setInvocation, accumulated, text, refetch } = useAppLogs(id, status);
-
-  if (unavailable) {
-    return (
-      <Section title={t("appDetail.logsTitle")}>
-        <p className="text-sm text-muted-foreground">{t("appDetail.logsUnavailable")}</p>
-      </Section>
-    );
-  }
-
-  async function handleCopy() {
-    const ok = await copyText(text);
-    setCopied(ok);
-    setCopyFailed(!ok);
-    setTimeout(() => { setCopied(false); setCopyFailed(false); }, 2000);
-  }
-
+  const { t } = useTranslation();
+  const logs = useAppLogs(id, status);
   return (
     <Section title={t("appDetail.logsTitle")}>
-      <p className="text-xs text-muted-foreground">{t("appDetail.logsReusedIdNote")}</p>
-      <div className="flex flex-wrap items-center gap-2">
-        {invocations.length > 1 && invocation !== null ? (
-          <select
-            aria-label={t("appDetail.logsInvocationLabel")}
-            className="h-9 rounded-md border border-input bg-transparent px-2 text-sm"
-            value={invocation ?? ""}
-            onChange={(event) => setInvocation(event.target.value)}
-          >
-            {invocations.map((start) => (
-              <option key={start.id} value={start.id}>
-                {t("appDetail.logsInvocationAt", { time: formatLocalTimestamp(start.started_at, { locale: i18n.language }) })}
-              </option>
-            ))}
-          </select>
-        ) : null}
-        <Button type="button" variant="outline" size="sm" onClick={() => void handleCopy()}>
-          {copied ? t("appDetail.logsCopied") : copyFailed ? t("appDetail.logsCopyFailed") : t("appDetail.logsCopyButton")}
-        </Button>
-        <Button type="button" variant="ghost" size="sm" asChild>
-          <Link to="/apps/$id/logs" params={{ id }}>{t("appDetail.logsExpandButton")}</Link>
-        </Button>
-        {status !== "running" ? (
-          <Button type="button" variant="ghost" size="sm" onClick={refetch}>
-            {t("appDetail.logsLoadMoreButton")}
-          </Button>
-        ) : null}
-      </div>
-      {accumulated.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t("appDetail.logsEmptyState")}</p>
-      ) : (
-        <pre className="max-h-64 overflow-auto rounded-md bg-muted p-2 font-mono text-xs">{text}</pre>
+      {logs.unavailable ? <p className="text-sm text-muted-foreground">{t("appDetail.logsUnavailable")}</p> : (
+        <>
+          <p className="text-xs text-muted-foreground">{t("appDetail.logsReusedIdNote")}</p>
+          <LogViewer
+            droppedCount={logs.droppedCount}
+            entries={logs.accumulated}
+            text={logs.text}
+            invocations={logs.invocations}
+            invocation={logs.invocation}
+            setInvocation={logs.setInvocation}
+            toolbar={<>
+              <Button type="button" variant="ghost" size="sm" asChild>
+                <Link to="/apps/$id/logs" params={{ id }}>{t("appDetail.logsExpandButton")}</Link>
+              </Button>
+              {status !== "running" ? <Button type="button" variant="ghost" size="sm" onClick={logs.refetch}>{t("appDetail.logsLoadMoreButton")}</Button> : null}
+            </>}
+          />
+        </>
       )}
     </Section>
   );

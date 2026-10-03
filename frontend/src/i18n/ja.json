@@ -513,7 +513,11 @@
     "brokenReasonTitle": "このアプリは破損しています",
     "logsPageSubtitleCurrentLive": "今回の起動分。2 秒ごとに更新。",
     "logsPageSubtitleCurrent": "今回の起動分。",
-    "logsPageSubtitlePrevious": "以前の起動分。"
+    "logsPageSubtitlePrevious": "以前の起動分。",
+    "logsDisplay": "表示",
+    "logsWrap": "折り返し",
+    "logsFollow": "最新を追従",
+    "logsPretty": "JSON を整形"
   },
   "devices": {
     "camera": "カメラ",

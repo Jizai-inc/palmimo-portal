@@ -122,3 +122,29 @@ it("jumps to the bottom when following is enabled in the menu", () => {
   fireEvent.click(followToggle());
   expect(node.scrollTop).toBe(1000);
 });
+
+it("places the next surviving row at the anchor position when the anchor is dropped", () => {
+  const entries = Array.from({ length: 2000 }, (_, i) => ({ message: `line-${i}`, timestamp: null, invocation_id: null }));
+  const { rerender } = render(<LogViewer entries={entries} text="" droppedCount={0} />);
+  const node = scrollWindow();
+  const topDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetTop")!;
+  const heightDescriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight")!;
+  let dropped = 0;
+  Object.defineProperty(HTMLElement.prototype, "offsetTop", { configurable: true, get() {
+    const index = Number((this.textContent ?? "").match(/line-(\d+)/)?.[1] ?? 0);
+    return (index - dropped) * 20;
+  } });
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", { configurable: true, value: 20 });
+  try {
+    node.scrollTop = 45;
+    fireEvent.scroll(node);
+    expect(screen.getByText("line-2").parentElement!.offsetTop - node.scrollTop).toBe(-5);
+    dropped = 5;
+    rerender(<LogViewer entries={[...entries.slice(5), ...Array.from({ length: 5 }, (_, i) => ({ message: `line-${2000 + i}`, timestamp: null, invocation_id: null }))]} text="" droppedCount={5} />);
+    expect(screen.queryByText("line-2")).not.toBeInTheDocument();
+    expect(screen.getByText("line-5").parentElement!.offsetTop - node.scrollTop).toBe(-5);
+  } finally {
+    Object.defineProperty(HTMLElement.prototype, "offsetTop", topDescriptor);
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", heightDescriptor);
+  }
+});

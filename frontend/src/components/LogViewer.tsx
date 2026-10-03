@@ -22,6 +22,19 @@ function displayedMessage(entry: JournalEntryInfo, pretty: boolean): string {
   return message;
 }
 
+/** Requires a monotone predicate over rows in document order. */
+function findFirstRow(rows: HTMLCollection | undefined, matches: (row: HTMLElement) => boolean): HTMLElement | null {
+  if (!rows) return null;
+  let low = 0;
+  let high = rows.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if (matches(rows[middle] as HTMLElement)) high = middle;
+    else low = middle + 1;
+  }
+  return rows.item(low) as HTMLElement | null;
+}
+
 export function LogViewer({
   entries, text, droppedCount = 0, expanded = false, unavailable = false, invocations = [], invocation = null, setInvocation, toolbar,
 }: {
@@ -38,6 +51,11 @@ export function LogViewer({
   const { t, i18n } = useTranslation();
   const { wrap, pretty, updateDisplay } = useLogDisplay();
   const [follow, setFollow] = useState(true);
+  const followRef = useRef(true);
+  const updateFollow = useCallback((next: boolean) => {
+    followRef.current = next;
+    setFollow(next);
+  }, []);
   const [menuOpen, setMenuOpen] = useState(false);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -54,32 +72,34 @@ export function LogViewer({
   const rememberAnchor = useCallback(() => {
     const node = scrollRef.current;
     if (!node) return;
-    const rows = Array.from(node.querySelectorAll<HTMLDivElement>("[data-log-key]"));
-    const row = rows.find((row) => row.offsetTop + row.offsetHeight > node.scrollTop);
-    anchor.current = row ? { key: row.dataset.logKey!, delta: row.offsetTop - node.scrollTop } : null;
+    const row = findFirstRow(contentRef.current?.children, (row) => row.offsetTop + row.offsetHeight > node.scrollTop);
+    anchor.current = row?.dataset.logKey ? { key: row.dataset.logKey, delta: row.offsetTop - node.scrollTop } : null;
   }, []);
 
   const reconcileScroll = useCallback(() => {
     const node = scrollRef.current;
     if (!node) return;
-    const switched = lastInvocation.current !== invocation;
-    if (switched) {
-      lastInvocation.current = invocation;
-      anchor.current = null;
-      setFollow(true);
-    }
-    if (follow || switched) {
+    if (followRef.current) {
       node.scrollTop = node.scrollHeight;
     } else if (anchor.current) {
-      const row = node.querySelector<HTMLDivElement>(`[data-log-key="${anchor.current.key}"]`);
+      const key = anchor.current.key;
+      const row = node.querySelector<HTMLDivElement>(`[data-log-key="${key}"]`)
+        ?? findFirstRow(contentRef.current?.children, (row) => Number(row.dataset.logKey) >= Number(key));
       if (row) node.scrollTop = row.offsetTop - anchor.current.delta;
     }
     // Programmatic movement and browser clamping must not disable following.
     previousTop.current = node.scrollTop;
     rememberAnchor();
-  }, [follow, invocation, rememberAnchor]);
+  }, [rememberAnchor]);
 
-  useLayoutEffect(reconcileScroll, [reconcileScroll, entries, droppedCount, wrap, pretty, unavailable]);
+  useLayoutEffect(() => {
+    if (lastInvocation.current !== invocation) {
+      lastInvocation.current = invocation;
+      anchor.current = null;
+      updateFollow(true);
+    }
+  }, [invocation, updateFollow]);
+  useLayoutEffect(reconcileScroll, [reconcileScroll, entries, droppedCount, wrap, pretty, follow, invocation, unavailable]);
   useLayoutEffect(() => {
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(reconcileScroll);
@@ -111,7 +131,7 @@ export function LogViewer({
 
   const options = [
     { label: t("appDetail.logsWrap"), checked: wrap, toggle: () => updateDisplay({ wrap: !wrap, pretty }) },
-    { label: t("appDetail.logsFollow"), checked: follow, toggle: () => setFollow(!follow) },
+    { label: t("appDetail.logsFollow"), checked: follow, toggle: () => updateFollow(!followRef.current) },
     { label: t("appDetail.logsPretty"), checked: pretty, toggle: () => updateDisplay({ wrap, pretty: !pretty }) },
   ];
 
@@ -174,7 +194,7 @@ export function LogViewer({
         if (node.scrollTop === previousTop.current) return;
         previousTop.current = node.scrollTop;
         rememberAnchor();
-        setFollow(node.scrollHeight - node.clientHeight - node.scrollTop <= 4);
+        updateFollow(node.scrollHeight - node.clientHeight - node.scrollTop <= 4);
       }}>
         <div ref={contentRef}>
           {entries.length === 0 ? <p className="text-muted-foreground">{t("appDetail.logsEmptyState")}</p> : entries.map((entry, index) => (

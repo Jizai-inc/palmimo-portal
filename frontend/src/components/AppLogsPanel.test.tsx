@@ -240,7 +240,7 @@ describe("log display settings and copying", () => {
   });
 
   it("copies raw logs even when pretty JSON is enabled", async () => {
-    const raw = '{"arguments":"{\\"reason\\":\\"\\\\u58c1\\"}"}';
+    const raw = '{"reason":"\\u58c1"}';
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.spyOn(navigator, "clipboard", "get").mockReturnValue({ writeText } as unknown as Clipboard);
     server.use(

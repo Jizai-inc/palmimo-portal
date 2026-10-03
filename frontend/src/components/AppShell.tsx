@@ -37,6 +37,7 @@ export function AppShell({
   subtitle,
   breadcrumbs,
   mobileHeaderAction,
+  fitViewport = false,
   children,
 }: {
   title: string;
@@ -44,6 +45,7 @@ export function AppShell({
   breadcrumbs?: React.ReactNode[];
   /** Rendered beside the title, mobile only -- the dashboard's own "log out" button (see routes/dashboard.tsx). */
   mobileHeaderAction?: React.ReactNode;
+  fitViewport?: boolean;
   children: React.ReactNode;
 }) {
   const { t } = useTranslation();
@@ -177,14 +179,14 @@ export function AppShell({
   );
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className={cn("flex flex-col bg-background", fitViewport ? "h-dvh overflow-hidden [&>header]:shrink-0" : "min-h-screen")}>
       <AppHeader
         onToggleSidebar={handleToggleClick}
         logoutSlot={logoutButton}
         showToggleBadge={updateAvailable}
         wordmarkLinksHome
       />
-      <div className="flex flex-1 md:flex-row">
+      <div className={cn("flex flex-1 md:flex-row", fitViewport && "min-h-0")}>
         {sidebarCollapsed ? null : (
           <aside className="hidden w-60 shrink-0 flex-col gap-4 border-r border-border bg-muted/40 p-4 md:flex">
             <p className="px-2 text-xs font-medium text-muted-foreground">{t("nav.deviceSection")}</p>
@@ -209,9 +211,9 @@ export function AppShell({
             </div>
           </aside>
         )}
-        <main className="flex-1 p-5 md:p-8 lg:p-10">
-          <div className="mx-auto flex max-w-[960px] flex-col gap-6">
-            <div className="flex items-center justify-between gap-2">
+        <main className={cn("flex-1 p-5 md:p-8 lg:p-10", fitViewport && "flex min-h-0 min-w-0 flex-col overflow-y-auto")}>
+          <div className={cn("mx-auto flex max-w-[960px] flex-col gap-6", fitViewport && "min-h-0 w-full flex-1")}>
+            <div className={cn("flex items-center justify-between gap-2", fitViewport && "shrink-0")}>
               <div className="flex flex-col gap-1">
                 {breadcrumbs ? <Breadcrumbs items={breadcrumbs} label={t("common.breadcrumb")} /> : null}
                 <h1 className="text-2xl font-semibold">{title}</h1>

@@ -39,6 +39,8 @@ export interface FormatLocalTimestampOptions {
   locale?: string;
 }
 
+const localFormatters = new Map<string, Intl.DateTimeFormat>();
+
 /** Formats a Unix timestamp (seconds) in the given locale's local wall-clock time. */
 export function formatLocalTimestamp(
   timestampSeconds: number | null,
@@ -47,11 +49,17 @@ export function formatLocalTimestamp(
   if (timestampSeconds === null || !Number.isFinite(timestampSeconds)) {
     return "--";
   }
-  return new Intl.DateTimeFormat(locale, {
-    year: withYear ? "numeric" : undefined,
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(timestampSeconds * 1000);
+  const key = JSON.stringify([locale, withYear]);
+  let formatter = localFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale, {
+      year: withYear ? "numeric" : undefined,
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    localFormatters.set(key, formatter);
+  }
+  return formatter.format(timestampSeconds * 1000);
 }

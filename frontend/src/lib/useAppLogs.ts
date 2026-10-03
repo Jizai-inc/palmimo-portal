@@ -12,6 +12,7 @@ const DEFAULT_LOG_LINES = 200;
 export const LOG_HISTORY_CAP = 2_000;
 
 interface LogHistory {
+  droppedCount: number;
   entries: JournalEntryInfo[];
   /** Once true for an invocation, stays true: entries dropped to stay under the cap never come back. */
   truncated: boolean;
@@ -19,11 +20,12 @@ interface LogHistory {
 
 /** Append `incoming` to `current.entries`, dropping the oldest beyond `cap`. */
 export function appendCapped(current: LogHistory, incoming: JournalEntryInfo[], cap: number): LogHistory {
+  if (incoming.length === 0) return current;
   const merged = [...current.entries, ...incoming];
   if (merged.length <= cap) {
-    return { entries: merged, truncated: current.truncated };
+    return { entries: merged, truncated: current.truncated, droppedCount: current.droppedCount };
   }
-  return { entries: merged.slice(merged.length - cap), truncated: true };
+  return { entries: merged.slice(merged.length - cap), truncated: true, droppedCount: current.droppedCount + merged.length - cap };
 }
 
 export interface UseAppLogsResult {
@@ -39,6 +41,7 @@ export interface UseAppLogsResult {
    */
   isCurrentInvocation: boolean;
   accumulated: JournalEntryInfo[];
+  droppedCount: number;
   /** True once older entries have been dropped to stay under `LOG_HISTORY_CAP`. */
   truncated: boolean;
   text: string;
@@ -66,7 +69,7 @@ export function useAppLogs(id: string, status: string): UseAppLogsResult {
   // case clears the pin instead of fixing it.
   const [pinnedInvocation, setPinnedInvocation] = useState<string | null>(null);
   const [cursorState, setCursorState] = useState<CursorState>({ invocation: null, cursor: null });
-  const [history, setHistory] = useState<LogHistory>({ entries: [], truncated: false });
+  const [history, setHistory] = useState<LogHistory>({ entries: [], truncated: false, droppedCount: 0 });
   // Mirrors the query's own `data.invocations`, one render behind: computing this render's
   // `invocation` (which the query below is parameterized on) from this render's own query result
   // would be circular, so "follow" reads the previous response's list instead. An effect syncing
@@ -114,7 +117,7 @@ export function useAppLogs(id: string, status: string): UseAppLogsResult {
   // Switching invocations starts a fresh accumulation -- the previous invocation's entries are a
   // different journal window, not a continuation.
   useEffect(() => {
-    setHistory({ entries: [], truncated: false });
+    setHistory({ entries: [], truncated: false, droppedCount: 0 });
   }, [invocation]);
 
   // Cursor paging: each response's `next_cursor` tails forward from where the last one left
@@ -139,11 +142,12 @@ export function useAppLogs(id: string, status: string): UseAppLogsResult {
 
   return {
     unavailable: logs?.unavailable,
-    invocations: logs?.invocations ?? [],
+    invocations: knownInvocations,
     invocation,
     setInvocation,
     isCurrentInvocation: pinnedInvocation === null,
     accumulated: history.entries,
+    droppedCount: history.droppedCount,
     truncated: history.truncated,
     text: history.entries.map((entry) => entry.message).join("\n"),
     refetch: () => void refetch(),

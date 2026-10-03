@@ -513,7 +513,11 @@
     "brokenReasonTitle": "This app is broken",
     "logsPageSubtitleCurrentLive": "Current run. Updates every 2 seconds.",
     "logsPageSubtitleCurrent": "Current run.",
-    "logsPageSubtitlePrevious": "A previous run."
+    "logsPageSubtitlePrevious": "A previous run.",
+    "logsDisplay": "Display",
+    "logsWrap": "Wrap lines",
+    "logsFollowButton": "Follow latest",
+    "logsPretty": "Pretty JSON"
   },
   "devices": {
     "camera": "Camera",

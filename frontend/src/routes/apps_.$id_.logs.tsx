@@ -18,7 +18,7 @@ function AppLogsScreen() {
   const { id } = Route.useParams();
   const { t } = useTranslation();
   return (
-    <AppShell title={id} breadcrumbs={[<Link key="apps" to="/apps">{t("apps.title")}</Link>, <Link key="app" to="/apps/$id" params={{ id }}>{id}</Link>, <span key="logs">{t("appDetail.logsTitle")}</span>]}>
+    <AppShell fitViewport title={id} breadcrumbs={[<Link key="apps" to="/apps">{t("apps.title")}</Link>, <Link key="app" to="/apps/$id" params={{ id }}>{id}</Link>, <span key="logs">{t("appDetail.logsTitle")}</span>]}>
       <AppLogsPanel id={id} />
     </AppShell>
   );

@@ -18,11 +18,6 @@ function scrollWindow() {
   return node;
 }
 
-function followToggle() {
-  fireEvent.click(screen.getByRole("button", { name: "Display" }));
-  return screen.getByRole("menuitemcheckbox", { name: "Follow latest" });
-}
-
 it("scrolls to the bottom when new entries arrive while following", () => {
   const { rerender } = render(<LogViewer entries={first} text="first" />);
   const node = scrollWindow();
@@ -35,7 +30,7 @@ it("stops following after scrolling up and preserves the position on new entries
   const node = scrollWindow();
   node.scrollTop = 400;
   fireEvent.scroll(node);
-  expect(followToggle()).toHaveAttribute("aria-checked", "false");
+  expect(screen.getByRole("button", { name: "Follow latest" })).toBeInTheDocument();
   rerender(<LogViewer entries={next} text="first\nsecond" />);
   expect(node.scrollTop).toBe(400);
 });
@@ -45,9 +40,10 @@ it("resumes following after manually scrolling to the bottom", () => {
   const node = scrollWindow();
   node.scrollTop = 400;
   fireEvent.scroll(node);
+  expect(screen.getByRole("button", { name: "Follow latest" })).toBeInTheDocument();
   node.scrollTop = 798;
   fireEvent.scroll(node);
-  expect(followToggle()).toHaveAttribute("aria-checked", "true");
+  expect(screen.queryByRole("button", { name: "Follow latest" })).not.toBeInTheDocument();
 });
 
 it("renders defaults when localStorage is unavailable", () => {
@@ -71,8 +67,8 @@ it("keeps Safari menu clicks working after a blur with no related target", () =>
   const wrap = screen.getByRole("menuitemcheckbox", { name: "Wrap lines" });
   wrap.focus();
   fireEvent.blur(wrap, { relatedTarget: null });
-  fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Follow latest" }));
-  expect(screen.getByRole("menuitemcheckbox", { name: "Follow latest" })).toHaveAttribute("aria-checked", "false");
+  fireEvent.click(wrap);
+  expect(wrap).toHaveAttribute("aria-checked", "false");
   fireEvent.pointerDown(document.body);
   expect(screen.queryByRole("menu")).not.toBeInTheDocument();
 });
@@ -109,18 +105,20 @@ it("resumes following when the invocation changes", () => {
   const node = scrollWindow();
   node.scrollTop = 400;
   fireEvent.scroll(node);
+  expect(screen.getByRole("button", { name: "Follow latest" })).toBeInTheDocument();
   rerender(<LogViewer entries={next} text="first\nsecond" invocation="new" />);
   expect(node.scrollTop).toBe(1000);
-  expect(followToggle()).toHaveAttribute("aria-checked", "true");
+  expect(screen.queryByRole("button", { name: "Follow latest" })).not.toBeInTheDocument();
 });
 
-it("jumps to the bottom when following is enabled in the menu", () => {
+it("jumps to the bottom and hides the follow button when it is pressed", () => {
   render(<LogViewer entries={first} text="first" />);
   const node = scrollWindow();
   node.scrollTop = 400;
   fireEvent.scroll(node);
-  fireEvent.click(followToggle());
+  fireEvent.click(screen.getByRole("button", { name: "Follow latest" }));
   expect(node.scrollTop).toBe(1000);
+  expect(screen.queryByRole("button", { name: "Follow latest" })).not.toBeInTheDocument();
 });
 
 it("places the next surviving row at the anchor position when the anchor is dropped", () => {

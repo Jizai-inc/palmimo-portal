@@ -516,7 +516,7 @@
     "logsPageSubtitlePrevious": "以前の起動分。",
     "logsDisplay": "表示",
     "logsWrap": "折り返し",
-    "logsFollow": "最新を追従",
+    "logsFollowButton": "最新を追従する",
     "logsPretty": "JSON を整形"
   },
   "devices": {

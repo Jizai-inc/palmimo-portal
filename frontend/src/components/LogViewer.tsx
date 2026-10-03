@@ -1,4 +1,4 @@
-import { Check, SlidersHorizontal } from "lucide-react";
+import { ArrowDown, Check, SlidersHorizontal } from "lucide-react";
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -131,7 +131,6 @@ export function LogViewer({
 
   const options = [
     { label: t("appDetail.logsWrap"), checked: wrap, toggle: () => updateDisplay({ wrap: !wrap, pretty }) },
-    { label: t("appDetail.logsFollow"), checked: follow, toggle: () => updateFollow(!followRef.current) },
     { label: t("appDetail.logsPretty"), checked: pretty, toggle: () => updateDisplay({ wrap, pretty: !pretty }) },
   ];
 
@@ -151,7 +150,7 @@ export function LogViewer({
           {copyStatus === "copied" ? t("appDetail.logsCopied") : copyStatus === "failed" ? t("appDetail.logsCopyFailed") : t("appDetail.logsCopyButton")}
         </Button>
         {toolbar}
-        <div ref={menuWrapperRef} className="relative" onBlur={(event) => {
+        <div ref={menuWrapperRef} className="relative ml-auto" onBlur={(event) => {
           if (event.relatedTarget !== null && !event.currentTarget.contains(event.relatedTarget)) setMenuOpen(false);
         }} onKeyDown={(event) => {
           if (event.key === "Escape") {
@@ -159,13 +158,13 @@ export function LogViewer({
             triggerRef.current?.focus();
           }
         }}>
-          <Button ref={triggerRef} type="button" variant="outline" size="sm" aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuOpen ? menuId : undefined} onClick={() => setMenuOpen((open) => !open)} onKeyDown={(event) => {
+          <Button ref={triggerRef} type="button" variant="outline" size="icon" aria-label={t("appDetail.logsDisplay")} title={t("appDetail.logsDisplay")} aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuOpen ? menuId : undefined} onClick={() => setMenuOpen((open) => !open)} onKeyDown={(event) => {
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {
               event.preventDefault();
               setMenuOpen(true);
             }
           }}>
-            <SlidersHorizontal className="size-4" aria-hidden />{t("appDetail.logsDisplay")}
+            <SlidersHorizontal className="size-4" aria-hidden />
           </Button>
           {menuOpen ? (
             <div ref={menuRef} id={menuId} role="menu" aria-label={t("appDetail.logsDisplay")} className="absolute right-0 top-full z-20 mt-1 min-w-48 rounded-md border bg-background p-1 shadow-md" onKeyDown={(event) => {
@@ -189,7 +188,7 @@ export function LogViewer({
           ) : null}
         </div>
       </div>
-      {unavailable ? <p className="text-sm text-muted-foreground">{t("appDetail.logsUnavailable")}</p> : <div ref={scrollRef} role="region" aria-label={t("appDetail.logsTitle")} tabIndex={0} className={cn("relative min-w-0 overflow-auto [overflow-anchor:none] overscroll-contain rounded-md bg-muted p-2 font-mono text-xs", expanded ? "min-h-64 flex-1" : "min-h-0 max-h-64")} onScroll={(event) => {
+      {unavailable ? <p className="text-sm text-muted-foreground">{t("appDetail.logsUnavailable")}</p> : <div className={cn("relative flex min-h-0 min-w-0 flex-col", expanded && "flex-1")}><div ref={scrollRef} role="region" aria-label={t("appDetail.logsTitle")} tabIndex={0} className={cn("relative min-w-0 overflow-auto [overflow-anchor:none] overscroll-contain rounded-md bg-muted p-2 font-mono text-xs", expanded ? "min-h-64 flex-1" : "min-h-0 max-h-64")} onScroll={(event) => {
         const node = event.currentTarget;
         if (node.scrollTop === previousTop.current) return;
         previousTop.current = node.scrollTop;
@@ -201,6 +200,12 @@ export function LogViewer({
             <LogRow key={droppedCount + index} rowKey={droppedCount + index} entry={entry} wrap={wrap} pretty={pretty} locale={i18n.language} />
           ))}
         </div>
+      </div>
+        {!follow ? (
+          <Button type="button" variant="outline" className="absolute inset-x-3 bottom-3 z-10 bg-background/80 shadow-md backdrop-blur-sm" onClick={() => updateFollow(true)}>
+            <ArrowDown className="size-4" aria-hidden />{t("appDetail.logsFollowButton")}
+          </Button>
+        ) : null}
       </div>}
     </div>
   );

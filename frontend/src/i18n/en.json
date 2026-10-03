@@ -516,7 +516,7 @@
     "logsPageSubtitlePrevious": "A previous run.",
     "logsDisplay": "Display",
     "logsWrap": "Wrap lines",
-    "logsFollow": "Follow latest",
+    "logsFollowButton": "Follow latest",
     "logsPretty": "Pretty JSON"
   },
   "devices": {

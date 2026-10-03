@@ -142,7 +142,7 @@ export function useAppLogs(id: string, status: string): UseAppLogsResult {
 
   return {
     unavailable: logs?.unavailable,
-    invocations: logs?.invocations ?? [],
+    invocations: knownInvocations,
     invocation,
     setInvocation,
     isCurrentInvocation: pinnedInvocation === null,

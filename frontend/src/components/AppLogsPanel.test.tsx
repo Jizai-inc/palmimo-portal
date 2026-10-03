@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -52,6 +52,41 @@ describe("AppLogsPanel", () => {
 
     await waitFor(() => expect(screen.getByLabelText("Start")).toHaveValue("11111111111111111111111111111111"));
     expect(screen.getByText("Current run. Updates every 2 seconds.")).toBeInTheDocument();
+  });
+
+  it("keeps the invocation options and selection while the next cursor response is pending", async () => {
+    const invocations = [{ id: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", started_at: 2 }, { id: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", started_at: 1 }];
+    let cursorRequested = false;
+    let releaseResponse!: () => void;
+    const pendingResponse = new Promise<void>((resolve) => { releaseResponse = resolve; });
+    server.use(
+      getGetAppApiV1AppsNameGetMockHandler(detail({ status: "stopped" })),
+      http.get("*/api/v1/apps/palmimo.teleop/logs", async ({ request }) => {
+        const url = new URL(request.url);
+        if (url.searchParams.has("cursor")) {
+          cursorRequested = true;
+          await pendingResponse;
+          return HttpResponse.json({ entries: [], invocations, next_cursor: "cursor-next" });
+        }
+        return HttpResponse.json({
+          entries: url.searchParams.has("invocation") ? [{ message: "current line", timestamp: 2, invocation_id: invocations[0].id }] : [],
+          invocations,
+          next_cursor: url.searchParams.has("invocation") ? "cursor-next" : null,
+        });
+      }),
+    );
+
+    const view = renderWithRouter(<AppLogsPanel id="palmimo.teleop" />);
+    try {
+      await waitFor(() => expect(cursorRequested).toBe(true));
+      const select = screen.getByRole("combobox", { name: "Start" });
+      expect(select).toHaveValue(invocations[0].id);
+      expect(within(select).getAllByRole("option").map((option) => (option as HTMLOptionElement).value)).toEqual(invocations.map((invocation) => invocation.id));
+      expect(screen.getByText("current line")).toBeInTheDocument();
+    } finally {
+      releaseResponse();
+      view.unmount();
+    }
   });
 
   describe("polling and selection behavior", () => {

@@ -254,7 +254,7 @@ function AppRow({
           {app.credential_rejected ? <Badge variant="destructive">{t("apps.credentialRejectedBadge")}</Badge> : null}
         </div>
         {app.name !== appIdNamePart(app.id) ? <p className="truncate text-xs text-muted-foreground">{app.name}</p> : null}
-        <p className="truncate text-xs text-muted-foreground">{formatSourceSummary(app.source)}</p>
+        <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{formatSourceSummary(app.source)}</p>
         <ApiErrorAlert error={rowError} />
       </div>
       <div className="flex shrink-0 flex-wrap gap-2" title={startDisabledTitle}>

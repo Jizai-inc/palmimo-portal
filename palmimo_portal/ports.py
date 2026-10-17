@@ -429,6 +429,7 @@ class CatalogApp:
     source: AppSource
     env: dict[str, CatalogEnvSpec]
     devices: tuple[str, ...]
+    translations: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

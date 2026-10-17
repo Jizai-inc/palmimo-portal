@@ -141,6 +141,16 @@
             "title": "Status",
             "type": "string"
           },
+          "translations": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Translations",
+            "type": "object"
+          },
           "url": {
             "anyOf": [
               {
@@ -642,6 +652,16 @@
           },
           "source": {
             "$ref": "#/components/schemas/AppSourceInfo"
+          },
+          "translations": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Translations",
+            "type": "object"
           }
         },
         "required": [
@@ -1084,6 +1104,16 @@
           "suggested_name": {
             "title": "Suggested Name",
             "type": "string"
+          },
+          "translations": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Translations",
+            "type": "object"
           }
         },
         "required": [

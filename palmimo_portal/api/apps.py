@@ -45,7 +45,7 @@ from typing import Any, Literal, NoReturn, cast
 import anyio.to_thread
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from palmimo_portal.api.deps import (
     get_app_unit_port,
@@ -328,6 +328,7 @@ class AppManifestInfo(BaseModel):
 
 
 class AppDetailResponse(BaseModel):
+    translations: dict[str, dict[str, str]] = Field(default_factory=dict)
     name: str
     id: str
     source: AppSourceInfo
@@ -348,6 +349,7 @@ class AppDetailResponse(BaseModel):
 
 
 class ManifestPreviewResponse(BaseModel):
+    translations: dict[str, dict[str, str]] = Field(default_factory=dict)
     name: str
     namespace: str
     suggested_name: str
@@ -670,6 +672,7 @@ def _detail(
         bindings=secrets.read_bindings(record.id),
         devices=sorted(manifest.devices) if manifest is not None else [],
         description=manifest.description if manifest is not None else "",
+        translations=manifest.translations if manifest is not None else {},
         manifest=_manifest_info(manifest),
         last_job=_job_info(record.last_job, record.id) if record.last_job is not None else None,
         exit_code=exit_code,
@@ -830,6 +833,7 @@ async def preview(
         suggested_name=suggested_name,
         suggested_id=f"{namespace}.{suggested_name}",
         description=manifest.description,
+        translations=manifest.translations,
         devices=sorted(manifest.devices),
         env=_env_info(manifest),
     )

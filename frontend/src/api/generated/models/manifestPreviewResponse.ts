@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { EnvSpecInfo } from './envSpecInfo';
+import type { ManifestPreviewResponseTranslations } from './manifestPreviewResponseTranslations';
 
 export interface ManifestPreviewResponse {
   description: string;
@@ -14,4 +15,5 @@ export interface ManifestPreviewResponse {
   namespace: string;
   suggested_id: string;
   suggested_name: string;
+  translations?: ManifestPreviewResponseTranslations;
 }

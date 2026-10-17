@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AppSourceInfo } from './appSourceInfo';
+import type { CatalogAppInfoTranslations } from './catalogAppInfoTranslations';
 import type { EnvSpecInfo } from './envSpecInfo';
 
 export interface CatalogAppInfo {
@@ -13,4 +14,5 @@ export interface CatalogAppInfo {
   env: EnvSpecInfo[];
   name: string;
   source: AppSourceInfo;
+  translations?: CatalogAppInfoTranslations;
 }

@@ -48,6 +48,7 @@ from pathlib import Path
 from typing import Any
 
 from palmimo_portal.adapters.atomic_write import atomic_write_text, create_exclusive_text, ensure_private_dir, fsync_dir
+from palmimo_portal.core.app_translations import parse_translations
 from palmimo_portal.core.apps import APP_ID_RE
 from palmimo_portal.core.auth import AUTH_LOCK_TIMEOUT_SECONDS
 from palmimo_portal.core.manifest import ManifestValidationError, manifest_from_snapshot, manifest_snapshot
@@ -365,6 +366,7 @@ class JsonFileStateStore(StateStore):
             CatalogApp(
                 name=str(entry["name"]),
                 description=str(entry["description"]),
+                translations=parse_translations(entry.get("translations")),
                 source=AppSource(**entry["source"]),
                 env={name: CatalogEnvSpec(**spec) for name, spec in entry["env"].items()},
                 devices=tuple(entry["devices"]),

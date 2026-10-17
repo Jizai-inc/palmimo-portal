@@ -41,12 +41,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { appStatusLabel, appStatusTone, isAppStatusBusy } from "@/lib/appStatus";
+import { appText } from "@/lib/appText";
 import { deviceLabel } from "@/lib/deviceLabel";
 import { formatUtcTimestamp } from "@/lib/formatTimestamp";
 import { useAppLogs } from "@/lib/useAppLogs";
 
 export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string; onDeleted?: () => void }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: getGetAppApiV1AppsNameGetQueryKey(id) });
 
@@ -145,6 +146,11 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
             ) : null}
           </div>
         </div>
+        {app.description ? (
+          <p className="text-sm text-muted-foreground">
+            {appText(app.translations, i18n.language, "description", app.description)}
+          </p>
+        ) : null}
         {app.name !== appIdNamePart(app.id) ? <p className="text-sm text-muted-foreground">{app.name}</p> : null}
       </div>
       <ApiErrorAlert error={startApp.error} />
@@ -235,7 +241,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function BindingsSection({ app, onSaved }: { app: AppDetailResponse; onSaved: () => void }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { data: secretsData } = useListSecretsApiV1SecretsGet();
   const [bindings, setBindings] = useState<Record<string, string>>(app.bindings);
   const [justSaved, setJustSaved] = useState(false);
@@ -277,7 +283,9 @@ function BindingsSection({ app, onSaved }: { app: AppDetailResponse; onSaved: ()
                     {envVar.required ? t("appAdd.envRequiredBadge") : t("appAdd.envOptionalBadge")}
                   </Badge>
                 </div>
-                <p className="text-xs text-muted-foreground">{envVar.description}</p>
+                <p className="text-xs text-muted-foreground">
+                  {appText(app.translations, i18n.language, `env.${envVar.name}`, envVar.description)}
+                </p>
                 {unbound ? <p className="text-xs text-destructive">{t("appDetail.bindingsUnboundRequiredWarning")}</p> : null}
               </div>
               <select
@@ -311,7 +319,7 @@ function BindingsSection({ app, onSaved }: { app: AppDetailResponse; onSaved: ()
  * not be read (`app.manifest` is `null`), so a broken app's stored params are still visible.
  */
 function ParamsSection({ app, onSaved }: { app: AppDetailResponse; onSaved: () => void }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [values, setValues] = useState<Record<string, unknown>>(app.params);
   const [justSaved, setJustSaved] = useState(false);
   useEffect(() => setValues(app.params), [app.params]);
@@ -378,7 +386,11 @@ function ParamsSection({ app, onSaved }: { app: AppDetailResponse; onSaved: () =
                     />
                   )}
                 </div>
-                {spec.description ? <p className="pl-40 text-xs text-muted-foreground">{spec.description}</p> : null}
+                {spec.description ? (
+                  <p className="pl-40 text-xs text-muted-foreground">
+                    {appText(app.translations, i18n.language, `params.${spec.name}`, spec.description)}
+                  </p>
+                ) : null}
               </div>
             );
           })}

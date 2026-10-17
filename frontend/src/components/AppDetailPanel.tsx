@@ -130,7 +130,7 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-xl"><AppIdLabel id={app.id} /></h2>
+          <h2 className="text-xl [overflow-wrap:anywhere]"><AppIdLabel id={app.id} /></h2>
           <Badge variant={tone === "green" ? "default" : tone === "red" ? "destructive" : tone === "muted" ? "secondary" : "outline"} className="flex items-center gap-1">
             {busy ? <Loader2 className="size-3 animate-spin" /> : null}
             {appStatusLabel(t, app.status, app.exit_code)}
@@ -155,7 +155,7 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
             {appText(app.translations, i18n.language, "description", app.description)}
           </p>
         ) : null}
-        {app.name !== appIdNamePart(app.id) ? <p className="text-sm text-muted-foreground">{app.name}</p> : null}
+        {app.name !== appIdNamePart(app.id) ? <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">{app.name}</p> : null}
       </div>
       <ApiErrorAlert error={startApp.error} />
       <ApiErrorAlert error={stopApp.error} />
@@ -522,7 +522,7 @@ function SourceSection({
       {isOfficialTag ? <p className="text-sm text-muted-foreground">{t("appDetail.sourceOfficialTagManaged")}</p> : null}
       {updateCheck.data ? (
         updateCheck.data.update_available ? (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm">{t("apps.updateAvailableChip")}</p>
             <Button size="sm" onClick={onUpdate} disabled={updatePending || appRunning} title={appRunning ? t("appDetail.updateDisabledAppRunning") : undefined}>{t("appDetail.updateButton")}</Button>
             {appRunning ? <p className="text-sm text-muted-foreground">{t("appDetail.updateDisabledAppRunning")}</p> : null}

@@ -218,7 +218,7 @@ export function AppShell({
             <div className={cn("flex items-center justify-between gap-2", fitViewport && "shrink-0")}>
               <div className="flex flex-col gap-1">
                 {breadcrumbs ? <Breadcrumbs items={breadcrumbs} label={t("common.breadcrumb")} /> : null}
-                <h1 className="text-2xl font-semibold">{title}</h1>
+                <h1 className="text-2xl font-semibold [overflow-wrap:anywhere]">{title}</h1>
                 {subtitle ? <p className="text-sm text-muted-foreground">{subtitle}</p> : null}
               </div>
               {mobileHeaderAction ? <div className="md:hidden">{mobileHeaderAction}</div> : null}

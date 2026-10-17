@@ -39,7 +39,7 @@ export function AppLogsPanel({ id }: { id: string }) {
     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4">
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-xl font-semibold">{t("appDetail.logsPageTitle", { name: app.name })}</h2>
+          <h2 className="text-xl font-semibold [overflow-wrap:anywhere]">{t("appDetail.logsPageTitle", { name: app.name })}</h2>
           <Badge variant={tone === "green" ? "default" : tone === "red" ? "destructive" : tone === "muted" ? "secondary" : "outline"} className="flex items-center gap-1">
             {busy ? <Loader2 className="size-3 animate-spin" /> : null}
             {appStatusLabel(t, app.status, app.exit_code)}

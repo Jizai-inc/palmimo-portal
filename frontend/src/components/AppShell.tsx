@@ -211,12 +211,14 @@ export function AppShell({
             </div>
           </aside>
         )}
-        <main className={cn("flex-1 p-5 md:p-8 lg:p-10", fitViewport && "flex min-h-0 min-w-0 flex-col overflow-y-auto")}>
+        {/* min-w-0: as a flex item, <main> otherwise refuses to be narrower than its widest
+            unbreakable line (`truncate` does not shrink that), widening every page past a phone's viewport. */}
+        <main className={cn("min-w-0 flex-1 p-5 md:p-8 lg:p-10", fitViewport && "flex min-h-0 flex-col overflow-y-auto")}>
           <div className={cn("mx-auto flex max-w-[960px] flex-col gap-6", fitViewport && "min-h-0 w-full flex-1")}>
             <div className={cn("flex items-center justify-between gap-2", fitViewport && "shrink-0")}>
               <div className="flex flex-col gap-1">
                 {breadcrumbs ? <Breadcrumbs items={breadcrumbs} label={t("common.breadcrumb")} /> : null}
-                <h1 className="text-2xl font-semibold">{title}</h1>
+                <h1 className="text-2xl font-semibold [overflow-wrap:anywhere]">{title}</h1>
                 {subtitle ? <p className="text-sm text-muted-foreground">{subtitle}</p> : null}
               </div>
               {mobileHeaderAction ? <div className="md:hidden">{mobileHeaderAction}</div> : null}

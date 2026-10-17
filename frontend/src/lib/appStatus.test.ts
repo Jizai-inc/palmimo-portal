@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import i18n from "@/i18n";
-import { appStatusLabel } from "@/lib/appStatus";
+import { appStatusLabel, shouldPollAppStatus } from "@/lib/appStatus";
+
+describe("shouldPollAppStatus", () => {
+  it.each(["running", "starting", "stopping", "installing", "updating", "deleting"])("polls an app that is %s", (status) => {
+    expect(shouldPollAppStatus(status)).toBe(true);
+  });
+
+  it.each(["stopped", "failed", "needs_repair", "broken"])("does not poll an app that is %s", (status) => {
+    expect(shouldPollAppStatus(status)).toBe(false);
+  });
+});
 
 // exit-code sentence with an empty/undefined placeholder instead of falling back to the plain
 // "Failed" label.

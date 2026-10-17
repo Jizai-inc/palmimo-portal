@@ -1,7 +1,7 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getListAppsApiV1AppsGetMockHandler } from "@/api/generated/apps/apps.msw";
 import { getGetPlatformApiV1PlatformGetMockHandler } from "@/api/generated/platform/platform.msw";
@@ -244,5 +244,31 @@ describe("AppsListPanel", () => {
 
     await screen.findByText("app-a");
     expect(screen.getByRole("button", { name: "Start" })).toBeDisabled();
+  });
+
+  describe("an app that exits on its own", () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("shows a running app as stopped once it exits on its own", async () => {
+      let exited = false;
+      server.use(
+        http.get("*/api/v1/apps", () => HttpResponse.json({ apps: [app({ status: exited ? "stopped" : "running" })] })),
+        getGetPlatformApiV1PlatformGetMockHandler(READY_PLATFORM),
+      );
+      renderWithRouter(<AppsListPanel />);
+      await screen.findByRole("button", { name: "Stop" });
+
+      exited = true;
+      await act(() => vi.advanceTimersByTimeAsync(5_000));
+
+      expect(await screen.findByRole("button", { name: "Start" })).toBeInTheDocument();
+      expect(screen.getByText("Stopped")).toBeInTheDocument();
+    });
   });
 });

@@ -257,6 +257,27 @@ describe("AppLogsPanel", () => {
       const firstRequestForX = seen.find((request) => request.invocation === "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
       expect(firstRequestForX?.cursor).toBeNull();
     });
+
+    it("stops calling a run live once the app exits on its own", async () => {
+      let exited = false;
+      server.use(
+        http.get("*/api/v1/apps/palmimo.teleop", () => HttpResponse.json(detail({ status: exited ? "stopped" : "running" }))),
+        getGetLogsApiV1AppsNameLogsGetMockHandler({
+          entries: [{ message: "line", timestamp: 1, invocation_id: "11111111111111111111111111111111" }],
+          invocations: [{ id: "11111111111111111111111111111111", started_at: 1 }],
+          next_cursor: null,
+        }),
+      );
+
+      renderWithRouter(<AppLogsPanel id="palmimo.teleop" />);
+      await waitFor(() => expect(screen.getByText("Current run. Updates every 2 seconds.")).toBeInTheDocument());
+
+      exited = true;
+      await act(() => vi.advanceTimersByTimeAsync(3_000));
+
+      await waitFor(() => expect(screen.getByText("Current run.")).toBeInTheDocument());
+      expect(screen.getByText("Stopped")).toBeInTheDocument();
+    });
   });
 });
 

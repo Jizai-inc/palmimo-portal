@@ -40,7 +40,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { appStatusLabel, appStatusTone, isAppStatusBusy } from "@/lib/appStatus";
+import { appStatusLabel, appStatusTone, isAppStatusBusy, shouldPollAppStatus } from "@/lib/appStatus";
 import { appText } from "@/lib/appText";
 import { deviceLabel } from "@/lib/deviceLabel";
 import { formatUtcTimestamp } from "@/lib/formatTimestamp";
@@ -76,7 +76,7 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
         // a refresh -- poll until the eventual 404 resolves the flow, since nothing else is
         // watching the job once its dialog is gone.
         if (deleting && job === null) return 3_000;
-        return query.state.data && isAppStatusBusy(query.state.data.status) ? 3_000 : false;
+        return query.state.data && shouldPollAppStatus(query.state.data.status) ? 3_000 : false;
       },
     },
   });
@@ -97,7 +97,6 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
     mutation: { onSuccess: (data) => setJob({ id: data.job.id, kind: "update" }) },
   });
   const { data: appsData } = useListAppsApiV1AppsGet();
-  const appRunning = (appsData?.apps ?? []).some((candidate) => ["running", "starting", "stopping"].includes(candidate.status));
   const deleteApp = useDeleteAppApiV1AppsNameDelete({
     mutation: {
       onSuccess: (data) => {
@@ -121,12 +120,17 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
 
   const tone = appStatusTone(app.status);
   const busy = isAppStatusBusy(app.status);
+  // This app's own status comes from the detail query, not the list: nothing on this page refetches
+  // the list, so its entry for this app is stale right after a start here or an exit on its own.
+  const appRunning = [app, ...(appsData?.apps ?? []).filter((candidate) => candidate.id !== app.id)].some((candidate) =>
+    ["running", "starting", "stopping"].includes(candidate.status),
+  );
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-xl"><AppIdLabel id={app.id} /></h2>
+          <h2 className="text-xl [overflow-wrap:anywhere]"><AppIdLabel id={app.id} /></h2>
           <Badge variant={tone === "green" ? "default" : tone === "red" ? "destructive" : tone === "muted" ? "secondary" : "outline"} className="flex items-center gap-1">
             {busy ? <Loader2 className="size-3 animate-spin" /> : null}
             {appStatusLabel(t, app.status, app.exit_code)}
@@ -151,7 +155,7 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
             {appText(app.translations, i18n.language, "description", app.description)}
           </p>
         ) : null}
-        {app.name !== appIdNamePart(app.id) ? <p className="text-sm text-muted-foreground">{app.name}</p> : null}
+        {app.name !== appIdNamePart(app.id) ? <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">{app.name}</p> : null}
       </div>
       <ApiErrorAlert error={startApp.error} />
       <ApiErrorAlert error={stopApp.error} />
@@ -518,7 +522,7 @@ function SourceSection({
       {isOfficialTag ? <p className="text-sm text-muted-foreground">{t("appDetail.sourceOfficialTagManaged")}</p> : null}
       {updateCheck.data ? (
         updateCheck.data.update_available ? (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <p className="text-sm">{t("apps.updateAvailableChip")}</p>
             <Button size="sm" onClick={onUpdate} disabled={updatePending || appRunning} title={appRunning ? t("appDetail.updateDisabledAppRunning") : undefined}>{t("appDetail.updateButton")}</Button>
             {appRunning ? <p className="text-sm text-muted-foreground">{t("appDetail.updateDisabledAppRunning")}</p> : null}

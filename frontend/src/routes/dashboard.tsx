@@ -54,8 +54,8 @@ function DashboardScreen() {
         </Button>
       }
     >
-      <div className="flex flex-col gap-6 md:flex-row md:items-start">
-        <div className="flex flex-1 flex-col gap-6">
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+        <div className="flex min-w-0 flex-1 flex-col gap-6">
           <DashboardStatusCard portalBadge={updateBadge} />
 
           {/* Version card -- desktop only (mobile shows Portal/SDK inside DashboardStatusCard's own KV list). */}
@@ -76,11 +76,11 @@ function DashboardScreen() {
             </dl>
           </div>
 
-          {/* Nav list -- mobile only (desktop shows the same items in the right-hand quick-actions column). */}
+          {/* Nav list -- mobile only (desktop shows the same items in the quick-actions card). */}
           <NavListCard items={otherNavItems} className="md:hidden" />
         </div>
 
-        <div className="w-full md:w-[360px] md:shrink-0">
+        <div className="w-full lg:w-[360px] lg:shrink-0">
           <NavListCard items={otherNavItems} title={t("dashboard.quickActionsTitle")} className="hidden md:flex" />
         </div>
       </div>

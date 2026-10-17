@@ -86,8 +86,8 @@ export function WifiSettingsPanel({ onReconnect }: { onReconnect: () => void }) 
   }
 
   return (
-    <div className="flex flex-col gap-6 md:flex-row md:items-start">
-      <div className="flex flex-1 flex-col gap-4 rounded-xl border border-border bg-card p-4">
+    <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+      <div className="flex min-w-0 flex-1 flex-col gap-4 rounded-xl border border-border bg-card p-4">
         <div className="flex items-center gap-2">
           <span
             className={cn("size-2.5 shrink-0 rounded-full", connected ? "bg-green-500" : "bg-muted-foreground/40")}
@@ -110,7 +110,7 @@ export function WifiSettingsPanel({ onReconnect }: { onReconnect: () => void }) 
         </dl>
         <div className="border-t border-border" />
         <ApiErrorAlert error={forget.error} />
-        <div className="flex flex-col gap-3 md:flex-row">
+        <div className="flex flex-wrap gap-3">
           <Button variant="outline" className="flex-1" onClick={() => setDialogKind("reconnect")}>
             {t("wifiSettings.connectAnother")}
           </Button>
@@ -125,7 +125,7 @@ export function WifiSettingsPanel({ onReconnect }: { onReconnect: () => void }) 
         </div>
       </div>
 
-      <div className="flex w-full flex-col gap-2 rounded-xl border border-border bg-card p-4 md:w-[320px] md:shrink-0">
+      <div className="flex w-full flex-col gap-2 rounded-xl border border-border bg-card p-4 lg:w-[320px] lg:shrink-0">
         <div className="flex items-center gap-2">
           <Info className="size-4 text-muted-foreground" aria-hidden />
           <p className="font-semibold">{t("wifiSettings.noteTitle")}</p>

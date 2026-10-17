@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
@@ -445,4 +446,35 @@ describe("AppDetailPanel", () => {
     await waitFor(() => expect(screen.getByText("v2")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Update" })).not.toBeInTheDocument();
   });
+});
+
+
+it("switches app descriptions without losing unsaved parameter values", async () => {
+  const user = userEvent.setup();
+  const app = detail({
+    translations: { ja: { description: "Localized summary", "env.WIFI_PASSWORD": "Localized key", "params.port": "Localized port" } },
+    manifest: { devices: [], env: [], params: [{ name: "port", type: "int", default: 8765, description: "Port description" }] },
+  });
+  server.use(
+    getGetAppApiV1AppsNameGetMockHandler(app),
+    getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }),
+    getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+  );
+  renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
+  const input = await screen.findByLabelText("port");
+  await user.clear(input);
+  await user.type(input, "9000");
+  try {
+    await act(() => i18n.changeLanguage("ja"));
+    expect(screen.getByText("Localized summary")).toBeInTheDocument();
+    expect(screen.getByText("Localized key")).toBeInTheDocument();
+    expect(screen.getByText("Localized port")).toBeInTheDocument();
+    expect(input).toHaveValue(9000);
+    await act(() => i18n.changeLanguage("en"));
+    expect(screen.getByText("A test app.")).toBeInTheDocument();
+    expect(screen.getByText("Port description")).toBeInTheDocument();
+    expect(input).toHaveValue(9000);
+  } finally {
+    await act(() => i18n.changeLanguage("en"));
+  }
 });

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import threading
 import time
 import zipfile
@@ -1382,3 +1383,32 @@ def test_logs_lists_a_previous_invocation_once_the_current_run_exceeds_the_page(
         {"id": _INV_2, "started_at": 2.0},
         {"id": _INV_1, "started_at": 1.0},
     ]
+
+
+def test_app_translations_survive_zip_preview_install_and_detail(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    client = _authenticated_client(client, adapters)
+    translations = {
+        "ja": {"description": "Translated app", "env.TOKEN": "Translated key", "params.port": "Translated port"}
+    }
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(
+            "palmimo.toml",
+            'schema=1\nname="localized"\ndescription="Original"\ncommand=["run"]\n[env.TOKEN]\ndescription="Key"\n[params.port]\ntype="int"\ndefault=8000\ndescription="Port"\n',
+        )
+        archive.writestr("palmimo.toml.i18n.json", json.dumps({"schema": 1, "translations": translations}))
+        archive.writestr("pyproject.toml", "[project]\nname='app'\nversion='0'\n")
+    files = {"file": ("app.zip", buffer.getvalue(), "application/zip")}
+    preview = client.post("/api/v1/apps/preview", files=files, headers=CSRF_HEADERS)
+    assert preview.status_code == 200
+    assert preview.json()["translations"] == translations
+    installed = client.post("/api/v1/apps/install", files=files, headers=CSRF_HEADERS)
+    assert installed.status_code == 202
+    detail = client.get("/api/v1/apps/zip.localized")
+    assert detail.status_code == 200
+    assert detail.json()["translations"] == translations
+    assert detail.json()["description"] == "Original"
+    assert detail.json()["params"] == {}
+    assert detail.json()["manifest"]["params"][0]["default"] == 8000

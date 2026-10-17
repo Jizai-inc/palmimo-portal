@@ -1,4 +1,5 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import i18n from "@/i18n";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
@@ -411,4 +412,34 @@ describe("AddAppPanel", () => {
     expect(installDialog().getByRole("button", { name: "Install" })).toBeDisabled();
     expect(screen.getByText(/lowercase letter/)).toBeInTheDocument();
   });
+});
+
+
+it("localizes catalog and preview text and keeps untranslated fields readable", async () => {
+  const user = userEvent.setup();
+  const translations = { ja: { description: "Localized summary", "env.WIFI_PASSWORD": "Localized key" } };
+  server.use(
+    getGetCatalogApiV1CatalogGetMockHandler({ ...CATALOG, apps: CATALOG.apps.map((app) => ({ ...app, translations })) }),
+    http.post("*/api/v1/apps/preview", () => HttpResponse.json({
+      name: "palmimo-teleop", namespace: "palmimo", suggested_name: "teleop", suggested_id: "palmimo.teleop",
+      description: CATALOG.apps[0].description, devices: [], env: CATALOG.apps[0].env, translations,
+    })),
+    getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+  );
+  renderWithProviders(<AddAppPanel />);
+  await screen.findByText("Drive the robot from a browser.");
+  try {
+    await act(() => i18n.changeLanguage("ja"));
+    expect(screen.getByText("Localized summary")).toBeInTheDocument();
+    expect(screen.getByText("Localized key")).toBeInTheDocument();
+    expect(screen.getByText("Verbosity")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: i18n.t("appAdd.installButton") }));
+    expect(await installDialog().findByText("Localized summary")).toBeInTheDocument();
+    expect(installDialog().getByText("Localized key")).toBeInTheDocument();
+    await act(() => i18n.changeLanguage("en"));
+    expect(installDialog().getByText("Drive the robot from a browser.")).toBeInTheDocument();
+    expect(installDialog().getByText("Wi-Fi password for the base station")).toBeInTheDocument();
+  } finally {
+    await act(() => i18n.changeLanguage("en"));
+  }
 });

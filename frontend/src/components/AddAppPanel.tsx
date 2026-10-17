@@ -26,6 +26,7 @@ import { Label } from "@/components/ui/label";
 import type { GitInstallSource, InstallSource } from "@/lib/appInstall";
 import { installApp, previewApp } from "@/lib/appInstall";
 import { isValidAppNamePart } from "@/lib/appNamePart";
+import { appText } from "@/lib/appText";
 import { parseCatalogSource } from "@/lib/catalogSource";
 import { deviceLabel } from "@/lib/deviceLabel";
 import { isHttpUrl } from "@/lib/isHttpUrl";
@@ -280,11 +281,11 @@ function CatalogCard({
   onInstalled: (jobId: string, displayName: string) => void;
   appRunning: boolean;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const env = app.env.map((entry) => ({
     name: entry.name,
     required: entry.required,
-    description: entry.description,
+    description: appText(app.translations, i18n.language, `env.${entry.name}`, entry.description),
     helpUrl: entry.help_url,
   }));
   const source = parseCatalogSource(app.source);
@@ -296,7 +297,9 @@ function CatalogCard({
         <Badge>{t("appAdd.catalogOfficialBadge")}</Badge>
         {source ? <Badge variant="outline">{source.ref}</Badge> : null}
       </div>
-      <p className="text-sm text-muted-foreground">{app.description}</p>
+      <p className="text-sm text-muted-foreground">
+        {appText(app.translations, i18n.language, "description", app.description)}
+      </p>
       <EnvRequirementList entries={env} />
       {app.devices.length > 0 ? (
         <div className="flex flex-wrap gap-1">
@@ -447,7 +450,7 @@ function PreviewCard({
   namePartValid: boolean;
   onNamePartChange: (value: string) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { data: secretsData } = useListSecretsApiV1SecretsGet();
   const registeredNames = new Set((secretsData?.secrets ?? []).map((secret) => secret.name));
   return (
@@ -470,12 +473,14 @@ function PreviewCard({
         </div>
         {!namePartValid ? <p className="text-xs text-destructive">{t("appAdd.deviceNameInvalid")}</p> : null}
       </div>
-      <p className="text-sm text-muted-foreground">{preview.description}</p>
+      <p className="text-sm text-muted-foreground">
+        {appText(preview.translations, i18n.language, "description", preview.description)}
+      </p>
       <EnvRequirementList
         entries={preview.env.map((entry) => ({
           name: entry.name,
           required: entry.required,
-          description: entry.description,
+          description: appText(preview.translations, i18n.language, `env.${entry.name}`, entry.description),
           helpUrl: entry.help_url,
           registered: registeredNames.has(entry.name),
         }))}

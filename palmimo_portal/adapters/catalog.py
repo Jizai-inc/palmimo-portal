@@ -20,6 +20,7 @@ from palmimo_portal.adapters.static_asset import (
     download,
     verify_checksum,
 )
+from palmimo_portal.core.app_translations import parse_translations
 from palmimo_portal.core.manifest import (
     DEFAULT_MANIFEST_FILENAME,
     InvalidManifestFilenameError,
@@ -99,6 +100,7 @@ def _parse_catalog(asset_bytes: bytes, asset_name: str) -> tuple[CatalogApp, ...
             CatalogApp(
                 name=str(entry["name"]),
                 description=str(entry["description"]),
+                translations=parse_translations(entry.get("translations")),
                 source=_parse_source(entry["source"], asset_name, index),
                 env=_parse_env(entry["env"], asset_name, index),
                 devices=tuple(entry["devices"]),

@@ -10,7 +10,7 @@ False``, as tests do) still gets an up-to-date answer on first request.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from palmimo_portal.api.apps import AppSourceInfo, EnvSpecInfo
 from palmimo_portal.api.deps import require_auth, require_full_session, require_provisioned
@@ -24,6 +24,7 @@ router = APIRouter(
 
 
 class CatalogAppInfo(BaseModel):
+    translations: dict[str, dict[str, str]] = Field(default_factory=dict)
     name: str
     description: str
     source: AppSourceInfo
@@ -58,6 +59,7 @@ def get_catalog(request: Request) -> CatalogResponse:
             CatalogAppInfo(
                 name=a.name,
                 description=a.description,
+                translations=a.translations,
                 source=AppSourceInfo(
                     type=a.source.type,
                     url=a.source.url,

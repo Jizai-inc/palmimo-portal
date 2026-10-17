@@ -7,6 +7,7 @@
 import type { AppDetailResponseBindings } from './appDetailResponseBindings';
 import type { AppDetailResponseParams } from './appDetailResponseParams';
 import type { AppDetailResponseStatus } from './appDetailResponseStatus';
+import type { AppDetailResponseTranslations } from './appDetailResponseTranslations';
 import type { AppJobInfo } from './appJobInfo';
 import type { AppManifestInfo } from './appManifestInfo';
 import type { AppSourceInfo } from './appSourceInfo';
@@ -29,5 +30,6 @@ export interface AppDetailResponse {
   reason?: string | null;
   source: AppSourceInfo;
   status: AppDetailResponseStatus;
+  translations?: AppDetailResponseTranslations;
   url?: string | null;
 }

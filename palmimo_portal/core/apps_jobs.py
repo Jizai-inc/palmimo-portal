@@ -43,6 +43,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from palmimo_portal.core import apps as apps_core
+from palmimo_portal.core.app_translations import MAX_TRANSLATIONS_BYTES, parse_translation_file
 from palmimo_portal.core.apps import (
     app_namespace,
     host_owner_from_url,
@@ -393,7 +394,22 @@ def _read_manifest(project_dir: Path, manifest_filename: str = DEFAULT_MANIFEST_
     manifest_path = project_dir / manifest_filename
     if not manifest_path.is_file():
         raise InvalidManifestSourceError(f"{manifest_filename} not found in {project_dir}")
-    return parse_manifest(manifest_path.read_text(encoding="utf-8"))
+    manifest = parse_manifest(manifest_path.read_text(encoding="utf-8"))
+    return replace(manifest, translations=_read_translations(project_dir, manifest_filename))
+
+
+def _read_translations(project_dir: Path, manifest_filename: str) -> dict[str, dict[str, str]]:
+    translation_path = project_dir / f"{manifest_filename}.i18n.json"
+    try:
+        if translation_path.is_symlink() or not translation_path.is_file():
+            return {}
+        with translation_path.open("rb") as stream:
+            content = stream.read(MAX_TRANSLATIONS_BYTES + 1)
+        if len(content) > MAX_TRANSLATIONS_BYTES:
+            return {}
+        return parse_translation_file(content.decode("utf-8"))
+    except (OSError, UnicodeError):
+        return {}
 
 
 def _catalog_commit_for_source(
@@ -665,12 +681,14 @@ def purge_path(ctx: AppsJobContext, path: Path) -> str | None:
 def read_manifest_for_app(ctx: AppsJobContext, record: AppRecord) -> Manifest:
     """Return the validated manifest captured when this app was installed or updated."""
     if record.manifest is not None:
-        return manifest_from_snapshot(record.manifest)
-    # Records created before snapshots were introduced are only retained for
-    # in-memory compatibility; persisted legacy ledgers are rejected by the
-    # state adapter below.
-    project_dir = ctx.app_dir(record.id)
-    project_dir = resolve_subdir(project_dir, record.source.subdir)
+        manifest = manifest_from_snapshot(record.manifest)
+        try:
+            project_dir = resolve_subdir(ctx.app_dir(record.id), record.source.subdir)
+        except InvalidManifestSourceError:
+            return manifest
+        return replace(manifest, translations=_read_translations(project_dir, _manifest_filename_for(record.source)))
+    # Persisted legacy ledgers are rejected by the state adapter.
+    project_dir = resolve_subdir(ctx.app_dir(record.id), record.source.subdir)
     return _read_manifest(project_dir, _manifest_filename_for(record.source))
 
 

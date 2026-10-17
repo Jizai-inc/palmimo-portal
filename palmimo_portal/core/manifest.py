@@ -11,7 +11,7 @@ from __future__ import annotations
 import math
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
 
@@ -137,10 +137,11 @@ class Manifest:
     devices: frozenset[str]
     env: dict[str, EnvSpec]
     params: dict[str, ParamSpec]
+    translations: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 def manifest_snapshot(manifest: Manifest) -> dict[str, Any]:
-    """Return the validated, JSON-safe manifest form stored in the app ledger."""
+    """Store executable settings only; display translations stay in their companion file."""
     params: dict[str, dict[str, Any]] = {}
     for name, spec in manifest.params.items():
         value: dict[str, Any] = {"type": spec.type}

@@ -34,6 +34,14 @@ export function isAppStatusBusy(status: string): boolean {
 }
 
 /**
+ * Whether a screen showing an app in `status` should keep re-fetching it: a job or start/stop
+ * settles, and a running app can exit, without anything telling an open page.
+ */
+export function shouldPollAppStatus(status: string): boolean {
+  return isAppStatusBusy(status) || status === AppSummaryStatus.running;
+}
+
+/**
  * Whether `status` is an install/update/delete job status -- the same `apps.lock` job the
  * backend's `app_job_in_progress` start precheck refuses every app's start against (design
  * doc 3.10: its sync step runs untrusted build hooks as the same uid an app unit runs as).

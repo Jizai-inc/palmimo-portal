@@ -5,9 +5,13 @@ import { HttpResponse, http } from "msw";
 import { focusManager } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getGetAppApiV1AppsNameGetMockHandler, getGetLogsApiV1AppsNameLogsGetMockHandler } from "@/api/generated/apps/apps.msw";
+import {
+  getGetAppApiV1AppsNameGetMockHandler,
+  getGetLogsApiV1AppsNameLogsGetMockHandler,
+  getListAppsApiV1AppsGetMockHandler,
+} from "@/api/generated/apps/apps.msw";
 import { getListSecretsApiV1SecretsGetMockHandler } from "@/api/generated/secrets/secrets.msw";
-import type { AppDetailResponse } from "@/api/generated/models";
+import type { AppDetailResponse, AppSummary } from "@/api/generated/models";
 import { AppDetailPanel } from "@/components/AppDetailPanel";
 import { renderWithRouter } from "@/test/render";
 import { server } from "@/test/server";
@@ -41,6 +45,25 @@ function detail(overrides: Partial<AppDetailResponse> = {}): AppDetailResponse {
     ...overrides,
   };
 }
+
+function summary(overrides: Partial<AppSummary> = {}): AppSummary {
+  return {
+    autostart: false,
+    broken_reason: null,
+    credential_rejected: false,
+    id: "palmimo.teleop",
+    installed_at: 1_700_000_000,
+    last_job: null,
+    latest_commit: null,
+    name: "palmimo-teleop",
+    source: { type: "git", official: false, url: "https://github.com/x/y", subdir: null, manifest: null, ref_kind: "tag", ref: "v1", commit: "abc123" },
+    status: "stopped",
+    update_available: false,
+    ...overrides,
+  };
+}
+
+const UPDATE_AVAILABLE = { update_available: true, latest_ref: "v2", latest_commit: "def456" };
 
 describe("AppDetailPanel", () => {
   // LogsSection always fetches on mount regardless of which behavior a test targets; give every
@@ -445,6 +468,91 @@ describe("AppDetailPanel", () => {
 
     await waitFor(() => expect(screen.getByText("v2")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "Update" })).not.toBeInTheDocument();
+  });
+
+  it("disables Update once the app is started here, though the apps list still shows it stopped", async () => {
+    const user = userEvent.setup();
+    let started = false;
+    server.use(
+      http.get("*/api/v1/apps/palmimo.teleop", () => HttpResponse.json(detail({ status: started ? "starting" : "stopped" }))),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+      getListAppsApiV1AppsGetMockHandler({ apps: [summary({ status: "stopped" })] }),
+      http.post("*/api/v1/apps/palmimo.teleop/update/check", () => HttpResponse.json(UPDATE_AVAILABLE)),
+      http.post("*/api/v1/apps/palmimo.teleop/start", () => {
+        started = true;
+        return HttpResponse.json({ status: "activating" }, { status: 202 });
+      }),
+    );
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
+    await user.click(await screen.findByRole("button", { name: "Check for updates" }));
+    expect(await screen.findByRole("button", { name: "Update" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Start" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Update" })).toBeDisabled());
+    expect(screen.getByText("Stop the running app before updating an app.")).toBeInTheDocument();
+  });
+
+  it("keeps Update disabled while another app is running", async () => {
+    const user = userEvent.setup();
+    server.use(
+      getGetAppApiV1AppsNameGetMockHandler(detail()),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+      getListAppsApiV1AppsGetMockHandler({
+        apps: [summary(), summary({ id: "palmimo.companion", name: "palmimo-companion", status: "running" })],
+      }),
+      http.post("*/api/v1/apps/palmimo.teleop/update/check", () => HttpResponse.json(UPDATE_AVAILABLE)),
+    );
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
+    await user.click(await screen.findByRole("button", { name: "Check for updates" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Update" })).toBeDisabled());
+  });
+
+  describe("an app that exits on its own", () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("shows a running app as stopped once it exits on its own", async () => {
+      let exited = false;
+      server.use(
+        http.get("*/api/v1/apps/palmimo.teleop", () => HttpResponse.json(detail({ status: exited ? "stopped" : "running" }))),
+        getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+        getListAppsApiV1AppsGetMockHandler({ apps: [summary({ status: "running" })] }),
+      );
+      renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
+      await screen.findByText("Running");
+
+      exited = true;
+      await act(() => vi.advanceTimersByTimeAsync(3_000));
+
+      await waitFor(() => expect(screen.getByText("Stopped")).toBeInTheDocument());
+      expect(screen.getByRole("button", { name: "Start" })).toBeInTheDocument();
+    });
+
+    it("enables Update once the app has exited, though the apps list still shows it running", async () => {
+      const user = userEvent.setup();
+      let exited = false;
+      server.use(
+        http.get("*/api/v1/apps/palmimo.teleop", () => HttpResponse.json(detail({ status: exited ? "stopped" : "running" }))),
+        getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+        getListAppsApiV1AppsGetMockHandler({ apps: [summary({ status: "running" })] }),
+        http.post("*/api/v1/apps/palmimo.teleop/update/check", () => HttpResponse.json(UPDATE_AVAILABLE)),
+      );
+      renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
+      await user.click(await screen.findByRole("button", { name: "Check for updates" }));
+      expect(await screen.findByRole("button", { name: "Update" })).toBeDisabled();
+
+      exited = true;
+      await act(() => vi.advanceTimersByTimeAsync(3_000));
+
+      await waitFor(() => expect(screen.getByRole("button", { name: "Update" })).toBeEnabled());
+    });
   });
 });
 

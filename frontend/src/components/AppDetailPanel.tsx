@@ -40,7 +40,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { appStatusLabel, appStatusTone, isAppStatusBusy } from "@/lib/appStatus";
+import { appStatusLabel, appStatusTone, isAppStatusBusy, shouldPollAppStatus } from "@/lib/appStatus";
 import { appText } from "@/lib/appText";
 import { deviceLabel } from "@/lib/deviceLabel";
 import { formatUtcTimestamp } from "@/lib/formatTimestamp";
@@ -76,7 +76,7 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
         // a refresh -- poll until the eventual 404 resolves the flow, since nothing else is
         // watching the job once its dialog is gone.
         if (deleting && job === null) return 3_000;
-        return query.state.data && isAppStatusBusy(query.state.data.status) ? 3_000 : false;
+        return query.state.data && shouldPollAppStatus(query.state.data.status) ? 3_000 : false;
       },
     },
   });
@@ -97,7 +97,6 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
     mutation: { onSuccess: (data) => setJob({ id: data.job.id, kind: "update" }) },
   });
   const { data: appsData } = useListAppsApiV1AppsGet();
-  const appRunning = (appsData?.apps ?? []).some((candidate) => ["running", "starting", "stopping"].includes(candidate.status));
   const deleteApp = useDeleteAppApiV1AppsNameDelete({
     mutation: {
       onSuccess: (data) => {
@@ -121,6 +120,11 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
 
   const tone = appStatusTone(app.status);
   const busy = isAppStatusBusy(app.status);
+  // This app's own status comes from the detail query, not the list: nothing on this page refetches
+  // the list, so its entry for this app is stale right after a start here or an exit on its own.
+  const appRunning = [app, ...(appsData?.apps ?? []).filter((candidate) => candidate.id !== app.id)].some((candidate) =>
+    ["running", "starting", "stopping"].includes(candidate.status),
+  );
 
   return (
     <div className="flex flex-col gap-6">

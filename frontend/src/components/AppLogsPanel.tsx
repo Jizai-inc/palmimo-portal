@@ -8,7 +8,7 @@ import { LogViewer } from "@/components/LogViewer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { appLogsSubtitle } from "@/lib/appLogsSubtitle";
-import { appStatusLabel, appStatusTone, isAppStatusBusy } from "@/lib/appStatus";
+import { appStatusLabel, appStatusTone, isAppStatusBusy, shouldPollAppStatus } from "@/lib/appStatus";
 import { useAppLogs } from "@/lib/useAppLogs";
 
 /** The full-page app logs view (design doc D18b). Route + `AppShell` chrome live in routes/apps_.$id_.logs.tsx. */
@@ -16,7 +16,7 @@ export function AppLogsPanel({ id }: { id: string }) {
   const { t } = useTranslation();
 
   const { data: app, error } = useGetAppApiV1AppsNameGet(id, {
-    query: { refetchInterval: (query) => (query.state.data && isAppStatusBusy(query.state.data.status) ? 3_000 : false) },
+    query: { refetchInterval: (query) => (query.state.data && shouldPollAppStatus(query.state.data.status) ? 3_000 : false) },
   });
   const status = app?.status ?? "stopped";
   const { unavailable, invocations, invocation, setInvocation, isCurrentInvocation, accumulated, droppedCount, truncated, text } = useAppLogs(id, status);

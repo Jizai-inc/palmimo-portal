@@ -29,11 +29,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { appStatusLabel, appStatusTone, isAppJobStatus, isAppStatusBusy } from "@/lib/appStatus";
+import { appStatusLabel, appStatusTone, isAppJobStatus, isAppStatusBusy, shouldPollAppStatus } from "@/lib/appStatus";
 import { formatSourceSummary } from "@/lib/appSourceSummary";
 import { usePlatformUpdate } from "@/lib/usePlatformUpdate";
 
-/** Poll cadence while any app is mid-transition (design doc 3.7). */
+/** Poll cadence while any app is mid-transition (design doc 3.7) or running (see `shouldPollAppStatus`). */
 const ACTIVE_POLL_INTERVAL_MS = 5_000;
 
 export function AppsListPanel() {
@@ -43,7 +43,7 @@ export function AppsListPanel() {
     query: {
       refetchInterval: (query) => {
         const apps = query.state.data?.apps ?? [];
-        return apps.some((app) => isAppStatusBusy(app.status)) ? ACTIVE_POLL_INTERVAL_MS : false;
+        return apps.some((app) => shouldPollAppStatus(app.status)) ? ACTIVE_POLL_INTERVAL_MS : false;
       },
     },
   });

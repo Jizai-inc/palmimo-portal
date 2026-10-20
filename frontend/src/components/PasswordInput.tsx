@@ -13,7 +13,15 @@ export function PasswordInput({ className, ...props }: Omit<React.ComponentProps
 
   return (
     <div className="relative">
-      <Input {...props} type={visible ? "text" : "password"} className={cn("pr-10", className)} />
+      {/* Shown as text, the field would otherwise get mobile autocapitalize/autocorrect and spellcheck. */}
+      <Input
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        {...props}
+        type={visible ? "text" : "password"}
+        className={cn("pr-10", className)}
+      />
       <button
         type="button"
         onClick={() => setVisible((shown) => !shown)}

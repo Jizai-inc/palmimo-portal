@@ -60,9 +60,6 @@ export function WifiConnectForm({
           key={network.ssid}
           id="psk"
           autoComplete="off"
-          autoCapitalize="none"
-          autoCorrect="off"
-          spellCheck={false}
           required={network.secured}
           value={psk}
           onChange={(event) => setPsk(event.target.value)}

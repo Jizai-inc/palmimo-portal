@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from palmimo_portal.core.provisioning import NotProvisionedError, is_provisioned, require_provisioned
+from palmimo_portal.core.provisioning import (
+    NotProvisionedError,
+    is_provisioned,
+    is_serving_setup_ap,
+    require_provisioned,
+)
 from palmimo_portal.ports import ConnectionState, WifiStatus
 from palmimo_portal.testing.fakes import FakeNetworkPort
 
@@ -33,6 +38,19 @@ def test_is_provisioned_true_when_disconnected_but_a_network_is_known() -> None:
     network = FakeNetworkPort(known_networks={"home"})
 
     assert is_provisioned(network) is True
+
+
+def test_is_serving_setup_ap_true_when_a_provisioned_device_fell_back_to_the_ap() -> None:
+    network = FakeNetworkPort(known_networks={"home"})
+
+    assert is_serving_setup_ap(network) is True
+
+
+@pytest.mark.parametrize("state", [ConnectionState.CONNECTED, ConnectionState.CONNECTING])
+def test_is_serving_setup_ap_false_when_off_the_ap(state: ConnectionState) -> None:
+    network = FakeNetworkPort(status=WifiStatus(state=state, ssid="home", ip_address=None))
+
+    assert is_serving_setup_ap(network) is False
 
 
 def test_require_provisioned_raises_when_unprovisioned() -> None:

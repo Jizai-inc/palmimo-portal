@@ -5,8 +5,8 @@ import { useTranslation } from "react-i18next";
 import { useSetupApiV1AuthSetupPost } from "@/api/generated/auth/auth";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { AuthShell } from "@/components/AuthShell";
+import { PasswordInput } from "@/components/PasswordInput";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 /** Open first-time setup -- reachable only when `auth_state === "open_setup"` (a DIY, self-flashed image). */
@@ -40,9 +40,8 @@ function SetupScreen() {
       <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="password">{t("setup.passwordLabel")}</Label>
-          <Input
+          <PasswordInput
             id="password"
-            type="password"
             autoComplete="new-password"
             required
             value={password}
@@ -51,9 +50,8 @@ function SetupScreen() {
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="confirm-password">{t("setup.confirmPasswordLabel")}</Label>
-          <Input
+          <PasswordInput
             id="confirm-password"
-            type="password"
             autoComplete="new-password"
             required
             value={confirmPassword}

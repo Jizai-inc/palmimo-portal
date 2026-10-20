@@ -28,6 +28,16 @@ function stubStatus(overrides: Partial<{ auth_state: string; device_id: string |
 }
 
 describe("LoginPanel", () => {
+  it("offers a show/hide toggle on the password field", async () => {
+    stubStatus({ auth_state: "initial", device_id: "1234" });
+    const user = userEvent.setup();
+    renderWithProviders(<LoginPanel onLoggedIn={vi.fn()} onForgotPassword={vi.fn()} />);
+
+    await user.click(await screen.findByRole("button", { name: "Show or hide password" }));
+
+    expect(screen.getByLabelText("Password")).toHaveAttribute("type", "text");
+  });
+
   it("shows the forgot-password link on the normal login screen when device_id is present", async () => {
     stubStatus({ auth_state: "set", device_id: "1234" });
     renderWithProviders(<LoginPanel onLoggedIn={vi.fn()} onForgotPassword={vi.fn()} />);

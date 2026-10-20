@@ -16,7 +16,8 @@
     "delete": "Delete",
     "logout": "Log out",
     "networkError": "Could not reach Palmimo. Check your connection and try again.",
-    "inProgress": "In progress"
+    "inProgress": "In progress",
+    "togglePasswordVisibility": "Show or hide password"
   },
   "nav": {
     "primaryNavigation": "Primary navigation",
@@ -101,7 +102,6 @@
     "connectTitle": "Connect to {{ssid}}",
     "connectBody": "Enter this network's password.",
     "passwordLabel": "Wi-Fi password",
-    "togglePasswordVisibility": "Show or hide password",
     "passwordTooShort": "Password must be 8-63 characters.",
     "connect": "Connect",
     "connecting": "Connecting…",

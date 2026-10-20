@@ -5,9 +5,9 @@ import { useTranslation } from "react-i18next";
 import { useLoginApiV1AuthLoginPost } from "@/api/generated/auth/auth";
 import { getGetStatusApiV1SystemStatusGetQueryKey, useGetStatusApiV1SystemStatusGet } from "@/api/generated/system/system";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
+import { PasswordInput } from "@/components/PasswordInput";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 /**
@@ -59,9 +59,8 @@ export function LoginPanel({
       <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="password">{t("login.passwordLabel")}</Label>
-          <Input
+          <PasswordInput
             id="password"
-            type="password"
             autoComplete="current-password"
             required
             value={password}

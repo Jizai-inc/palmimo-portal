@@ -7,8 +7,8 @@ import { useChangePasswordEndpointApiV1AuthChangePasswordPost } from "@/api/gene
 import { useGetStatusApiV1SystemStatusGet } from "@/api/generated/system/system";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { AuthShell } from "@/components/AuthShell";
+import { PasswordInput } from "@/components/PasswordInput";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 /**
@@ -56,9 +56,8 @@ function ChangePasswordScreen() {
       <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="new-password">{t("changePassword.newPasswordLabel")}</Label>
-          <Input
+          <PasswordInput
             id="new-password"
-            type="password"
             autoComplete="new-password"
             placeholder={t("changePassword.newPasswordPlaceholder")}
             required
@@ -68,9 +67,8 @@ function ChangePasswordScreen() {
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="confirm-new-password">{t("changePassword.confirmPasswordLabel")}</Label>
-          <Input
+          <PasswordInput
             id="confirm-new-password"
-            type="password"
             autoComplete="new-password"
             required
             value={confirmPassword}

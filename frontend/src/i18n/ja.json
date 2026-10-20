@@ -16,7 +16,8 @@
     "delete": "削除",
     "logout": "ログアウト",
     "networkError": "Palmimo に接続できませんでした。接続状況を確認してもう一度お試しください。",
-    "inProgress": "進行中"
+    "inProgress": "進行中",
+    "togglePasswordVisibility": "パスワードの表示・非表示を切り替え"
   },
   "nav": {
     "primaryNavigation": "メインナビゲーション",
@@ -101,7 +102,6 @@
     "connectTitle": "「{{ssid}}」に接続",
     "connectBody": "このネットワークのパスワードを入力してください。",
     "passwordLabel": "Wi-Fi パスワード",
-    "togglePasswordVisibility": "パスワードの表示・非表示を切り替え",
     "passwordTooShort": "パスワードは 8〜63 文字で入力してください。",
     "connect": "接続",
     "connecting": "接続しています…",

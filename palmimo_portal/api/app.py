@@ -5,8 +5,8 @@ Middleware runs outside-in as **HostGuard -> Session -> CSRF -> router**:
 - :class:`HostGuardMiddleware` rejects DNS-rebinding-style requests (a
   ``Host`` header that names neither this machine nor an explicitly allowed
   one) with 421, before anything else runs -- except an OS captive-portal
-  probe while unprovisioned, which it redirects to this machine so the
-  setup AP's captive portal opens automatically.
+  probe while the setup AP is up, which it redirects to this machine so the
+  AP's captive portal opens automatically.
 - :class:`SessionMiddleware` reads the session cookie, if any, and records
   whether it verifies against the current signing key on
   ``request.state.authenticated`` — it never itself rejects a request,
@@ -77,7 +77,7 @@ from palmimo_portal.core.platform import (
     run_verify,
 )
 from palmimo_portal.core.platform_update import finalize_after_restart as finalize_platform_after_restart
-from palmimo_portal.core.provisioning import is_provisioned
+from palmimo_portal.core.provisioning import is_serving_setup_ap
 from palmimo_portal.core.update import finalize_after_restart
 from palmimo_portal.core.update_runner import UpdateRunner
 from palmimo_portal.ports import (
@@ -114,11 +114,11 @@ CSRF_HEADER_VALUE = "PalmimoPortal"
 # leaves AP mode) becomes allowed without a restart.
 _HOST_CACHE_TTL_SECONDS = 30.0
 
-# How long HostGuard trusts its cached provisioned/unprovisioned snapshot
-# before re-asking the network port. Short enough that finishing Wi-Fi setup
-# stops the captive-probe redirect within one probe interval, without
+# How long HostGuard trusts its cached setup-AP snapshot before re-asking
+# the network port. Short enough that joining a Wi-Fi network stops the
+# captive-probe redirect within one probe interval, without
 # hammering D-Bus on every probe (OSes poll this every few seconds).
-_PROVISIONED_CACHE_TTL_SECONDS = 5.0
+_SETUP_AP_CACHE_TTL_SECONDS = 5.0
 
 # Hostnames the major OSes' connectivity-check clients query to detect a
 # captive portal. Wildcard DNS on the setup AP (comitup's dnsmasq) answers
@@ -215,7 +215,7 @@ class HostGuardMiddleware(BaseHTTPMiddleware):
 
     One exception to the 421: a GET/HEAD to a non-API path (see
     :func:`_is_api_path`) with a :data:`CAPTIVE_PROBE_HOSTS` ``Host``
-    header, while the device is unprovisioned, gets a 302 to this machine
+    header, while the setup AP is up, gets a 302 to this machine
     instead -- see :meth:`dispatch`.
     """
 
@@ -232,10 +232,10 @@ class HostGuardMiddleware(BaseHTTPMiddleware):
         self._clock = clock
         self._cached_machine_hosts: frozenset[str] = frozenset()
         self._cached_at: float = float("-inf")
-        self._cached_provisioned: bool = True
-        self._provisioned_cached_at: float = float("-inf")
-        self._provisioned_warned_at: float = float("-inf")
-        self._provisioned_refresh_lock = asyncio.Lock()
+        self._cached_on_setup_ap: bool = False
+        self._setup_ap_cached_at: float = float("-inf")
+        self._setup_ap_warned_at: float = float("-inf")
+        self._setup_ap_refresh_lock = asyncio.Lock()
 
     def _allowed_hosts(self) -> frozenset[str]:
         now = self._clock()
@@ -244,41 +244,41 @@ class HostGuardMiddleware(BaseHTTPMiddleware):
             self._cached_at = now
         return self._always_allowed_hosts | self._cached_machine_hosts
 
-    async def _is_provisioned(self) -> bool:
-        """Report provisioned state, cached for :data:`_PROVISIONED_CACHE_TTL_SECONDS`.
+    async def _is_on_setup_ap(self) -> bool:
+        """Report whether the setup AP is up, cached for :data:`_SETUP_AP_CACHE_TTL_SECONDS`.
 
         The port call runs off the event loop (:func:`anyio.to_thread.run_sync`)
         -- the real adapter's D-Bus round trip can take several seconds, and
         blocking the loop for that would stall every other request the
         moment a probe lands. A refresh past the TTL takes
-        ``_provisioned_refresh_lock`` and re-checks the TTL once inside it,
+        ``_setup_ap_refresh_lock`` and re-checks the TTL once inside it,
         so a burst of simultaneous probes triggers one port call, not one
         per request; the rest just wait on the lock.
 
         Fails closed: a missing network port or a raising one is treated as
-        provisioned, so the ambiguous case keeps the existing 421 behavior
+        off the AP, so the ambiguous case keeps the existing 421 behavior
         rather than opening the redirect exception. A raise is logged at
         most once per TTL window, so a broken D-Bus link during a probe
         storm does not flood the log.
         """
         if self._network is None:
-            return True
-        if self._clock() - self._provisioned_cached_at <= _PROVISIONED_CACHE_TTL_SECONDS:
-            return self._cached_provisioned
-        async with self._provisioned_refresh_lock:
+            return False
+        if self._clock() - self._setup_ap_cached_at <= _SETUP_AP_CACHE_TTL_SECONDS:
+            return self._cached_on_setup_ap
+        async with self._setup_ap_refresh_lock:
             now = self._clock()
-            if now - self._provisioned_cached_at <= _PROVISIONED_CACHE_TTL_SECONDS:
-                return self._cached_provisioned
+            if now - self._setup_ap_cached_at <= _SETUP_AP_CACHE_TTL_SECONDS:
+                return self._cached_on_setup_ap
             network = self._network
             try:
-                self._cached_provisioned = await anyio.to_thread.run_sync(is_provisioned, network)
+                self._cached_on_setup_ap = await anyio.to_thread.run_sync(is_serving_setup_ap, network)
             except Exception as error:
-                if now - self._provisioned_warned_at > _PROVISIONED_CACHE_TTL_SECONDS:
-                    logger.warning("HostGuard: network port unavailable, treating as provisioned: %s", error)
-                    self._provisioned_warned_at = now
-                self._cached_provisioned = True
-            self._provisioned_cached_at = self._clock()
-            return self._cached_provisioned
+                if now - self._setup_ap_warned_at > _SETUP_AP_CACHE_TTL_SECONDS:
+                    logger.warning("HostGuard: network port unavailable, treating as off the setup AP: %s", error)
+                    self._setup_ap_warned_at = now
+                self._cached_on_setup_ap = False
+            self._setup_ap_cached_at = self._clock()
+            return self._cached_on_setup_ap
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Any:
         host = _normalize_host(request.headers.get("host", ""))
@@ -287,7 +287,7 @@ class HostGuardMiddleware(BaseHTTPMiddleware):
                 host in CAPTIVE_PROBE_HOSTS
                 and request.method in _CAPTIVE_PROBE_METHODS
                 and not _is_api_path(request.url.path)
-                and not await self._is_provisioned()
+                and await self._is_on_setup_ap()
             ):
                 return RedirectResponse(url=f"http://{socket.gethostname()}.local/", status_code=302)
             logger.warning("HostGuard rejected a request: Host=%r", host)

@@ -1,12 +1,12 @@
-import { Eye, EyeOff, LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { WifiAttemptInfo, WifiNetworkResponse } from "@/api/generated/models";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
+import { PasswordInput } from "@/components/PasswordInput";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 /**
@@ -30,7 +30,6 @@ export function WifiConnectForm({
 }) {
   const { t } = useTranslation();
   const [psk, setPsk] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const lastAttemptFailed = lastAttempt?.result === "failed";
   // Mirrors the server's WPA2 passphrase length rule (api/wifi.py's _validate_psk).
   const pskTooShort = network.secured && psk.length > 0 && psk.length < 8;
@@ -39,7 +38,6 @@ export function WifiConnectForm({
   // unmounts instead, but that's an implementation detail this component shouldn't rely on).
   useEffect(() => {
     setPsk("");
-    setShowPassword(false);
   }, [network.ssid]);
 
   function handleSubmit(event: React.FormEvent) {
@@ -58,29 +56,14 @@ export function WifiConnectForm({
       ) : null}
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="psk">{t("wifi.passwordLabel")}</Label>
-        <div className="relative">
-          <Input
-            id="psk"
-            type={showPassword ? "text" : "password"}
-            autoComplete="off"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            required={network.secured}
-            value={psk}
-            onChange={(event) => setPsk(event.target.value)}
-            className="pr-10"
-          />
-          <button
-            type="button"
-            onClick={() => setShowPassword((shown) => !shown)}
-            aria-pressed={showPassword}
-            aria-label={t("wifi.togglePasswordVisibility")}
-            className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-muted-foreground hover:text-foreground"
-          >
-            {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-          </button>
-        </div>
+        <PasswordInput
+          key={network.ssid}
+          id="psk"
+          autoComplete="off"
+          required={network.secured}
+          value={psk}
+          onChange={(event) => setPsk(event.target.value)}
+        />
         {pskTooShort ? <p className="text-sm text-destructive">{t("wifi.passwordTooShort")}</p> : null}
       </div>
       <ApiErrorAlert error={connectError} />

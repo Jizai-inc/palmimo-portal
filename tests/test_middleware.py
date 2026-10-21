@@ -69,47 +69,62 @@ def test_hostguard_runs_before_csrf(client: TestClient) -> None:
 
 
 @pytest.mark.parametrize("probe_host", sorted(CAPTIVE_PROBE_HOSTS))
-def test_unprovisioned_captive_probe_redirects_to_this_machine(client: TestClient, probe_host: str) -> None:
+def test_on_setup_ap_captive_probe_redirects_to_this_machine(client: TestClient, probe_host: str) -> None:
     response = client.get("/hotspot-detect.html", headers={"Host": probe_host}, follow_redirects=False)
 
     assert response.status_code == 302
     assert response.headers["location"] == CAPTIVE_PROBE_LOCATION
 
 
-def test_unprovisioned_captive_probe_head_redirects(client: TestClient) -> None:
+def test_on_setup_ap_captive_probe_head_redirects(client: TestClient) -> None:
     response = client.head("/hotspot-detect.html", headers={"Host": "captive.apple.com"}, follow_redirects=False)
 
     assert response.status_code == 302
     assert response.headers["location"] == CAPTIVE_PROBE_LOCATION
 
 
-def test_provisioned_captive_probe_host_is_rejected_with_421(client: TestClient, adapters: FakeAdapterBundle) -> None:
+def test_captive_probe_redirects_when_a_provisioned_device_fell_back_to_the_setup_ap(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
     adapters.network.known_networks.add("home")
+
+    response = client.get("/hotspot-detect.html", headers={"Host": "captive.apple.com"}, follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers["location"] == CAPTIVE_PROBE_LOCATION
+
+
+@pytest.mark.parametrize("state", [ConnectionState.CONNECTED, ConnectionState.CONNECTING])
+def test_captive_probe_host_is_rejected_with_421_when_off_the_setup_ap(
+    client: TestClient, adapters: FakeAdapterBundle, state: ConnectionState
+) -> None:
+    adapters.network.known_networks.add("home")
+    adapters.network.status = WifiStatus(state=state, ssid="home", ip_address=None)
 
     response = client.get("/hotspot-detect.html", headers={"Host": "captive.apple.com"})
 
     assert response.status_code == 421
 
 
-def test_unprovisioned_captive_probe_host_on_api_path_is_rejected_with_421(client: TestClient) -> None:
+def test_on_setup_ap_captive_probe_host_on_api_path_is_rejected_with_421(client: TestClient) -> None:
     response = client.get("/api/v1/system/status", headers={"Host": "captive.apple.com"})
 
     assert response.status_code == 421
 
 
-def test_unprovisioned_captive_probe_host_on_bare_api_path_is_rejected_with_421(client: TestClient) -> None:
+def test_on_setup_ap_captive_probe_host_on_bare_api_path_is_rejected_with_421(client: TestClient) -> None:
     response = client.get("/api", headers={"Host": "captive.apple.com"})
 
     assert response.status_code == 421
 
 
-def test_unprovisioned_captive_probe_host_post_is_rejected_with_421(client: TestClient) -> None:
+def test_on_setup_ap_captive_probe_host_post_is_rejected_with_421(client: TestClient) -> None:
     response = client.post("/hotspot-detect.html", headers={"Host": "captive.apple.com", **CSRF_HEADERS})
 
     assert response.status_code == 421
 
 
-def test_unprovisioned_non_probe_foreign_host_is_still_rejected_with_421(client: TestClient) -> None:
+def test_on_setup_ap_non_probe_foreign_host_is_still_rejected_with_421(client: TestClient) -> None:
     response = client.get("/hotspot-detect.html", headers={"Host": "evil.example.com"})
 
     assert response.status_code == 421
@@ -123,7 +138,7 @@ def test_network_port_raising_fails_closed_to_421(client: TestClient, adapters: 
     assert response.status_code == 421
 
 
-def test_captive_probe_redirect_stops_once_ttl_observes_provisioning() -> None:
+def test_captive_probe_redirect_stops_once_ttl_observes_leaving_the_setup_ap() -> None:
     network = FakeNetworkPort()
     clock = {"t": 0.0}
     middleware = HostGuardMiddleware(
@@ -133,31 +148,31 @@ def test_captive_probe_redirect_stops_once_ttl_observes_provisioning() -> None:
         clock=lambda: clock["t"],
     )
 
-    assert asyncio.run(middleware._is_provisioned()) is False
+    assert asyncio.run(middleware._is_on_setup_ap()) is True
 
     network.status = WifiStatus(state=ConnectionState.CONNECTED, ssid="home", ip_address="198.51.100.7")
 
-    # Within the TTL window, the cached (stale) unprovisioned result is reused.
-    assert asyncio.run(middleware._is_provisioned()) is False
+    # Within the TTL window, the cached (stale) on-AP result is reused.
+    assert asyncio.run(middleware._is_on_setup_ap()) is True
 
-    clock["t"] += app_module._PROVISIONED_CACHE_TTL_SECONDS + 1.0
-    assert asyncio.run(middleware._is_provisioned()) is True
+    clock["t"] += app_module._SETUP_AP_CACHE_TTL_SECONDS + 1.0
+    assert asyncio.run(middleware._is_on_setup_ap()) is False
 
 
-def test_dispatch_uses_is_provisioned_to_decide_the_redirect(
+def test_dispatch_uses_is_on_setup_ap_to_decide_the_redirect(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # The fake network port defaults to unprovisioned, which would 302 on
-    # its own -- forcing _is_provisioned to report True and asserting the
+    # The fake network port defaults to the setup AP, which would 302 on
+    # its own -- forcing _is_on_setup_ap to report False and asserting the
     # 421 instead proves dispatch actually awaits and branches on it,
     # rather than deciding the redirect some other way.
     calls = {"n": 0}
 
-    async def _forced_provisioned(self: HostGuardMiddleware) -> bool:
+    async def _forced_off_setup_ap(self: HostGuardMiddleware) -> bool:
         calls["n"] += 1
-        return True
+        return False
 
-    monkeypatch.setattr(HostGuardMiddleware, "_is_provisioned", _forced_provisioned)
+    monkeypatch.setattr(HostGuardMiddleware, "_is_on_setup_ap", _forced_off_setup_ap)
 
     response = client.get("/hotspot-detect.html", headers={"Host": "captive.apple.com"})
 

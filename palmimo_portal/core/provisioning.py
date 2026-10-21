@@ -30,6 +30,16 @@ def is_provisioned(network: NetworkPort) -> bool:
     return network.has_known_networks()
 
 
+def is_serving_setup_ap(network: NetworkPort) -> bool:
+    """Report whether the device is serving its setup AP right now.
+
+    Unlike :func:`is_provisioned`, a provisioned device that fell back to the
+    AP (its known networks out of range) counts too: ``UNPROVISIONED`` is
+    comitup's ``HOTSPOT`` state, not the out-of-box rule.
+    """
+    return network.get_status().state is ConnectionState.UNPROVISIONED
+
+
 def require_provisioned(network: NetworkPort) -> None:
     """Raise :class:`NotProvisionedError` unless the device is provisioned.
 

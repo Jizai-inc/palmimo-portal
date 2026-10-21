@@ -13,6 +13,7 @@ from palmimo_portal.api.catalog import CatalogAppInfo
 from palmimo_portal.core.app_translations import parse_translations
 from palmimo_portal.core.apps_jobs import _read_manifest
 from palmimo_portal.core.manifest import manifest_snapshot, parse_manifest, resolve_command
+from palmimo_portal.ports import CatalogCacheState
 
 
 MANIFEST = 'schema=1\nname="sample"\ndescription="Original"\ncommand=["run", "{port}"]\n[params.port]\ntype="int"\ndefault=8000\ndescription="Port"\n'
@@ -67,7 +68,7 @@ def test_translation_parser_discards_invalid_fields_without_discarding_valid_one
     ) == {"ja": {"description": "Valid"}}
 
 
-def test_catalog_translations_survive_cache_and_response() -> None:
+def test_catalog_translations_survive_cache_and_response(tmp_path: Path) -> None:
     entry = {
         "name": "sample",
         "description": "Original",
@@ -83,9 +84,11 @@ def test_catalog_translations_survive_cache_and_response() -> None:
         "translations": TRANSLATIONS,
     }
     (app,) = _parse_catalog(json.dumps({"schema": 1, "apps": [entry]}).encode(), "catalog.json")
-    cached = JsonFileStateStore._parse_catalog_cache(
-        json.dumps({"schema": 1, "tag": "examples-v1", "fetched_at": 1, "apps": [asdict(app)]})
-    )
+    # Round-trip through the real writer and reader: the reader alone already
+    # handled translations while the writer silently dropped them.
+    store = JsonFileStateStore(tmp_path)
+    store.write_catalog_cache(CatalogCacheState(tag="examples-v1", apps=(app,), fetched_at=1.0))
+    cached = store.read_catalog_cache()
     assert cached.apps[0].translations == TRANSLATIONS
     source = {**asdict(app.source), "official": True}
     response = CatalogAppInfo.model_validate(

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
+import { getGetPlatformApiV1PlatformGetMockHandler } from "@/api/generated/platform/platform.msw";
 import { WifiSettingsPanel } from "@/components/WifiSettingsPanel";
 import { renderWithProviders } from "@/test/render";
 import { server } from "@/test/server";
@@ -20,6 +21,16 @@ function stubStatuses({
 } = {}) {
   server.use(
     http.get("*/api/v1/wifi/saved", () => HttpResponse.json([])),
+    getGetPlatformApiV1PlatformGetMockHandler({
+      installed_at: null,
+      installed_version: 4,
+      latest: null,
+      latest_error: null,
+      ready: true,
+      reason: null,
+      required_version: 1,
+      verify_diffs: [],
+    }),
     http.get("*/api/v1/wifi/status", () =>
       HttpResponse.json({ state: "connected", ssid: "HomeNet", ip_address: "198.51.100.7", ...wifi }),
     ),

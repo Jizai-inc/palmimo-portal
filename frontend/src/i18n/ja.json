@@ -164,6 +164,8 @@
     "savedBody": "接続が切れたら上から順に試します。どれにもつながらないときは、Palmimo 自身の Wi-Fi「{{hostname}}」を出します。",
     "savedAdd": "追加",
     "savedEmpty": "保存済みのネットワークはありません。",
+    "savedNeedsPlatformTitle": "複数の Wi-Fi を保存するには基盤の更新が必要です",
+    "savedNeedsPlatformBody": "この端末の基盤ソフトウェアが古いため、ここでネットワークの保存・並べ替え・切り替えができません。更新すると使えるようになります。",
     "savedActive": "接続中",
     "savedSwitch": "切り替え",
     "savedMoveUp": "{{ssid}} を上へ",

@@ -21,6 +21,7 @@ from palmimo_portal.adapters.git_uv_updater import GitUvUpdater
 from palmimo_portal.adapters.github_releases import GitHubReleaseSource
 from palmimo_portal.adapters.identity import FileIdentityStore
 from palmimo_portal.adapters.journal import JournalctlPort
+from palmimo_portal.adapters.networkmanager import NetworkManagerSavedNetworkPort
 from palmimo_portal.adapters.platform import GitHubPlatformBundleSource, SudoPlatformPort
 from palmimo_portal.adapters.rundir import TmpfsRunDirPort
 from palmimo_portal.adapters.secrets import JsonSecretsStore
@@ -42,6 +43,7 @@ from palmimo_portal.ports import (
     PlatformPort,
     ReleaseSource,
     RunDirPort,
+    SavedNetworkPort,
     SecretsStore,
     SshKeyPort,
     StateStore,
@@ -64,6 +66,7 @@ from palmimo_portal.testing.fakes import (
     FakePlatformPort,
     FakeReleaseSource,
     FakeRunDirPort,
+    FakeSavedNetworkPort,
     FakeSecretsStore,
     FakeSshKeyPort,
     FakeStateStore,
@@ -87,6 +90,7 @@ class AdapterBundle:
     """The five ports, wired to concrete implementations."""
 
     network: NetworkPort
+    saved_networks: SavedNetworkPort
     system: SystemPort
     ssh_keys: SshKeyPort
     state: StateStore
@@ -126,6 +130,7 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         fake_state = FakeStateStore()
         return AdapterBundle(
             network=FakeNetworkPort(state_store=fake_state),
+            saved_networks=FakeSavedNetworkPort(),
             system=FakeSystemPort(),
             ssh_keys=FakeSshKeyPort(),
             state=fake_state,
@@ -153,6 +158,7 @@ def build_adapters(settings: Settings) -> AdapterBundle:
             known_network_marker=settings.state_dir / KNOWN_NETWORK_MARKER_FILENAME,
             state_store=real_state,
         ),
+        saved_networks=NetworkManagerSavedNetworkPort(),
         system=SystemdSystemPort(unit=settings.portal_unit),
         ssh_keys=AuthorizedKeysSshKeyPort(),
         state=real_state,

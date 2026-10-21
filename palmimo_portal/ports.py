@@ -107,6 +107,73 @@ class NetworkPort(Protocol):
         ...
 
 
+@dataclass(frozen=True)
+class SavedNetwork:
+    """One saved Wi-Fi network (a NetworkManager infrastructure profile)."""
+
+    ssid: str
+    priority: int
+    active: bool
+
+
+class SavedNetworkPort(Protocol):
+    """The saved Wi-Fi networks, edited in NetworkManager directly. See :class:`~palmimo_portal.adapters.networkmanager.NetworkManagerSavedNetworkPort`.
+
+    comitup tries saved networks highest ``connection.autoconnect-priority``
+    first (the device image patches comitup to do so), so the list order *is*
+    the retry order. The setup AP's own profile is never listed.
+    """
+
+    def list_saved(self) -> list[SavedNetwork]:
+        """Return the saved networks, highest priority first."""
+        ...
+
+    def save(self, ssid: str, psk: str, *, first: bool) -> None:
+        """Save a network without switching to it, or replace an existing one's passphrase.
+
+        ``first`` puts it at the top of the order; otherwise a new network goes last
+        and an existing one keeps its place.
+        """
+        ...
+
+    def delete(self, ssid: str) -> None:
+        """Delete a saved network.
+
+        Raises:
+            SavedNetworkNotFoundError: no saved network has this SSID.
+            SavedNetworkActiveError: it is the network the device is on now.
+        """
+        ...
+
+    def reorder(self, ssids: list[str]) -> None:
+        """Rewrite the priorities so the saved networks follow ``ssids``, first highest.
+
+        Raises:
+            SavedNetworkOrderError: ``ssids`` is not exactly the saved set.
+        """
+        ...
+
+    def activate(self, ssid: str) -> None:
+        """Switch to a saved network now, keeping the current one saved. Returns immediately.
+
+        Raises:
+            SavedNetworkNotFoundError: no saved network has this SSID.
+        """
+        ...
+
+
+class SavedNetworkNotFoundError(Exception):
+    """No saved network has the requested SSID."""
+
+
+class SavedNetworkActiveError(Exception):
+    """The saved network is the one the device is on now, so it cannot be deleted from the list."""
+
+
+class SavedNetworkOrderError(Exception):
+    """A requested order does not name every saved network exactly once."""
+
+
 class ClockPort(Protocol):
     """Monotonic timekeeping and NTP-sync status. See :class:`~palmimo_portal.adapters.clock.SystemClockPort`.
 

@@ -31,6 +31,7 @@ from palmimo_portal.ports import (
     NetworkPort,
     ReleaseSource,
     RunDirPort,
+    SavedNetworkPort,
     SecretsStore,
     SshKeyPort,
     StateStore,
@@ -44,6 +45,13 @@ def get_network_port(request: Request) -> NetworkPort:
     adapters: Any = request.app.state.adapters
     network: NetworkPort = adapters.network
     return network
+
+
+def get_saved_network_port(request: Request) -> SavedNetworkPort:
+    """Return the wired :class:`SavedNetworkPort` adapter."""
+    adapters: Any = request.app.state.adapters
+    saved: SavedNetworkPort = adapters.saved_networks
+    return saved
 
 
 def get_system_port(request: Request) -> SystemPort:

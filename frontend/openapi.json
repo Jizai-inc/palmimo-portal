@@ -1,6 +1,17 @@
 {
   "components": {
     "schemas": {
+      "ActivateResponse": {
+        "properties": {
+          "status": {
+            "default": "switching",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "title": "ActivateResponse",
+        "type": "object"
+      },
       "AddKeyRequest": {
         "properties": {
           "public_key": {
@@ -1128,6 +1139,22 @@
         "title": "ManifestPreviewResponse",
         "type": "object"
       },
+      "OrderRequest": {
+        "properties": {
+          "ssids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ssids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ssids"
+        ],
+        "title": "OrderRequest",
+        "type": "object"
+      },
       "ParamSpecInfo": {
         "description": "One declared ``[params.*]`` entry's shape -- not its current stored value (see ``params``).",
         "properties": {
@@ -1524,6 +1551,42 @@
         "title": "ReleaseInfo",
         "type": "object"
       },
+      "SaveRequest": {
+        "properties": {
+          "psk": {
+            "title": "Psk",
+            "type": "string"
+          },
+          "ssid": {
+            "title": "Ssid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ssid",
+          "psk"
+        ],
+        "title": "SaveRequest",
+        "type": "object"
+      },
+      "SavedNetworkResponse": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "ssid": {
+            "title": "Ssid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ssid",
+          "active"
+        ],
+        "title": "SavedNetworkResponse",
+        "type": "object"
+      },
       "SecretRecordInfo": {
         "properties": {
           "name": {
@@ -1622,6 +1685,19 @@
           "comment"
         ],
         "title": "SshKeyResponse",
+        "type": "object"
+      },
+      "SsidRequest": {
+        "properties": {
+          "ssid": {
+            "title": "Ssid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ssid"
+        ],
+        "title": "SsidRequest",
         "type": "object"
       },
       "StartResponse": {
@@ -3674,7 +3750,7 @@
     },
     "/api/v1/wifi/connect": {
       "post": {
-        "description": "Start a connect attempt and return immediately.\n\nThe AP-disconnection asymmetry (connecting to the home network tears\ndown the setup AP the client is talking through) means the result can\nnever come back on this response -- it is recorded via\n:class:`~palmimo_portal.ports.StateStore` and read back later through\n``GET /api/v1/system/status``.\n\nThe attempt is recorded *before* :meth:`~palmimo_portal.ports.NetworkPort.connect`\nis called, so a process death right after the call would not lose the\nrecord; if ``connect`` raises, the attempt is corrected to a durable\n\"failed\" result rather than left claiming \"attempting\" forever. Does\n*not* transition \"attempting\" to \"success\" asynchronously -- that\nbelongs to the real network adapter, which observes the outcome.\n\nIf the device is currently ``CONNECTED``, the real adapter forgets that\nnetwork before connecting to the new one (see\n:meth:`~palmimo_portal.adapters.comitup.ComitupNetworkPort.connect`) --\ncomitup would otherwise short-circuit back to the old network. This\nhandler reads :meth:`~palmimo_portal.ports.NetworkPort.get_status` first\npurely for operator visibility, logging a WARNING naming both networks.\n\nRaises:\n    PortalError: 400 ``wifi_invalid_ssid`` / ``wifi_invalid_psk`` if\n        ``body`` fails :func:`_validate_ssid` / :func:`_validate_psk` --\n        checked first, before anything below touches state or the\n        network adapter. 502 ``wifi_connect_failed`` if\n        ``network.connect`` itself raises (e.g. the radio is busy).",
+        "description": "Start a connect attempt and return immediately.\n\nThe AP-disconnection asymmetry (connecting to the home network tears\ndown the setup AP the client is talking through) means the result can\nnever come back on this response -- it is recorded via\n:class:`~palmimo_portal.ports.StateStore` and read back later through\n``GET /api/v1/system/status``.\n\nThe attempt is recorded *before* :meth:`~palmimo_portal.ports.NetworkPort.connect`\nis called, so a process death right after the call would not lose the\nrecord; if ``connect`` raises, the attempt is corrected to a durable\n\"failed\" result rather than left claiming \"attempting\" forever. Does\n*not* transition \"attempting\" to \"success\" asynchronously -- that\nbelongs to the real network adapter, which observes the outcome.\n\nIf the device is currently ``CONNECTED``, the new network is saved at\nthe top of the order and switched to through\n:class:`~palmimo_portal.ports.SavedNetworkPort`, so the current one stays\nsaved as a fallback. Otherwise (the setup flow) comitup connects.\n\nRaises:\n    PortalError: 400 ``wifi_invalid_ssid`` / ``wifi_invalid_psk`` if\n        ``body`` fails :func:`_validate_ssid` / :func:`_validate_psk` --\n        checked first, before anything below touches state or the\n        network adapter. 502 ``wifi_connect_failed`` if\n        ``network.connect`` itself raises (e.g. the radio is busy).",
         "operationId": "connect_api_v1_wifi_connect_post",
         "requestBody": {
           "content": {
@@ -3757,6 +3833,210 @@
           }
         },
         "summary": "List Networks",
+        "tags": [
+          "wifi"
+        ]
+      }
+    },
+    "/api/v1/wifi/saved": {
+      "get": {
+        "description": "Return the saved networks in the order the device tries them, first first.",
+        "operationId": "list_saved_api_v1_wifi_saved_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SavedNetworkResponse"
+                  },
+                  "title": "Response List Saved Api V1 Wifi Saved Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Saved",
+        "tags": [
+          "wifi"
+        ]
+      },
+      "post": {
+        "description": "Save a network without switching to it (last in the order), or replace a saved one's passphrase.\n\nRaises:\n    PortalError: 400 ``wifi_invalid_ssid`` / ``wifi_invalid_psk`` (see :func:`connect`).",
+        "operationId": "save_network_api_v1_wifi_saved_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SavedNetworkResponse"
+                  },
+                  "title": "Response Save Network Api V1 Wifi Saved Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Network",
+        "tags": [
+          "wifi"
+        ]
+      }
+    },
+    "/api/v1/wifi/saved/activate": {
+      "post": {
+        "description": "Switch to a saved network now; the current one stays saved. Returns immediately.\n\nRecorded as a connect attempt, read back like ``POST /wifi/connect``'s.\n\nRaises:\n    PortalError: 404 ``wifi_saved_not_found``.",
+        "operationId": "activate_saved_api_v1_wifi_saved_activate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SsidRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Activate Saved",
+        "tags": [
+          "wifi"
+        ]
+      }
+    },
+    "/api/v1/wifi/saved/delete": {
+      "post": {
+        "description": "Delete a saved network other than the current one.\n\nRaises:\n    PortalError: 404 ``wifi_saved_not_found``. 409 ``wifi_saved_active`` for the\n        current network -- ``DELETE /wifi/connection`` forgets that one.",
+        "operationId": "delete_saved_api_v1_wifi_saved_delete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SsidRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SavedNetworkResponse"
+                  },
+                  "title": "Response Delete Saved Api V1 Wifi Saved Delete Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Saved",
+        "tags": [
+          "wifi"
+        ]
+      }
+    },
+    "/api/v1/wifi/saved/order": {
+      "put": {
+        "description": "Set the order the device tries saved networks in, first first.\n\nRaises:\n    PortalError: 409 ``wifi_saved_order_mismatch`` if ``ssids`` is not exactly\n        the saved set (another client changed it meanwhile).",
+        "operationId": "reorder_saved_api_v1_wifi_saved_order_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SavedNetworkResponse"
+                  },
+                  "title": "Response Reorder Saved Api V1 Wifi Saved Order Put",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reorder Saved",
         "tags": [
           "wifi"
         ]

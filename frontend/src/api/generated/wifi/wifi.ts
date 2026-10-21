@@ -24,10 +24,15 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  ActivateResponse,
   ConnectRequest,
   ConnectResponse,
   ForgetResponse,
   HTTPValidationError,
+  OrderRequest,
+  SaveRequest,
+  SavedNetworkResponse,
+  SsidRequest,
   WifiNetworkResponse,
   WifiStatusResponse
 } from '../models';
@@ -76,12 +81,10 @@ export const getConnectApiV1WifiConnectPostUrl = () => {
  * *not* transition "attempting" to "success" asynchronously -- that
  * belongs to the real network adapter, which observes the outcome.
  *
- * If the device is currently ``CONNECTED``, the real adapter forgets that
- * network before connecting to the new one (see
- * :meth:`~palmimo_portal.adapters.comitup.ComitupNetworkPort.connect`) --
- * comitup would otherwise short-circuit back to the old network. This
- * handler reads :meth:`~palmimo_portal.ports.NetworkPort.get_status` first
- * purely for operator visibility, logging a WARNING naming both networks.
+ * If the device is currently ``CONNECTED``, the new network is saved at
+ * the top of the order and switched to through
+ * :class:`~palmimo_portal.ports.SavedNetworkPort`, so the current one stays
+ * saved as a fallback. Otherwise (the setup flow) comitup connects.
  *
  * Raises:
  *     PortalError: 400 ``wifi_invalid_ssid`` / ``wifi_invalid_psk`` if
@@ -345,7 +348,408 @@ export function useListNetworksApiV1WifiNetworksGet<TData = Awaited<ReturnType<t
 
 
 
-export const getGetStatusApiV1WifiStatusGetUrl = () => {
+export const getListSavedApiV1WifiSavedGetUrl = () => {
+
+
+
+
+  return `/api/v1/wifi/saved`
+}
+
+/**
+ * Return the saved networks in the order the device tries them, first first.
+ * @summary List Saved
+ */
+export const listSavedApiV1WifiSavedGet = async ( options?: RequestInit): Promise<SavedNetworkResponse[]> => {
+
+  return customFetch<SavedNetworkResponse[]>(getListSavedApiV1WifiSavedGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListSavedApiV1WifiSavedGetQueryKey = () => {
+    return [
+    `/api/v1/wifi/saved`
+    ] as const;
+    }
+
+
+export const getListSavedApiV1WifiSavedGetQueryOptions = <TData = Awaited<ReturnType<typeof listSavedApiV1WifiSavedGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSavedApiV1WifiSavedGet>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListSavedApiV1WifiSavedGetQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listSavedApiV1WifiSavedGet>>> = ({ signal }) => listSavedApiV1WifiSavedGet({ signal });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listSavedApiV1WifiSavedGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListSavedApiV1WifiSavedGetQueryResult = NonNullable<Awaited<ReturnType<typeof listSavedApiV1WifiSavedGet>>>
+export type ListSavedApiV1WifiSavedGetQueryError = unknown
+
+
+export function useListSavedApiV1WifiSavedGet<TData = Awaited<ReturnType<typeof listSavedApiV1WifiSavedGet>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSavedApiV1WifiSavedGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSavedApiV1WifiSavedGet>>,
+          TError,
+          Awaited<ReturnType<typeof listSavedApiV1WifiSavedGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListSavedApiV1WifiSavedGet<TData = Awaited<ReturnType<typeof listSavedApiV1WifiSavedGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSavedApiV1WifiSavedGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listSavedApiV1WifiSavedGet>>,
+          TError,
+          Awaited<ReturnType<typeof listSavedApiV1WifiSavedGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListSavedApiV1WifiSavedGet<TData = Awaited<ReturnType<typeof listSavedApiV1WifiSavedGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSavedApiV1WifiSavedGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List Saved
+ */
+
+export function useListSavedApiV1WifiSavedGet<TData = Awaited<ReturnType<typeof listSavedApiV1WifiSavedGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listSavedApiV1WifiSavedGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListSavedApiV1WifiSavedGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export const getSaveNetworkApiV1WifiSavedPostUrl = () => {
+
+
+
+
+  return `/api/v1/wifi/saved`
+}
+
+/**
+ * Save a network without switching to it (last in the order), or replace a saved one's passphrase.
+ *
+ * Raises:
+ *     PortalError: 400 ``wifi_invalid_ssid`` / ``wifi_invalid_psk`` (see :func:`connect`).
+ * @summary Save Network
+ */
+export const saveNetworkApiV1WifiSavedPost = async (saveRequest: SaveRequest, options?: RequestInit): Promise<SavedNetworkResponse[]> => {
+
+  return customFetch<SavedNetworkResponse[]>(getSaveNetworkApiV1WifiSavedPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(saveRequest)
+  }
+);}
+
+
+
+
+
+export const getSaveNetworkApiV1WifiSavedPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveNetworkApiV1WifiSavedPost>>, TError,{data: SaveRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof saveNetworkApiV1WifiSavedPost>>, TError,{data: SaveRequest}, TContext> => {
+
+const mutationKey = ['saveNetworkApiV1WifiSavedPost'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof saveNetworkApiV1WifiSavedPost>>, {data: SaveRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  saveNetworkApiV1WifiSavedPost(data,)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SaveNetworkApiV1WifiSavedPostMutationResult = NonNullable<Awaited<ReturnType<typeof saveNetworkApiV1WifiSavedPost>>>
+    export type SaveNetworkApiV1WifiSavedPostMutationBody = SaveRequest
+    export type SaveNetworkApiV1WifiSavedPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Save Network
+ */
+export const useSaveNetworkApiV1WifiSavedPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof saveNetworkApiV1WifiSavedPost>>, TError,{data: SaveRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof saveNetworkApiV1WifiSavedPost>>,
+        TError,
+        {data: SaveRequest},
+        TContext
+      > => {
+      return useMutation(getSaveNetworkApiV1WifiSavedPostMutationOptions(options), queryClient);
+    }
+    export const getActivateSavedApiV1WifiSavedActivatePostUrl = () => {
+
+
+
+
+  return `/api/v1/wifi/saved/activate`
+}
+
+/**
+ * Switch to a saved network now; the current one stays saved. Returns immediately.
+ *
+ * Recorded as a connect attempt, read back like ``POST /wifi/connect``'s.
+ *
+ * Raises:
+ *     PortalError: 404 ``wifi_saved_not_found``.
+ * @summary Activate Saved
+ */
+export const activateSavedApiV1WifiSavedActivatePost = async (ssidRequest: SsidRequest, options?: RequestInit): Promise<ActivateResponse> => {
+
+  return customFetch<ActivateResponse>(getActivateSavedApiV1WifiSavedActivatePostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(ssidRequest)
+  }
+);}
+
+
+
+
+
+export const getActivateSavedApiV1WifiSavedActivatePostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activateSavedApiV1WifiSavedActivatePost>>, TError,{data: SsidRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof activateSavedApiV1WifiSavedActivatePost>>, TError,{data: SsidRequest}, TContext> => {
+
+const mutationKey = ['activateSavedApiV1WifiSavedActivatePost'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof activateSavedApiV1WifiSavedActivatePost>>, {data: SsidRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  activateSavedApiV1WifiSavedActivatePost(data,)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ActivateSavedApiV1WifiSavedActivatePostMutationResult = NonNullable<Awaited<ReturnType<typeof activateSavedApiV1WifiSavedActivatePost>>>
+    export type ActivateSavedApiV1WifiSavedActivatePostMutationBody = SsidRequest
+    export type ActivateSavedApiV1WifiSavedActivatePostMutationError = HTTPValidationError
+
+    /**
+ * @summary Activate Saved
+ */
+export const useActivateSavedApiV1WifiSavedActivatePost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activateSavedApiV1WifiSavedActivatePost>>, TError,{data: SsidRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof activateSavedApiV1WifiSavedActivatePost>>,
+        TError,
+        {data: SsidRequest},
+        TContext
+      > => {
+      return useMutation(getActivateSavedApiV1WifiSavedActivatePostMutationOptions(options), queryClient);
+    }
+    export const getDeleteSavedApiV1WifiSavedDeletePostUrl = () => {
+
+
+
+
+  return `/api/v1/wifi/saved/delete`
+}
+
+/**
+ * Delete a saved network other than the current one.
+ *
+ * Raises:
+ *     PortalError: 404 ``wifi_saved_not_found``. 409 ``wifi_saved_active`` for the
+ *         current network -- ``DELETE /wifi/connection`` forgets that one.
+ * @summary Delete Saved
+ */
+export const deleteSavedApiV1WifiSavedDeletePost = async (ssidRequest: SsidRequest, options?: RequestInit): Promise<SavedNetworkResponse[]> => {
+
+  return customFetch<SavedNetworkResponse[]>(getDeleteSavedApiV1WifiSavedDeletePostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(ssidRequest)
+  }
+);}
+
+
+
+
+
+export const getDeleteSavedApiV1WifiSavedDeletePostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteSavedApiV1WifiSavedDeletePost>>, TError,{data: SsidRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof deleteSavedApiV1WifiSavedDeletePost>>, TError,{data: SsidRequest}, TContext> => {
+
+const mutationKey = ['deleteSavedApiV1WifiSavedDeletePost'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteSavedApiV1WifiSavedDeletePost>>, {data: SsidRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  deleteSavedApiV1WifiSavedDeletePost(data,)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteSavedApiV1WifiSavedDeletePostMutationResult = NonNullable<Awaited<ReturnType<typeof deleteSavedApiV1WifiSavedDeletePost>>>
+    export type DeleteSavedApiV1WifiSavedDeletePostMutationBody = SsidRequest
+    export type DeleteSavedApiV1WifiSavedDeletePostMutationError = HTTPValidationError
+
+    /**
+ * @summary Delete Saved
+ */
+export const useDeleteSavedApiV1WifiSavedDeletePost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteSavedApiV1WifiSavedDeletePost>>, TError,{data: SsidRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteSavedApiV1WifiSavedDeletePost>>,
+        TError,
+        {data: SsidRequest},
+        TContext
+      > => {
+      return useMutation(getDeleteSavedApiV1WifiSavedDeletePostMutationOptions(options), queryClient);
+    }
+    export const getReorderSavedApiV1WifiSavedOrderPutUrl = () => {
+
+
+
+
+  return `/api/v1/wifi/saved/order`
+}
+
+/**
+ * Set the order the device tries saved networks in, first first.
+ *
+ * Raises:
+ *     PortalError: 409 ``wifi_saved_order_mismatch`` if ``ssids`` is not exactly
+ *         the saved set (another client changed it meanwhile).
+ * @summary Reorder Saved
+ */
+export const reorderSavedApiV1WifiSavedOrderPut = async (orderRequest: OrderRequest, options?: RequestInit): Promise<SavedNetworkResponse[]> => {
+
+  return customFetch<SavedNetworkResponse[]>(getReorderSavedApiV1WifiSavedOrderPutUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(orderRequest)
+  }
+);}
+
+
+
+
+
+export const getReorderSavedApiV1WifiSavedOrderPutMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reorderSavedApiV1WifiSavedOrderPut>>, TError,{data: OrderRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof reorderSavedApiV1WifiSavedOrderPut>>, TError,{data: OrderRequest}, TContext> => {
+
+const mutationKey = ['reorderSavedApiV1WifiSavedOrderPut'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reorderSavedApiV1WifiSavedOrderPut>>, {data: OrderRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  reorderSavedApiV1WifiSavedOrderPut(data,)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReorderSavedApiV1WifiSavedOrderPutMutationResult = NonNullable<Awaited<ReturnType<typeof reorderSavedApiV1WifiSavedOrderPut>>>
+    export type ReorderSavedApiV1WifiSavedOrderPutMutationBody = OrderRequest
+    export type ReorderSavedApiV1WifiSavedOrderPutMutationError = HTTPValidationError
+
+    /**
+ * @summary Reorder Saved
+ */
+export const useReorderSavedApiV1WifiSavedOrderPut = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reorderSavedApiV1WifiSavedOrderPut>>, TError,{data: OrderRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof reorderSavedApiV1WifiSavedOrderPut>>,
+        TError,
+        {data: OrderRequest},
+        TContext
+      > => {
+      return useMutation(getReorderSavedApiV1WifiSavedOrderPutMutationOptions(options), queryClient);
+    }
+    export const getGetStatusApiV1WifiStatusGetUrl = () => {
 
 
 

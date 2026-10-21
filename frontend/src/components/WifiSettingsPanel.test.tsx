@@ -19,6 +19,7 @@ function stubStatuses({
   lastAttempt?: { ssid: string; result: string; timestamp: number } | null;
 } = {}) {
   server.use(
+    http.get("*/api/v1/wifi/saved", () => HttpResponse.json([])),
     http.get("*/api/v1/wifi/status", () =>
       HttpResponse.json({ state: "connected", ssid: "HomeNet", ip_address: "198.51.100.7", ...wifi }),
     ),
@@ -42,7 +43,7 @@ function stubStatuses({
 describe("WifiSettingsPanel", () => {
   it("renders the current ssid, IP address, hostname, and last attempt", async () => {
     stubStatuses({ lastAttempt: { ssid: "HomeNet", result: "connected", timestamp: 0 } });
-    renderWithProviders(<WifiSettingsPanel onReconnect={vi.fn()} />);
+    renderWithProviders(<WifiSettingsPanel onReconnect={vi.fn()} onAdd={vi.fn()} />);
 
     expect(await screen.findByText("HomeNet")).toBeInTheDocument();
     expect(screen.getByText("198.51.100.7")).toBeInTheDocument();
@@ -53,7 +54,7 @@ describe("WifiSettingsPanel", () => {
 
   it('renders "Not connected" and dashes when there is no connection or attempt on record', async () => {
     stubStatuses({ wifi: { state: "unprovisioned", ssid: null, ip_address: null } });
-    renderWithProviders(<WifiSettingsPanel onReconnect={vi.fn()} />);
+    renderWithProviders(<WifiSettingsPanel onReconnect={vi.fn()} onAdd={vi.fn()} />);
 
     expect(await screen.findByText("Not connected")).toBeInTheDocument();
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
@@ -69,7 +70,7 @@ describe("WifiSettingsPanel", () => {
         return HttpResponse.json({ status: "forgetting" });
       }),
     );
-    renderWithProviders(<WifiSettingsPanel onReconnect={vi.fn()} />);
+    renderWithProviders(<WifiSettingsPanel onReconnect={vi.fn()} onAdd={vi.fn()} />);
 
     await user.click(await screen.findByRole("button", { name: "Forget this network" }));
     expect(await screen.findByText("Forget this network?")).toBeInTheDocument();
@@ -85,7 +86,7 @@ describe("WifiSettingsPanel", () => {
     stubStatuses();
     const user = userEvent.setup();
     server.use(http.delete("*/api/v1/wifi/connection", () => HttpResponse.error()));
-    renderWithProviders(<WifiSettingsPanel onReconnect={vi.fn()} />);
+    renderWithProviders(<WifiSettingsPanel onReconnect={vi.fn()} onAdd={vi.fn()} />);
 
     await user.click(await screen.findByRole("button", { name: "Forget this network" }));
     const dialog = screen.getByRole("alertdialog");
@@ -101,7 +102,7 @@ describe("WifiSettingsPanel", () => {
     stubStatuses();
     const user = userEvent.setup();
     server.use(http.delete("*/api/v1/wifi/connection", () => jsonError(503, "network_backend_unavailable")));
-    renderWithProviders(<WifiSettingsPanel onReconnect={vi.fn()} />);
+    renderWithProviders(<WifiSettingsPanel onReconnect={vi.fn()} onAdd={vi.fn()} />);
 
     await user.click(await screen.findByRole("button", { name: "Forget this network" }));
     const dialog = screen.getByRole("alertdialog");
@@ -125,7 +126,7 @@ describe("WifiSettingsPanel", () => {
         return HttpResponse.json({ status: "forgetting" });
       }),
     );
-    renderWithProviders(<WifiSettingsPanel onReconnect={onReconnect} />);
+    renderWithProviders(<WifiSettingsPanel onReconnect={onReconnect} onAdd={vi.fn()} />);
 
     await user.click(await screen.findByRole("button", { name: "Connect to a different network" }));
     expect(await screen.findByText("Connect to a different network?")).toBeInTheDocument();
@@ -145,7 +146,7 @@ describe("WifiSettingsPanel", () => {
       // Never resolves -- system/status (and so `hostname`) stays unknown.
       http.get("*/api/v1/system/status", () => new Promise(() => {})),
     );
-    renderWithProviders(<WifiSettingsPanel onReconnect={vi.fn()} />);
+    renderWithProviders(<WifiSettingsPanel onReconnect={vi.fn()} onAdd={vi.fn()} />);
 
     const button = await screen.findByRole("button", { name: "Loading…" });
     expect(button).toBeDisabled();
@@ -162,7 +163,7 @@ describe("WifiSettingsPanel", () => {
         return HttpResponse.json({ status: "forgetting" });
       }),
     );
-    renderWithProviders(<WifiSettingsPanel onReconnect={vi.fn()} />);
+    renderWithProviders(<WifiSettingsPanel onReconnect={vi.fn()} onAdd={vi.fn()} />);
 
     await user.click(await screen.findByRole("button", { name: "Forget this network" }));
     const dialog = screen.getByRole("alertdialog");

@@ -164,6 +164,8 @@
     "savedBody": "If the connection drops, Palmimo tries these from the top. When none is in range, it brings up its own Wi-Fi (“{{hostname}}”).",
     "savedAdd": "Add",
     "savedEmpty": "No saved networks yet.",
+    "savedNeedsPlatformTitle": "Update the device platform to save several networks",
+    "savedNeedsPlatformBody": "This device's platform software is too old for saving, reordering, and switching networks here. Update it to turn these on.",
     "savedActive": "Connected",
     "savedSwitch": "Switch",
     "savedMoveUp": "Move {{ssid}} up",

@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
+import { getGetPlatformApiV1PlatformGetMockHandler } from "@/api/generated/platform/platform.msw";
 import { SavedNetworksCard } from "@/components/SavedNetworksCard";
 import { renderWithProviders } from "@/test/render";
 import { server } from "@/test/server";
@@ -13,8 +14,22 @@ const SAVED = [
   { ssid: "Cafe", active: false },
 ];
 
+
+function platformAt(installed_version: number) {
+  return getGetPlatformApiV1PlatformGetMockHandler({
+    installed_at: null,
+    installed_version,
+    latest: null,
+    latest_error: null,
+    ready: true,
+    reason: null,
+    required_version: 1,
+    verify_diffs: [],
+  });
+}
+
 function stubSaved(list = SAVED) {
-  server.use(http.get("*/api/v1/wifi/saved", () => HttpResponse.json(list)));
+  server.use(platformAt(4), http.get("*/api/v1/wifi/saved", () => HttpResponse.json(list)));
 }
 
 function rowNames() {
@@ -99,6 +114,31 @@ describe("SavedNetworksCard", () => {
 
     await waitFor(() => expect(onSwitched).toHaveBeenCalledWith("Phone"));
     expect(activated).toBe("Phone");
+  });
+
+  it("asks for a platform update instead of listing when the platform is older than 3", async () => {
+    let listed = false;
+    let updateStarted = false;
+    server.use(
+      platformAt(2),
+      http.get("*/api/v1/wifi/saved", () => {
+        listed = true;
+        return HttpResponse.json(SAVED);
+      }),
+      http.post("*/api/v1/platform/update", () => {
+        updateStarted = true;
+        return HttpResponse.json({ job: { state: "running" } }, { status: 202 });
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<SavedNetworksCard hostname="palmimo-1234" onAdd={vi.fn()} onSwitched={vi.fn()} />);
+
+    expect(await screen.findByText("Update the device platform to save several networks")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Update now" }));
+
+    await waitFor(() => expect(updateStarted).toBe(true));
+    expect(listed).toBe(false);
+    expect(screen.queryByText("Phone")).not.toBeInTheDocument();
   });
 
   it("the add button calls onAdd", async () => {

@@ -23,9 +23,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { usePlatformUpdate } from "@/lib/usePlatformUpdate";
 
 type Pending = { kind: "delete" | "switch"; ssid: string } | null;
+
+/** The first platform bundle whose polkit rules let the Portal edit NetworkManager's saved networks. */
+const SAVED_NETWORKS_PLATFORM_VERSION = 3;
 
 /**
  * The saved networks, in the order the device tries them. Reordering is optimistic: the list
@@ -44,7 +49,13 @@ export function SavedNetworksCard({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const listKey = getListSavedApiV1WifiSavedGetQueryKey();
-  const { data: saved, error: listError } = useListSavedApiV1WifiSavedGet();
+  const { platform, platformError, startUpdate, starting, startError, job } = usePlatformUpdate();
+  // An unreadable platform status falls through to the list, which reports its own error.
+  const platformKnown = platform !== undefined || platformError !== null;
+  const needsPlatform = platform !== undefined && (platform.installed_version ?? 0) < SAVED_NETWORKS_PLATFORM_VERSION;
+  const { data: saved, error: listError } = useListSavedApiV1WifiSavedGet({
+    query: { enabled: platformKnown && !needsPlatform },
+  });
   const [pending, setPending] = useState<Pending>(null);
 
   const setList = (list: SavedNetworkResponse[]) => queryClient.setQueryData(listKey, list);
@@ -88,6 +99,27 @@ export function SavedNetworksCard({
   }
 
   const busy = remove.isPending || activate.isPending;
+
+  if (needsPlatform) {
+    return (
+      <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
+        <div className="flex items-center gap-2">
+          <ListOrdered className="size-4 text-muted-foreground" aria-hidden />
+          <p className="font-semibold">{t("wifiSettings.savedTitle")}</p>
+        </div>
+        <Alert>
+          <AlertTitle>{t("wifiSettings.savedNeedsPlatformTitle")}</AlertTitle>
+          <AlertDescription className="flex flex-col gap-2">
+            {t("wifiSettings.savedNeedsPlatformBody")}
+            <Button className="w-fit" onClick={startUpdate} disabled={starting || job?.state === "running"}>
+              {t("apps.platformUpdateButton")}
+            </Button>
+          </AlertDescription>
+        </Alert>
+        <ApiErrorAlert error={startError} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">

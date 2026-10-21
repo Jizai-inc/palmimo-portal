@@ -402,6 +402,7 @@ class JsonFileStateStore(StateStore):
                     "source": asdict(app.source),
                     "env": {name: asdict(spec) for name, spec in app.env.items()},
                     "devices": list(app.devices),
+                    "translations": app.translations,
                 }
                 for app in state.apps
             ],

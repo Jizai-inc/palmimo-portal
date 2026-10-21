@@ -361,7 +361,7 @@ def test_connect_while_connected_logs_a_warning_naming_the_old_and_new_network(
     with caplog.at_level(logging.WARNING, logger="palmimo_portal"):
         client.post("/api/v1/wifi/connect", json={"ssid": "NewNet", "psk": "secret123"}, headers=CSRF_HEADERS)
 
-    assert "wifi reconfigure: forgetting 'OldNet' to connect to 'NewNet'" in caplog.text
+    assert "wifi reconfigure: switching from 'OldNet' to 'NewNet', keeping 'OldNet' saved" in caplog.text
 
 
 def test_connect_while_not_connected_does_not_log_the_reconfigure_warning(
@@ -373,20 +373,32 @@ def test_connect_while_not_connected_does_not_log_the_reconfigure_warning(
     assert "wifi reconfigure:" not in caplog.text
 
 
-def test_connect_while_connected_records_a_failed_attempt_when_connect_raises_after_delete_connection(
+def test_connect_while_connected_saves_the_new_network_first_and_switches_keeping_the_old_one(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
-    # The reconfigure-while-connected path (see comitup.py's connect())
-    # deletes the old profile and clears the known-network marker *before*
-    # calling connect() again -- if that second call then raises, the
-    # marker is already gone (adapter-level:
-    # test_connect_while_connected_clears_known_marker_before_reconnecting
-    # in test_comitup_adapter.py). This is the API-level half: the attempt
-    # must still resolve to `failed`, not get stuck `attempting` or 200.
+    client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
+    adapters.network.status = WifiStatus(state=ConnectionState.CONNECTED, ssid="OldNet", ip_address="198.51.100.7")
+    adapters.saved_networks.saved = ["OldNet"]
+    adapters.saved_networks.active = "OldNet"
+    client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
+
+    response = client.post("/api/v1/wifi/connect", json={"ssid": "NewNet", "psk": "secret123"}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 200
+    assert adapters.saved_networks.saved == ["NewNet", "OldNet"]
+    assert adapters.saved_networks.psks["NewNet"] == "secret123"
+    assert adapters.saved_networks.activate_calls == ["NewNet"]
+    assert adapters.network.forget_calls == []
+    assert adapters.network.connect_calls == []
+
+
+def test_connect_while_connected_records_a_failed_attempt_when_the_switch_raises(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
     adapters.network.status = WifiStatus(state=ConnectionState.CONNECTED, ssid="OldNet", ip_address="198.51.100.7")
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.raise_on_connect = AdapterUnavailableError("network_backend_unavailable", "boom")
+    adapters.saved_networks.raise_on_call = AdapterUnavailableError("network_backend_unavailable", "boom")
 
     response = client.post("/api/v1/wifi/connect", json={"ssid": "NewNet", "psk": "secret123"}, headers=CSRF_HEADERS)
 

@@ -124,7 +124,17 @@
     "lastAttemptFailedDifferentNetwork": "Palmimo joined a different known network (\"{{observed}}\") instead of \"{{ssid}}\". Choose \"{{ssid}}\" again if that's the one you want.",
     "reconfigureNote": "The current connection ({{ssid}}) will be deleted as soon as you connect to a new network.",
     "waitingTimedOutTitle": "Still not connected",
-    "waitingTimedOut": "Palmimo has not been found yet. If its own Wi-Fi network (“{{hostname}}”) reappeared, rejoin it and try again from this screen — or try opening http://{{hostname}}.local directly."
+    "waitingTimedOut": "Palmimo has not been found yet. If its own Wi-Fi network (“{{hostname}}”) reappeared, rejoin it and try again from this screen — or try opening http://{{hostname}}.local directly.",
+    "addTitle": "Add a network",
+    "addBody": "Pick a network to save. Palmimo stays on its current network.",
+    "connectedBadge": "Connected",
+    "savedBadge": "Saved",
+    "saveTitle": "Save “{{ssid}}”",
+    "saveBody": "Enter this network's password. It goes last in your saved networks.",
+    "updateTitle": "Change the password for “{{ssid}}”",
+    "updateBody": "This network is already saved. The new password replaces the old one; its place in the order stays.",
+    "save": "Save",
+    "saving": "Saving…"
   },
   "wifiSettings": {
     "title": "Wi-Fi",
@@ -143,13 +153,30 @@
     "noteTitle": "When you tap “Forget this network”",
     "noteBody": "Palmimo will disconnect from {{ssid}} and bring back its own Wi-Fi (“{{hostname}}”). You will be disconnected from this page, so reconnect from your phone or computer to that Wi-Fi to set it up again.",
     "reconnectDialogTitle": "Connect to a different network?",
-    "reconnectDialogBody": "The current connection's settings ({{ssid}}) will be deleted and Palmimo will connect to the new network. If that fails, Palmimo will bring back its own Wi-Fi (“{{hostname}}”).",
+    "reconnectDialogBody": "Palmimo saves the new network at the top of your saved networks and switches to it. {{ssid}} stays saved. If the new network fails, Palmimo tries your other saved networks, then brings up its own Wi-Fi (“{{hostname}}”).",
     "reconnectDialogConfirm": "Continue",
     "forgetDialogTitle": "Forget this network?",
     "forgetDialogConfirm": "Forget",
     "terminalTitle": "Palmimo is switching back to its own Wi-Fi",
     "terminalBody": "Once “{{hostname}}” appears in your phone's or computer's Wi-Fi list, join it and reopen this page (http://{{hostname}}.local).",
-    "terminalDroppedNote": "The connection dropped before Palmimo answered — that is expected."
+    "terminalDroppedNote": "The connection dropped before Palmimo answered — that is expected.",
+    "savedTitle": "Saved networks",
+    "savedBody": "If the connection drops, Palmimo tries these from the top. When none is in range, it brings up its own Wi-Fi (“{{hostname}}”).",
+    "savedAdd": "Add",
+    "savedEmpty": "No saved networks yet.",
+    "savedActive": "Connected",
+    "savedSwitch": "Switch",
+    "savedMoveUp": "Move {{ssid}} up",
+    "savedMoveDown": "Move {{ssid}} down",
+    "savedDelete": "Delete {{ssid}}",
+    "savedDeleteDialogTitle": "Delete {{ssid}}?",
+    "savedDeleteDialogBody": "Palmimo won't connect to {{ssid}} again until you add it back.",
+    "savedDeleteConfirm": "Delete",
+    "savedSwitchDialogTitle": "Switch to {{ssid}}?",
+    "savedSwitchDialogBody": "{{current}} stays saved. If {{ssid}} is a different network from this device's, open http://{{hostname}}.local from a device on {{ssid}} afterwards.",
+    "savedSwitchConfirm": "Switch",
+    "switchingTitle": "Switching to {{ssid}}",
+    "switchingBody": "If this page stops responding, connect your phone or PC to {{ssid}} and open http://{{hostname}}.local."
   },
   "dashboard": {
     "title": "Dashboard",
@@ -369,7 +396,10 @@
     "wifi_invalid_psk": "That password is not valid. It must be 8-63 characters.",
     "wifi_invalid_ssid": "That network name is not valid.",
     "wifi_not_connected": "Palmimo is not currently connected to a Wi-Fi network.",
-    "zip_too_large": "That zip file is too large to upload."
+    "zip_too_large": "That zip file is too large to upload.",
+    "wifi_saved_not_found": "That network is no longer saved.",
+    "wifi_saved_active": "Palmimo is connected to that network. Use “Forget this network” to remove it.",
+    "wifi_saved_order_mismatch": "The saved networks changed. Reload and try again."
   },
   "apps": {
     "title": "Apps",

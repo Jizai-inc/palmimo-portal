@@ -124,7 +124,17 @@
     "lastAttemptFailedDifferentNetwork": "Palmimo は「{{ssid}}」ではなく、別の既知のネットワーク「{{observed}}」に接続しました。「{{ssid}}」に接続したい場合は、もう一度選び直してください。",
     "reconfigureNote": "現在の接続（{{ssid}}）は新しいネットワークに接続した時点で削除されます。",
     "waitingTimedOutTitle": "まだ接続できていません",
-    "waitingTimedOut": "Palmimo がまだ見つかりません。Palmimo 自身の Wi-Fi「{{hostname}}」が再び現れていれば、それに参加してこの画面からやり直してください。または http://{{hostname}}.local を直接開いてみてください。"
+    "waitingTimedOut": "Palmimo がまだ見つかりません。Palmimo 自身の Wi-Fi「{{hostname}}」が再び現れていれば、それに参加してこの画面からやり直してください。または http://{{hostname}}.local を直接開いてみてください。",
+    "addTitle": "ネットワークを追加",
+    "addBody": "保存するネットワークを選んでください。いまの接続はそのままです。",
+    "connectedBadge": "接続中",
+    "savedBadge": "保存済み",
+    "saveTitle": "「{{ssid}}」を保存",
+    "saveBody": "このネットワークのパスワードを入力してください。保存済みの最後に入ります。",
+    "updateTitle": "「{{ssid}}」のパスワードを変更",
+    "updateBody": "保存済みのネットワークです。新しいパスワードで上書きします。並び順は変わりません。",
+    "save": "保存",
+    "saving": "保存しています…"
   },
   "wifiSettings": {
     "title": "Wi-Fi",
@@ -143,13 +153,30 @@
     "noteTitle": "「このネットワークを忘れる」を押すと",
     "noteBody": "Palmimo は {{ssid}} との接続を解除して、自身の Wi-Fi「{{hostname}}」を出し直します。この画面からは切断されるので、再設定はスマホや PC でその Wi-Fi に参加して行ってください。",
     "reconnectDialogTitle": "別のネットワークに接続しますか？",
-    "reconnectDialogBody": "いまの接続先（{{ssid}}）の設定は削除され、新しいネットワークに接続します。失敗した場合、Palmimo は自身の Wi-Fi「{{hostname}}」を出し直します。",
+    "reconnectDialogBody": "新しいネットワークを保存済みの一番上に入れて、そちらに切り替えます。いまの接続先（{{ssid}}）の設定は残ります。新しいネットワークにつながらなかった場合、Palmimo はほかの保存済みネットワークを試し、どれにもつながらなければ自身の Wi-Fi「{{hostname}}」を出します。",
     "reconnectDialogConfirm": "続ける",
     "forgetDialogTitle": "このネットワークを忘れますか？",
     "forgetDialogConfirm": "忘れる",
     "terminalTitle": "Palmimo 自身の Wi-Fi に戻ります",
     "terminalBody": "スマホや PC の Wi-Fi 一覧に「{{hostname}}」が現れたら、それに参加してからこのページを開き直してください（http://{{hostname}}.local）。",
-    "terminalDroppedNote": "応答を受け取る前に切断されました。"
+    "terminalDroppedNote": "応答を受け取る前に切断されました。",
+    "savedTitle": "保存済みのネットワーク",
+    "savedBody": "接続が切れたら上から順に試します。どれにもつながらないときは、Palmimo 自身の Wi-Fi「{{hostname}}」を出します。",
+    "savedAdd": "追加",
+    "savedEmpty": "保存済みのネットワークはありません。",
+    "savedActive": "接続中",
+    "savedSwitch": "切り替え",
+    "savedMoveUp": "{{ssid}} を上へ",
+    "savedMoveDown": "{{ssid}} を下へ",
+    "savedDelete": "{{ssid}} を削除",
+    "savedDeleteDialogTitle": "{{ssid}} を削除しますか？",
+    "savedDeleteDialogBody": "もう一度追加するまで、Palmimo は {{ssid}} に接続しなくなります。",
+    "savedDeleteConfirm": "削除",
+    "savedSwitchDialogTitle": "{{ssid}} に切り替えますか？",
+    "savedSwitchDialogBody": "いまの接続先（{{current}}）の設定は残ります。{{ssid}} がこの端末とは別のネットワークなら、切り替えたあとは {{ssid}} につないだ端末から http://{{hostname}}.local を開いてください。",
+    "savedSwitchConfirm": "切り替える",
+    "switchingTitle": "{{ssid}} に切り替えています",
+    "switchingBody": "この画面が反応しなくなったら、スマホや PC を {{ssid}} につないで http://{{hostname}}.local を開いてください。"
   },
   "dashboard": {
     "title": "ダッシュボード",
@@ -369,7 +396,10 @@
     "wifi_invalid_psk": "このパスワードは使用できません。8〜63 文字で入力してください。",
     "wifi_invalid_ssid": "このネットワーク名は使用できません。",
     "wifi_not_connected": "Palmimo は現在 Wi-Fi ネットワークに接続していません。",
-    "zip_too_large": "この zip ファイルは大きすぎてアップロードできません。"
+    "zip_too_large": "この zip ファイルは大きすぎてアップロードできません。",
+    "wifi_saved_not_found": "そのネットワークはもう保存されていません。",
+    "wifi_saved_active": "Palmimo はいまそのネットワークに接続しています。削除するには「このネットワークを忘れる」を使ってください。",
+    "wifi_saved_order_mismatch": "保存済みのネットワークが変わりました。再読み込みしてやり直してください。"
   },
   "apps": {
     "title": "アプリ",

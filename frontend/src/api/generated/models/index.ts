@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './activateResponse';
 export * from './addKeyRequest';
 export * from './appDetailResponse';
 export * from './appDetailResponseBindings';
@@ -44,6 +45,7 @@ export * from './loginResponse';
 export * from './logsResponse';
 export * from './manifestPreviewResponse';
 export * from './manifestPreviewResponseTranslations';
+export * from './orderRequest';
 export * from './palmimoPortalApiAppsResetResponse';
 export * from './palmimoPortalApiAuthResetResponse';
 export * from './paramSpecInfo';
@@ -56,6 +58,8 @@ export * from './platformStatusResponse';
 export * from './platformUpdateAcceptedResponse';
 export * from './platformVerifyDiffInfo';
 export * from './releaseInfo';
+export * from './savedNetworkResponse';
+export * from './saveRequest';
 export * from './secretRecordInfo';
 export * from './secretsListResponse';
 export * from './secretValueRequest';

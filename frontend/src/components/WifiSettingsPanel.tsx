@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Info, Wifi, WifiOff } from "lucide-react";
+import { ArrowLeftRight, Info, Wifi, WifiOff } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -12,6 +12,7 @@ import { getGetStatusApiV1SystemStatusGetQueryKey, useGetStatusApiV1SystemStatus
 import { PortalApiError } from "@/api/client";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { CenteredState } from "@/components/CenteredState";
+import { SavedNetworksCard } from "@/components/SavedNetworksCard";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -31,7 +32,7 @@ type DialogKind = "reconnect" | "forget" | null;
  * The Wi-Fi settings screen's logic (see routes/wifi-settings.tsx, which wraps this in
  * `AppShell`). Free of router hooks -- `onReconnect` is the only reach-out to routing.
  */
-export function WifiSettingsPanel({ onReconnect }: { onReconnect: () => void }) {
+export function WifiSettingsPanel({ onReconnect, onAdd }: { onReconnect: () => void; onAdd: () => void }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data: wifiStatus } = useGetStatusApiV1WifiStatusGet();
@@ -45,6 +46,7 @@ export function WifiSettingsPanel({ onReconnect }: { onReconnect: () => void }) 
    * terminal screen; only `"network-drop"` adds the extra note.
    */
   const [forgotten, setForgotten] = useState<false | "success" | "network-drop">(false);
+  const [switchedTo, setSwitchedTo] = useState<string | null>(null);
 
   const forget = useForgetApiV1WifiConnectionDelete({
     mutation: {
@@ -85,9 +87,20 @@ export function WifiSettingsPanel({ onReconnect }: { onReconnect: () => void }) 
     );
   }
 
+  if (switchedTo) {
+    return (
+      <CenteredState
+        icon={ArrowLeftRight}
+        title={t("wifiSettings.switchingTitle", { ssid: switchedTo })}
+        body={t("wifiSettings.switchingBody", { ssid: switchedTo, hostname })}
+      />
+    );
+  }
+
   return (
     <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-      <div className="flex min-w-0 flex-1 flex-col gap-4 rounded-xl border border-border bg-card p-4">
+      <div className="flex min-w-0 flex-1 flex-col gap-6">
+      <div className="flex min-w-0 flex-col gap-4 rounded-xl border border-border bg-card p-4">
         <div className="flex items-center gap-2">
           <span
             className={cn("size-2.5 shrink-0 rounded-full", connected ? "bg-green-500" : "bg-muted-foreground/40")}
@@ -123,6 +136,8 @@ export function WifiSettingsPanel({ onReconnect }: { onReconnect: () => void }) 
             {hostnameKnown ? t("wifiSettings.forgetNetwork") : t("common.loading")}
           </Button>
         </div>
+      </div>
+      {connected ? <SavedNetworksCard hostname={hostname} onAdd={onAdd} onSwitched={setSwitchedTo} /> : null}
       </div>
 
       <div className="flex w-full flex-col gap-2 rounded-xl border border-border bg-card p-4 lg:w-[320px] lg:shrink-0">

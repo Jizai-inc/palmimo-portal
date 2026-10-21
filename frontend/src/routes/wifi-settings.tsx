@@ -22,7 +22,10 @@ function WifiSettingsScreen() {
   const navigate = useNavigate();
   return (
     <AppShell title={t("wifiSettings.title")} subtitle={t("wifiSettings.subtitle")}>
-      <WifiSettingsPanel onReconnect={() => void navigate({ to: "/wifi", search: { reconfigure: true } })} />
+      <WifiSettingsPanel
+        onReconnect={() => void navigate({ to: "/wifi", search: { reconfigure: true } })}
+        onAdd={() => void navigate({ to: "/wifi", search: { add: true } })}
+      />
     </AppShell>
   );
 }

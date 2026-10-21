@@ -20,6 +20,8 @@ export function WifiConnectForm({
   isSubmitting,
   onSubmit,
   onBack,
+  submitLabel,
+  submittingLabel,
 }: {
   network: WifiNetworkResponse;
   lastAttempt: WifiAttemptInfo | null | undefined;
@@ -27,6 +29,9 @@ export function WifiConnectForm({
   isSubmitting: boolean;
   onSubmit: (psk: string) => void;
   onBack: () => void;
+  /** Defaults to "connect"; `/wifi?add=1` saves instead. */
+  submitLabel?: string;
+  submittingLabel?: string;
 }) {
   const { t } = useTranslation();
   const [psk, setPsk] = useState("");
@@ -75,10 +80,10 @@ export function WifiConnectForm({
           {isSubmitting ? (
             <>
               <LoaderCircle className="size-4 animate-spin" />
-              {t("wifi.connecting")}
+              {submittingLabel ?? t("wifi.connecting")}
             </>
           ) : (
-            t("wifi.connect")
+            (submitLabel ?? t("wifi.connect"))
           )}
         </Button>
       </div>

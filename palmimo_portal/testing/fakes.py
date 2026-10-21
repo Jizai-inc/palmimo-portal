@@ -75,6 +75,11 @@ from palmimo_portal.ports import (
     ReleaseSourceError,
     RunDirPort,
     RunLockTimeoutError,
+    SavedNetwork,
+    SavedNetworkActiveError,
+    SavedNetworkNotFoundError,
+    SavedNetworkOrderError,
+    SavedNetworkPort,
     SecretInUseError,
     SecretNotFoundError,
     SecretRecord,
@@ -206,6 +211,68 @@ class FakeNetworkPort(NetworkPort):
                 observed_connection_name=resolution.observed_connection_name,
             )
         )
+
+
+@dataclass
+class FakeSavedNetworkPort(SavedNetworkPort):
+    """In-memory :class:`SavedNetworkPort`: ``saved`` is the list, highest priority first.
+
+    ``active`` names the network the device is on; :meth:`activate` sets it.
+    ``psks`` records the passphrase each :meth:`save` stored.
+    """
+
+    saved: list[str] = field(default_factory=list)
+    active: str | None = None
+    psks: dict[str, str] = field(default_factory=dict)
+    activate_calls: list[str] = field(default_factory=list)
+    raise_on_call: Exception | None = None  #: makes every call raise instead of succeeding
+
+    def _check(self) -> None:
+        if self.raise_on_call is not None:
+            raise self.raise_on_call
+
+    def list_saved(self) -> list[SavedNetwork]:
+        self._check()
+        count = len(self.saved)
+        return [
+            SavedNetwork(ssid=ssid, priority=count - index, active=ssid == self.active)
+            for index, ssid in enumerate(self.saved)
+        ]
+
+    def save(self, ssid: str, psk: str, *, first: bool) -> None:
+        self._check()
+        self.psks[ssid] = psk
+        if ssid in self.saved:
+            if first:
+                self.saved.remove(ssid)
+                self.saved.insert(0, ssid)
+            return
+        if first:
+            self.saved.insert(0, ssid)
+        else:
+            self.saved.append(ssid)
+
+    def delete(self, ssid: str) -> None:
+        self._check()
+        if ssid not in self.saved:
+            raise SavedNetworkNotFoundError(ssid)
+        if ssid == self.active:
+            raise SavedNetworkActiveError(ssid)
+        self.saved.remove(ssid)
+        self.psks.pop(ssid, None)
+
+    def reorder(self, ssids: list[str]) -> None:
+        self._check()
+        if len(ssids) != len(set(ssids)) or set(ssids) != set(self.saved):
+            raise SavedNetworkOrderError(f"expected exactly {self.saved}, got {ssids}")
+        self.saved = list(ssids)
+
+    def activate(self, ssid: str) -> None:
+        self._check()
+        if ssid not in self.saved:
+            raise SavedNetworkNotFoundError(ssid)
+        self.activate_calls.append(ssid)
+        self.active = ssid
 
 
 @dataclass
@@ -1062,6 +1129,7 @@ class FakeAdapterBundle:
     """
 
     network: FakeNetworkPort
+    saved_networks: FakeSavedNetworkPort
     system: FakeSystemPort
     ssh_keys: FakeSshKeyPort
     state: FakeStateStore

@@ -36,11 +36,11 @@ export const getListSavedApiV1WifiSavedGetResponseMock = (): SavedNetworkRespons
 
 export const getSaveNetworkApiV1WifiSavedPostResponseMock = (): SavedNetworkResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({active: faker.datatype.boolean(), ssid: faker.string.alpha({length: {min: 10, max: 20}})})))
 
+export const getActivateSavedApiV1WifiSavedActivatePostResponseMock = (overrideResponse: Partial<Extract<ActivateResponse, object>> = {}): ActivateResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
+
+export const getDeleteSavedApiV1WifiSavedDeletePostResponseMock = (): SavedNetworkResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({active: faker.datatype.boolean(), ssid: faker.string.alpha({length: {min: 10, max: 20}})})))
+
 export const getReorderSavedApiV1WifiSavedOrderPutResponseMock = (): SavedNetworkResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({active: faker.datatype.boolean(), ssid: faker.string.alpha({length: {min: 10, max: 20}})})))
-
-export const getDeleteSavedApiV1WifiSavedSsidDeleteResponseMock = (): SavedNetworkResponse[] => (Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({active: faker.datatype.boolean(), ssid: faker.string.alpha({length: {min: 10, max: 20}})})))
-
-export const getActivateSavedApiV1WifiSavedSsidActivatePostResponseMock = (overrideResponse: Partial<Extract<ActivateResponse, object>> = {}): ActivateResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getGetStatusApiV1WifiStatusGetResponseMock = (overrideResponse: Partial<Extract<WifiStatusResponse, object>> = {}): WifiStatusResponse => ({ip_address: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), ssid: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), state: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
@@ -105,6 +105,30 @@ export const getSaveNetworkApiV1WifiSavedPostMockHandler = (overrideResponse?: S
   }, options)
 }
 
+export const getActivateSavedApiV1WifiSavedActivatePostMockHandler = (overrideResponse?: ActivateResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<ActivateResponse> | ActivateResponse), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/wifi/saved/activate', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getActivateSavedApiV1WifiSavedActivatePostResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getDeleteSavedApiV1WifiSavedDeletePostMockHandler = (overrideResponse?: SavedNetworkResponse[] | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<SavedNetworkResponse[]> | SavedNetworkResponse[]), options?: RequestHandlerOptions) => {
+  return http.post('*/api/v1/wifi/saved/delete', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getDeleteSavedApiV1WifiSavedDeletePostResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
 export const getReorderSavedApiV1WifiSavedOrderPutMockHandler = (overrideResponse?: SavedNetworkResponse[] | ((info: Parameters<Parameters<typeof http.put>[1]>[0]) => Promise<SavedNetworkResponse[]> | SavedNetworkResponse[]), options?: RequestHandlerOptions) => {
   return http.put('*/api/v1/wifi/saved/order', async (info: Parameters<Parameters<typeof http.put>[1]>[0]) => {
 
@@ -112,30 +136,6 @@ export const getReorderSavedApiV1WifiSavedOrderPutMockHandler = (overrideRespons
     return HttpResponse.json(overrideResponse !== undefined
     ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
     : getReorderSavedApiV1WifiSavedOrderPutResponseMock(),
-      { status: 200
-      })
-  }, options)
-}
-
-export const getDeleteSavedApiV1WifiSavedSsidDeleteMockHandler = (overrideResponse?: SavedNetworkResponse[] | ((info: Parameters<Parameters<typeof http.delete>[1]>[0]) => Promise<SavedNetworkResponse[]> | SavedNetworkResponse[]), options?: RequestHandlerOptions) => {
-  return http.delete('*/api/v1/wifi/saved/:ssid', async (info: Parameters<Parameters<typeof http.delete>[1]>[0]) => {
-
-
-    return HttpResponse.json(overrideResponse !== undefined
-    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
-    : getDeleteSavedApiV1WifiSavedSsidDeleteResponseMock(),
-      { status: 200
-      })
-  }, options)
-}
-
-export const getActivateSavedApiV1WifiSavedSsidActivatePostMockHandler = (overrideResponse?: ActivateResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<ActivateResponse> | ActivateResponse), options?: RequestHandlerOptions) => {
-  return http.post('*/api/v1/wifi/saved/:ssid/activate', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
-
-
-    return HttpResponse.json(overrideResponse !== undefined
-    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
-    : getActivateSavedApiV1WifiSavedSsidActivatePostResponseMock(),
       { status: 200
       })
   }, options)
@@ -158,8 +158,8 @@ export const getWifiMock = () => [
   getListNetworksApiV1WifiNetworksGetMockHandler(),
   getListSavedApiV1WifiSavedGetMockHandler(),
   getSaveNetworkApiV1WifiSavedPostMockHandler(),
+  getActivateSavedApiV1WifiSavedActivatePostMockHandler(),
+  getDeleteSavedApiV1WifiSavedDeletePostMockHandler(),
   getReorderSavedApiV1WifiSavedOrderPutMockHandler(),
-  getDeleteSavedApiV1WifiSavedSsidDeleteMockHandler(),
-  getActivateSavedApiV1WifiSavedSsidActivatePostMockHandler(),
   getGetStatusApiV1WifiStatusGetMockHandler()
 ]

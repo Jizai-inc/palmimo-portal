@@ -8,8 +8,8 @@ import { getGetStatusApiV1SystemStatusGetQueryKey } from "@/api/generated/system
 import {
   getGetStatusApiV1WifiStatusGetQueryKey,
   getListSavedApiV1WifiSavedGetQueryKey,
-  useActivateSavedApiV1WifiSavedSsidActivatePost,
-  useDeleteSavedApiV1WifiSavedSsidDelete,
+  useActivateSavedApiV1WifiSavedActivatePost,
+  useDeleteSavedApiV1WifiSavedDeletePost,
   useListSavedApiV1WifiSavedGet,
   useReorderSavedApiV1WifiSavedOrderPut,
 } from "@/api/generated/wifi/wifi";
@@ -54,7 +54,7 @@ export function SavedNetworksCard({
       onError: () => void queryClient.invalidateQueries({ queryKey: listKey }),
     },
   });
-  const remove = useDeleteSavedApiV1WifiSavedSsidDelete({
+  const remove = useDeleteSavedApiV1WifiSavedDeletePost({
     mutation: {
       onSuccess: (list) => {
         setPending(null);
@@ -63,9 +63,9 @@ export function SavedNetworksCard({
       onError: () => setPending(null),
     },
   });
-  const activate = useActivateSavedApiV1WifiSavedSsidActivatePost({
+  const activate = useActivateSavedApiV1WifiSavedActivatePost({
     mutation: {
-      onSuccess: (_, { ssid }) => {
+      onSuccess: (_, { data: { ssid } }) => {
         setPending(null);
         void queryClient.invalidateQueries({ queryKey: getGetStatusApiV1SystemStatusGetQueryKey() });
         void queryClient.invalidateQueries({ queryKey: getGetStatusApiV1WifiStatusGetQueryKey() });
@@ -130,7 +130,7 @@ export function SavedNetworksCard({
                 variant="ghost"
                 size="icon"
                 aria-label={t("wifiSettings.savedMoveUp", { ssid: item.ssid })}
-                disabled={index === 0}
+                disabled={index === 0 || reorder.isPending}
                 onClick={() => move(index, -1)}
               >
                 <ChevronUp className="size-4" aria-hidden />
@@ -139,7 +139,7 @@ export function SavedNetworksCard({
                 variant="ghost"
                 size="icon"
                 aria-label={t("wifiSettings.savedMoveDown", { ssid: item.ssid })}
-                disabled={index === items.length - 1}
+                disabled={index === items.length - 1 || reorder.isPending}
                 onClick={() => move(index, 1)}
               >
                 <ChevronDown className="size-4" aria-hidden />
@@ -181,9 +181,9 @@ export function SavedNetworksCard({
               onClick={() => {
                 if (!pending) return;
                 if (pending.kind === "switch") {
-                  activate.mutate({ ssid: pending.ssid });
+                  activate.mutate({ data: { ssid: pending.ssid } });
                 } else {
-                  remove.mutate({ ssid: pending.ssid });
+                  remove.mutate({ data: { ssid: pending.ssid } });
                 }
               }}
             >

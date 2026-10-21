@@ -1687,6 +1687,19 @@
         "title": "SshKeyResponse",
         "type": "object"
       },
+      "SsidRequest": {
+        "properties": {
+          "ssid": {
+            "title": "Ssid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ssid"
+        ],
+        "title": "SsidRequest",
+        "type": "object"
+      },
       "StartResponse": {
         "properties": {
           "status": {
@@ -3895,6 +3908,94 @@
         ]
       }
     },
+    "/api/v1/wifi/saved/activate": {
+      "post": {
+        "description": "Switch to a saved network now; the current one stays saved. Returns immediately.\n\nRecorded as a connect attempt, read back like ``POST /wifi/connect``'s.\n\nRaises:\n    PortalError: 404 ``wifi_saved_not_found``.",
+        "operationId": "activate_saved_api_v1_wifi_saved_activate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SsidRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivateResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Activate Saved",
+        "tags": [
+          "wifi"
+        ]
+      }
+    },
+    "/api/v1/wifi/saved/delete": {
+      "post": {
+        "description": "Delete a saved network other than the current one.\n\nRaises:\n    PortalError: 404 ``wifi_saved_not_found``. 409 ``wifi_saved_active`` for the\n        current network -- ``DELETE /wifi/connection`` forgets that one.",
+        "operationId": "delete_saved_api_v1_wifi_saved_delete_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SsidRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SavedNetworkResponse"
+                  },
+                  "title": "Response Delete Saved Api V1 Wifi Saved Delete Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Saved",
+        "tags": [
+          "wifi"
+        ]
+      }
+    },
     "/api/v1/wifi/saved/order": {
       "put": {
         "description": "Set the order the device tries saved networks in, first first.\n\nRaises:\n    PortalError: 409 ``wifi_saved_order_mismatch`` if ``ssids`` is not exactly\n        the saved set (another client changed it meanwhile).",
@@ -3936,96 +4037,6 @@
           }
         },
         "summary": "Reorder Saved",
-        "tags": [
-          "wifi"
-        ]
-      }
-    },
-    "/api/v1/wifi/saved/{ssid}": {
-      "delete": {
-        "description": "Delete a saved network other than the current one.\n\nRaises:\n    PortalError: 404 ``wifi_saved_not_found``. 409 ``wifi_saved_active`` for the\n        current network -- ``DELETE /wifi/connection`` forgets that one.",
-        "operationId": "delete_saved_api_v1_wifi_saved__ssid__delete",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "ssid",
-            "required": true,
-            "schema": {
-              "title": "Ssid",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/SavedNetworkResponse"
-                  },
-                  "title": "Response Delete Saved Api V1 Wifi Saved  Ssid  Delete",
-                  "type": "array"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Delete Saved",
-        "tags": [
-          "wifi"
-        ]
-      }
-    },
-    "/api/v1/wifi/saved/{ssid}/activate": {
-      "post": {
-        "description": "Switch to a saved network now; the current one stays saved. Returns immediately.\n\nRecorded as a connect attempt, read back like ``POST /wifi/connect``'s.\n\nRaises:\n    PortalError: 404 ``wifi_saved_not_found``.",
-        "operationId": "activate_saved_api_v1_wifi_saved__ssid__activate_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "ssid",
-            "required": true,
-            "schema": {
-              "title": "Ssid",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ActivateResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Activate Saved",
         "tags": [
           "wifi"
         ]

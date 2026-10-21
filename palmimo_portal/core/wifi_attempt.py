@@ -13,10 +13,9 @@ talking through), so the outcome can only be learned by polling
 Must be invoked on *every* observation, not only on a detected state
 change -- there is no reliable "previous state" (first observation after a
 restart, or a round trip the poller never saw). The reconfigure race:
-``POST /wifi/connect`` while already ``CONNECTED`` forgets the old network
-before calling comitup's own ``connect()``, but that sequence is not
-instantaneous, so a status poll can briefly still observe ``CONNECTED`` to
-the *old* SSID. When the observed state is ``CONNECTED`` with a name that
+switching networks while already ``CONNECTED`` (``POST /wifi/connect`` or a
+saved network's activate) is not instantaneous, so a status poll can
+briefly still observe ``CONNECTED`` to the *old* SSID. When the observed state is ``CONNECTED`` with a name that
 is neither ``None`` nor the attempt's own ``ssid``: within
 :data:`GRACE_PERIOD_SECONDS` this resolves to nothing yet; past it,
 ``"failed"`` with the observed name. A name that is ``None`` or matches

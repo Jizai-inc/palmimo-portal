@@ -157,6 +157,10 @@ class SaveRequest(BaseModel):
     psk: str
 
 
+class SsidRequest(BaseModel):
+    ssid: str
+
+
 class OrderRequest(BaseModel):
     ssids: list[str]
 
@@ -315,8 +319,10 @@ def save_network(
     return list_saved(saved)
 
 
-@router.delete("/saved/{ssid}", dependencies=_saved_dependencies)
-def delete_saved(ssid: str, saved: SavedNetworkPort = Depends(get_saved_network_port)) -> list[SavedNetworkResponse]:
+@router.post("/saved/delete", dependencies=_saved_dependencies)
+def delete_saved(
+    body: SsidRequest, saved: SavedNetworkPort = Depends(get_saved_network_port)
+) -> list[SavedNetworkResponse]:
     """Delete a saved network other than the current one.
 
     Raises:
@@ -324,7 +330,7 @@ def delete_saved(ssid: str, saved: SavedNetworkPort = Depends(get_saved_network_
             current network -- ``DELETE /wifi/connection`` forgets that one.
     """
     try:
-        saved.delete(ssid)
+        saved.delete(body.ssid)
     except SavedNetworkNotFoundError as error:
         raise PortalError(404, "wifi_saved_not_found") from error
     except SavedNetworkActiveError as error:
@@ -349,9 +355,9 @@ def reorder_saved(
     return list_saved(saved)
 
 
-@router.post("/saved/{ssid}/activate", dependencies=_saved_dependencies)
+@router.post("/saved/activate", dependencies=_saved_dependencies)
 def activate_saved(
-    ssid: str,
+    body: SsidRequest,
     saved: SavedNetworkPort = Depends(get_saved_network_port),
     state: StateStore = Depends(get_state_store),
 ) -> ActivateResponse:
@@ -362,10 +368,10 @@ def activate_saved(
     Raises:
         PortalError: 404 ``wifi_saved_not_found``.
     """
-    state.write_last_wifi_attempt(WifiAttempt(ssid=ssid, result="attempting", timestamp=time.time()))
+    state.write_last_wifi_attempt(WifiAttempt(ssid=body.ssid, result="attempting", timestamp=time.time()))
     try:
-        saved.activate(ssid)
+        saved.activate(body.ssid)
     except SavedNetworkNotFoundError as error:
-        state.write_last_wifi_attempt(WifiAttempt(ssid=ssid, result="failed", timestamp=time.time()))
+        state.write_last_wifi_attempt(WifiAttempt(ssid=body.ssid, result="failed", timestamp=time.time()))
         raise PortalError(404, "wifi_saved_not_found") from error
     return ActivateResponse()

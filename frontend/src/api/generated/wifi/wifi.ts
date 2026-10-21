@@ -32,6 +32,7 @@ import type {
   OrderRequest,
   SaveRequest,
   SavedNetworkResponse,
+  SsidRequest,
   WifiNetworkResponse,
   WifiStatusResponse
 } from '../models';
@@ -522,6 +523,157 @@ export const useSaveNetworkApiV1WifiSavedPost = <TError = HTTPValidationError,
       > => {
       return useMutation(getSaveNetworkApiV1WifiSavedPostMutationOptions(options), queryClient);
     }
+    export const getActivateSavedApiV1WifiSavedActivatePostUrl = () => {
+
+
+
+
+  return `/api/v1/wifi/saved/activate`
+}
+
+/**
+ * Switch to a saved network now; the current one stays saved. Returns immediately.
+ *
+ * Recorded as a connect attempt, read back like ``POST /wifi/connect``'s.
+ *
+ * Raises:
+ *     PortalError: 404 ``wifi_saved_not_found``.
+ * @summary Activate Saved
+ */
+export const activateSavedApiV1WifiSavedActivatePost = async (ssidRequest: SsidRequest, options?: RequestInit): Promise<ActivateResponse> => {
+
+  return customFetch<ActivateResponse>(getActivateSavedApiV1WifiSavedActivatePostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(ssidRequest)
+  }
+);}
+
+
+
+
+
+export const getActivateSavedApiV1WifiSavedActivatePostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activateSavedApiV1WifiSavedActivatePost>>, TError,{data: SsidRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof activateSavedApiV1WifiSavedActivatePost>>, TError,{data: SsidRequest}, TContext> => {
+
+const mutationKey = ['activateSavedApiV1WifiSavedActivatePost'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof activateSavedApiV1WifiSavedActivatePost>>, {data: SsidRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  activateSavedApiV1WifiSavedActivatePost(data,)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ActivateSavedApiV1WifiSavedActivatePostMutationResult = NonNullable<Awaited<ReturnType<typeof activateSavedApiV1WifiSavedActivatePost>>>
+    export type ActivateSavedApiV1WifiSavedActivatePostMutationBody = SsidRequest
+    export type ActivateSavedApiV1WifiSavedActivatePostMutationError = HTTPValidationError
+
+    /**
+ * @summary Activate Saved
+ */
+export const useActivateSavedApiV1WifiSavedActivatePost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activateSavedApiV1WifiSavedActivatePost>>, TError,{data: SsidRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof activateSavedApiV1WifiSavedActivatePost>>,
+        TError,
+        {data: SsidRequest},
+        TContext
+      > => {
+      return useMutation(getActivateSavedApiV1WifiSavedActivatePostMutationOptions(options), queryClient);
+    }
+    export const getDeleteSavedApiV1WifiSavedDeletePostUrl = () => {
+
+
+
+
+  return `/api/v1/wifi/saved/delete`
+}
+
+/**
+ * Delete a saved network other than the current one.
+ *
+ * Raises:
+ *     PortalError: 404 ``wifi_saved_not_found``. 409 ``wifi_saved_active`` for the
+ *         current network -- ``DELETE /wifi/connection`` forgets that one.
+ * @summary Delete Saved
+ */
+export const deleteSavedApiV1WifiSavedDeletePost = async (ssidRequest: SsidRequest, options?: RequestInit): Promise<SavedNetworkResponse[]> => {
+
+  return customFetch<SavedNetworkResponse[]>(getDeleteSavedApiV1WifiSavedDeletePostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(ssidRequest)
+  }
+);}
+
+
+
+
+
+export const getDeleteSavedApiV1WifiSavedDeletePostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteSavedApiV1WifiSavedDeletePost>>, TError,{data: SsidRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof deleteSavedApiV1WifiSavedDeletePost>>, TError,{data: SsidRequest}, TContext> => {
+
+const mutationKey = ['deleteSavedApiV1WifiSavedDeletePost'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteSavedApiV1WifiSavedDeletePost>>, {data: SsidRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  deleteSavedApiV1WifiSavedDeletePost(data,)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteSavedApiV1WifiSavedDeletePostMutationResult = NonNullable<Awaited<ReturnType<typeof deleteSavedApiV1WifiSavedDeletePost>>>
+    export type DeleteSavedApiV1WifiSavedDeletePostMutationBody = SsidRequest
+    export type DeleteSavedApiV1WifiSavedDeletePostMutationError = HTTPValidationError
+
+    /**
+ * @summary Delete Saved
+ */
+export const useDeleteSavedApiV1WifiSavedDeletePost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteSavedApiV1WifiSavedDeletePost>>, TError,{data: SsidRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteSavedApiV1WifiSavedDeletePost>>,
+        TError,
+        {data: SsidRequest},
+        TContext
+      > => {
+      return useMutation(getDeleteSavedApiV1WifiSavedDeletePostMutationOptions(options), queryClient);
+    }
     export const getReorderSavedApiV1WifiSavedOrderPutUrl = () => {
 
 
@@ -596,157 +748,6 @@ export const useReorderSavedApiV1WifiSavedOrderPut = <TError = HTTPValidationErr
         TContext
       > => {
       return useMutation(getReorderSavedApiV1WifiSavedOrderPutMutationOptions(options), queryClient);
-    }
-    export const getDeleteSavedApiV1WifiSavedSsidDeleteUrl = (ssid: string,) => {
-
-
-
-
-  return `/api/v1/wifi/saved/${ssid}`
-}
-
-/**
- * Delete a saved network other than the current one.
- *
- * Raises:
- *     PortalError: 404 ``wifi_saved_not_found``. 409 ``wifi_saved_active`` for the
- *         current network -- ``DELETE /wifi/connection`` forgets that one.
- * @summary Delete Saved
- */
-export const deleteSavedApiV1WifiSavedSsidDelete = async (ssid: string, options?: RequestInit): Promise<SavedNetworkResponse[]> => {
-
-  return customFetch<SavedNetworkResponse[]>(getDeleteSavedApiV1WifiSavedSsidDeleteUrl(ssid),
-  {
-    ...options,
-    method: 'DELETE'
-
-
-  }
-);}
-
-
-
-
-
-export const getDeleteSavedApiV1WifiSavedSsidDeleteMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteSavedApiV1WifiSavedSsidDelete>>, TError,{ssid: string}, TContext>, }
-): UseMutationOptions<Awaited<ReturnType<typeof deleteSavedApiV1WifiSavedSsidDelete>>, TError,{ssid: string}, TContext> => {
-
-const mutationKey = ['deleteSavedApiV1WifiSavedSsidDelete'];
-const {mutation: mutationOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteSavedApiV1WifiSavedSsidDelete>>, {ssid: string}> = (props) => {
-          const {ssid} = props ?? {};
-
-          return  deleteSavedApiV1WifiSavedSsidDelete(ssid,)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type DeleteSavedApiV1WifiSavedSsidDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteSavedApiV1WifiSavedSsidDelete>>>
-
-    export type DeleteSavedApiV1WifiSavedSsidDeleteMutationError = HTTPValidationError
-
-    /**
- * @summary Delete Saved
- */
-export const useDeleteSavedApiV1WifiSavedSsidDelete = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteSavedApiV1WifiSavedSsidDelete>>, TError,{ssid: string}, TContext>, }
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof deleteSavedApiV1WifiSavedSsidDelete>>,
-        TError,
-        {ssid: string},
-        TContext
-      > => {
-      return useMutation(getDeleteSavedApiV1WifiSavedSsidDeleteMutationOptions(options), queryClient);
-    }
-    export const getActivateSavedApiV1WifiSavedSsidActivatePostUrl = (ssid: string,) => {
-
-
-
-
-  return `/api/v1/wifi/saved/${ssid}/activate`
-}
-
-/**
- * Switch to a saved network now; the current one stays saved. Returns immediately.
- *
- * Recorded as a connect attempt, read back like ``POST /wifi/connect``'s.
- *
- * Raises:
- *     PortalError: 404 ``wifi_saved_not_found``.
- * @summary Activate Saved
- */
-export const activateSavedApiV1WifiSavedSsidActivatePost = async (ssid: string, options?: RequestInit): Promise<ActivateResponse> => {
-
-  return customFetch<ActivateResponse>(getActivateSavedApiV1WifiSavedSsidActivatePostUrl(ssid),
-  {
-    ...options,
-    method: 'POST'
-
-
-  }
-);}
-
-
-
-
-
-export const getActivateSavedApiV1WifiSavedSsidActivatePostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activateSavedApiV1WifiSavedSsidActivatePost>>, TError,{ssid: string}, TContext>, }
-): UseMutationOptions<Awaited<ReturnType<typeof activateSavedApiV1WifiSavedSsidActivatePost>>, TError,{ssid: string}, TContext> => {
-
-const mutationKey = ['activateSavedApiV1WifiSavedSsidActivatePost'];
-const {mutation: mutationOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof activateSavedApiV1WifiSavedSsidActivatePost>>, {ssid: string}> = (props) => {
-          const {ssid} = props ?? {};
-
-          return  activateSavedApiV1WifiSavedSsidActivatePost(ssid,)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type ActivateSavedApiV1WifiSavedSsidActivatePostMutationResult = NonNullable<Awaited<ReturnType<typeof activateSavedApiV1WifiSavedSsidActivatePost>>>
-
-    export type ActivateSavedApiV1WifiSavedSsidActivatePostMutationError = HTTPValidationError
-
-    /**
- * @summary Activate Saved
- */
-export const useActivateSavedApiV1WifiSavedSsidActivatePost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof activateSavedApiV1WifiSavedSsidActivatePost>>, TError,{ssid: string}, TContext>, }
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof activateSavedApiV1WifiSavedSsidActivatePost>>,
-        TError,
-        {ssid: string},
-        TContext
-      > => {
-      return useMutation(getActivateSavedApiV1WifiSavedSsidActivatePostMutationOptions(options), queryClient);
     }
     export const getGetStatusApiV1WifiStatusGetUrl = () => {
 

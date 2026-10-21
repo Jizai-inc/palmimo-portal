@@ -160,6 +160,24 @@ def test_save_an_existing_network_replaces_its_psk_in_place() -> None:
     assert _priority(updated) == 3
 
 
+def test_save_an_existing_wpa3_network_keeps_it_sae() -> None:
+    settings = _wifi("office")
+    settings["802-11-wireless-security"]["key-mgmt"] = Variant("s", "sae")
+    port = _FakeNetworkManager({"/Settings/1": settings})
+
+    port.save("office", "newsecret", first=False)
+
+    assert port.profiles["/Settings/1"]["802-11-wireless-security"]["key-mgmt"].value == "sae"
+
+
+def test_activate_picks_the_listed_profile_when_an_ssid_has_duplicates() -> None:
+    port = _FakeNetworkManager({"/Settings/1": _wifi("office", priority=0), "/Settings/2": _wifi("office", priority=5)})
+
+    port.activate("office")
+
+    assert port.activations == ["/Settings/2"]
+
+
 def test_delete_removes_the_profile() -> None:
     port = _FakeNetworkManager({"/Settings/1": _wifi("office"), "/Settings/2": _wifi("cafe")}, active={"/Settings/1"})
 

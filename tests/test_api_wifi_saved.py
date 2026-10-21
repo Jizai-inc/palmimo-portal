@@ -67,7 +67,7 @@ def test_delete_saved_removes_a_network_other_than_the_current_one(
 ) -> None:
     _provisioned_and_logged_in(client, adapters, "home", "cafe")
 
-    response = client.delete("/api/v1/wifi/saved/cafe", headers=CSRF_HEADERS)
+    response = client.post("/api/v1/wifi/saved/delete", json={"ssid": "cafe"}, headers=CSRF_HEADERS)
 
     assert response.status_code == 200
     assert [item["ssid"] for item in response.json()] == ["home"]
@@ -76,7 +76,7 @@ def test_delete_saved_removes_a_network_other_than_the_current_one(
 def test_delete_saved_refuses_the_current_network_with_409(client: TestClient, adapters: FakeAdapterBundle) -> None:
     _provisioned_and_logged_in(client, adapters, "home", "cafe")
 
-    response = client.delete("/api/v1/wifi/saved/home", headers=CSRF_HEADERS)
+    response = client.post("/api/v1/wifi/saved/delete", json={"ssid": "home"}, headers=CSRF_HEADERS)
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "wifi_saved_active"
@@ -86,7 +86,7 @@ def test_delete_saved_refuses_the_current_network_with_409(client: TestClient, a
 def test_delete_saved_returns_404_for_an_unknown_network(client: TestClient, adapters: FakeAdapterBundle) -> None:
     _provisioned_and_logged_in(client, adapters, "home")
 
-    response = client.delete("/api/v1/wifi/saved/nowhere", headers=CSRF_HEADERS)
+    response = client.post("/api/v1/wifi/saved/delete", json={"ssid": "nowhere"}, headers=CSRF_HEADERS)
 
     assert response.status_code == 404
     assert response.json()["error"]["code"] == "wifi_saved_not_found"
@@ -114,7 +114,7 @@ def test_reorder_saved_returns_409_when_the_set_differs(client: TestClient, adap
 def test_activate_saved_switches_and_records_the_attempt(client: TestClient, adapters: FakeAdapterBundle) -> None:
     _provisioned_and_logged_in(client, adapters, "home", "cafe")
 
-    response = client.post("/api/v1/wifi/saved/cafe/activate", headers=CSRF_HEADERS)
+    response = client.post("/api/v1/wifi/saved/activate", json={"ssid": "cafe"}, headers=CSRF_HEADERS)
 
     assert response.status_code == 200
     assert response.json() == {"status": "switching"}
@@ -129,7 +129,7 @@ def test_activate_saved_returns_404_and_records_a_failure_for_an_unknown_network
 ) -> None:
     _provisioned_and_logged_in(client, adapters, "home")
 
-    response = client.post("/api/v1/wifi/saved/nowhere/activate", headers=CSRF_HEADERS)
+    response = client.post("/api/v1/wifi/saved/activate", json={"ssid": "nowhere"}, headers=CSRF_HEADERS)
 
     assert response.status_code == 404
     attempt = adapters.state.read_last_wifi_attempt()
@@ -145,3 +145,17 @@ def test_list_saved_maps_adapter_unavailable_to_a_503(client: TestClient, adapte
 
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "network_backend_unavailable"
+
+
+def test_delete_and_activate_take_an_ssid_with_a_slash_and_spaces(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    _provisioned_and_logged_in(client, adapters, "home", "Home/5G #2", "Cafe?", "A%42")
+
+    switched = client.post("/api/v1/wifi/saved/activate", json={"ssid": "Home/5G #2"}, headers=CSRF_HEADERS)
+    deleted = client.post("/api/v1/wifi/saved/delete", json={"ssid": "Cafe?"}, headers=CSRF_HEADERS)
+
+    assert switched.status_code == 200
+    assert adapters.saved_networks.activate_calls == ["Home/5G #2"]
+    assert deleted.status_code == 200
+    assert "Cafe?" not in adapters.saved_networks.saved

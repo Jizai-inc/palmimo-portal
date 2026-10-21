@@ -125,11 +125,11 @@ def _new_profile(ssid: str, psk: str, priority: int) -> Settings:
 def _with_psk(settings: Settings, psk: str) -> Settings:
     updated = {group: dict(values) for group, values in settings.items()}
     if psk:
+        security = dict(updated.get("802-11-wireless-security", {}))
+        security.setdefault("key-mgmt", Variant("s", "wpa-psk"))  # keeps an existing SAE (WPA3) profile SAE
+        security["psk"] = Variant("s", psk)
         updated["802-11-wireless"]["security"] = Variant("s", "802-11-wireless-security")
-        updated["802-11-wireless-security"] = {
-            "key-mgmt": Variant("s", "wpa-psk"),
-            "psk": Variant("s", psk),
-        }
+        updated["802-11-wireless-security"] = security
     else:
         updated["802-11-wireless"].pop("security", None)
         updated.pop("802-11-wireless-security", None)
@@ -319,7 +319,7 @@ class NetworkManagerSavedNetworkPort(SavedNetworkPort):
         self._run(run())
 
     async def _activate(self, ssid: str) -> None:
-        path, _ = self._find(await self._profiles(), ssid)
+        path, _ = self._find(self._ordered(await self._profiles()), ssid)
         await self._nm_call(NM_PATH, NM_INTERFACE, "ActivateConnection", "ooo", [path, "/", "/"])
         logger.info("switching to saved network %r", ssid)
 

@@ -61,8 +61,8 @@ describe("SavedNetworksCard", () => {
     stubSaved();
     let deleted = "";
     server.use(
-      http.delete("*/api/v1/wifi/saved/:ssid", ({ params }) => {
-        deleted = String(params.ssid);
+      http.post("*/api/v1/wifi/saved/delete", async ({ request }) => {
+        deleted = ((await request.json()) as { ssid: string }).ssid;
         return HttpResponse.json([SAVED[0], SAVED[1]]);
       }),
     );
@@ -81,8 +81,8 @@ describe("SavedNetworksCard", () => {
     stubSaved();
     let activated = "";
     server.use(
-      http.post("*/api/v1/wifi/saved/:ssid/activate", ({ params }) => {
-        activated = String(params.ssid);
+      http.post("*/api/v1/wifi/saved/activate", async ({ request }) => {
+        activated = ((await request.json()) as { ssid: string }).ssid;
         return HttpResponse.json({ status: "switching" });
       }),
     );

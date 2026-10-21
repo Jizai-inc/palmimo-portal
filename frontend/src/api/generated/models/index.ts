@@ -66,6 +66,7 @@ export * from './secretValueRequest';
 export * from './sourceUpdateRequest';
 export * from './sourceUpdateRequestRefKind';
 export * from './sshKeyResponse';
+export * from './ssidRequest';
 export * from './startResponse';
 export * from './statusResponse';
 export * from './stopResponse';

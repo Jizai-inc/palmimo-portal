@@ -128,6 +128,29 @@ def test_frontend_serves_a_built_asset(tmp_path: Path) -> None:
     assert "built asset" in response.text
 
 
+@pytest.mark.parametrize("path", ["/", "/assets/index.js", "/login"])
+def test_frontend_responses_require_revalidation(tmp_path: Path, path: str) -> None:
+    settings = Settings(allowed_hosts=frozenset({"testserver"}), static_dir=_built_static_dir(tmp_path))
+    client = TestClient(create_app(settings))
+
+    response = client.get(path)
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
+    assert "etag" in response.headers
+
+
+def test_frontend_asset_revalidation_returns_not_modified_for_a_matching_etag(tmp_path: Path) -> None:
+    settings = Settings(allowed_hosts=frozenset({"testserver"}), static_dir=_built_static_dir(tmp_path))
+    client = TestClient(create_app(settings))
+    etag = client.get("/assets/index.js").headers["etag"]
+
+    response = client.get("/assets/index.js", headers={"If-None-Match": etag})
+
+    assert response.status_code == 304
+    assert response.headers["cache-control"] == "no-cache"
+
+
 def test_frontend_spa_fallback_serves_index_html_for_a_client_route(tmp_path: Path) -> None:
     # /login has no server-side route -- only a route the bundle registers
     # once index.html's script loads (see routes/login.tsx) -- so a direct

@@ -17,12 +17,12 @@ function renderMenus() {
       </>
     ),
   });
-  const leaves = ["/dashboard", "/settings/device", "/login"].map((path) =>
+  const leaves = ["/home", "/settings/device", "/login"].map((path) =>
     createRoute({ getParentRoute: () => rootRoute, path, component: () => null }),
   );
   const router = createRouter({
     routeTree: rootRoute.addChildren(leaves),
-    history: createMemoryHistory({ initialEntries: ["/dashboard"] }),
+    history: createMemoryHistory({ initialEntries: ["/home"] }),
   });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   queryClient.setQueryData(["sentinel"], "cached");

@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 const LOW_DISK_BYTES = 1_000_000_000;
 
 /**
- * The dashboard's status card (routes/dashboard.tsx). Fetches its own data so it can be
+ * Home's robot status card (routes/home.tsx). Fetches its own data so it can be
  * rendered and tested standalone, like SshKeysPanel/PowerPanel. `portalBadge` is an optional
  * slot for the "update available" badge -- passed in rather than built here, since `<Link>`
  * requires a TanStack Router context this component's standalone test harness does not provide.

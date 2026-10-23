@@ -54,7 +54,7 @@ function stubUpdateStatusError() {
 }
 
 /**
- * A synthetic route tree that mounts `AppShell` at `/dashboard` with every other `NAV_ITEMS` and
+ * A synthetic route tree that mounts `AppShell` at `/home` with every other `NAV_ITEMS` and
  * `SETTINGS_ITEMS` path present as a no-op leaf, so `<Link>` targets resolve without pulling in the app's real
  * screens (loaders, auth guard, network calls) that a route-tree-based render would trigger.
  */
@@ -62,18 +62,18 @@ function renderAppShell() {
   const rootRoute = createRootRoute();
   const shellRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: "/dashboard",
+    path: "/home",
     component: () => (
       <AppShell title="Test">
         <p>content</p>
       </AppShell>
     ),
   });
-  const otherRoutes = [...NAV_ITEMS, ...SETTINGS_ITEMS].filter((item) => item.to !== "/dashboard").map((item) =>
+  const otherRoutes = [...NAV_ITEMS, ...SETTINGS_ITEMS].filter((item) => item.to !== "/home").map((item) =>
     createRoute({ getParentRoute: () => rootRoute, path: item.to, component: () => null }),
   );
   const routeTree = rootRoute.addChildren([shellRoute, ...otherRoutes]);
-  const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ["/dashboard"] }) });
+  const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ["/home"] }) });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
   return render(

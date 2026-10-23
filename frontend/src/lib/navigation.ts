@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import { Cpu, Download, House, KeyRound, Package, Settings, SquareTerminal, Wifi } from "lucide-react";
 
-/** One entry in a navigation list (sidebar, drawer, dashboard quick actions). */
+/** One entry in a navigation list (sidebar, drawer). */
 export interface NavItem {
   to: string;
   icon: LucideIcon;
@@ -24,13 +24,13 @@ export const SETTINGS_ITEMS: readonly NavItem[] = [
  * `authGate.ts`'s `DASHBOARD_FAMILY_PATHS` derives from this list so the two can't drift.
  */
 export const NAV_ITEMS: readonly NavItem[] = [
-  { to: "/dashboard", icon: House, labelKey: "nav.dashboard" },
+  { to: "/home", icon: House, labelKey: "nav.dashboard" },
   { to: "/apps", icon: Package, labelKey: "nav.apps", descriptionKey: "nav.appsDescription" },
   { to: "/settings", icon: Settings, labelKey: "nav.settings", children: SETTINGS_ITEMS },
 ] as const;
 
-/** Stand-in until the docs site exists; rendered as an external link, never routed. */
-export const DOCS_URL = "https://github.com/Jizai-inc";
+/** Rendered as an external link, never routed. */
+export const DOCS_URL = "https://docs.palmimo.dev/";
 
 /** Stand-in until the app template repository is published; external link. */
 export const TEMPLATE_REPO_URL = "https://github.com/Jizai-inc";

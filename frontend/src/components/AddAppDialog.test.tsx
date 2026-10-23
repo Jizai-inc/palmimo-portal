@@ -20,7 +20,6 @@ const PREVIEW = {
 };
 
 function stubPreviewAndInstall() {
-  let jobPolls = 0;
   server.use(
     getListAppsApiV1AppsGetMockHandler({ apps: [] }),
     getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
@@ -31,11 +30,9 @@ function stubPreviewAndInstall() {
         { status: 202 },
       ),
     ),
-    http.get("*/api/v1/apps/jobs/job-1", () => {
-      jobPolls += 1;
-      const done = jobPolls > 1;
-      return HttpResponse.json({ id: "job-1", app_id: "alice.my-app", kind: "install", state: done ? "done" : "running", step: "register", error: null, started_at: 1, finished_at: done ? 2 : null, dropped_bindings: [], dropped_params: [], lock_generated: false });
-    }),
+    http.get("*/api/v1/apps/jobs/job-1", () =>
+      HttpResponse.json({ id: "job-1", app_id: "alice.my-app", kind: "install", state: "done", step: "register", error: null, started_at: 1, finished_at: 2, dropped_bindings: [], dropped_params: [], lock_generated: false }),
+    ),
   );
 }
 

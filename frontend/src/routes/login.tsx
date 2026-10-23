@@ -33,7 +33,7 @@ function LoginScreen() {
             void navigate({ to: "/change-password" });
             return;
           }
-          void navigate({ to: connected ? "/dashboard" : "/wifi" });
+          void navigate({ to: connected ? "/home" : "/wifi" });
         }}
         onForgotPassword={() => void navigate({ to: "/reset-login" })}
       />

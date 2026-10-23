@@ -5,7 +5,7 @@ import { NAV_ITEMS, SETTINGS_ITEMS, isActive } from "@/lib/navigation";
 
 describe("NAV_ITEMS", () => {
   it("lists Home, Apps and Settings, in that order", () => {
-    expect(NAV_ITEMS.map((item) => item.to)).toEqual(["/dashboard", "/apps", "/settings"]);
+    expect(NAV_ITEMS.map((item) => item.to)).toEqual(["/home", "/apps", "/settings"]);
   });
 
   it.each(NAV_ITEMS)("$to is allowed under the dashboard gate", (item) => {
@@ -41,10 +41,10 @@ describe("SETTINGS_ITEMS", () => {
 
 describe("isActive", () => {
   it.each([
-    ["/dashboard", "/dashboard", true],
+    ["/home", "/home", true],
     ["/settings/device", "/settings", true],
     ["/apps/add", "/apps", true],
-    ["/dashboard", "/settings", false],
+    ["/home", "/settings", false],
     ["/settings-old", "/settings", false],
     ["/settings/device", "/settings/developer", false],
   ] as const)("isActive(%s, %s) -> %s", (pathname, to, expected) => {

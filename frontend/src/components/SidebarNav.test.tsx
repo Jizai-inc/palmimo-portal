@@ -32,7 +32,7 @@ describe("SidebarNav settings group", () => {
   });
 
   it("is collapsed by default elsewhere, with Home as the only current page", async () => {
-    renderNavAt("/dashboard");
+    renderNavAt("/home");
 
     await screen.findByRole("navigation", { name: "Primary navigation" });
     expect(settingsToggle()).toHaveAttribute("aria-expanded", "false");
@@ -43,13 +43,13 @@ describe("SidebarNav settings group", () => {
 
   it("opens and closes the group from the Settings row without navigating", async () => {
     const user = userEvent.setup();
-    const { router } = renderNavAt("/dashboard");
+    const { router } = renderNavAt("/home");
 
     await user.click(await screen.findByRole("button", { name: "Settings" }));
 
     expect(settingsToggle()).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("link", { name: "Network" })).toBeInTheDocument();
-    expect(router.state.location.pathname).toBe("/dashboard");
+    expect(router.state.location.pathname).toBe("/home");
 
     await user.click(settingsToggle());
 
@@ -58,7 +58,7 @@ describe("SidebarNav settings group", () => {
 
   it("toggles from the keyboard", async () => {
     const user = userEvent.setup();
-    renderNavAt("/dashboard");
+    renderNavAt("/home");
     (await screen.findByRole("button", { name: "Settings" })).focus();
 
     await user.keyboard("{Enter}");
@@ -77,7 +77,7 @@ describe("SidebarNav settings group", () => {
 
   it("remembers an expand choice across page loads", async () => {
     const user = userEvent.setup();
-    const { unmount } = renderNavAt("/dashboard");
+    const { unmount } = renderNavAt("/home");
     await user.click(await screen.findByRole("button", { name: "Settings" }));
     unmount();
 

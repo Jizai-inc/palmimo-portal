@@ -28,11 +28,12 @@ describe("isPathAllowedForGate", () => {
     [LOGIN_GATE, "/login", true],
     [SETUP_GATE, "/setup", true],
     [WIFI_GATE, "/wifi", true],
-    [DASHBOARD_GATE, "/dashboard", true],
+    [DASHBOARD_GATE, "/home", true],
     [DASHBOARD_GATE, "/settings", true],
     [DASHBOARD_GATE, "/settings/network", true],
     [DASHBOARD_GATE, "/settings/device", true],
-    // Pre-Settings URLs no longer exist; the guard bounces a stale bookmark to /dashboard.
+    // Old URLs no longer exist; the guard bounces a stale bookmark to /home.
+    [DASHBOARD_GATE, "/dashboard", false],
     [DASHBOARD_GATE, "/wifi-settings", false],
     [DASHBOARD_GATE, "/power", false],
     [WIFI_GATE, "/wifi/waiting", true],
@@ -57,8 +58,8 @@ describe("isPathAllowedForGate", () => {
     [STATUS_ERROR_UNAVAILABLE_GATE, "/wifi/waiting", true],
     [STATUS_ERROR_CORRUPT_GATE, "/wifi/waiting", false],
     [DASHBOARD_GATE, "/login", false],
-    [LOGIN_GATE, "/dashboard", false],
-    [WIFI_GATE, "/dashboard", false],
+    [LOGIN_GATE, "/home", false],
+    [WIFI_GATE, "/home", false],
     // /reset-login: reachable only from the normal login gate and the
     // corrupt status-error gate, and only when the device carries an
     // identity (hasIdentity) -- never from the sticker login variant,
@@ -168,6 +169,6 @@ describe("runAuthGate", () => {
     );
 
     await expect(runAuthGate("/wifi")).resolves.toBeUndefined();
-    await expect(runAuthGate("/dashboard")).rejects.toMatchObject({ options: { to: "/wifi" } });
+    await expect(runAuthGate("/home")).rejects.toMatchObject({ options: { to: "/wifi" } });
   });
 });

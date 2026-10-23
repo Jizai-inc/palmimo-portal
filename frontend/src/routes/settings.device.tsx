@@ -34,7 +34,7 @@ function DeviceSettings() {
     <SettingsSection title={t("nav.device")}>
       {/*
         "/" re-runs the root guard (routes/__root.tsx), which lands back on
-        `/dashboard` once the device is reachable again -- sessions survive a
+        `/home` once the device is reachable again -- sessions survive a
         reboot because the cookie signing key lives in auth.json.
       */}
       <PowerPanel key={request?.id} initialDialog={request?.action}onRebooted={() => void navigate({ to: "/" })} />

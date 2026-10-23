@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import socket
 import struct
 import threading
@@ -41,6 +42,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
+from starlette.responses import Response
+from starlette.types import Scope
 
 from palmimo_portal.api import apps as apps_api
 from palmimo_portal.api import auth as auth_api
@@ -725,6 +728,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return app
 
 
+# Build asset names are unhashed (see frontend/vite.config.ts), so every
+# frontend response must be revalidated against its ETag; otherwise a browser's
+# heuristic freshness keeps running the previous release's bundle after an update.
+_REVALIDATE_HEADERS = {"Cache-Control": "no-cache"}
+
+
+class _RevalidatingStaticFiles(StaticFiles):
+    def file_response(
+        self, full_path: str | os.PathLike[str], stat_result: os.stat_result, scope: Scope, status_code: int = 200
+    ) -> Response:
+        response = super().file_response(full_path, stat_result, scope, status_code)
+        response.headers.update(_REVALIDATE_HEADERS)
+        return response
+
+
 def _mount_frontend(app: FastAPI, static_dir: Path) -> None:
     """Serve the frontend's build output, with an SPA fallback to ``index.html``.
 
@@ -757,14 +775,13 @@ def _mount_frontend(app: FastAPI, static_dir: Path) -> None:
         )
         return
 
-    # Fixed-name build assets (see frontend/vite.config.ts) served directly.
-    app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="frontend-assets")
+    app.mount("/assets", _RevalidatingStaticFiles(directory=static_dir / "assets"), name="frontend-assets")
 
     index_path = static_dir / "index.html"
 
     @app.get("/", include_in_schema=False)
     def _serve_index() -> FileResponse:
-        return FileResponse(index_path)
+        return FileResponse(index_path, headers=_REVALIDATE_HEADERS)
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def _serve_spa(full_path: str) -> FileResponse:
@@ -786,8 +803,8 @@ def _mount_frontend(app: FastAPI, static_dir: Path) -> None:
                 candidate.resolve().relative_to(static_dir.resolve())
             except ValueError as error:
                 raise HTTPException(status_code=404, detail={"code": "not_found", "params": {}}) from error
-            return FileResponse(candidate)
-        return FileResponse(index_path)
+            return FileResponse(candidate, headers=_REVALIDATE_HEADERS)
+        return FileResponse(index_path, headers=_REVALIDATE_HEADERS)
 
 
 def _log_startup_banner(settings: Settings) -> None:

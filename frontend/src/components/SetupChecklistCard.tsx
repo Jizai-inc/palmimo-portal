@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import type { ChecklistItem, ChecklistStep } from "@/lib/setupChecklist";
-import { TEMPLATE_REPO_URL } from "@/lib/navigation";
+import { GETTING_STARTED_URL, TEMPLATE_REPO_URL } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 
 /** Via explicit `t(...)` calls so the i18n-parity scan sees every key (see `appStatusLabel`). */
@@ -106,6 +106,15 @@ export function SetupChecklistCard({
           );
         })}
       </ol>
+      <a
+        href={GETTING_STARTED_URL}
+        target="_blank"
+        rel="noreferrer"
+        className="flex w-fit items-center gap-1 text-sm font-medium underline-offset-4 hover:underline"
+      >
+        {t("home.checklistGuideLink")}
+        <ExternalLink className="size-3.5" aria-hidden />
+      </a>
     </section>
   );
 }

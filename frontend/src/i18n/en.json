@@ -236,7 +236,8 @@
     "activityWifiConnected": "Connected to Wi-Fi {{ssid}}",
     "activityWifiFailed": "Could not connect to Wi-Fi {{ssid}}",
     "attentionMissingKeys": "{{name}} needs an API key before it can start",
-    "attentionChooseDefault": "Several apps are set to start when Palmimo turns on. Choose one default app."
+    "attentionChooseDefault": "Several apps are set to start when Palmimo turns on. Choose one default app.",
+    "checklistGuideLink": "Read the getting started guide"
   },
   "sshKeys": {
     "title": "SSH keys",

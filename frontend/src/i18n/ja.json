@@ -236,7 +236,8 @@
     "activityWifiConnected": "Wi-Fi {{ssid}} に接続しました",
     "activityWifiFailed": "Wi-Fi {{ssid}} に接続できませんでした",
     "attentionMissingKeys": "{{name}} を開始するには API キーが必要です",
-    "attentionChooseDefault": "起動時に開始するアプリが複数設定されています。デフォルトアプリを 1 つ選んでください。"
+    "attentionChooseDefault": "起動時に開始するアプリが複数設定されています。デフォルトアプリを 1 つ選んでください。",
+    "checklistGuideLink": "はじめにガイドを読む"
   },
   "sshKeys": {
     "title": "SSH 鍵",

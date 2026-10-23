@@ -32,6 +32,8 @@ export const NAV_ITEMS: readonly NavItem[] = [
 /** Rendered as an external link, never routed. */
 export const DOCS_URL = "https://docs.palmimo.dev/";
 
+export const GETTING_STARTED_URL = `${DOCS_URL}guides/installation/`;
+
 /** Stand-in until the app template repository is published; external link. */
 export const TEMPLATE_REPO_URL = "https://github.com/Jizai-inc";
 

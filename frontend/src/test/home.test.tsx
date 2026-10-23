@@ -75,6 +75,10 @@ describe("Home", () => {
     const user = userEvent.setup();
 
     expect(await screen.findByText("0 of 3 done")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Read the getting started guide" })).toHaveAttribute(
+      "href",
+      "https://docs.palmimo.dev/guides/installation/",
+    );
     await user.click(screen.getByRole("button", { name: "Hide" }));
 
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Get started" })).not.toBeInTheDocument());

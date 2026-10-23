@@ -39,7 +39,7 @@ const BASE_UPDATE_STATUS: UpdateStatusResponse = {
 function stubStatuses({ update }: { update?: UpdateStatusResponse } = {}) {
   server.use(
     getGetStatusApiV1WifiStatusGetMockHandler(),
-    getGetStatusApiV1SystemStatusGetMockHandler(),
+    getGetStatusApiV1SystemStatusGetMockHandler(getGetStatusApiV1SystemStatusGetResponseMock({ running_app: null })),
     getGetStatusApiV1UpdateStatusGetMockHandler(update ?? BASE_UPDATE_STATUS),
   );
 }
@@ -48,7 +48,7 @@ function stubStatuses({ update }: { update?: UpdateStatusResponse } = {}) {
 function stubUpdateStatusError() {
   server.use(
     getGetStatusApiV1WifiStatusGetMockHandler(),
-    getGetStatusApiV1SystemStatusGetMockHandler(),
+    getGetStatusApiV1SystemStatusGetMockHandler(getGetStatusApiV1SystemStatusGetResponseMock({ running_app: null })),
     http.get("*/api/v1/update/status", () => HttpResponse.json({ error: { code: "internal_error", params: {} } }, { status: 500 })),
   );
 }
@@ -253,13 +253,27 @@ describe("AppShell header", () => {
   it("shows the device name in the device menu trigger", async () => {
     server.use(
       getGetStatusApiV1WifiStatusGetMockHandler(),
-      getGetStatusApiV1SystemStatusGetMockHandler(getGetStatusApiV1SystemStatusGetResponseMock({ hostname: "palmimo-1234" })),
+      getGetStatusApiV1SystemStatusGetMockHandler(getGetStatusApiV1SystemStatusGetResponseMock({ hostname: "palmimo-1234", running_app: null })),
       getGetStatusApiV1UpdateStatusGetMockHandler(BASE_UPDATE_STATUS),
     );
     renderAppShell();
 
     expect(await screen.findByRole("button", { name: /palmimo-1234/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Account" })).toBeInTheDocument();
+  });
+
+  it("shows the running app from system status", async () => {
+    server.use(
+      getGetStatusApiV1WifiStatusGetMockHandler(),
+      getGetStatusApiV1SystemStatusGetMockHandler(
+        getGetStatusApiV1SystemStatusGetResponseMock({ running_app: { id: "robot", name: "Hello Robot", state: "running" } }),
+      ),
+      getGetStatusApiV1UpdateStatusGetMockHandler(BASE_UPDATE_STATUS),
+    );
+    renderAppShell();
+
+    expect(await screen.findByRole("link", { name: "Running app: Hello Robot" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
   });
 });
 

@@ -1,24 +1,8 @@
-import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useTranslation } from "react-i18next";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { AddAppPanel } from "@/components/AddAppPanel";
-import { AppShell } from "@/components/AppShell";
-
-/** The add-app screen: route + `AppShell` chrome only. Logic lives in `AddAppPanel`. */
+/** Old add-app page: kept so bookmarks and doc links open the add-app dialog on the Apps page. */
 export const Route = createFileRoute("/apps_/add")({
-  component: AddAppScreen,
+  beforeLoad: () => {
+    throw redirect({ to: "/apps", search: { add: "github" }, replace: true });
+  },
 });
-
-function AddAppScreen() {
-  const { t } = useTranslation();
-  const navigate = useNavigate();
-  return (
-    <AppShell title={t("appAdd.title")} breadcrumbs={[<Link key="apps" to="/apps">{t("apps.title")}</Link>, <span key="add">{t("appAdd.title")}</span>]}>
-      <AddAppPanel
-        onInstalled={(appId) =>
-          void (appId ? navigate({ to: "/apps/$id", params: { id: appId } }) : navigate({ to: "/apps" }))
-        }
-      />
-    </AppShell>
-  );
-}

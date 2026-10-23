@@ -93,6 +93,7 @@ RUN_LOCK_FILENAME = "run.lock"
 PLATFORM_UPDATE_STATE_FILENAME = "platform_update.json"
 PLATFORM_LOCK_FILENAME = "platform.lock"
 CATALOG_CACHE_FILENAME = "catalog_cache.json"
+HOME_FILENAME = "home.json"
 
 _LEGACY_APP_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,39}$")
 
@@ -247,6 +248,10 @@ class JsonFileStateStore(StateStore):
     @property
     def _catalog_cache_path(self) -> Path:
         return self._state_dir / CATALOG_CACHE_FILENAME
+
+    @property
+    def _home_path(self) -> Path:
+        return self._state_dir / HOME_FILENAME
 
     @contextlib.contextmanager
     def lock_auth(self) -> Iterator[None]:
@@ -547,6 +552,23 @@ class JsonFileStateStore(StateStore):
             atomic_write_text(self._last_attempt_path, json.dumps(payload))
         except OSError as error:
             logger.error("failed to write state file %s: %s", self._last_attempt_path, error)
+            raise
+
+    def read_checklist_dismissed(self) -> bool:
+        if not self._home_path.is_file():
+            return False
+        try:
+            data: Any = json.loads(self._home_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError) as error:
+            logger.error("state file is corrupt or unreadable, treating as absent: %s (%s)", self._home_path, error)
+            return False
+        return isinstance(data, dict) and data.get("checklist_dismissed") is True
+
+    def write_checklist_dismissed(self, dismissed: bool) -> None:
+        try:
+            atomic_write_text(self._home_path, json.dumps({"checklist_dismissed": dismissed}))
+        except OSError as error:
+            logger.error("failed to write state file %s: %s", self._home_path, error)
             raise
 
     def read_or_create_initial_signing_key(self) -> str:

@@ -13,6 +13,7 @@ import {
   useUpdateAppApiV1AppsNameUpdatePost,
 } from "@/api/generated/apps/apps";
 import type { AppSummary, PalmimoPortalApiAppsResetResponse } from "@/api/generated/models";
+import { getGetStatusApiV1SystemStatusGetQueryKey } from "@/api/generated/system/system";
 import { PortalApiError } from "@/api/client";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { AppIdLabel, appIdNamePart } from "@/components/AppIdLabel";
@@ -53,9 +54,13 @@ export function AppsListPanel() {
   const [resetLeftovers, setResetLeftovers] = useState<string[]>([]);
 
   const invalidateList = () => void queryClient.invalidateQueries({ queryKey: getListAppsApiV1AppsGetQueryKey() });
+  const invalidateListAndStatus = () => {
+    invalidateList();
+    void queryClient.invalidateQueries({ queryKey: getGetStatusApiV1SystemStatusGetQueryKey() });
+  };
 
-  const startApp = useStartAppEndpointApiV1AppsNameStartPost({ mutation: { onSuccess: invalidateList } });
-  const stopApp = useStopAppEndpointApiV1AppsNameStopPost({ mutation: { onSuccess: invalidateList } });
+  const startApp = useStartAppEndpointApiV1AppsNameStartPost({ mutation: { onSuccess: invalidateListAndStatus } });
+  const stopApp = useStopAppEndpointApiV1AppsNameStopPost({ mutation: { onSuccess: invalidateListAndStatus } });
   const repairApp = useUpdateAppApiV1AppsNameUpdatePost();
   const resetApps = useResetAppsApiV1AppsResetPost({
     mutation: {
@@ -106,9 +111,9 @@ export function AppsListPanel() {
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">{t("apps.title")}</p>
         <Button asChild>
-          <Link to="/apps/add">
+          <Link to="/apps" search={{ add: "github" }}>
             <Plus className="size-4" />
-            {t("apps.addAppButton")}
+            {t("apps.addFromUrlButton")}
           </Link>
         </Button>
       </div>
@@ -130,7 +135,12 @@ export function AppsListPanel() {
       {error ? null : isLoading ? (
         <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
       ) : apps.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t("apps.emptyState")}</p>
+        <p className="text-sm text-muted-foreground">
+          {t("apps.emptyState")}{" "}
+          <Link to="/apps" search={{ tab: "discover" }} className="font-medium text-foreground underline underline-offset-4">
+            {t("apps.browseOfficialApps")}
+          </Link>
+        </p>
       ) : (
         <ul className="flex flex-col gap-2">
           {apps.map((app) => (

@@ -9,6 +9,7 @@ import { useGetStatusApiV1UpdateStatusGet } from "@/api/generated/update/update"
 import { AppHeader } from "@/components/AppHeader";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { AccountMenu, DeviceMenu } from "@/components/HeaderMenus";
+import { RunningAppControl } from "@/components/RunningAppControl";
 import { SidebarNav } from "@/components/SidebarNav";
 import { Button } from "@/components/ui/button";
 import { useMediaQuery } from "@/lib/useMediaQuery";
@@ -16,6 +17,10 @@ import { cn } from "@/lib/utils";
 
 /** How often to re-poll `update/status` for the nav badge -- cheap, auth-gated, no need for tighter than window-focus + a slow floor. */
 const UPDATE_BADGE_REFETCH_INTERVAL_MS = 5 * 60 * 1000;
+
+/** Fast while the running app is starting or stopping so the header settles; slow otherwise, to notice an app that exits on its own. */
+const RUNNING_APP_SETTLING_POLL_MS = 2_000;
+const RUNNING_APP_IDLE_POLL_MS = 15_000;
 
 /** Tailwind's `md` breakpoint -- the same width at which the desktop sidebar replaces the mobile drawer in the markup below. */
 const DESKTOP_QUERY = "(min-width: 768px)";
@@ -53,7 +58,14 @@ export function AppShell({
   const drawerRef = useRef<HTMLDivElement>(null);
   const focusBeforeDrawerRef = useRef<HTMLElement | null>(null);
   const { data: wifiStatus } = useGetStatusApiV1WifiStatusGet();
-  const { data: systemStatus } = useGetStatusApiV1SystemStatusGet();
+  const { data: systemStatus } = useGetStatusApiV1SystemStatusGet({
+    query: {
+      refetchInterval: (query) => {
+        const state = query.state.data?.running_app?.state;
+        return state && state !== "running" ? RUNNING_APP_SETTLING_POLL_MS : RUNNING_APP_IDLE_POLL_MS;
+      },
+    },
+  });
   const { data: updateStatus } = useGetStatusApiV1UpdateStatusGet({
     query: {
       staleTime: UPDATE_BADGE_REFETCH_INTERVAL_MS,
@@ -151,6 +163,7 @@ export function AppShell({
 
   const headerActions = (
     <>
+      <RunningAppControl runningApp={systemStatus?.running_app} />
       <DeviceMenu
         hostname={systemStatus?.hostname ?? ""}
         network={[wifiStatus?.ssid, wifiStatus?.ip_address].filter(Boolean).join(" · ")}

@@ -7,6 +7,7 @@
     "unexpectedErrorBody": "Reconnecting to the robot… if you just submitted Wi-Fi settings, rejoin your home network and reopen this page."
   },
   "common": {
+    "close": "Close",
     "breadcrumb": "Breadcrumb",
     "loading": "Loading…",
     "retry": "Retry",
@@ -44,7 +45,12 @@
     "accountMenu": "Account",
     "deviceMenu": "Device",
     "restart": "Restart",
-    "shutdown": "Shut down"
+    "shutdown": "Shut down",
+    "noAppRunning": "No app running",
+    "stopApp": "Stop",
+    "runningApp": "Running app: {{name}}",
+    "appStarting": "Starting…",
+    "appStopping": "Stopping…"
   },
   "status": {
     "unavailable": {
@@ -407,8 +413,15 @@
     "wifi_saved_order_mismatch": "The saved networks changed. Reload and try again."
   },
   "apps": {
+    "tabsLabel": "App sections",
+    "tabInstalled": "Installed",
+    "tabDiscover": "Discover",
+    "addFromUrlButton": "Add from GitHub or zip",
+    "browseOfficialApps": "Browse official apps",
+    "templateTitle": "Build your own app",
+    "templateBody": "Start from the Palmimo app template on GitHub, then install it here by URL.",
+    "templateButton": "Start from template",
     "title": "Apps",
-    "addAppButton": "Add app",
     "emptyState": "No apps installed yet.",
     "autostartBadge": "Autostart",
     "updateAvailableChip": "Update available",
@@ -461,6 +474,7 @@
     "jobCompleted": "Completed"
   },
   "appAdd": {
+    "continueButton": "Continue",
     "title": "Add app",
     "tabCatalog": "Official catalog",
     "tabGithub": "GitHub URL",

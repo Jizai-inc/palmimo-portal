@@ -782,6 +782,19 @@
         "title": "ChangePasswordResponse",
         "type": "object"
       },
+      "ChecklistState": {
+        "properties": {
+          "dismissed": {
+            "title": "Dismissed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "dismissed"
+        ],
+        "title": "ChecklistState",
+        "type": "object"
+      },
       "ConnectRequest": {
         "properties": {
           "psk": {
@@ -1551,6 +1564,34 @@
         "title": "ReleaseInfo",
         "type": "object"
       },
+      "RunningAppInfo": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "running",
+              "starting",
+              "stopping"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "state"
+        ],
+        "title": "RunningAppInfo",
+        "type": "object"
+      },
       "SaveRequest": {
         "properties": {
           "psk": {
@@ -1781,6 +1822,16 @@
           "ntp_synchronized": {
             "title": "Ntp Synchronized",
             "type": "boolean"
+          },
+          "running_app": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunningAppInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "state": {
             "title": "State",
@@ -3574,6 +3625,68 @@
         ]
       }
     },
+    "/api/v1/system/checklist": {
+      "get": {
+        "description": "Whether Home's setup checklist is hidden. Its items are derived client-side from existing endpoints.",
+        "operationId": "get_checklist_api_v1_system_checklist_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChecklistState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Checklist",
+        "tags": [
+          "system"
+        ]
+      },
+      "put": {
+        "description": "Hide or restore Home's setup checklist.",
+        "operationId": "put_checklist_api_v1_system_checklist_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChecklistState"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChecklistState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Checklist",
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/api/v1/system/reboot": {
       "post": {
         "description": "Reboot the machine.\n\nRaises:\n    PortalError: 503 ``system_backend_unavailable`` if the real\n        adapter's D-Bus call to logind times out or fails. Translated\n        from :class:`~palmimo_portal.ports.AdapterUnavailableError` by\n        the app-wide exception handler in :mod:`palmimo_portal.api.app`.\n        409 ``update_in_progress`` while an update/rollback job is\n        ``\"running\"`` -- see :func:`_refuse_while_updating`.",
@@ -3620,7 +3733,7 @@
     },
     "/api/v1/system/status": {
       "get": {
-        "description": "Report provisioning state, hostname, auth state, device id, versions, and the last Wi-Fi attempt.\n\nAlways unauthenticated and always served, even while unprovisioned \u2014\nthis is the one endpoint every client (including the setup flow itself)\npolls to decide what to show.\n\n``auth_state`` is one of ``\"open_setup\"`` (DIY, no identity file --\nlegacy open ``/auth/setup`` available), ``\"initial\"`` (identity file\npresent, no owner yet -- login with the sticker password), ``\"set\"``\n(normal operation), ``\"corrupt\"`` (``auth.json`` exists but cannot be\nread -- login and setup both refuse until an operator deletes it over\nSSH), or ``\"unavailable\"`` (identity file could not be read at all --\na transient error, not clean absence -- so ``/auth/setup`` and\n``/auth/login`` refuse with 503 until it clears) -- see\n:func:`~palmimo_portal.core.identity.compute_auth_state`.\n\n``device_id`` is the number printed on the device's sticker (also its\nhostname suffix) -- public, reported whenever the identity file was\nsuccessfully read, independent of ``auth_state``. ``None`` both when\nthere is no identity file and when the read is currently unavailable.\n\n``adapters`` and ``state_dir`` expose what this process is actually\nrunning as, so a device on fake adapters or the wrong state directory\nis diagnosable from a client request.\n\n``ntp_synchronized`` and ``disk_free_bytes`` back the \"clock not synced\nyet\" / \"disk almost full\" UI warnings (design doc 3.6).",
+        "description": "Report provisioning state, hostname, auth state, device id, versions, and the last Wi-Fi attempt.\n\nAlways unauthenticated and always served, even while unprovisioned \u2014\nthis is the one endpoint every client (including the setup flow itself)\npolls to decide what to show.\n\n``auth_state`` is one of ``\"open_setup\"`` (DIY, no identity file --\nlegacy open ``/auth/setup`` available), ``\"initial\"`` (identity file\npresent, no owner yet -- login with the sticker password), ``\"set\"``\n(normal operation), ``\"corrupt\"`` (``auth.json`` exists but cannot be\nread -- login and setup both refuse until an operator deletes it over\nSSH), or ``\"unavailable\"`` (identity file could not be read at all --\na transient error, not clean absence -- so ``/auth/setup`` and\n``/auth/login`` refuse with 503 until it clears) -- see\n:func:`~palmimo_portal.core.identity.compute_auth_state`.\n\n``device_id`` is the number printed on the device's sticker (also its\nhostname suffix) -- public, reported whenever the identity file was\nsuccessfully read, independent of ``auth_state``. ``None`` both when\nthere is no identity file and when the read is currently unavailable.\n\n``adapters`` and ``state_dir`` expose what this process is actually\nrunning as, so a device on fake adapters or the wrong state directory\nis diagnosable from a client request.\n\n``ntp_synchronized`` and ``disk_free_bytes`` back the \"clock not synced\nyet\" / \"disk almost full\" UI warnings (design doc 3.6).\n\n``running_app`` is ``None`` unless the caller holds a full session, so\napp names never reach an unauthenticated client, and it is ``None``\nrather than an error when systemd or the app ledger cannot be read --\nthis endpoint must keep answering for every screen to render.",
         "operationId": "get_status_api_v1_system_status_get",
         "responses": {
           "200": {

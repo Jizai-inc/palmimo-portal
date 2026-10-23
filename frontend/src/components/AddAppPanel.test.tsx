@@ -66,6 +66,15 @@ describe("AddAppPanel", () => {
     expect(screen.getByText("Stop the running app before installing another app.")).toBeInTheDocument();
   });
 
+  it("hides the tab bar when only one source is offered", async () => {
+    server.use(getGetCatalogApiV1CatalogGetMockHandler(CATALOG));
+    renderWithProviders(<AddAppPanel tabs={["catalog"]} />);
+
+    await screen.findByText("palmimo-teleop");
+    expect(screen.queryByRole("button", { name: "Official catalog" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "GitHub URL" })).not.toBeInTheDocument();
+  });
+
   it("shows a catalog card's required and optional env badges", async () => {
     server.use(getGetCatalogApiV1CatalogGetMockHandler(CATALOG));
     renderWithProviders(<AddAppPanel />);
@@ -89,7 +98,7 @@ describe("AddAppPanel", () => {
   // backend with a correctly-shaped git source and the chosen device-name part, or the job
   // dialog + the caller's completion callback would never fire once the job finishes.
   //
-  // `onInstalled` receiving the finished job's `app_id` is what routes/apps.add.tsx uses to
+  // `onInstalled` receiving the finished job's `app_id` is what routes/apps.tsx uses to
   // navigate straight to the new app's detail page instead of the plain list -- asserted here,
   // at the router-free component boundary, rather than by mocking the router itself.
   it("confirms then installs a catalog app, sending the default ID name and reporting completion with the installed app's id", async () => {

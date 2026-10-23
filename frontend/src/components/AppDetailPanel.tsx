@@ -21,6 +21,7 @@ import {
   useUpdateCheckApiV1AppsNameUpdateCheckPost,
 } from "@/api/generated/apps/apps";
 import { useListSecretsApiV1SecretsGet } from "@/api/generated/secrets/secrets";
+import { getGetStatusApiV1SystemStatusGetQueryKey } from "@/api/generated/system/system";
 import type { AppDetailResponse, ParamSpecInfo, SourceUpdateRequestRefKind } from "@/api/generated/models";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { AppIdLabel, appIdNamePart } from "@/components/AppIdLabel";
@@ -91,8 +92,12 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deletedAfterClose, redirectedAfterDelete]);
 
-  const startApp = useStartAppEndpointApiV1AppsNameStartPost({ mutation: { onSuccess: invalidate } });
-  const stopApp = useStopAppEndpointApiV1AppsNameStopPost({ mutation: { onSuccess: invalidate } });
+  const invalidateWithStatus = () => {
+    invalidate();
+    void queryClient.invalidateQueries({ queryKey: getGetStatusApiV1SystemStatusGetQueryKey() });
+  };
+  const startApp = useStartAppEndpointApiV1AppsNameStartPost({ mutation: { onSuccess: invalidateWithStatus } });
+  const stopApp = useStopAppEndpointApiV1AppsNameStopPost({ mutation: { onSuccess: invalidateWithStatus } });
   const updateApp = useUpdateAppApiV1AppsNameUpdatePost({
     mutation: { onSuccess: (data) => setJob({ id: data.job.id, kind: "update" }) },
   });

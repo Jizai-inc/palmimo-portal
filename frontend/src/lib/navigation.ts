@@ -32,6 +32,9 @@ export const NAV_ITEMS: readonly NavItem[] = [
 /** Stand-in until the docs site exists; rendered as an external link, never routed. */
 export const DOCS_URL = "https://github.com/Jizai-inc";
 
+/** Stand-in until the app template repository is published; external link. */
+export const TEMPLATE_REPO_URL = "https://github.com/Jizai-inc";
+
 /** Whether `to` is the current route or an ancestor of it (`/settings` stays active on `/settings/device`). */
 export function isActive(pathname: string, to: string): boolean {
   return pathname === to || pathname.startsWith(`${to}/`);

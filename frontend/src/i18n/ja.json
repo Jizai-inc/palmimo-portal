@@ -7,6 +7,7 @@
     "unexpectedErrorBody": "ロボットに再接続しています…。Wi-Fi 設定を送信した直後であれば、自宅の Wi-Fi に接続し直してからこのページを開き直してください。"
   },
   "common": {
+    "close": "閉じる",
     "breadcrumb": "パンくず",
     "loading": "読み込み中…",
     "retry": "再試行",
@@ -44,7 +45,12 @@
     "accountMenu": "アカウント",
     "deviceMenu": "デバイス",
     "restart": "再起動",
-    "shutdown": "シャットダウン"
+    "shutdown": "シャットダウン",
+    "noAppRunning": "実行中のアプリはありません",
+    "stopApp": "停止",
+    "runningApp": "実行中のアプリ: {{name}}",
+    "appStarting": "起動中…",
+    "appStopping": "停止中…"
   },
   "status": {
     "unavailable": {
@@ -407,8 +413,15 @@
     "wifi_saved_order_mismatch": "保存済みのネットワークが変わりました。再読み込みしてやり直してください。"
   },
   "apps": {
+    "tabsLabel": "アプリのセクション",
+    "tabInstalled": "インストール済み",
+    "tabDiscover": "見つける",
+    "addFromUrlButton": "GitHub または zip から追加",
+    "browseOfficialApps": "公式アプリを見る",
+    "templateTitle": "自分のアプリを作る",
+    "templateBody": "GitHub の Palmimo アプリテンプレートから作成し、URL を指定してここにインストールします。",
+    "templateButton": "テンプレートから始める",
     "title": "アプリ",
-    "addAppButton": "アプリを追加",
     "emptyState": "インストール済みのアプリはありません。",
     "autostartBadge": "自動起動",
     "updateAvailableChip": "更新あり",
@@ -461,6 +474,7 @@
     "jobCompleted": "完了しました"
   },
   "appAdd": {
+    "continueButton": "次へ",
     "title": "アプリを追加",
     "tabCatalog": "公式カタログ",
     "tabGithub": "GitHub URL",

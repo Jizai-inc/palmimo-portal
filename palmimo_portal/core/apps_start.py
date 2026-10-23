@@ -430,6 +430,25 @@ def derive_run_status(unit_status: UnitStatus) -> AppRunStatus:
     return AppRunStatus("stopped")
 
 
+@dataclass(frozen=True)
+class RunningApp:
+    id: str
+    name: str
+    state: str
+
+
+def find_running_app(app_unit: AppUnitPort, apps_state: AppsState) -> RunningApp | None:
+    """Return the ledgered app occupying the one-app-at-a-time slot, or ``None``; unledgered units are ignored."""
+    for app_id in app_unit.list_active_app_units():
+        record = apps_state.apps.get(app_id)
+        if record is None:
+            continue
+        run_status = derive_run_status(app_unit.status(app_id))
+        if run_status.status in ("running", "starting", "stopping"):
+            return RunningApp(id=app_id, name=record.name, state=run_status.status)
+    return None
+
+
 def resolve_running_url(deps: StartDeps, record: AppRecord, *, host: str) -> str | None:
     """Return the app's resolved ``url``, if it declares one -- caller only calls this while ``running``."""
     try:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from pathlib import Path
 from typing import cast
@@ -18,8 +19,10 @@ from palmimo_portal.core.apps_start import (
     ParamsMissingError,
     PlatformNotReadyError,
     StartDeps,
+    RunningApp,
     VenvMissingError,
     derive_run_status,
+    find_running_app,
     precheck_report,
     reconcile_run_dirs,
     resolve_running_url,
@@ -632,3 +635,39 @@ def test_precheck_report_does_not_start_the_app_or_write_a_run_dir(deps: StartDe
 
     assert _app_unit(deps).start_calls == []
     assert _run_dir(deps).written == {}
+
+
+_ACTIVE = UnitStatus(active_state="active", sub_state="running", result="success", exec_main_status=0)
+_ACTIVATING = UnitStatus(active_state="activating", sub_state="start", result="success", exec_main_status=0)
+
+
+def test_find_running_app_is_none_when_no_unit_is_active() -> None:
+    state = AppsState(apps={"robot": _record("robot")})
+
+    assert find_running_app(FakeAppUnitPort(), state) is None
+
+
+def test_find_running_app_reports_the_active_ledgered_app() -> None:
+    record = dataclasses.replace(_record("robot"), name="Hello Robot")
+    app_unit = FakeAppUnitPort()
+    app_unit.simulate_active_state("robot", _ACTIVE)
+
+    result = find_running_app(app_unit, AppsState(apps={"robot": record}))
+
+    assert result == RunningApp(id="robot", name="Hello Robot", state="running")
+
+
+def test_find_running_app_maps_activating_to_starting() -> None:
+    app_unit = FakeAppUnitPort()
+    app_unit.simulate_active_state("robot", _ACTIVATING)
+
+    result = find_running_app(app_unit, AppsState(apps={"robot": _record("robot")}))
+
+    assert result is not None and result.state == "starting"
+
+
+def test_find_running_app_skips_units_missing_from_the_ledger() -> None:
+    app_unit = FakeAppUnitPort()
+    app_unit.simulate_active_state("ghost", _ACTIVE)
+
+    assert find_running_app(app_unit, AppsState(apps={"robot": _record("robot")})) is None

@@ -50,6 +50,15 @@ describe("PowerPanel", () => {
     ).toBeInTheDocument();
   });
 
+  it.each([
+    ["restart", "Restart Palmimo?"],
+    ["shutdown", "Shut down Palmimo?"],
+  ] as const)("opens the %s dialog on mount when initialDialog is set", async (initialDialog, title) => {
+    renderWithProviders(<PowerPanel onRebooted={vi.fn()} initialDialog={initialDialog} pollIntervalMs={50} />);
+
+    expect(await screen.findByRole("alertdialog", { name: title })).toBeInTheDocument();
+  });
+
   it("orders the power-off steps posture-first, before the servo switch", async () => {
     renderWithProviders(<PowerPanel onRebooted={vi.fn()} pollIntervalMs={50} />);
 

@@ -21,24 +21,30 @@
   },
   "nav": {
     "primaryNavigation": "Primary navigation",
-    "deviceSection": "Device",
     "dashboard": "Home",
-    "wifi": "Wi-Fi",
-    "wifiDescription": "Change or forget the network",
-    "sshKeys": "SSH keys",
-    "sshKeysDescription": "Register or remove public keys",
-    "power": "Power",
-    "powerDescription": "Restart or shut down",
-    "update": "Update",
-    "updateDescription": "Update Portal and SDK",
-    "updateAvailable": "Update available",
-    "closeMenu": "Close menu",
     "apps": "Apps",
     "appsDescription": "Install and manage apps",
-    "env": "Environment variables",
-    "envDescription": "Registered secrets",
-    "gitCredentials": "Git credentials",
-    "gitCredentialsDescription": "Access private Git repositories"
+    "settings": "Settings",
+    "docs": "Docs",
+    "opensInNewTab": "(opens in a new tab)",
+    "network": "Network",
+    "networkDescription": "Wi-Fi networks",
+    "secrets": "Secrets & API keys",
+    "secretsDescription": "Keys your apps use",
+    "softwareUpdate": "Software update",
+    "softwareUpdateDescription": "Update Portal and SDK",
+    "device": "Device",
+    "deviceDescription": "Restart or shut down",
+    "developer": "Developer",
+    "developerDescription": "SSH keys and Git credentials",
+    "updateAvailable": "Update available",
+    "closeMenu": "Close menu"
+  },
+  "header": {
+    "accountMenu": "Account",
+    "deviceMenu": "Device",
+    "restart": "Restart",
+    "shutdown": "Shut down"
   },
   "status": {
     "unavailable": {
@@ -137,7 +143,6 @@
     "saving": "Saving…"
   },
   "wifiSettings": {
-    "title": "Wi-Fi",
     "subtitle": "See and change the network Palmimo is on",
     "connectedLabel": "Connected",
     "disconnectedLabel": "Not connected",
@@ -238,7 +243,6 @@
     "confirmedNoteBody": "The matching public key has been filled in below. Click \"Add key\" to register it."
   },
   "power": {
-    "title": "Power",
     "systemsNoteTitle": "Palmimo DevKit has two power systems (servo power and Raspberry Pi power)",
     "systemsNoteBody": "Servo power is controlled by the servo power switch on Palmimo's back. Control the Raspberry Pi's power from this screen or over SSH (unplugging the USB Type-C cable while it is running can corrupt the SD card).",
     "shutdownStepsTitle": "How to power off",
@@ -264,7 +268,6 @@
     "updateInProgress": "An update is in progress. Restart and shut down are disabled until it finishes."
   },
   "update": {
-    "title": "Update",
     "newVersionAvailable": "A new version is available",
     "upToDate": "Up to date",
     "checkFailedTitle": "Could not fetch release information",

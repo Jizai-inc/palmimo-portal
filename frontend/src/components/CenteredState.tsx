@@ -5,7 +5,7 @@ import { ProgressBar } from "@/components/ProgressBar";
 
 /**
  * A centered icon + title + body block, reused by the power screen's
- * rebooting/shutting-down states (routes/power.tsx via PowerPanel.tsx) and
+ * rebooting/shutting-down states (routes/settings.device.tsx via PowerPanel.tsx) and
  * the status-error screens (routes/status-error.tsx). Optionally shows an
  * indeterminate {@link ProgressBar} and/or an action below the body.
  */

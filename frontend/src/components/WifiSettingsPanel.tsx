@@ -29,8 +29,7 @@ import { formatLastWifiAttempt } from "@/lib/wifiAttemptFormat";
 type DialogKind = "reconnect" | "forget" | null;
 
 /**
- * The Wi-Fi settings screen's logic (see routes/wifi-settings.tsx, which wraps this in
- * `AppShell`). Free of router hooks -- `onReconnect` is the only reach-out to routing.
+ * The Wi-Fi settings screen's logic (see routes/settings.network.tsx). Free of router hooks -- `onReconnect` is the only reach-out to routing.
  */
 export function WifiSettingsPanel({ onReconnect, onAdd }: { onReconnect: () => void; onAdd: () => void }) {
   const { t } = useTranslation();

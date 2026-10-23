@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { PanelLeft } from "lucide-react";
+import { Download, PanelLeft } from "lucide-react";
 import type * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -7,6 +7,7 @@ import logoDark from "@/assets/palmimo-devkit-logo-white.png";
 import logoLight from "@/assets/palmimo-devkit-logo.png";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { UpdateDot } from "@/components/UpdateDot";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -31,28 +32,29 @@ function Wordmark() {
  * Chrome shared by every screen: a 56px header with the wordmark on the
  * left and the {@link LanguageToggle} on the right. Used directly by
  * {@link import("./AuthShell").AuthShell} and by
- * {@link import("./AppShell").AppShell}, which layers on the nav toggle
- * (desktop sidebar collapse / mobile drawer) and the logout button below.
+ * {@link import("./AppShell").AppShell}, which adds the nav toggle, the
+ * update badge, and the device and account menus.
  */
 export function AppHeader({
   onToggleSidebar,
-  logoutSlot,
+  actions,
   showToggleBadge,
+  updateAvailable = false,
   wordmarkLinksHome = false,
 }: {
-  /** Renders the `panel-left` nav toggle when set -- collapses the sidebar on desktop, opens the drawer on mobile. Only `AppShell` passes this. */
+  /** Renders the `panel-left` nav toggle when set -- collapses the sidebar on desktop, opens the drawer on mobile. */
   onToggleSidebar?: () => void;
-  /** Renders in the header's right side, desktop only (e.g. the logout button). Only `AppShell` passes this. */
-  logoutSlot?: React.ReactNode;
+  /** Rendered after the language toggle on every viewport. */
+  actions?: React.ReactNode;
   /** Renders an {@link UpdateDot} pinned to the toggle button plus its accessible announcement. Ignored when `onToggleSidebar` is unset. */
   showToggleBadge?: boolean;
+  /** Renders a link to Settings → Software update. */
+  updateAvailable?: boolean;
   /**
    * Renders the wordmark as a `Link to="/"` when true. Defaults to false so
-   * {@link import("./AuthShell").AuthShell} (setup / login / change-password
-   * / wifi / wifi.waiting / status-error) keeps the wordmark inert: a tap
+   * {@link import("./AuthShell").AuthShell} keeps the wordmark inert: a tap
    * there would navigate to `/`, the auth gate would bounce back, and the
-   * remount would wipe mid-entry form state (e.g. a typed password). Only
-   * `AppShell` (the authed shell) passes true.
+   * remount would wipe mid-entry form state (e.g. a typed password).
    */
   wordmarkLinksHome?: boolean;
 }) {
@@ -85,9 +87,17 @@ export function AppHeader({
       ) : (
         <Wordmark />
       )}
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex items-center gap-1 sm:gap-2">
+        {updateAvailable ? (
+          <Link to="/settings/update" className="hover:opacity-80">
+            <Badge className="gap-1">
+              <Download className="size-3" aria-hidden />
+              <span className="sr-only sm:not-sr-only">{t("nav.updateAvailable")}</span>
+            </Badge>
+          </Link>
+        ) : null}
         <LanguageToggle />
-        {logoutSlot ? <div className="hidden md:block">{logoutSlot}</div> : null}
+        {actions}
       </div>
     </header>
   );

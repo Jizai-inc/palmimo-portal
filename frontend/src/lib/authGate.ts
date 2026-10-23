@@ -54,8 +54,7 @@ export function isPathAllowedForGate(gate: AuthGate, pathname: string): boolean 
   if (pathname === GATE_PATHS[gate.screen]) {
     return true;
   }
-  // Exact match for a flat family entry (e.g. `/ssh-keys`), or a nested route under one
-  // (e.g. `/apps/add`, `/apps/palmimo-teleop`) -- `/apps` itself has sub-routes the others don't.
+  // Exact match for a family entry, or a nested route under one (e.g. `/apps/add`, `/settings/device`).
   if (
     gate.screen === "dashboard" &&
     (DASHBOARD_FAMILY_PATHS as string[]).some((path) => pathname === path || pathname.startsWith(`${path}/`))

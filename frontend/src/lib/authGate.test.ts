@@ -29,9 +29,12 @@ describe("isPathAllowedForGate", () => {
     [SETUP_GATE, "/setup", true],
     [WIFI_GATE, "/wifi", true],
     [DASHBOARD_GATE, "/dashboard", true],
-    [DASHBOARD_GATE, "/wifi-settings", true],
-    [DASHBOARD_GATE, "/ssh-keys", true],
-    [DASHBOARD_GATE, "/power", true],
+    [DASHBOARD_GATE, "/settings", true],
+    [DASHBOARD_GATE, "/settings/network", true],
+    [DASHBOARD_GATE, "/settings/device", true],
+    // Pre-Settings URLs no longer exist; the guard bounces a stale bookmark to /dashboard.
+    [DASHBOARD_GATE, "/wifi-settings", false],
+    [DASHBOARD_GATE, "/power", false],
     [WIFI_GATE, "/wifi/waiting", true],
     // /wifi and /wifi/waiting are also reachable under the dashboard gate:
     // the Wi-Fi settings screen's reconfigure flow reuses the setup
@@ -41,12 +44,9 @@ describe("isPathAllowedForGate", () => {
     // Negative cases -- a dashboard-family path is not reachable under any
     // other gate, and the wifi-waiting exception is scoped to the wifi and
     // dashboard gates only.
-    [LOGIN_GATE, "/ssh-keys", false],
-    [WIFI_GATE, "/ssh-keys", false],
-    [SETUP_GATE, "/ssh-keys", false],
-    [LOGIN_GATE, "/power", false],
-    [WIFI_GATE, "/power", false],
-    [SETUP_GATE, "/power", false],
+    [LOGIN_GATE, "/settings/developer", false],
+    [WIFI_GATE, "/settings/developer", false],
+    [SETUP_GATE, "/settings/developer", false],
     [LOGIN_GATE, "/wifi/waiting", false],
     [SETUP_GATE, "/wifi/waiting", false],
     // /wifi/waiting also survives an "unavailable" status-error gate (the

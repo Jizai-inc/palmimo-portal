@@ -102,7 +102,7 @@ function isRateLimit(error: unknown): boolean {
 }
 
 /**
- * The update screen's logic (see routes/update.tsx, which wraps this in `AppShell`). Free of
+ * The update screen's logic (see routes/settings.update.tsx). Free of
  * router hooks -- `onRestarted` is the only reach-out to routing/reloading.
  */
 export function UpdatePanel({

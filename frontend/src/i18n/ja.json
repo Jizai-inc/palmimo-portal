@@ -21,24 +21,30 @@
   },
   "nav": {
     "primaryNavigation": "メインナビゲーション",
-    "deviceSection": "デバイス",
     "dashboard": "ホーム",
-    "wifi": "Wi-Fi",
-    "wifiDescription": "接続先の変更・削除",
-    "sshKeys": "SSH 鍵",
-    "sshKeysDescription": "公開鍵の登録・削除",
-    "power": "電源",
-    "powerDescription": "再起動・シャットダウン",
-    "update": "更新",
-    "updateDescription": "Portal / SDK の更新",
-    "updateAvailable": "更新があります",
-    "closeMenu": "メニューを閉じる",
     "apps": "アプリ",
     "appsDescription": "アプリのインストールと管理",
-    "env": "環境変数",
-    "envDescription": "登録済みのシークレット",
-    "gitCredentials": "Git 認証情報",
-    "gitCredentialsDescription": "private Git リポジトリへのアクセス"
+    "settings": "設定",
+    "docs": "ドキュメント",
+    "opensInNewTab": "（新しいタブで開きます）",
+    "network": "ネットワーク",
+    "networkDescription": "Wi-Fi ネットワーク",
+    "secrets": "シークレットと API キー",
+    "secretsDescription": "アプリが使うキー",
+    "softwareUpdate": "ソフトウェア更新",
+    "softwareUpdateDescription": "Portal / SDK の更新",
+    "device": "デバイス",
+    "deviceDescription": "再起動・シャットダウン",
+    "developer": "開発者向け",
+    "developerDescription": "SSH 鍵と Git 認証情報",
+    "updateAvailable": "更新があります",
+    "closeMenu": "メニューを閉じる"
+  },
+  "header": {
+    "accountMenu": "アカウント",
+    "deviceMenu": "デバイス",
+    "restart": "再起動",
+    "shutdown": "シャットダウン"
   },
   "status": {
     "unavailable": {
@@ -137,7 +143,6 @@
     "saving": "保存しています…"
   },
   "wifiSettings": {
-    "title": "Wi-Fi",
     "subtitle": "Palmimo が接続しているネットワークの確認と変更",
     "connectedLabel": "接続中",
     "disconnectedLabel": "未接続",
@@ -238,7 +243,6 @@
     "confirmedNoteBody": "対応する公開鍵を下の欄に自動入力しました。「鍵を追加」をクリックして登録してください。"
   },
   "power": {
-    "title": "電源",
     "systemsNoteTitle": "Palmimo DevKit には電源が 2 系統あります（サーボ電源と Raspberry Pi 電源）",
     "systemsNoteBody": "サーボ電源は、本体裏のサーボ電源スイッチで制御します。Raspberry Pi の電源は、この画面か SSH で制御してください（動作中に USB Type-C を抜くと、SD カードが壊れることがあります）。",
     "shutdownStepsTitle": "電源を切る手順",
@@ -264,7 +268,6 @@
     "updateInProgress": "更新が進行中です。完了するまで再起動とシャットダウンは無効になっています。"
   },
   "update": {
-    "title": "更新",
     "newVersionAvailable": "新しいバージョンがあります",
     "upToDate": "最新の状態です",
     "checkFailedTitle": "リリース情報を取得できませんでした",

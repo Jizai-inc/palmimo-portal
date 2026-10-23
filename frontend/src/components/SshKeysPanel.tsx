@@ -142,7 +142,7 @@ interface DeleteDialogState {
 }
 
 /**
- * The SSH-keys screen's logic (see routes/ssh-keys.tsx, which is just this inside `AppShell`).
+ * The SSH-keys screen's logic (see routes/settings.developer.tsx).
  * Free of router hooks so it can be rendered directly in tests.
  */
 export function SshKeysPanel() {

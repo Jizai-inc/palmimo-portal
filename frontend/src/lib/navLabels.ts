@@ -17,18 +17,18 @@ export function navLabel(t: TFunction, labelKey: NavItem["labelKey"]): string {
       return t("nav.dashboard");
     case "nav.apps":
       return t("nav.apps");
-    case "nav.env":
-      return t("nav.env");
-    case "nav.gitCredentials":
-      return t("nav.gitCredentials");
-    case "nav.wifi":
-      return t("nav.wifi");
-    case "nav.sshKeys":
-      return t("nav.sshKeys");
-    case "nav.power":
-      return t("nav.power");
-    case "nav.update":
-      return t("nav.update");
+    case "nav.settings":
+      return t("nav.settings");
+    case "nav.network":
+      return t("nav.network");
+    case "nav.secrets":
+      return t("nav.secrets");
+    case "nav.softwareUpdate":
+      return t("nav.softwareUpdate");
+    case "nav.device":
+      return t("nav.device");
+    case "nav.developer":
+      return t("nav.developer");
     default:
       return labelKey;
   }
@@ -38,18 +38,16 @@ export function navDescription(t: TFunction, descriptionKey: NavItem["descriptio
   switch (descriptionKey) {
     case "nav.appsDescription":
       return t("nav.appsDescription");
-    case "nav.envDescription":
-      return t("nav.envDescription");
-    case "nav.gitCredentialsDescription":
-      return t("nav.gitCredentialsDescription");
-    case "nav.wifiDescription":
-      return t("nav.wifiDescription");
-    case "nav.sshKeysDescription":
-      return t("nav.sshKeysDescription");
-    case "nav.powerDescription":
-      return t("nav.powerDescription");
-    case "nav.updateDescription":
-      return t("nav.updateDescription");
+    case "nav.networkDescription":
+      return t("nav.networkDescription");
+    case "nav.secretsDescription":
+      return t("nav.secretsDescription");
+    case "nav.softwareUpdateDescription":
+      return t("nav.softwareUpdateDescription");
+    case "nav.deviceDescription":
+      return t("nav.deviceDescription");
+    case "nav.developerDescription":
+      return t("nav.developerDescription");
     default:
       return undefined;
   }

@@ -21,9 +21,9 @@ import { WifiConnectForm } from "@/components/WifiConnectForm";
 import { signalIcon } from "@/lib/wifiSignal";
 
 interface WifiSearch {
-  /** `?reconfigure=1`: entered from `/wifi-settings`'s "connect to another network" action, not the unprovisioned setup flow. Changes the copy shown and where "back" navigates. */
+  /** `?reconfigure=1`: entered from Settings → Network's "connect to another network" action, not the unprovisioned setup flow. Changes the copy shown and where "back" navigates. */
   reconfigure?: boolean;
-  /** `?add=1`: entered from `/wifi-settings`'s "add" action -- picking a network saves it without switching. */
+  /** `?add=1`: entered from Settings → Network's "add" action -- picking a network saves it without switching. */
   add?: boolean;
 }
 
@@ -60,12 +60,12 @@ function WifiScreen() {
   const connect = useConnectApiV1WifiConnectPost();
   const { data: saved } = useListSavedApiV1WifiSavedGet({ query: { enabled: fromSettings } });
   const save = useSaveNetworkApiV1WifiSavedPost({
-    mutation: { onSuccess: () => void navigate({ to: "/wifi-settings" }) },
+    mutation: { onSuccess: () => void navigate({ to: "/settings/network" }) },
   });
   const savedState = (ssid: string) => saved?.find((item) => item.ssid === ssid);
 
   const lastAttempt = status?.last_wifi_attempt;
-  const goToWifiSettings = () => void navigate({ to: "/wifi-settings" });
+  const goToWifiSettings = () => void navigate({ to: "/settings/network" });
 
   function handleConnectSubmit(psk: string) {
     if (!selected) return;

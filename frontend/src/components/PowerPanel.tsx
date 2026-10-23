@@ -25,22 +25,24 @@ type PanelState = "idle" | "rebooting" | "shuttingDown";
 type DialogKind = "restart" | "shutdown" | null;
 
 /**
- * The power-controls screen's logic (see routes/power.tsx, which wraps this
- * in `AppShell`). Free of router hooks -- `onRebooted` is the only reach-out
+ * The power-controls screen's logic (see routes/settings.device.tsx). Free of router hooks -- `onRebooted` is the only reach-out
  * to routing, and the poll interval is injectable for tests.
  */
 export function PowerPanel({
   onRebooted,
+  initialDialog,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
 }: {
   /** Called once a reboot is detected complete, or from the manual "Reopen the Portal" fallback. The route passes `() => navigate({ to: "/" })`. */
   onRebooted: () => void;
+  /** Opens that confirm dialog on mount -- the header's device menu lands here with it set. */
+  initialDialog?: Exclude<DialogKind, null>;
   /** Injectable so tests do not have to wait out the real interval. */
   pollIntervalMs?: number;
 }) {
   const { t } = useTranslation();
   const [state, setState] = useState<PanelState>("idle");
-  const [dialogKind, setDialogKind] = useState<DialogKind>(null);
+  const [dialogKind, setDialogKind] = useState<DialogKind>(initialDialog ?? null);
 
   // An update job actually applying must not be interrupted by a voluntary
   // reboot/shutdown -- the backend enforces this with a 409

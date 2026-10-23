@@ -51,6 +51,7 @@ export function HomePanel() {
     apps,
     platformReady: platform?.ready,
     portalUpdateAvailable: updateStatus?.update_available,
+    autostartConflict: appsData?.autostart_conflict,
   });
   const steps = checklistItems({ apps, gitCredentialCount: credentials?.credentials.length ?? 0 });
   const showChecklist =

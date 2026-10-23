@@ -147,6 +147,7 @@ export function AppsListPanel() {
             <AppRow
               key={app.id}
               app={app}
+              isDefault={data?.default_app === app.id}
               disabledForPlatform={!ready}
               disabledForJob={jobInProgress}
               onStart={() => startApp.mutate({ name: app.id })}
@@ -212,6 +213,7 @@ export function AppsListPanel() {
 
 function AppRow({
   app,
+  isDefault,
   disabledForPlatform,
   disabledForJob,
   onStart,
@@ -222,6 +224,7 @@ function AppRow({
   rowError,
 }: {
   app: AppSummary;
+  isDefault: boolean;
   disabledForPlatform: boolean;
   disabledForJob: boolean;
   onStart: () => void;
@@ -259,7 +262,12 @@ function AppRow({
             {appStatusLabel(t, app.status, app.exit_code)}
           </Badge>
           {app.source.official ? <Badge>{t("appAdd.catalogOfficialBadge")}</Badge> : null}
-          {app.autostart ? <Badge variant="outline">{t("apps.autostartBadge")}</Badge> : null}
+          {isDefault ? <Badge variant="outline">{t("apps.defaultBadge")}</Badge> : null}
+          {app.missing_env && app.missing_env.length > 0 ? (
+            <Link to="/apps/$id" params={{ id: app.id }}>
+              <Badge variant="destructive">{t("apps.missingKeysBadge")}</Badge>
+            </Link>
+          ) : null}
           {app.update_available ? <Badge variant="outline">{t("apps.updateAvailableChip")}</Badge> : null}
           {app.credential_rejected ? <Badge variant="destructive">{t("apps.credentialRejectedBadge")}</Badge> : null}
         </div>

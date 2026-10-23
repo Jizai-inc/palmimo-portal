@@ -22,7 +22,11 @@ from palmimo_portal.core.apps_start import (
     RunningApp,
     VenvMissingError,
     derive_run_status,
+    autostart_apps,
+    default_app,
     find_running_app,
+    missing_env,
+    with_default_app,
     precheck_report,
     reconcile_run_dirs,
     resolve_running_url,
@@ -671,3 +675,42 @@ def test_find_running_app_skips_units_missing_from_the_ledger() -> None:
     app_unit.simulate_active_state("ghost", _ACTIVE)
 
     assert find_running_app(app_unit, AppsState(apps={"robot": _record("robot")})) is None
+
+
+_KEYED_MANIFEST = parse_manifest(
+    'schema = 1\nname = "k"\ndescription = "d"\ncommand = ["run"]\n'
+    '[env.API_KEY]\ndescription = "key"\n[env.LOG_LEVEL]\ndescription = "level"\nrequired = false\n'
+)
+
+
+def test_missing_env_lists_an_unbound_required_key_but_not_an_optional_one() -> None:
+    assert missing_env(_KEYED_MANIFEST, {}, lambda _: True) == ["API_KEY"]
+
+
+def test_missing_env_lists_a_key_bound_to_a_secret_that_no_longer_exists() -> None:
+    assert missing_env(_KEYED_MANIFEST, {"API_KEY": "GONE"}, lambda name: name != "GONE") == ["API_KEY"]
+
+
+def test_missing_env_is_empty_once_the_required_key_is_bound() -> None:
+    assert missing_env(_KEYED_MANIFEST, {"API_KEY": "MY_KEY"}, lambda _: True) == []
+
+
+def _ledger(**autostart: bool) -> AppsState:
+    return AppsState(apps={name: dataclasses.replace(_record(name), autostart=on) for name, on in autostart.items()})
+
+
+def test_default_app_is_the_single_autostart_app() -> None:
+    assert default_app(_ledger(a=False, b=True)) == "b"
+
+
+def test_default_app_is_none_when_several_apps_auto_start() -> None:
+    state = _ledger(a=True, b=True)
+
+    assert default_app(state) is None
+    assert autostart_apps(state) == ["a", "b"]
+
+
+def test_with_default_app_turns_every_other_flag_off() -> None:
+    state = with_default_app(_ledger(a=True, b=True, c=False), "c")
+
+    assert {name: record.autostart for name, record in state.apps.items()} == {"a": False, "b": False, "c": True}

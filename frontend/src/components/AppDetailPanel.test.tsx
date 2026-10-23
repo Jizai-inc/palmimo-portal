@@ -204,23 +204,42 @@ describe("AppDetailPanel", () => {
     expect(screen.queryByText("current start line")).not.toBeInTheDocument();
   });
 
-  it("toggles autostart with a PUT of {enabled: true}", async () => {
+  it.each([
+    ["Make default", null, { id: "palmimo.teleop" }],
+    ["Remove as default", "palmimo.teleop", { id: null }],
+  ])("%s sends PUT /apps/default", async (label, currentDefault, expectedBody) => {
     const user = userEvent.setup();
     let putBody: unknown;
     server.use(
-      getGetAppApiV1AppsNameGetMockHandler(detail({ autostart: false })),
+      getGetAppApiV1AppsNameGetMockHandler(detail()),
       getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
-      http.put("*/api/v1/apps/palmimo.teleop/autostart", async ({ request }) => {
+      getListAppsApiV1AppsGetMockHandler({ apps: [summary()], default_app: currentDefault, autostart_conflict: [] }),
+      http.put("*/api/v1/apps/default", async ({ request }) => {
         putBody = await request.json();
-        return HttpResponse.json(detail({ autostart: true }));
+        return HttpResponse.json({ default_app: (putBody as { id: string | null }).id });
       }),
     );
     renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
 
-    const toggle = await screen.findByRole("switch");
-    await user.click(toggle);
+    await user.click(await screen.findByRole("button", { name: label }));
 
-    await waitFor(() => expect(putBody).toEqual({ enabled: true }));
+    await waitFor(() => expect(putBody).toEqual(expectedBody));
+  });
+
+  it("warns about a required key the server reports missing even when a binding is saved", async () => {
+    server.use(
+      getGetAppApiV1AppsNameGetMockHandler(
+        detail({
+          env: [{ name: "API_KEY", required: true, description: "key", help_url: null }],
+          bindings: { API_KEY: "GONE" },
+          missing_env: ["API_KEY"],
+        }),
+      ),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+    );
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
+
+    expect(await screen.findByText(i18n.t("appDetail.bindingsUnboundRequiredWarning"))).toBeInTheDocument();
   });
 
   // where the operator expects either log lines or an explanation.

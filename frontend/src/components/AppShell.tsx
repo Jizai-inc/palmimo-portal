@@ -3,6 +3,7 @@ import type * as React from "react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { useListAppsApiV1AppsGet } from "@/api/generated/apps/apps";
 import { useGetStatusApiV1WifiStatusGet } from "@/api/generated/wifi/wifi";
 import { useGetStatusApiV1SystemStatusGet } from "@/api/generated/system/system";
 import { useGetStatusApiV1UpdateStatusGet } from "@/api/generated/update/update";
@@ -58,6 +59,8 @@ export function AppShell({
   const drawerRef = useRef<HTMLDivElement>(null);
   const focusBeforeDrawerRef = useRef<HTMLElement | null>(null);
   const { data: wifiStatus } = useGetStatusApiV1WifiStatusGet();
+  const { data: appsData } = useListAppsApiV1AppsGet();
+  const defaultApp = appsData?.apps.find((app) => app.id === appsData.default_app) ?? null;
   const { data: systemStatus } = useGetStatusApiV1SystemStatusGet({
     query: {
       refetchInterval: (query) => {
@@ -163,7 +166,7 @@ export function AppShell({
 
   const headerActions = (
     <>
-      <RunningAppControl runningApp={systemStatus?.running_app} />
+      <RunningAppControl runningApp={systemStatus?.running_app} defaultApp={defaultApp} />
       <DeviceMenu
         hostname={systemStatus?.hostname ?? ""}
         network={[wifiStatus?.ssid, wifiStatus?.ip_address].filter(Boolean).join(" · ")}

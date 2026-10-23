@@ -113,6 +113,13 @@
               }
             ]
           },
+          "missing_env": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Env",
+            "type": "array"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -513,6 +520,13 @@
             ],
             "title": "Latest Commit"
           },
+          "missing_env": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Env",
+            "type": "array"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -600,6 +614,24 @@
             },
             "title": "Apps",
             "type": "array"
+          },
+          "autostart_conflict": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Autostart Conflict",
+            "type": "array"
+          },
+          "default_app": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default App"
           }
         },
         "required": [
@@ -822,6 +854,46 @@
           }
         },
         "title": "ConnectResponse",
+        "type": "object"
+      },
+      "DefaultAppRequest": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "DefaultAppRequest",
+        "type": "object"
+      },
+      "DefaultAppResponse": {
+        "properties": {
+          "default_app": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default App"
+          }
+        },
+        "required": [
+          "default_app"
+        ],
+        "title": "DefaultAppResponse",
         "type": "object"
       },
       "EnvSpecInfo": {
@@ -2265,6 +2337,48 @@
         ]
       }
     },
+    "/api/v1/apps/default": {
+      "put": {
+        "description": "Choose the one app started at boot (``null`` for none); see :func:`~palmimo_portal.core.apps_start.default_app`.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while\n        an install/update/delete job targets that app.",
+        "operationId": "put_default_app_api_v1_apps_default_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefaultAppRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefaultAppResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Default App",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
     "/api/v1/apps/install": {
       "post": {
         "description": "Start installing an app from a zip upload (multipart, field ``file``) or a git source (JSON body).\n\n``uv sync`` runs in the background; only the fast fetch+validate half\nruns before this returns. Once accepted, a sync/swap failure surfaces on\n``GET /apps/jobs/{id}`` or the app's own ``last_job``, not here.\n\nRaises:\n    PortalError: 422 ``manifest_invalid`` / 422 ``install_failed`` /\n        422 ``zip_too_large`` / 507 ``disk_full`` for the synchronous\n        fetch+validate half; 422 ``git_credential_missing`` /\n        ``git_credential_rejected`` / ``git_not_found`` /\n        ``git_network_unreachable`` / ``git_unknown`` for a git source's\n        clone failure; 409 ``app_exists`` if the manifest's name\n        is already installed; 409 ``update_in_progress`` / 409\n        ``app_job_in_progress`` / 409 ``platform_not_ready`` for the\n        mutual-exclusion and platform-readiness refusals; 503\n        ``platform_not_ready`` if ``apps_dir`` itself is unavailable.",
@@ -2460,7 +2574,7 @@
     },
     "/api/v1/apps/{name}/autostart": {
       "put": {
-        "description": "Persist whether ``name`` should be started automatically at Portal boot (design doc 2.5/3.2).\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while\n        an install/update/delete job targets this app.",
+        "description": "Deprecated: use ``PUT /apps/default``. Enabling makes ``name`` the default app; disabling turns only its own flag off.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while\n        an install/update/delete job targets this app.",
         "operationId": "put_autostart_api_v1_apps__name__autostart_put",
         "parameters": [
           {

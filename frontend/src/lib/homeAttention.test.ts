@@ -22,4 +22,18 @@ describe("attentionItems", () => {
   it("does not flag the platform while its readiness is unknown", () => {
     expect(attentionItems({ apps: [], platformReady: undefined, portalUpdateAvailable: undefined })).toEqual([]);
   });
+
+  it("flags an app with a missing required key and a default-app conflict", () => {
+    const items = attentionItems({
+      apps: [appSummary({ name: "robot", missing_env: ["API_KEY"] })],
+      platformReady: true,
+      portalUpdateAvailable: false,
+      autostartConflict: ["a.one", "a.two"],
+    });
+
+    expect(items).toEqual([
+      { kind: "missingKeys", appId: "alice.robot", appName: "robot" },
+      { kind: "chooseDefault" },
+    ]);
+  });
 });

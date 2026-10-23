@@ -50,7 +50,9 @@
     "stopApp": "停止",
     "runningApp": "実行中のアプリ: {{name}}",
     "appStarting": "起動中…",
-    "appStopping": "停止中…"
+    "appStopping": "停止中…",
+    "startApp": "{{name}} を開始",
+    "startAppShort": "開始"
   },
   "status": {
     "unavailable": {
@@ -232,7 +234,9 @@
     "activityDeleted": "{{name}} を削除しました",
     "activityDeleteFailed": "{{name}} の削除に失敗しました",
     "activityWifiConnected": "Wi-Fi {{ssid}} に接続しました",
-    "activityWifiFailed": "Wi-Fi {{ssid}} に接続できませんでした"
+    "activityWifiFailed": "Wi-Fi {{ssid}} に接続できませんでした",
+    "attentionMissingKeys": "{{name}} を開始するには API キーが必要です",
+    "attentionChooseDefault": "起動時に開始するアプリが複数設定されています。デフォルトアプリを 1 つ選んでください。"
   },
   "sshKeys": {
     "title": "SSH 鍵",
@@ -452,7 +456,6 @@
     "templateButton": "テンプレートから始める",
     "title": "アプリ",
     "emptyState": "インストール済みのアプリはありません。",
-    "autostartBadge": "自動起動",
     "updateAvailableChip": "更新あり",
     "credentialRejectedBadge": "認証情報が拒否されました",
     "openButton": "開く",
@@ -500,7 +503,9 @@
     "jobStepSwap": "インストール中",
     "jobStepRegister": "登録中",
     "jobClose": "閉じる",
-    "jobCompleted": "完了しました"
+    "jobCompleted": "完了しました",
+    "defaultBadge": "デフォルト",
+    "missingKeysBadge": "API キーが必要"
   },
   "appAdd": {
     "continueButton": "次へ",
@@ -565,8 +570,6 @@
     "logsPageTitle": "{{name}} のログ",
     "logsPageCloseButton": "閉じる",
     "devicesTitle": "デバイス",
-    "autostartTitle": "自動起動",
-    "autostartBody": "デバイスの起動時にこのアプリを自動的に開始します。ネットワークが立ち上がるまで、起動後最大30秒かかることがあります。",
     "sourceTitle": "ソースと更新",
     "sourceTypeLabel": "種類",
     "sourceRepoLabel": "リポジトリ",
@@ -595,7 +598,12 @@
     "logsDisplay": "表示",
     "logsWrap": "折り返し",
     "logsFollowButton": "最新を追従する",
-    "logsPretty": "JSON を整形"
+    "logsPretty": "JSON を整形",
+    "defaultAppTitle": "デフォルトアプリ",
+    "defaultAppBody": "デフォルトアプリは Palmimo の起動時に開始されます。デフォルトにできるアプリは 1 つだけです。",
+    "defaultAppIsDefault": "このアプリは Palmimo の起動時に開始されます。",
+    "defaultAppMakeButton": "デフォルトにする",
+    "defaultAppRemoveButton": "デフォルトを解除"
   },
   "devices": {
     "camera": "カメラ",

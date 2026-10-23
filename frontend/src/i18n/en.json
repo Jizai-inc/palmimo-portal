@@ -50,7 +50,9 @@
     "stopApp": "Stop",
     "runningApp": "Running app: {{name}}",
     "appStarting": "Starting…",
-    "appStopping": "Stopping…"
+    "appStopping": "Stopping…",
+    "startApp": "Start {{name}}",
+    "startAppShort": "Start"
   },
   "status": {
     "unavailable": {
@@ -232,7 +234,9 @@
     "activityDeleted": "Deleted {{name}}",
     "activityDeleteFailed": "Deleting {{name}} failed",
     "activityWifiConnected": "Connected to Wi-Fi {{ssid}}",
-    "activityWifiFailed": "Could not connect to Wi-Fi {{ssid}}"
+    "activityWifiFailed": "Could not connect to Wi-Fi {{ssid}}",
+    "attentionMissingKeys": "{{name}} needs an API key before it can start",
+    "attentionChooseDefault": "Several apps are set to start when Palmimo turns on. Choose one default app."
   },
   "sshKeys": {
     "title": "SSH keys",
@@ -452,7 +456,6 @@
     "templateButton": "Start from template",
     "title": "Apps",
     "emptyState": "No apps installed yet.",
-    "autostartBadge": "Autostart",
     "updateAvailableChip": "Update available",
     "credentialRejectedBadge": "Credential rejected",
     "openButton": "Open",
@@ -500,7 +503,9 @@
     "jobStepSwap": "Installing",
     "jobStepRegister": "Registering",
     "jobClose": "Close",
-    "jobCompleted": "Completed"
+    "jobCompleted": "Completed",
+    "defaultBadge": "Default",
+    "missingKeysBadge": "Needs API key"
   },
   "appAdd": {
     "continueButton": "Continue",
@@ -565,8 +570,6 @@
     "logsPageTitle": "{{name}} logs",
     "logsPageCloseButton": "Close",
     "devicesTitle": "Devices",
-    "autostartTitle": "Autostart",
-    "autostartBody": "Start this app automatically when the device boots. Allow up to 30 seconds after boot for the network to come up before it starts.",
     "sourceTitle": "Source & update",
     "sourceTypeLabel": "Type",
     "sourceRepoLabel": "Repository",
@@ -595,7 +598,12 @@
     "logsDisplay": "Display",
     "logsWrap": "Wrap lines",
     "logsFollowButton": "Follow latest",
-    "logsPretty": "Pretty JSON"
+    "logsPretty": "Pretty JSON",
+    "defaultAppTitle": "Default app",
+    "defaultAppBody": "The default app starts when Palmimo turns on. Only one app can be the default.",
+    "defaultAppIsDefault": "This app starts when Palmimo turns on.",
+    "defaultAppMakeButton": "Make default",
+    "defaultAppRemoveButton": "Remove as default"
   },
   "devices": {
     "camera": "Camera",

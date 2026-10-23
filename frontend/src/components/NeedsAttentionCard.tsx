@@ -11,6 +11,7 @@ function AttentionLink({ item, children }: { item: AttentionItem; children: Reac
   switch (item.kind) {
     case "appBroken":
     case "appUpdate":
+    case "missingKeys":
       return (
         <Link to="/apps/$id" params={{ id: item.appId }} className={className}>
           {children}
@@ -23,6 +24,7 @@ function AttentionLink({ item, children }: { item: AttentionItem; children: Reac
         </Link>
       );
     case "platformUpdate":
+    case "chooseDefault":
       return (
         <Link to="/apps" search={{}} className={className}>
           {children}
@@ -46,6 +48,10 @@ function attentionText(t: TFunction, item: AttentionItem): string {
       return t("home.attentionCredentialRejected", { name: item.appName });
     case "appUpdate":
       return t("home.attentionAppUpdate", { name: item.appName });
+    case "missingKeys":
+      return t("home.attentionMissingKeys", { name: item.appName });
+    case "chooseDefault":
+      return t("home.attentionChooseDefault");
     case "platformUpdate":
       return t("home.attentionPlatformUpdate");
     case "portalUpdate":

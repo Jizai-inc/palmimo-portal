@@ -10,8 +10,8 @@ import { getGetStatusApiV1SystemStatusGetQueryKey } from "@/api/generated/system
 import { RunningAppControl } from "@/components/RunningAppControl";
 import { server } from "@/test/server";
 
-function renderControl(runningApp: RunningAppInfo | null) {
-  const rootRoute = createRootRoute({ component: () => <RunningAppControl runningApp={runningApp} /> });
+function renderControl(runningApp: RunningAppInfo | null, defaultApp: { id: string; name: string } | null = null) {
+  const rootRoute = createRootRoute({ component: () => <RunningAppControl runningApp={runningApp} defaultApp={defaultApp} /> });
   const leaves = ["/home", "/apps", "/apps/$id"].map((path) =>
     createRoute({ getParentRoute: () => rootRoute, path, component: () => null }),
   );
@@ -79,5 +79,19 @@ describe("RunningAppControl", () => {
     await user.click(await screen.findByRole("button", { name: "Stop" }));
 
     expect(await screen.findByRole("alert")).not.toBeEmptyDOMElement();
+  });
+
+  it("offers to start the default app when nothing runs", async () => {
+    const user = userEvent.setup();
+    const startSpy = vi.fn();
+    server.use(
+      http.post("*/api/v1/apps/robot/start", () => (startSpy(), HttpResponse.json({ status: "activating" }, { status: 202 }))),
+    );
+    renderControl(null, { id: "robot", name: "Hello Robot" });
+
+    await user.click(await screen.findByRole("button", { name: "Start Hello Robot" }));
+
+    await waitFor(() => expect(startSpy).toHaveBeenCalledOnce());
+    expect(screen.queryByText("No app running")).not.toBeInTheDocument();
   });
 });

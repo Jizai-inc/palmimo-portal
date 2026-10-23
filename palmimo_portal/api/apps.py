@@ -80,6 +80,7 @@ from palmimo_portal.core.apps_job_runner import AppsJobRunner
 from palmimo_portal.core.apps_jobs import AppsJobContext
 from palmimo_portal.core.apps_reset import ResetStopError, reset_platform
 from palmimo_portal.core.apps_start import (
+    with_default_app,
     RUNNING_ACTIVE_STATES,
     AppBusyError,
     AppJobInProgressStartError,
@@ -93,7 +94,10 @@ from palmimo_portal.core.apps_start import (
     StartDeps,
     VenvMissingError,
     app_unit_name,
+    autostart_apps,
+    default_app,
     derive_run_status,
+    missing_env,
     precheck_report,
     resolve_running_url,
     start_app,
@@ -104,6 +108,7 @@ from palmimo_portal.core.manifest import (
     InvalidManifestFilenameError,
     Manifest,
     ManifestValidationError,
+    manifest_from_snapshot,
     validate_manifest_filename,
     validate_param_values,
 )
@@ -292,10 +297,23 @@ class AppSummary(BaseModel):
     exit_code: int | None = None
     reason: str | None = None
     url: str | None = None
+    missing_env: list[str] = Field(default_factory=list)
 
 
 class AppsListResponse(BaseModel):
     apps: list[AppSummary]
+    #: The one app started at boot; ``None`` when no app, or several (see ``autostart_conflict``), have auto-start on.
+    default_app: str | None = None
+    #: Ids with auto-start on when there are several -- boot starts the first; the owner should pick one.
+    autostart_conflict: list[str] = Field(default_factory=list)
+
+
+class DefaultAppRequest(BaseModel):
+    id: str | None
+
+
+class DefaultAppResponse(BaseModel):
+    default_app: str | None
 
 
 class EnvSpecInfo(BaseModel):
@@ -346,6 +364,7 @@ class AppDetailResponse(BaseModel):
     exit_code: int | None = None
     reason: str | None = None
     url: str | None = None
+    missing_env: list[str] = Field(default_factory=list)
 
 
 class ManifestPreviewResponse(BaseModel):
@@ -566,7 +585,29 @@ def _run_status(
     return cast(AppStatus, run_status.status), run_status.exit_code, run_status.reason
 
 
-def _summary(record: AppRecord, state: AppsState, app_unit: AppUnitPort, deps: StartDeps, host: str) -> AppSummary:
+def _registered_secret_names(secrets: SecretsStore) -> set[str]:
+    return {secret.name for secret in secrets.list_secrets()}
+
+
+def _missing_env(record: AppRecord, manifest: Manifest | None, secrets: SecretsStore, registered: set[str]) -> list[str]:
+    if manifest is None:
+        return []
+    return missing_env(manifest, secrets.read_bindings(record.id), registered.__contains__)
+
+
+def _snapshot_manifest(record: AppRecord) -> Manifest | None:
+    """The ledger's manifest snapshot -- enough for the list's ``missing_env`` without a disk read per app."""
+    if record.manifest is None:
+        return None
+    try:
+        return manifest_from_snapshot(record.manifest)
+    except ManifestValidationError:
+        return None
+
+
+def _summary(
+    record: AppRecord, state: AppsState, app_unit: AppUnitPort, deps: StartDeps, host: str, registered: set[str]
+) -> AppSummary:
     status, exit_code, reason = _run_status(record, state, app_unit, deps.run_dir, deps.state)
     url = resolve_running_url(deps, record, host=host) if status == "running" else None
     return AppSummary(
@@ -584,6 +625,7 @@ def _summary(record: AppRecord, state: AppsState, app_unit: AppUnitPort, deps: S
         exit_code=exit_code,
         reason=reason,
         url=url,
+        missing_env=_missing_env(record, _snapshot_manifest(record), deps.apps_job_ctx.secrets, registered),
     )
 
 
@@ -678,6 +720,7 @@ def _detail(
         exit_code=exit_code,
         reason=reason,
         url=url,
+        missing_env=_missing_env(record, manifest, secrets, _registered_secret_names(secrets)),
     )
 
 
@@ -772,11 +815,17 @@ def list_apps(
     _ensure_not_corrupt(state_store)
     state = state_store.read_apps_state()
     host = _request_host(request)
-    summaries = [_summary(record, state, app_unit, deps, host) for _, record in sorted(state.apps.items())]
+    registered = _registered_secret_names(deps.apps_job_ctx.secrets)
+    summaries = [_summary(record, state, app_unit, deps, host, registered) for _, record in sorted(state.apps.items())]
     pending = _pending_job_summary(state)
     if pending is not None:
         summaries.append(pending)
-    return AppsListResponse(apps=sorted(summaries, key=lambda summary: summary.name))
+    enabled = autostart_apps(state)
+    return AppsListResponse(
+        apps=sorted(summaries, key=lambda summary: summary.name),
+        default_app=default_app(state),
+        autostart_conflict=enabled if len(enabled) > 1 else [],
+    )
 
 
 @router.post("/preview")
@@ -1185,6 +1234,28 @@ def stop_app_endpoint(
     return StopResponse(status="stopping")
 
 
+@router.put("/default")
+def put_default_app(body: DefaultAppRequest, state_store: StateStore = Depends(get_state_store)) -> DefaultAppResponse:
+    """Choose the one app started at boot (``null`` for none); see :func:`~palmimo_portal.core.apps_start.default_app`.
+
+    Raises:
+        PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while
+            an install/update/delete job targets that app.
+    """
+    _ensure_not_corrupt(state_store)
+
+    def update(current: AppsState) -> AppsState:
+        if body.id is not None:
+            if body.id not in current.apps:
+                raise PortalError(404, "app_not_found")
+            _ensure_no_app_job_in_progress(current, body.id)
+        return with_default_app(current, body.id)
+
+    new_state = state_store.update_apps_state(update)
+    logger.info("default app: set id=%s", body.id)
+    return DefaultAppResponse(default_app=default_app(new_state))
+
+
 @router.put("/{name}/autostart")
 def put_autostart(
     name: str,
@@ -1196,7 +1267,7 @@ def put_autostart(
     app_unit: AppUnitPort = Depends(get_app_unit_port),
     deps: StartDeps = Depends(get_start_deps),
 ) -> AppDetailResponse:
-    """Persist whether ``name`` should be started automatically at Portal boot (design doc 2.5/3.2).
+    """Deprecated: use ``PUT /apps/default``. Enabling makes ``name`` the default app; disabling turns only its own flag off.
 
     Raises:
         PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while
@@ -1214,7 +1285,9 @@ def put_autostart(
         if latest is None:
             raise PortalError(404, "app_not_found")
         _ensure_no_app_job_in_progress(current, name)
-        return replace(current, apps={**current.apps, name: replace(latest, autostart=body.enabled)})
+        if body.enabled:
+            return with_default_app(current, name)
+        return replace(current, apps={**current.apps, name: replace(latest, autostart=False)})
 
     new_state = state_store.update_apps_state(update)
     new_record = new_state.apps[name]

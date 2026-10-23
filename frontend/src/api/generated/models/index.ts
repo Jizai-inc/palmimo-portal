@@ -31,6 +31,8 @@ export * from './changePasswordResponse';
 export * from './checklistState';
 export * from './connectRequest';
 export * from './connectResponse';
+export * from './defaultAppRequest';
+export * from './defaultAppResponse';
 export * from './deleteKeyApiV1SshKeysFingerprintDeleteParams';
 export * from './envSpecInfo';
 export * from './forgetResponse';

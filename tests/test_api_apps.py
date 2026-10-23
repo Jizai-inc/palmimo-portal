@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import io
 import json
 import threading
@@ -262,6 +263,7 @@ def test_list_apps_shows_a_deleting_row_after_the_ledger_entry_is_removed(
             "exit_code": None,
             "reason": None,
             "url": None,
+            "missing_env": [],
         }
     ]
 
@@ -1412,3 +1414,103 @@ def test_app_translations_survive_zip_preview_install_and_detail(
     assert detail.json()["description"] == "Original"
     assert detail.json()["params"] == {}
     assert detail.json()["manifest"]["params"][0]["default"] == 8000
+
+
+def _install_zip_with_required_key(client: TestClient, name: str = "keyed") -> httpx.Response:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(
+            "palmimo.toml",
+            f'schema = 1\nname = "{name}"\ndescription = "d"\ncommand = ["run"]\n'
+            '[env.API_KEY]\ndescription = "key"\n[env.LOG_LEVEL]\ndescription = "level"\nrequired = false\n',
+        )
+        archive.writestr("pyproject.toml", "[project]\nname='app'\nversion='0'\n")
+    return client.post(
+        "/api/v1/apps/install", files={"file": ("app.zip", buffer.getvalue(), "application/zip")}, headers=CSRF_HEADERS
+    )
+
+
+def test_list_apps_reports_a_required_key_with_no_binding_as_missing(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    client = _authenticated_client(client, adapters)
+    _install_zip_with_required_key(client)
+
+    apps = client.get("/api/v1/apps").json()["apps"]
+
+    assert apps[0]["missing_env"] == ["API_KEY"]
+
+
+def test_missing_env_clears_once_the_required_key_is_bound(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+    _install_zip_with_required_key(client)
+    adapters.secrets.set_secret("MY_KEY", "value")
+    adapters.secrets.write_bindings("zip.keyed", {"API_KEY": "MY_KEY"})
+
+    assert client.get("/api/v1/apps").json()["apps"][0]["missing_env"] == []
+    assert client.get("/api/v1/apps/zip.keyed").json()["missing_env"] == []
+
+
+def test_put_default_app_turns_autostart_on_for_that_app_only(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+    _install_zip(client, "app-a")
+    _install_zip(client, "app-b")
+    client.put("/api/v1/apps/zip.app-a/autostart", json={"enabled": True}, headers=CSRF_HEADERS)
+
+    response = client.put("/api/v1/apps/default", json={"id": "zip.app-b"}, headers=CSRF_HEADERS)
+
+    assert response.json() == {"default_app": "zip.app-b"}
+    apps = adapters.state.read_apps_state().apps
+    assert (apps["zip.app-a"].autostart, apps["zip.app-b"].autostart) == (False, True)
+    assert client.get("/api/v1/apps").json()["default_app"] == "zip.app-b"
+
+
+def test_put_default_app_null_clears_every_autostart_flag(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+    _install_zip(client, "app-a")
+    client.put("/api/v1/apps/default", json={"id": "zip.app-a"}, headers=CSRF_HEADERS)
+
+    response = client.put("/api/v1/apps/default", json={"id": None}, headers=CSRF_HEADERS)
+
+    assert response.json() == {"default_app": None}
+    assert adapters.state.read_apps_state().apps["zip.app-a"].autostart is False
+
+
+def test_put_default_app_is_404_for_an_unknown_app(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+
+    response = client.put("/api/v1/apps/default", json={"id": "zip.nope"}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "app_not_found"
+
+
+def test_list_apps_reports_an_autostart_conflict_when_several_apps_auto_start(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    client = _authenticated_client(client, adapters)
+    _install_zip(client, "app-a")
+    _install_zip(client, "app-b")
+    state = adapters.state.read_apps_state()
+    adapters.state.write_apps_state(
+        dataclasses.replace(
+            state, apps={name: dataclasses.replace(record, autostart=True) for name, record in state.apps.items()}
+        )
+    )
+
+    body = client.get("/api/v1/apps").json()
+
+    assert body["default_app"] is None
+    assert body["autostart_conflict"] == ["zip.app-a", "zip.app-b"]
+
+
+def test_deprecated_autostart_enable_keeps_at_most_one_app_on(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+    _install_zip(client, "app-a")
+    _install_zip(client, "app-b")
+
+    client.put("/api/v1/apps/zip.app-a/autostart", json={"enabled": True}, headers=CSRF_HEADERS)
+    client.put("/api/v1/apps/zip.app-b/autostart", json={"enabled": True}, headers=CSRF_HEADERS)
+
+    apps = adapters.state.read_apps_state().apps
+    assert (apps["zip.app-a"].autostart, apps["zip.app-b"].autostart) == (False, True)

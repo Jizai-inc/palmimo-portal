@@ -105,6 +105,7 @@ from palmimo_portal.ports import (
     WifiNetwork,
     WifiProfile,
     WifiProfilePort,
+    WifiQrUnitStatus,
     WifiStatus,
 )
 from palmimo_portal.settings import DEFAULT_REQUIRED_PLATFORM_VERSION
@@ -1288,3 +1289,27 @@ class FakeComitupServicePort(ComitupServicePort):
         if self.raise_on_call is not None:
             raise self.raise_on_call
         self.running = False
+
+
+@dataclass
+class FakeWifiQrUnitPort:
+    unit_status: WifiQrUnitStatus = field(default_factory=WifiQrUnitStatus)
+    error: Exception | None = None
+    calls: list[str] = field(default_factory=list)
+
+    def _check(self, verb: str) -> None:
+        self.calls.append(verb)
+        if self.error is not None:
+            raise self.error
+
+    def start(self) -> None:
+        self._check("start")
+        self.unit_status = replace(self.unit_status, active_state="active")
+
+    def stop(self) -> None:
+        self._check("stop")
+        self.unit_status = replace(self.unit_status, active_state="inactive")
+
+    def status(self) -> WifiQrUnitStatus:
+        self._check("status")
+        return self.unit_status

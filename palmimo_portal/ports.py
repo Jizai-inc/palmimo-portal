@@ -1798,3 +1798,26 @@ class PlatformLockTimeoutError(Exception):
     role for their own axes -- ``api/platform.py`` translates this into 409
     ``platform_update_in_progress``.
     """
+
+
+@dataclass(frozen=True)
+class WifiQrUnitStatus:
+    active_state: str = "inactive"
+    load_state: str = "loaded"
+    result: str = "success"
+    exec_main_code: int = 0
+    exec_main_status: int = 0
+
+
+class WifiQrUnitMissingError(Exception):
+    pass
+
+
+class WifiQrUnitPort(Protocol):
+    """Controls only palmimo-wifi-qr.service; missing units and polkit denial are distinct errors."""
+
+    def start(self) -> None: ...
+
+    def stop(self) -> None: ...
+
+    def status(self) -> WifiQrUnitStatus: ...

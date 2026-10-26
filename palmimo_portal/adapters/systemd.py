@@ -30,6 +30,8 @@ from palmimo_portal.ports import (
     SyncUnitPort,
     SystemPort,
     UnitStatus,
+    WifiQrUnitMissingError,
+    WifiQrUnitStatus,
 )
 
 
@@ -561,3 +563,44 @@ class SystemdComitupServicePort(ComitupServicePort):
 
     def stop(self) -> None:
         self._run("stop")
+
+
+class SystemdWifiQrUnitPort:
+    UNIT = "palmimo-wifi-qr.service"
+
+    def __init__(self, *, loop_thread: SharedEventLoopThread | None = None) -> None:
+        self._unit_port = SystemdAppUnitPort(loop_thread=loop_thread)
+
+    def _call(self, member: str, *args: Any, verb: str) -> Any:
+        try:
+            return self._unit_port._call_sync(
+                member,
+                self.UNIT,
+                *args,
+                unit=self.UNIT,
+                verb=verb,
+                reraise_dbus_errors=_UNIT_NOT_LOADED_DBUS_ERRORS,
+            )
+        except DBusError as error:
+            if error.type in _UNIT_NOT_LOADED_DBUS_ERRORS:
+                raise WifiQrUnitMissingError("Wi-Fi QR unit is not installed") from None
+            raise
+
+    def start(self) -> None:
+        self._call("start_unit", "replace", verb="start")
+
+    def stop(self) -> None:
+        self._call("stop_unit", "replace", verb="stop")
+
+    def status(self) -> WifiQrUnitStatus:
+        path = self._call("load_unit", verb="status")
+        props = self._unit_port._read_unit_properties(path, unit=self.UNIT)
+        if props.get("LoadState") == "not-found":
+            raise WifiQrUnitMissingError("Wi-Fi QR unit is not installed")
+        return WifiQrUnitStatus(
+            active_state=str(props.get("ActiveState", "unknown")),
+            load_state=str(props.get("LoadState", "unknown")),
+            result=str(props.get("Result", "success")),
+            exec_main_code=int(props.get("ExecMainCode", 0)),
+            exec_main_status=int(props.get("ExecMainStatus", 0)),
+        )

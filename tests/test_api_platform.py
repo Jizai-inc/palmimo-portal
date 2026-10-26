@@ -586,3 +586,60 @@ def test_display_firmware_result_tracks_device_boot_after_pre_tool_failure(
     persisted = adapters.state.read_platform_update_state().display_firmware
     assert persisted is not None
     assert persisted.boot_id == recorded_boot
+
+
+@pytest.mark.parametrize("operation", ["manual", "startup", "stage-finish"])
+def test_deleted_preempted_app_does_not_block_firmware_or_autostart(
+    app: FastAPI,
+    settings: Settings,
+    adapters: FakeAdapterBundle,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    from palmimo_portal.ports import AppRecord, AppSource, AppsState, DisplayFirmwareResult, PreemptedApp
+
+    path = settings.apps_dir / "selected"
+    (path / ".venv" / "bin").mkdir(parents=True)
+    (path / ".venv" / "bin" / "python").touch()
+    (path / "palmimo.toml").write_text(
+        'schema = 1\nname = "selected"\ndescription = "d"\ncommand = ["run"]\ndevices = ["motor_display"]\n'
+    )
+    adapters.state.write_apps_state(
+        AppsState(
+            apps={
+                "selected": AppRecord(
+                    name="selected",
+                    id="selected",
+                    source=AppSource(type="zip"),
+                    installed_at=0,
+                    params={},
+                    autostart=True,
+                    last_job=None,
+                ),
+            }
+        )
+    )
+    if operation == "startup":
+        adapters.state.write_preempted_app(PreemptedApp("removed", "display-firmware"))
+    with TestClient(app) as client:
+        if operation != "startup":
+            client = _authenticated_client(client, adapters)
+            adapters.platform.display_firmware_available = True
+            if operation == "manual":
+                adapters.state.write_preempted_app(PreemptedApp("removed", "display-firmware"))
+            else:
+                original_ensure = adapters.platform.ensure_display_firmware
+
+                def ensure() -> DisplayFirmwareResult:
+                    result = original_ensure()
+                    adapters.state.write_apps_state(AppsState())
+                    return result
+
+                monkeypatch.setattr(adapters.platform, "ensure_display_firmware", ensure)
+            response = client.post("/api/v1/platform/display-firmware", headers=CSRF_HEADERS)
+            assert response.status_code == 202
+            assert response.json()["job"]["state"] == "done"
+            assert response.json()["display_firmware"]["result"] == "current"
+            assert adapters.platform.display_firmware_calls == 1
+        assert adapters.app_unit.start_calls == (["selected", "selected"] if operation == "manual" else ["selected"])
+        assert adapters.state.read_preempted_app() is None

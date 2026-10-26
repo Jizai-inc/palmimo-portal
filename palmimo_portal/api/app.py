@@ -523,7 +523,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         record = adapters.state.read_preempted_app()
         skip_autostart = record is not None and record.by == "display-firmware"
         if skip_autostart:
-            await anyio.to_thread.run_sync(restore_preempted_app, app.state.start_deps)
+            skip_autostart = await anyio.to_thread.run_sync(restore_preempted_app, app.state.start_deps)
     except Exception:
         logger.exception("preempt: startup recovery failed")
 

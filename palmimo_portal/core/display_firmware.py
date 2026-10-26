@@ -6,6 +6,7 @@ import logging
 import socket
 import time
 from dataclasses import replace
+from typing import Literal
 
 from palmimo_portal.core.apps_jobs import read_manifest_for_app
 from palmimo_portal.core.apps_start import RUNNING_ACTIVE_STATES, StartDeps, _start_app_locked
@@ -15,43 +16,48 @@ from palmimo_portal.ports import DisplayFirmwareResult, PlatformPort, PreemptedA
 logger = logging.getLogger("palmimo_portal")
 
 
-def _restore_locked(deps: StartDeps) -> bool:
+def _restore_locked(deps: StartDeps) -> Literal["restored", "pending", "discarded"]:
     record = deps.state.read_preempted_app()
     if record is None:
-        return True
+        return "discarded"
     if record.by != "display-firmware":
-        return False
+        return "pending"
     name = record.preempted_app
     if name is not None:
+        if name not in deps.state.read_apps_state().apps:
+            deps.state.write_preempted_app(None)
+            logger.info("preempt: discarded record for removed app=%s", name)
+            return "discarded"
         active_state = deps.app_unit.status(name).active_state
         if active_state == "deactivating":
             deadline = time.monotonic() + 20
             while active_state == "deactivating":
                 if time.monotonic() >= deadline:
                     logger.warning("preempt: app=%s is still stopping; retaining record", name)
-                    return False
+                    return "pending"
                 time.sleep(0.1)
                 active_state = deps.app_unit.status(name).active_state
         if active_state in {"inactive", "failed"}:
             _start_app_locked(replace(deps, platform_ready=lambda: True), name, host=socket.gethostname())
         elif active_state not in {"active", "activating"}:
             logger.warning("preempt: app=%s state=%s cannot be restored; retaining record", name, active_state)
-            return False
+            return "pending"
         logger.info("preempt: restored app=%s", name)
     deps.state.write_preempted_app(None)
-    return True
+    return "restored"
 
 
-def restore_preempted_app(deps: StartDeps) -> None:
-    """Display maintenance recovery takes priority over autostart and does not require a network."""
+def restore_preempted_app(deps: StartDeps) -> bool:
+    """Return True to suppress autostart after recovering or retaining an installed app."""
     with deps.state.lock_apps(), deps.state.lock_run(timeout_s=3):
         record = deps.state.read_preempted_app()
         if record is None or record.by != "display-firmware":
-            return
+            return False
         try:
-            _restore_locked(deps)
+            return _restore_locked(deps) != "discarded"
         except Exception:
             logger.exception("preempt: could not restore app; retaining record")
+            return True
 
 
 def run_display_firmware(deps: StartDeps, platform: PlatformPort) -> DisplayFirmwareResult:
@@ -63,7 +69,7 @@ def run_display_firmware(deps: StartDeps, platform: PlatformPort) -> DisplayFirm
                 if preemption is not None:
                     if preemption.by != "display-firmware":
                         return DisplayFirmwareResult(result="busy", reason="app recovery pending")
-                    if not _restore_locked(deps):
+                    if _restore_locked(deps) == "pending":
                         return DisplayFirmwareResult(result="busy", reason="app recovery pending")
                 for name, record in deps.state.read_apps_state().apps.items():
                     if deps.app_unit.status(name).active_state not in RUNNING_ACTIVE_STATES:

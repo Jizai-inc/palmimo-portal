@@ -70,9 +70,12 @@ def run_display_firmware(deps: StartDeps, platform: PlatformPort) -> DisplayFirm
             if deps.wifi_setup_active():
                 return DisplayFirmwareResult(result="busy", reason="Wi-Fi setup is using the display")
             preempted = False
+            hold_record = None
             try:
                 preemption = deps.state.read_preempted_app()
-                if preemption is not None:
+                if preemption is not None and preemption.by == "wifi-setup" and preemption.preempted_app is None:
+                    hold_record = preemption
+                elif preemption is not None:
                     if preemption.by != "display-firmware":
                         reason = (
                             "An app is stopped for Wi-Fi setup"
@@ -106,6 +109,8 @@ def run_display_firmware(deps: StartDeps, platform: PlatformPort) -> DisplayFirm
                 try:
                     if preempted:
                         _restore_locked(deps)
+                    if hold_record is not None and deps.state.read_preempted_app() is None:
+                        deps.state.write_preempted_app(hold_record)
                 except Exception:
                     logger.exception("display-firmware: could not restore app; retaining record")
     except RunLockTimeoutError:

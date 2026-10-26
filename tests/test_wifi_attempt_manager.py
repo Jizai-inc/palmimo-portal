@@ -606,3 +606,32 @@ def test_completed_outcome_remains_available_after_later_web_trials() -> None:
     assert manager.outcome(first) == "failed"
     assert manager.outcome(second) == "failed"
     rig.run()
+
+
+@pytest.mark.parametrize("stage", ["prepare", "rollback", "worker"])
+def test_credential_failures_do_not_log_passwords(
+    stage: str,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig = Rig()
+    manager = rig.manager()
+    password = "secret-password"
+
+    def fault(operation: str) -> None:
+        if operation == "add" or stage == "rollback":
+            raise OSError(password)
+
+    if stage in {"prepare", "rollback"}:
+        rig.nm.fault = fault
+        with pytest.raises(WifiConnectFailed):
+            manager.start_wifi_attempt("credentials", b"home", password)
+    else:
+
+        def stop() -> None:
+            raise OSError(password)
+
+        monkeypatch.setattr(rig.service, "stop", stop)
+        manager.start_wifi_attempt("credentials", b"home", password)
+        rig.run()
+    assert password not in caplog.text

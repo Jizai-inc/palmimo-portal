@@ -134,7 +134,7 @@ class WifiAttemptManager:
             self._platform_error = None
         except Exception as error:
             self._platform_error = error
-            logger.exception("Wi-Fi platform probe failed")
+            logger.error("Wi-Fi platform probe failed")
         else:
             self._legacy = False
             self._platform_error = None
@@ -183,7 +183,7 @@ class WifiAttemptManager:
                     if not self._recovery_stop.is_set():
                         self._recover_marked()
             except Exception:
-                logger.exception("Wi-Fi background recovery failed")
+                logger.error("Wi-Fi background recovery failed")
             finally:
                 with self._edit_lock:
                     self._recovering = False
@@ -259,13 +259,13 @@ class WifiAttemptManager:
                 self._active = (attempt_id, self._monotonic())
                 self._last_id, self._result = attempt_id, "attempting"
             except Exception as error:
-                logger.exception("Wi-Fi preparation failed id=%s", attempt_id)
+                logger.error("Wi-Fi preparation failed id=%s", attempt_id)
                 self._rollback_start(attempt_id)
                 raise WifiConnectFailed from error
         try:
             self._spawn(lambda: self._run(attempt_id, candidates))
         except Exception as error:
-            logger.exception("Wi-Fi worker launch failed id=%s", attempt_id)
+            logger.error("Wi-Fi worker launch failed id=%s", attempt_id)
             with self._edit_lock:
                 try:
                     self._rollback_start(attempt_id)
@@ -327,7 +327,7 @@ class WifiAttemptManager:
                     if attempt is not None and observed is not None:
                         self._state.write_last_wifi_attempt(replace(attempt, observed_connection_name=observed))
                 except Exception:
-                    logger.exception("legacy Wi-Fi outcome persistence failed")
+                    logger.error("legacy Wi-Fi outcome persistence failed")
                 finally:
                     self._active = None
 
@@ -413,7 +413,7 @@ class WifiAttemptManager:
         try:
             self._cleanup(attempt_id, success=False, kick=False, persist=False)
         except Exception:
-            logger.exception("Wi-Fi preparation rollback failed for %s", attempt_id)
+            logger.error("Wi-Fi preparation rollback failed for %s", attempt_id)
 
     def _kick(self, attempt_id: str) -> float:
         logger.info("Wi-Fi kick started id=%s", attempt_id)
@@ -441,10 +441,10 @@ class WifiAttemptManager:
                     if retry == 1:
                         self._platform_error = start_error
                         if error is not None:
-                            logger.error("Wi-Fi kick failed before restart id=%s", attempt_id, exc_info=error)
-                        logger.exception("comitup restart failed id=%s; retaining recovery marks", attempt_id)
+                            logger.error("Wi-Fi kick failed before restart id=%s", attempt_id)
+                        logger.error("comitup restart failed id=%s; retaining recovery marks", attempt_id)
                         raise KickUnavailableError from start_error
-                    logger.warning("retrying comitup start id=%s", attempt_id, exc_info=True)
+                    logger.warning("retrying comitup start id=%s", attempt_id)
                     self._sleep(3)
         if error is not None:
             raise error
@@ -479,9 +479,9 @@ class WifiAttemptManager:
                     break
         except KickUnavailableError:
             restart_failed = True
-            logger.exception("Wi-Fi attempt %s could not restart comitup", attempt_id)
+            logger.error("Wi-Fi attempt %s could not restart comitup", attempt_id)
         except Exception:
-            logger.exception("Wi-Fi attempt %s failed", attempt_id)
+            logger.error("Wi-Fi attempt %s failed", attempt_id)
         finally:
             logger.info(
                 "Wi-Fi result id=%s result=%s active_uuid=%s",
@@ -495,11 +495,11 @@ class WifiAttemptManager:
                         with self._edit_lock:
                             self._record(attempt_id, "failed")
                     except Exception:
-                        logger.exception("Wi-Fi outcome persistence failed for %s", attempt_id)
+                        logger.error("Wi-Fi outcome persistence failed for %s", attempt_id)
                 if not restart_failed:
                     self._cleanup(attempt_id, success=success, persist=success)
             except Exception:
-                logger.exception("Wi-Fi cleanup failed for %s", attempt_id)
+                logger.error("Wi-Fi cleanup failed for %s", attempt_id)
                 retry_cleanup = success and self.outcome(attempt_id) == "attempting"
             finally:
                 with self._edit_lock:
@@ -569,7 +569,7 @@ class WifiAttemptManager:
                 try:
                     self._record(attempt_id, "connected" if success else "failed", only_pending=True)
                 except Exception:
-                    logger.exception("Wi-Fi outcome persistence failed for %s", attempt_id)
+                    logger.error("Wi-Fi outcome persistence failed for %s", attempt_id)
             if success:
                 assert target is not None
                 for profile in marked:
@@ -609,7 +609,7 @@ class WifiAttemptManager:
                         )
                         needs_kick = not infrastructure_active
                     except Exception:
-                        logger.exception("Wi-Fi cleanup could not determine active network id=%s", attempt_id)
+                        logger.error("Wi-Fi cleanup could not determine active network id=%s", attempt_id)
             self._known_cache = None
         if needs_kick:
             self._kick(attempt_id)

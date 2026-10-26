@@ -16,7 +16,10 @@ CONTROL_SOCKET = Path("/run/palmimo-wifi-qr/control.sock")
 
 
 class WifiQrSocketClient:
-    """Callbacks run on the receive thread; close() may be called from a callback."""
+    """Callbacks run on the receive thread; close() may be called from a callback.
+
+    Wire contract: see doc/wifi-qr-reader.md.
+    """
 
     def __init__(
         self,

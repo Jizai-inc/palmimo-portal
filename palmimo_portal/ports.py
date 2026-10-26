@@ -1829,6 +1829,8 @@ class WifiQrUnitPort(Protocol):
 
 
 class WifiQrClientPort(Protocol):
+    """Reader framing and messages are specified in doc/wifi-qr-reader.md."""
+
     def connect(self) -> None: ...
 
     def send(self, message: dict[str, Any]) -> bool: ...

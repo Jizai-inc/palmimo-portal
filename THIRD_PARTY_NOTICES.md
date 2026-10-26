@@ -18,8 +18,7 @@ the complete, machine-generated attribution each shipped artifact carries:
   [palmimo-image](https://github.com/Jizai-inc/palmimo-image) repository, not
   here, since it depends on the image's fully resolved Python environment.
 
-None of the components below are vendored or distributed with `palmimo-portal`
-itself — they are installed as regular PyPI dependencies.
+The Python components below are installed as regular PyPI dependencies.
 
 ## Base dependency
 
@@ -94,3 +93,14 @@ project's Apache-2.0 license.
 - License: MIT
 - Installed as regular npm dependencies (see `frontend/package.json`) and
   bundled into `static/assets/` by `vite build`.
+
+## Setup screen font
+
+The embedded ASCII bitmap font in `palmimo_portal/wifi_qr_reader/reader.py`
+and the adjacent RGB565 screen images are rasterized from Noto Sans CJK JP
+Regular, copyright 2014-2021 Adobe (http://www.adobe.com/).
+The font is licensed under [SIL OFL 1.1](licenses/NotoSansCJK-OFL.md).
+Source: [Noto CJK](https://github.com/notofonts/noto-cjk/tree/f8d157532fbfaeda587e826d4cd5b21a49186f7c).
+The original font is not bundled. To rebuild, download `Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf`
+from that revision, then run `uv run --with pillow==13.0.0 python tools/render_wifi_qr_screens.py FONT.otf`
+and `uv run ruff format palmimo_portal/wifi_qr_reader/reader.py`.

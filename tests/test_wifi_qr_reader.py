@@ -476,13 +476,15 @@ main = namespace["main"]
 class Camera:
     def read(self): return None
     def close(self): print("camera closed", flush=True)
+class Decoder:
+    def decode(self, frame): return []
 class Display:
     mode = "expr"
     def screen(self, state, fields): pass
     def close(self): print("sleeping", flush=True)
 def factory(runtime, uid):
     return reader_class(runtime, uid, reserve=lambda resource: __import__("contextlib").nullcontext(),
-        load_dependencies=lambda: None, camera_factory=Camera, display_factory=Display,
+        load_dependencies=lambda: None, camera_factory=Camera, decoder_factory=Decoder, display_factory=Display,
         peer_uid_of=lambda connection: os.getuid())
 main.__globals__["Reader"] = factory
 result = main()

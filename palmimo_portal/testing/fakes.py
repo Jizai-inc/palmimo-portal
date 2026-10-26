@@ -26,6 +26,7 @@ from palmimo_portal.core.secrets import normalize_host_owner, validate_secret_na
 from palmimo_portal.core.sshkey import fingerprint_key, parse_authorized_key
 from palmimo_portal.core.update import IDLE_UPDATE_STATE
 from palmimo_portal.core.wifi_attempt import resolve_attempt
+from palmimo_portal.core.wifi_attempt_manager import WifiAttemptManager
 from palmimo_portal.ports import (
     IDENTITY_UNAVAILABLE,
     AppRefKind,
@@ -1147,6 +1148,7 @@ class FakeAdapterBundle:
     saved_networks: FakeSavedNetworkPort
     wifi_profiles: FakeWifiProfilePort
     comitup_service: FakeComitupServicePort
+    wifi_attempts: WifiAttemptManager
     system: FakeSystemPort
     ssh_keys: FakeSshKeyPort
     state: FakeStateStore

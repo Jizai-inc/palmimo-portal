@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import threading
 from typing import Any
 
 import pytest
@@ -44,8 +45,10 @@ def _wifi(ssid: str, *, priority: int | None = None, mode: str = "infrastructure
 class _FakeNetworkManager(NetworkManagerSavedNetworkPort):
     """Answers :meth:`_nm_call` from memory: ``profiles`` maps object path to settings."""
 
-    def __init__(self, profiles: dict[str, Settings], active: set[str] | None = None) -> None:
-        super().__init__()
+    def __init__(
+        self, profiles: dict[str, Settings], active: set[str] | None = None, *, edit_lock: threading.RLock | None = None
+    ) -> None:
+        super().__init__(edit_lock=edit_lock)
         self.profiles = profiles
         self.active = set(active or ())
         self.updates: list[tuple[str, Settings]] = []
@@ -411,3 +414,25 @@ def test_fake_device_disconnect_clears_active_uuid() -> None:
     assert port.device_status() == WifiDeviceStatus(100, "active")
     port.disconnect_device()
     assert port.device_status() == WifiDeviceStatus(30, None)
+
+
+def test_shared_profile_edit_lock_blocks_saved_network_writes() -> None:
+    edit_lock = threading.RLock()
+    port = _FakeNetworkManager({}, edit_lock=edit_lock)
+    entered = threading.Event()
+    finished = threading.Event()
+
+    def save() -> None:
+        entered.set()
+        port.save("other", "password", first=False)
+        finished.set()
+
+    with edit_lock:
+        worker = threading.Thread(target=save)
+        worker.start()
+        assert entered.wait(2)
+        assert not finished.wait(0.05)
+        assert port.profiles == {}
+    assert finished.wait(2)
+    worker.join(2)
+    assert port.list_saved()[0].ssid == "other"

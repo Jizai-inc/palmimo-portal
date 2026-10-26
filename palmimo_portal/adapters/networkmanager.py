@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import uuid
 from typing import Any
 
@@ -147,7 +148,10 @@ class NetworkManagerSavedNetworkPort(SavedNetworkPort, WifiProfilePort):
     :meth:`_nm_call` is the single D-Bus seam tests stub.
     """
 
-    def __init__(self, *, loop_thread: SharedEventLoopThread | None = None) -> None:
+    def __init__(
+        self, *, loop_thread: SharedEventLoopThread | None = None, edit_lock: threading.RLock | None = None
+    ) -> None:
+        self._call_lock = edit_lock if edit_lock is not None else threading.RLock()
         self._loop_thread = loop_thread if loop_thread is not None else get_shared_loop_thread()
         self._bus: MessageBus | None = None
         self._bus_lock = asyncio.Lock()
@@ -179,6 +183,10 @@ class NetworkManagerSavedNetworkPort(SavedNetworkPort, WifiProfilePort):
         return list(reply.body)
 
     def _run(self, coro: Any) -> Any:
+        with self._call_lock:
+            return self._run_locked(coro)
+
+    def _run_locked(self, coro: Any) -> Any:
         try:
             return self._loop_thread.run(coro, timeout=CALL_TIMEOUT_SECONDS)
         except (AdapterUnavailableError, SavedNetworkNotFoundError, SavedNetworkActiveError, SavedNetworkOrderError):

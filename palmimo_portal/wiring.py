@@ -10,6 +10,7 @@ this keeps.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 
 from palmimo_portal.adapters.catalog import GitHubCatalogSource
@@ -35,6 +36,7 @@ from palmimo_portal.adapters.systemd import (
     SystemdSystemPort,
 )
 from palmimo_portal.adapters.uv_port import SubprocessUvPort
+from palmimo_portal.core.wifi_attempt_manager import WifiAttemptManager
 from palmimo_portal.ports import (
     AppUnitPort,
     CatalogSource,
@@ -102,6 +104,7 @@ class AdapterBundle:
     saved_networks: SavedNetworkPort
     wifi_profiles: WifiProfilePort
     comitup_service: ComitupServicePort
+    wifi_attempts: WifiAttemptManager
     system: SystemPort
     ssh_keys: SshKeyPort
     state: StateStore
@@ -137,13 +140,17 @@ def build_adapters(settings: Settings) -> AdapterBundle:
     power loss mid-swap) regardless of ``settings.adapters``.
     """
     repair_static_dir(settings.static_dir)
+    edit_lock = threading.RLock()
     if settings.adapters == "fake":
         fake_state = FakeStateStore()
+        fake_profiles = FakeWifiProfilePort()
+        fake_service = FakeComitupServicePort()
         return AdapterBundle(
             network=FakeNetworkPort(state_store=fake_state),
             saved_networks=FakeSavedNetworkPort(),
-            wifi_profiles=FakeWifiProfilePort(),
-            comitup_service=FakeComitupServicePort(),
+            wifi_profiles=fake_profiles,
+            comitup_service=fake_service,
+            wifi_attempts=WifiAttemptManager(fake_profiles, fake_service, fake_state, edit_lock=edit_lock),
             system=FakeSystemPort(),
             ssh_keys=FakeSshKeyPort(),
             state=fake_state,
@@ -166,7 +173,8 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         )
     preflight_state_dir(settings.state_dir)
     real_state = JsonFileStateStore(settings.state_dir)
-    saved_networks = NetworkManagerSavedNetworkPort()
+    saved_networks = NetworkManagerSavedNetworkPort(edit_lock=edit_lock)
+    comitup_service = SystemdComitupServicePort()
     return AdapterBundle(
         network=ComitupNetworkPort(
             known_network_marker=settings.state_dir / KNOWN_NETWORK_MARKER_FILENAME,
@@ -174,7 +182,8 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         ),
         saved_networks=saved_networks,
         wifi_profiles=saved_networks,
-        comitup_service=SystemdComitupServicePort(),
+        comitup_service=comitup_service,
+        wifi_attempts=WifiAttemptManager(saved_networks, comitup_service, real_state, edit_lock=edit_lock),
         system=SystemdSystemPort(unit=settings.portal_unit),
         ssh_keys=AuthorizedKeysSshKeyPort(),
         state=real_state,

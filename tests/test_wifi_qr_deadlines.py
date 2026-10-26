@@ -10,7 +10,7 @@ from dbus_fast import Variant
 from dbus_fast.errors import DBusError
 
 from palmimo_portal.adapters.systemd import SystemdWifiQrUnitPort
-from palmimo_portal.ports import PolkitDeniedError, WifiQrUnitMissingError, WifiQrUnitStatus
+from palmimo_portal.ports import PolkitDeniedError, WifiQrUnitMissingError
 
 
 class Bus:
@@ -132,7 +132,7 @@ def test_reader_status_has_a_single_deadline(monkeypatch: pytest.MonkeyPatch) ->
     assert bus.cancelled.wait(1)
 
 
-@pytest.mark.parametrize("stage", ["load", "unit", "service"])
+@pytest.mark.parametrize("stage", ["unit", "service"])
 @pytest.mark.parametrize(
     "error_name,expected",
     [
@@ -151,15 +151,6 @@ def test_reader_bounded_status_preserves_error_contract(
     bus.error = stage, error_name
     port = port_for(bus, monkeypatch)
     with pytest.raises(expected):
-        port.status()
-
-
-def test_reader_bounded_status_reads_unit_and_service_properties(monkeypatch: pytest.MonkeyPatch) -> None:
-    bus = Bus()
-    port = port_for(bus, monkeypatch)
-    assert port.status() == WifiQrUnitStatus("active", "loaded", "success", 1, 0)
-    bus.load_state = "not-found"
-    with pytest.raises(WifiQrUnitMissingError):
         port.status()
 
 

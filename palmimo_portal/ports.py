@@ -1606,16 +1606,21 @@ class DisplayFirmwareResult:
 
     @classmethod
     def from_payload(cls, payload: object) -> DisplayFirmwareResult:
-        if not isinstance(payload, dict) or payload.get("result") not in {
-            "updated",
-            "current",
-            "absent",
-            "undeclared",
-            "skipped",
-            "busy",
-            "failed",
-            "interrupted",
-        }:
+        if (
+            not isinstance(payload, dict)
+            or not isinstance(payload.get("result"), str)
+            or payload["result"]
+            not in {
+                "updated",
+                "current",
+                "absent",
+                "undeclared",
+                "skipped",
+                "busy",
+                "failed",
+                "interrupted",
+            }
+        ):
             raise ValueError("invalid display firmware result")
         for key in ("before", "after", "reason", "boot_id"):
             if payload.get(key) is not None and not isinstance(payload[key], str):

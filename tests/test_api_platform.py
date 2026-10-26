@@ -643,3 +643,44 @@ def test_deleted_preempted_app_does_not_block_firmware_or_autostart(
             assert adapters.platform.display_firmware_calls == 1
         assert adapters.app_unit.start_calls == (["selected", "selected"] if operation == "manual" else ["selected"])
         assert adapters.state.read_preempted_app() is None
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("last_result", []),
+        ("last_result", {}),
+        ("last_result", None),
+        ("last_result", 1),
+        ("last_result", False),
+        ("last_reason", []),
+        ("last_reason", {}),
+        ("last_reason", 1),
+        ("last_reason", False),
+    ],
+)
+def test_platform_status_ignores_firmware_state_with_invalid_field_types(
+    client: TestClient,
+    adapters: FakeAdapterBundle,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    field: str,
+    value: object,
+) -> None:
+    import json
+
+    from palmimo_portal.adapters.platform import SudoPlatformPort
+
+    client = _authenticated_client(client, adapters)
+    path = tmp_path / "firmware.json"
+    path.write_text(json.dumps({"last_result": "current", "last_reason": None, field: value}))
+    port = SudoPlatformPort(installed_path=tmp_path / "installed.json", display_firmware_state_path=path)
+    monkeypatch.setattr(adapters.platform, "read_display_firmware_state", port.read_display_firmware_state)
+    for method, url in (
+        ("GET", "/api/v1/platform"),
+        ("POST", "/api/v1/platform/check"),
+        ("GET", "/api/v1/platform/update"),
+    ):
+        response = client.request(method, url, headers=CSRF_HEADERS)
+        assert response.status_code == 200, response.text
+        assert response.json()["display_firmware"] is None

@@ -9,7 +9,13 @@ import pytest
 
 from palmimo_portal.adapters.state import JsonFileStateStore
 from palmimo_portal.api.app import create_app
-from palmimo_portal.core.apps_start import AppBusyError, PlatformNotReadyError, StartDeps, start_app
+from palmimo_portal.core.apps_start import (
+    AppBusyError,
+    DisplayRecoveryPendingError,
+    PlatformNotReadyError,
+    StartDeps,
+    start_app,
+)
 from palmimo_portal.core.display_firmware import restore_preempted_app
 from palmimo_portal.core.wifi_setup import WifiSetupApps
 from palmimo_portal.ports import AppRecord, AppSource, AppsState, PreemptedApp, UnitStatus
@@ -106,7 +112,7 @@ def test_wifi_setup_keeps_app_running_when_record_write_fails(
     assert adapters.app_unit.stop_calls == []
 
 
-@pytest.mark.parametrize("active", ["active", "activating", "deactivating"])
+@pytest.mark.parametrize("active", ["active", "activating"])
 def test_wifi_setup_restore_does_not_restart_running_unit(
     prepared: tuple[StartDeps, FakeAdapterBundle],
     active: str,
@@ -207,7 +213,7 @@ def test_wifi_setup_refuses_user_start_while_firmware_recovery_owns_record(
     deps, adapters = prepared
     record = PreemptedApp("face", "display-firmware")
     adapters.state.write_preempted_app(record)
-    with deps.state.lock_run(), pytest.raises(AppBusyError):
+    with deps.state.lock_run(), pytest.raises(DisplayRecoveryPendingError):
         WifiSetupApps(deps).hold_locked()
     assert adapters.state.read_preempted_app() == record
 
@@ -230,19 +236,57 @@ def test_wifi_setup_restore_retries_after_actual_lock_contention(
     assert adapters.app_unit.start_calls == ["face"]
 
 
-@pytest.mark.parametrize("failure", ["removed", "platform_not_ready"])
-def test_wifi_setup_restore_discards_record_after_fatal_precheck(
+def test_wifi_setup_restore_discards_record_for_removed_app(
     prepared: tuple[StartDeps, FakeAdapterBundle],
-    failure: str,
 ) -> None:
     deps, adapters = prepared
     adapters.state.write_preempted_app(PreemptedApp("face", "wifi-setup"))
-    if failure == "removed":
-        adapters.state.write_apps_state(AppsState())
-    else:
-        deps = replace(deps, platform_ready=lambda: False)
+    adapters.state.write_apps_state(AppsState())
     assert WifiSetupApps(deps).restore(hold=False)
     assert adapters.state.read_preempted_app() is None
     assert adapters.app_unit.start_calls == []
     assert adapters.app_unit.device_allow_calls == []
     assert adapters.run_dir.written == {}
+
+
+@pytest.mark.parametrize("terminal", ["inactive", "failed"])
+def test_wifi_setup_retains_record_while_app_is_stopping(
+    prepared: tuple[StartDeps, FakeAdapterBundle],
+    terminal: str,
+) -> None:
+    deps, adapters = prepared
+    record = PreemptedApp("face", "wifi-setup")
+    adapters.state.write_preempted_app(record)
+    adapters.app_unit.simulate_active_state("face", UnitStatus("deactivating", "", "success", 0))
+    coordinator = WifiSetupApps(deps)
+    assert not coordinator.restore(hold=False)
+    assert adapters.state.read_preempted_app() == record
+    assert adapters.app_unit.start_calls == []
+    adapters.app_unit.simulate_active_state("face", UnitStatus(terminal, "", "success", 0))
+    assert coordinator.restore(hold=False)
+    assert adapters.app_unit.start_calls == ["face"]
+    assert adapters.state.read_preempted_app() is None
+
+
+def test_wifi_setup_restore_bypasses_platform_readiness(
+    prepared: tuple[StartDeps, FakeAdapterBundle],
+) -> None:
+    deps, adapters = prepared
+    adapters.state.write_preempted_app(PreemptedApp("face", "wifi-setup"))
+    assert WifiSetupApps(replace(deps, platform_ready=lambda: False)).restore(hold=False)
+    assert adapters.app_unit.start_calls == ["face"]
+    assert adapters.state.read_preempted_app() is None
+
+
+@pytest.mark.parametrize("record", [None, PreemptedApp(None, "wifi-setup"), PreemptedApp("face", "display-firmware")])
+def test_wifi_setup_skips_locks_without_owned_recovery(
+    prepared: tuple[StartDeps, FakeAdapterBundle],
+    record: PreemptedApp | None,
+) -> None:
+    deps, adapters = prepared
+    adapters.state.write_preempted_app(record)
+    with deps.state.lock_apps(), deps.state.lock_run():
+        coordinator = WifiSetupApps(deps)
+        assert coordinator.restore(hold=False)
+        coordinator.clear_hold()
+    assert adapters.state.read_preempted_app() == record

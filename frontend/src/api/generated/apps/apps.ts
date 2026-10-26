@@ -1324,7 +1324,7 @@ export const usePutSourceApiV1AppsNameSourcePut = <TError = HTTPValidationError,
  *
  * Raises:
  *     PortalError: 404 ``app_not_found``; 409 for every precheck refusal
- *         (``app_busy``, ``app_running``, ``manifest_invalid``,
+ *         (``app_busy``, ``display_recovery_pending``, ``app_running``, ``manifest_invalid``,
  *         ``env_unbound``, ``params_missing``, ``params_invalid``,
  *         ``venv_missing``, ``platform_not_ready``); 503 ``polkit_denied``
  *         if systemd itself refuses the ``set-property``/``start`` verb;

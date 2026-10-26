@@ -85,6 +85,7 @@ from palmimo_portal.core.apps_start import (
     AppJobInProgressStartError,
     AppRunningError,
     AppStartError,
+    DisplayRecoveryPendingError,
     EnvUnboundError,
     ManifestInvalidError,
     ParamsInvalidError,
@@ -174,6 +175,8 @@ def _raise_for_start_error(error: Exception) -> NoReturn:
     `tests/test_i18n_parity.py`'s static scan of `PortalError(...)` call
     sites can find it -- see that test's module docstring.
     """
+    if isinstance(error, DisplayRecoveryPendingError):
+        raise PortalError(409, "display_recovery_pending") from error
     if isinstance(error, AppBusyError):
         raise PortalError(409, "app_busy") from error
     if isinstance(error, AppJobInProgressStartError):
@@ -1191,7 +1194,7 @@ def start_app_endpoint(
 
     Raises:
         PortalError: 404 ``app_not_found``; 409 for every precheck refusal
-            (``app_busy``, ``app_running``, ``manifest_invalid``,
+            (``app_busy``, ``display_recovery_pending``, ``app_running``, ``manifest_invalid``,
             ``env_unbound``, ``params_missing``, ``params_invalid``,
             ``venv_missing``, ``platform_not_ready``); 503 ``polkit_denied``
             if systemd itself refuses the ``set-property``/``start`` verb;

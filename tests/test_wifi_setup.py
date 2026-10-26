@@ -691,3 +691,139 @@ def test_setup_startup_distinguishes_not_found_load_state(rig: Rig) -> None:
     rig.unit.unit_status = WifiQrUnitStatus(load_state="not-found")
     rig.setup.startup()
     assert rig.setup.status().mode == "unavailable"
+
+
+@pytest.mark.parametrize("finishes_during_poll", [False, True])
+def test_setup_defers_entry_until_conflicting_app_finishes_stopping(
+    rig: Rig,
+    finishes_during_poll: bool,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig.adapters.app_unit.simulate_active_state("face", UnitStatus("deactivating", "", "success", 0))
+    original_status = rig.adapters.app_unit.status
+    observations: list[str] = []
+
+    def status(name: str) -> UnitStatus:
+        active = "inactive" if observations else "deactivating"
+        observations.append(active)
+        return UnitStatus(active, "", "success", 0)
+
+    if finishes_during_poll:
+        monkeypatch.setattr(rig.adapters.app_unit, "status", status)
+    rig.setup.tick()
+    rig.advance(6)
+    assert rig.setup.status().mode == "idle"
+    assert "start" not in rig.unit.calls
+    assert rig.adapters.app_unit.stop_calls == []
+    monkeypatch.setattr(rig.adapters.app_unit, "status", original_status)
+    rig.adapters.app_unit.simulate_active_state("face", UnitStatus("inactive", "", "success", 0))
+    rig.setup.tick()
+    assert rig.setup.status().mode == "starting"
+
+
+@pytest.mark.parametrize("event", ["lan", "failed", "rejected_timeout"])
+def test_setup_advances_screen_despite_unknown_running_app(
+    rig: Rig,
+    event: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig.active()
+    if event == "rejected_timeout":
+        rig.setup.on_message({"type": "qr", "text": "poster"})
+        rig.clock.monotonic_value += 6
+    else:
+        rig.setup.on_message({"type": "qr", "text": "WIFI:S:home;P:password;;"})
+    rig.adapters.app_unit.simulate_active_state("unledgered", UnitStatus("active", "", "success", 0))
+    if event == "lan":
+        rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTED, "home", "192.0.2.1")
+    elif event == "failed":
+        monkeypatch.setattr(rig.adapters.wifi_attempts, "outcome", lambda attempt_id: "failed")
+    rig.setup.tick()
+    assert rig.setup.status().screen == {"lan": "connected", "failed": "failed", "rejected_timeout": "scanning"}[event]
+
+
+@pytest.mark.parametrize("outcome", ["attempting", "unknown"])
+def test_setup_expires_unresolved_trial_after_two_minutes(
+    rig: Rig,
+    outcome: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig.active()
+    monkeypatch.setattr(rig.adapters.wifi_attempts, "outcome", lambda attempt_id: outcome)
+    rig.setup.on_message({"type": "qr", "text": "WIFI:S:home;P:password;;"})
+    rig.advance(118)
+    assert rig.setup.status().screen == "connecting"
+    rig.advance(2)
+    assert rig.setup.status().screen == "failed"
+    assert rig.reader.messages[-1]["reason"] == "connect_failed"
+    rig.advance(8)
+    assert rig.setup.status().screen == "scanning"
+
+
+def test_setup_defers_external_app_exit_during_run_lock_contention(rig: Rig) -> None:
+    rig.active()
+    rig.adapters.app_unit.simulate_active_state("face", UnitStatus("active", "", "success", 0))
+    with rig.adapters.state.lock_run():
+        rig.setup.tick()
+        assert rig.setup.status().mode == "active"
+    rig.setup.tick()
+    assert rig.setup.status().mode == "idle"
+    assert rig.adapters.state.read_preempted_app() == PreemptedApp(None, "wifi-setup", hold=True)
+
+
+def test_setup_closes_client_created_after_stop(rig: Rig) -> None:
+    def factory(message: Any, disconnected: Any) -> Reader:
+        rig.setup.stop("app")
+        return rig.reader
+
+    rig.setup._factory = factory
+    rig.setup.tick()
+    rig.advance(6)
+    assert rig.reader.closed
+    assert rig.setup.status().mode == "idle"
+
+
+def test_setup_releases_failed_client(rig: Rig) -> None:
+    import weakref
+
+    clients: list[weakref.ReferenceType[Reader]] = []
+
+    def factory(message: Any, disconnected: Any) -> Reader:
+        client = Reader(connect_error=True)
+        clients.append(weakref.ref(client))
+        return client
+
+    rig.setup._factory = factory
+    rig.setup.tick()
+    rig.advance(6)
+    assert clients
+    assert all(client() is None for client in clients)
+
+
+@pytest.mark.parametrize("boundary", ["prepare", "conflict", "socket"])
+def test_setup_diagnostics_do_not_log_qr_or_password(
+    rig: Rig,
+    boundary: str,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    text = "WIFI:S:home;P:secret-password;;"
+
+    def fail(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError(text)
+
+    with caplog.at_level(logging.INFO):
+        if boundary == "conflict":
+            rig.active()
+            rig.setup.on_message({"type": "qr", "text": text})
+            monkeypatch.setattr(rig.setup.apps, "conflicting_apps", fail)
+            rig.setup.tick()
+        else:
+            if boundary == "prepare":
+                monkeypatch.setattr(rig.setup.apps, "conflicting_apps", fail)
+            else:
+                monkeypatch.setattr(rig.reader, "connect", fail)
+            rig.setup.tick()
+            rig.advance(18)
+    assert text not in caplog.text
+    assert "secret-password" not in caplog.text

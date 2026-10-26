@@ -77,6 +77,11 @@ class AppBusyError(AppStartError):
         super().__init__("app_busy")
 
 
+class DisplayRecoveryPendingError(AppStartError):
+    def __init__(self) -> None:
+        super().__init__("display_recovery_pending")
+
+
 class AppJobInProgressStartError(AppStartError):
     """Raised when any install/update/delete job is in flight, against any app.
 
@@ -145,6 +150,7 @@ class StartDeps:
     platform_ready: Callable[[], bool] = lambda: True
     now: Callable[[], float] = time.time
     before_start: Callable[[list[str]], None] = lambda devices: None
+    wifi_setup_active: Callable[[], bool] = lambda: False
 
 
 def _layout_for(ctx: AppsJobContext, record: AppRecord) -> LayoutPaths:

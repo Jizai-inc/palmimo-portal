@@ -103,3 +103,22 @@ def test_reader_disconnect_enters_backoff_through_wired_callback(
     app.state.wifi_setup.tick()
     assert app.state.wifi_setup.status().mode == "backoff"
     assert adapters.wifi_qr_unit.status().active_state == "inactive"
+
+
+def test_web_start_explains_pending_display_recovery(
+    app: FastAPI,
+    client: TestClient,
+    adapters: FakeAdapterBundle,
+) -> None:
+    install_app(app, "face", autostart=False)
+    headers = {"X-Requested-With": "PalmimoPortal"}
+    client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=headers)
+    adapters.saved_networks.save("home", "", first=False)
+    client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=headers)
+    record = PreemptedApp("face", "display-firmware")
+    adapters.state.write_preempted_app(record)
+    response = client.post("/api/v1/apps/face/start", headers=headers)
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "display_recovery_pending"
+    assert adapters.state.read_preempted_app() == record
+    assert adapters.app_unit.start_calls == []

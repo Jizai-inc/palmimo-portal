@@ -170,7 +170,14 @@ def test_startup_does_not_restart_recorded_live_unit(
     with TestClient(app):
         assert adapters.app_unit.start_calls == []
         assert adapters.app_unit.device_allow_calls == []
-        assert adapters.state.read_preempted_app() is None
+        assert adapters.state.read_preempted_app() == (
+            PreemptedApp("face", "wifi-setup") if active == "deactivating" else None
+        )
+        if active == "deactivating":
+            adapters.app_unit.simulate_active_state("face", UnitStatus("inactive", "", "success", 0))
+            app.state.wifi_setup.tick()
+            assert adapters.app_unit.start_calls == ["face"]
+            assert adapters.state.read_preempted_app() is None
 
 
 def test_startup_defers_recovery_when_network_observation_fails(
@@ -289,3 +296,39 @@ def test_startup_deadline_continues_to_autostart_without_late_reader_stop(
         port._unit_port._loop_thread.run(asyncio.sleep(0), timeout=1)
         assert bus.state == "active"
         assert bus.calls.count("stop") == 1
+
+
+@pytest.mark.parametrize("network", list(ConnectionState))
+def test_startup_clears_hold_only_record_and_runs_autostart(
+    app: FastAPI,
+    adapters: FakeAdapterBundle,
+    network: ConnectionState,
+) -> None:
+    install_app(app, "auto", autostart=True, devices='"audio"')
+    adapters.state.write_preempted_app(PreemptedApp(None, "wifi-setup", hold=True))
+    adapters.network.status = WifiStatus(network, "home", "192.0.2.1" if network is ConnectionState.CONNECTED else None)
+    adapters.wifi_profiles.device = WifiDeviceStatus(100, None)
+    with TestClient(app):
+        assert adapters.app_unit.start_calls == ["auto"]
+        assert adapters.state.read_preempted_app() is None
+
+
+@pytest.mark.parametrize("mode", ["starting", "active"])
+def test_display_firmware_refuses_reader_without_app_record(
+    app: FastAPI,
+    adapters: FakeAdapterBundle,
+    mode: str,
+) -> None:
+    from palmimo_portal.core.display_firmware import run_display_firmware
+
+    with TestClient(app):
+        app.state.wifi_setup.tick()
+        for _ in range(3):
+            adapters.clock.monotonic_value += 2
+            app.state.wifi_setup.tick()
+        if mode == "active":
+            adapters.wifi_qr_client.clients[-1].emit({"type": "hello", "proto": 1, "display": "frame"})
+        assert adapters.state.read_preempted_app() is None
+        result = run_display_firmware(app.state.start_deps, adapters.platform)
+        assert result.result == "busy"
+        assert adapters.platform.display_firmware_calls == 0

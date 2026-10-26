@@ -67,12 +67,19 @@ def restore_preempted_app(deps: StartDeps) -> bool:
 def run_display_firmware(deps: StartDeps, platform: PlatformPort) -> DisplayFirmwareResult:
     try:
         with deps.state.lock_run(timeout_s=3):
+            if deps.wifi_setup_active():
+                return DisplayFirmwareResult(result="busy", reason="Wi-Fi setup is using the display")
             preempted = False
             try:
                 preemption = deps.state.read_preempted_app()
                 if preemption is not None:
                     if preemption.by != "display-firmware":
-                        return DisplayFirmwareResult(result="busy", reason="app recovery pending")
+                        reason = (
+                            "An app is stopped for Wi-Fi setup"
+                            if preemption.by == "wifi-setup" and preemption.preempted_app is not None
+                            else "Wi-Fi setup recovery is pending"
+                        )
+                        return DisplayFirmwareResult(result="busy", reason=reason)
                     if _restore_locked(deps) == "pending":
                         return DisplayFirmwareResult(result="busy", reason="app recovery pending")
                 for name, record in deps.state.read_apps_state().apps.items():

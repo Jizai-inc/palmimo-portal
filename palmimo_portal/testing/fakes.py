@@ -1357,9 +1357,11 @@ class FakeWifiQrClient:
         return True
 
     def close(self) -> None:
+        connected = self.connected
         self.closed = True
         self.connected = False
-        self.on_disconnect()
+        if connected:
+            self.on_disconnect()
 
     def emit(self, message: dict[str, Any]) -> None:
         self.on_message(message)

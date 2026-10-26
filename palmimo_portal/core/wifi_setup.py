@@ -13,6 +13,7 @@ from palmimo_portal.core.apps_start import (
     RUNNING_ACTIVE_STATES,
     AppBusyError,
     AppStartError,
+    DisplayRecoveryPendingError,
     StartDeps,
     _start_app_locked,
     _stop_app_locked,
@@ -39,60 +40,86 @@ logger = logging.getLogger("palmimo_portal")
 SETUP_DEVICES = frozenset({"camera", "motor_display"})
 
 
+class UnknownAppDevicesError(Exception):
+    def __init__(self, app: str) -> None:
+        self.app = app
+        super().__init__("Running app has no device declaration")
+
+
 class WifiSetupApps:
     def __init__(self, deps: StartDeps, *, hostname: str = "palmimo") -> None:
         self.deps = deps
         self.hostname = hostname
-        self._prepare_warning = False
+        self._prepare_reason: str | None = None
 
-    def conflicting_apps(self) -> list[str]:
+    def conflicting_apps(self) -> dict[str, str]:
         apps = self.deps.state.read_apps_state().apps
-        conflicts = []
+        conflicts = {}
         for name in self.deps.app_unit.list_active_app_units():
-            if self.deps.app_unit.status(name).active_state not in {"active", "activating"}:
+            active_state = self.deps.app_unit.status(name).active_state
+            if active_state not in RUNNING_ACTIVE_STATES:
                 continue
             if name not in apps:
-                raise ValueError("Running app has no device declaration")
+                raise UnknownAppDevicesError(name)
             manifest = read_manifest_for_app(self.deps.apps_job_ctx, apps[name])
             if SETUP_DEVICES.intersection(manifest.devices):
-                conflicts.append(name)
+                conflicts[name] = active_state
         return conflicts
+
+    def _refuse(self, reason: str, *, error: Exception | None = None) -> bool:
+        if self._prepare_reason != reason:
+            logger.log(
+                logging.WARNING if error is not None else logging.INFO,
+                "wifi-setup: prepare deferred reason=%s error_type=%s app=%s",
+                reason,
+                type(error).__name__ if error is not None else None,
+                error.app if isinstance(error, UnknownAppDevicesError) else None,
+            )
+        self._prepare_reason = reason
+        return False
 
     def prepare_locked(self) -> bool:
         """Caller holds run.lock through reader StartUnit."""
         try:
             record = self.deps.state.read_preempted_app()
             if record is not None and record.by != "wifi-setup":
-                return False
+                return self._refuse("other_recovery")
             conflicts = self.conflicting_apps()
+            if "deactivating" in conflicts.values():
+                return self._refuse("app_stopping")
             if record is not None and record.hold and conflicts:
-                return False
+                return self._refuse("user_hold")
+            if len(conflicts) > 1:
+                return self._refuse("multiple_apps")
             if conflicts:
-                if len(conflicts) != 1:
-                    raise ValueError("Multiple apps occupy setup devices")
-                name = conflicts[0]
-                self.deps.state.write_preempted_app(PreemptedApp(name, "wifi-setup"))
+                name = next(iter(conflicts))
+                try:
+                    self.deps.state.write_preempted_app(PreemptedApp(name, "wifi-setup"))
+                except Exception as error:
+                    return self._refuse("record_write_failed", error=error)
                 try:
                     _stop_app_locked(self.deps, name)
                 except Exception:
                     logger.warning("wifi-setup: app stop failed app=%s", name)
                 logger.info("wifi-setup: preempted app=%s", name)
-        except Exception:
-            if not self._prepare_warning:
-                logger.warning("wifi-setup: cannot safely preempt app")
-                self._prepare_warning = True
-            return False
-        self._prepare_warning = False
+        except Exception as error:
+            return self._refuse("app_observation_failed", error=error)
+        self._prepare_reason = None
         return True
 
     def hold_locked(self) -> None:
         record = self.deps.state.read_preempted_app()
+        if record is not None and record.by == "display-firmware":
+            raise DisplayRecoveryPendingError
         if record is not None and record.by != "wifi-setup":
             raise AppBusyError
         self.deps.state.write_preempted_app(PreemptedApp(None, "wifi-setup", hold=True))
         logger.info("wifi-setup: hold reason=app_start")
 
     def clear_hold(self) -> None:
+        record = self.deps.state.read_preempted_app()
+        if record is None or record.by != "wifi-setup" or not record.hold:
+            return
         with self.deps.state.lock_run():
             record = self.deps.state.read_preempted_app()
             if record is not None and record.by == "wifi-setup" and record.hold:
@@ -101,6 +128,9 @@ class WifiSetupApps:
                 )
 
     def restore(self, *, hold: bool) -> bool:
+        record = self.deps.state.read_preempted_app()
+        if record is None or record.by != "wifi-setup" or record.preempted_app is None:
+            return True
         try:
             with self.deps.state.lock_apps(), self.deps.state.lock_run():
                 record = self.deps.state.read_preempted_app()
@@ -109,9 +139,14 @@ class WifiSetupApps:
                 name = record.preempted_app
                 result = "already_running"
                 try:
-                    if self.deps.app_unit.status(name).active_state not in RUNNING_ACTIVE_STATES:
+                    active_state = self.deps.app_unit.status(name).active_state
+                    if active_state == "deactivating":
+                        return False
+                    if active_state not in RUNNING_ACTIVE_STATES:
                         _start_app_locked(
-                            replace(self.deps, before_start=lambda devices: None), name, host=self.hostname
+                            replace(self.deps, before_start=lambda devices: None, platform_ready=lambda: True),
+                            name,
+                            host=self.hostname,
                         )
                         result = "started"
                 except AppStartError as error:
@@ -144,7 +179,10 @@ class Pending:
 
 
 class WifiSetup:
-    """Never hold the setup condition across D-Bus calls, trial operations, or socket close."""
+    """Never hold the setup condition across D-Bus calls, trial operations, or socket close.
+
+    Reader protocol: see doc/wifi-qr-reader.md.
+    """
 
     APP_STOP_TIMEOUT = 10.0
     READER_STOP_TIMEOUT = 6.0
@@ -181,6 +219,8 @@ class WifiSetup:
         self._last_poll: float | None = None
         self._was_ap = False
         self._poll_warning = False
+        self._conflict_warning = False
+        self._unavailable_reason: str | None = None
         self._client: WifiQrClientPort | None = None
         self._socket_connected = False
         self._disconnected = False
@@ -209,6 +249,7 @@ class WifiSetup:
                 return
             if message.get("type") == "hello" and self._mode == "starting":
                 self._mode = "active"
+                logger.info("wifi-setup: reader active")
                 self._retry_delay = 30
                 self._show_locked("scanning")
                 return
@@ -245,8 +286,10 @@ class WifiSetup:
 
     def _socket_lost(self, generation: int) -> None:
         with self._condition:
-            if generation == self._generation and self._mode in {"starting", "active"}:
+            if generation == self._generation and self._mode in {"starting", "active"} and self._client is not None:
                 self._disconnected = True
+                self._socket_connected = False
+                self._client = None
 
     def _connect_socket(self) -> None:
         with self._condition:
@@ -259,22 +302,37 @@ class WifiSetup:
 
         client = self._factory(message, lambda: self._socket_lost(generation))
         with self._condition:
-            if self._mode != "starting" or generation != self._generation:
-                return
-            self._client = client
+            stale = self._mode != "starting" or generation != self._generation
+            if not stale:
+                self._client = client
+        if stale:
+            client.close()
+            return
         try:
             client.connect()
         except Exception:
+            with self._condition:
+                if self._client is client:
+                    self._client = None
             client.close()
             return
         with self._condition:
-            stale = generation != self._generation or self._mode not in {"starting", "active"}
+            stale = (
+                generation != self._generation or self._mode not in {"starting", "active"} or self._client is not client
+            )
             if not stale:
                 self._socket_connected = True
         if stale:
             client.close()
 
-    def _enter(self) -> None:
+    def _unavailable_locked(self, reason: str, *, retry_s: float | None = None) -> None:
+        if self._mode != "unavailable" or self._unavailable_reason != reason:
+            logger.warning("wifi-setup: unavailable reason=%s retry_s=%s", reason, retry_s)
+        self._unavailable_reason = reason
+        self._mode = "unavailable"
+        self._retry_at = self._now() + retry_s if retry_s is not None else None
+
+    def _enter(self, *, known: bool) -> None:
         try:
             with self.apps.deps.state.lock_run():
                 status = self.unit.status()
@@ -288,6 +346,7 @@ class WifiSetup:
                     self._mode = "starting"
                     self._started_at = self._now()
                     self._disconnected = False
+                    self._conflict_warning = False
                 if not self.apps.prepare_locked():
                     with self._condition:
                         if self._generation == generation:
@@ -297,6 +356,7 @@ class WifiSetup:
                 with self._condition:
                     if self._generation != generation:
                         return
+                logger.info("wifi-setup: entering reason=%s", "known_network_lost" if known else "unprovisioned")
                 self.unit.start()
                 with self._condition:
                     stale = self._generation != generation or self._shutdown.is_set()
@@ -307,8 +367,7 @@ class WifiSetup:
             return
         except WifiQrUnitMissingError:
             with self._condition:
-                self._mode = "unavailable"
-                self._retry_at = None
+                self._unavailable_locked("unit_missing")
                 self._restore_hold = True
             return
         except Exception as error:
@@ -321,11 +380,12 @@ class WifiSetup:
         self._connect_socket()
 
     def startup(self) -> None:
+        logger.info("wifi-setup: stopping reason=startup")
         try:
             self.unit.stop_and_wait(timeout_s=self.READER_STOP_TIMEOUT)
         except WifiQrUnitMissingError:
             with self._condition:
-                self._mode = "unavailable"
+                self._unavailable_locked("unit_missing")
         except PolkitDeniedError:
             logger.error("wifi-setup: startup reader stop denied")
         except Exception:
@@ -334,6 +394,12 @@ class WifiSetup:
     def recover_startup(self) -> bool:
         record = self.apps.deps.state.read_preempted_app()
         if record is None or record.by != "wifi-setup":
+            return False
+        if record.preempted_app is None:
+            with self.apps.deps.state.lock_run():
+                current = self.apps.deps.state.read_preempted_app()
+                if current is not None and current.by == "wifi-setup" and current.preempted_app is None:
+                    self.apps.deps.state.write_preempted_app(None)
             return False
         try:
             status = self.network.get_status()
@@ -392,8 +458,10 @@ class WifiSetup:
                     else None
                 )
                 if code in {69, 78}:
-                    self._mode = "unavailable"
-                    self._retry_at = self._now() + 3600 if code == 78 else None
+                    self._unavailable_locked(
+                        "dependencies_missing" if code == 69 else "devices_missing",
+                        retry_s=3600 if code == 78 else None,
+                    )
                 elif code == 75:
                     self._retry_at = self._now() + 30
                 elif (
@@ -409,6 +477,15 @@ class WifiSetup:
                     self._retry_delay = min(delay * 2, 600)
             elif reason == "connected":
                 self._restore_hold = False
+            logger.info(
+                "wifi-setup: stopped reason=%s result=%s exec_main_code=%s exec_main_status=%s state=%s retry_s=%s",
+                reason,
+                result.result if result is not None else None,
+                result.exec_main_code if result is not None else None,
+                result.exec_main_status if result is not None else None,
+                self._mode,
+                max(0, self._retry_at - self._now()) if self._retry_at is not None else None,
+            )
             self._condition.notify_all()
 
     def before_app_start(self, devices: list[str]) -> None:
@@ -478,7 +555,7 @@ class WifiSetup:
             if lan:
                 self.apps.restore(hold=False)
             elif ap and self._ap_elapsed >= (60 if known else 5) and not self._shutdown.is_set():
-                self._enter()
+                self._enter(known=known)
             return
         if mode not in {"starting", "active"}:
             if lan:
@@ -504,13 +581,11 @@ class WifiSetup:
                     (not self._socket_connected and now - self._started_at >= 10) or now - self._started_at >= 30
                 )
             if timed_out:
+                logger.warning(
+                    "wifi-setup: reader deadline reason=%s",
+                    "hello_timeout" if self._socket_connected else "socket_timeout",
+                )
                 self.stop("reader", fault=True, result=result)
-            return
-        conflicts = self.apps.conflicting_apps()
-        if conflicts:
-            with self.apps.deps.state.lock_run():
-                self.stop("app")
-                self.apps.hold_locked()
             return
         outcome = self.attempts.outcome(pending.attempt_id) if pending is not None and pending.attempt_id else None
         should_stop = False
@@ -522,7 +597,11 @@ class WifiSetup:
                 self._show_locked("connected", hostname=self._hostname)
             elif lan and self._screen != "connected":
                 should_stop = True
-            elif pending is not None and self._pending == pending and outcome == "failed":
+            elif (
+                pending is not None
+                and self._pending == pending
+                and (outcome == "failed" or now - pending.accepted_at >= 120)
+            ):
                 self._pending = None
                 self._show_locked("failed", reason="connect_failed")
             if self._screen in {"rejected", "failed"} and now - self._screen_at >= (
@@ -534,6 +613,30 @@ class WifiSetup:
         if should_stop:
             self.stop("connected")
             self._restore()
+            return
+        try:
+            conflicts = self.apps.conflicting_apps()
+        except Exception as error:
+            if not self._conflict_warning:
+                logger.warning(
+                    "wifi-setup: app observation failed error_type=%s app=%s",
+                    type(error).__name__,
+                    error.app if isinstance(error, UnknownAppDevicesError) else None,
+                )
+            self._conflict_warning = True
+            conflicts = {}
+        else:
+            self._conflict_warning = False
+        if conflicts:
+            try:
+                with self.apps.deps.state.lock_run():
+                    with self._condition:
+                        if self._mode != "active":
+                            return
+                    self.stop("app")
+                    self.apps.hold_locked()
+            except RunLockTimeoutError:
+                return
 
     def run_forever(self) -> None:
         while not self._shutdown.is_set():

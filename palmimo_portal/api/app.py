@@ -528,7 +528,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         if skip_autostart:
             skip_autostart = await anyio.to_thread.run_sync(restore_preempted_app, app.state.start_deps)
         elif record is not None and record.by == "wifi-setup":
-            skip_autostart = True
+            skip_autostart = record.preempted_app is not None
             await anyio.to_thread.run_sync(app.state.wifi_setup.recover_startup)
     except Exception:
         logger.exception("preempt: startup recovery failed")
@@ -763,7 +763,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         monotonic=adapters.clock.monotonic,
         hostname=hostname,
     )
-    app.state.start_deps = replace(app.state.start_deps, before_start=app.state.wifi_setup.before_app_start)
+    app.state.start_deps = replace(
+        app.state.start_deps,
+        before_start=app.state.wifi_setup.before_app_start,
+        wifi_setup_active=lambda: app.state.wifi_setup.status().mode in {"starting", "active", "stopping"},
+    )
 
     # Order matters: the last middleware added is the outermost, so adding
     # CSRF then Session then HostGuard makes requests hit HostGuard first.

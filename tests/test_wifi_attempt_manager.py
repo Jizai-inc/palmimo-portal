@@ -248,15 +248,18 @@ def test_kick_failure_restores_settings_attempts_start_and_clears_busy(fault: st
     assert not manager.in_progress
 
 
-def test_disconnect_error_is_tolerated_after_device_has_left_activated() -> None:
+@pytest.mark.parametrize("device_state", [0, 10, 20, 30, 40, 100, 110, 120])
+def test_disconnect_error_is_tolerated_only_after_device_is_disconnected(device_state: int) -> None:
     rig = Rig()
+    rig.nm.device = WifiDeviceStatus(device_state, None)
+    rig.nm.delayed_disconnect = True
     rig.nm.disconnect_fault = True
     manager = rig.manager()
     uid = manager.start_wifi_attempt("credentials", b"home", "new-password", None)
     target = rig.nm.list_profiles()[0].uuid
     rig.tick = lambda: setattr(rig.nm, "device", WifiDeviceStatus(100, target))
     rig.run()
-    assert manager.outcome(uid) == "connected"
+    assert manager.outcome(uid) == ("connected" if device_state in {0, 10, 20, 30} else "failed")
 
 
 @pytest.mark.parametrize("read_fault", [False, True])
@@ -507,7 +510,8 @@ def test_saved_activation_failure_restores_all_original_profiles(priority: int) 
     assert rig.snapshot() == before
 
 
-def test_disconnect_completion_is_observed_before_comitup_can_reuse_old_connection() -> None:
+@pytest.mark.parametrize("intermediate_state", [40, 50, 60, 70, 80, 90, 100, 110, 120])
+def test_disconnect_completion_is_observed_before_comitup_can_reuse_old_connection(intermediate_state: int) -> None:
     rig = Rig()
     home = rig.add()
     rig.nm.device = WifiDeviceStatus(100, home)
@@ -521,6 +525,8 @@ def test_disconnect_completion_is_observed_before_comitup_can_reuse_old_connecti
             rig.nm.device = WifiDeviceStatus(100, target)
         elif rig.now >= 3:
             rig.nm.device = WifiDeviceStatus(30, None)
+        else:
+            rig.nm.device = WifiDeviceStatus(intermediate_state, home)
 
     rig.tick = tick
     seen: list[int] = []

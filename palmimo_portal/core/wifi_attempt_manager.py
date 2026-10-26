@@ -6,7 +6,7 @@ comitup uses only one profile per SSID and tries autoconnect-disabled candidates
 so duplicates need a different SSID. Restart retains an active connection; stop,
 disconnect, then start forces candidate selection. A missing candidate takes about
 25 seconds, so each candidate receives a 30-second budget plus 60 seconds overhead.
-NM priorities are bounded to -999..999; device state 100 is ACTIVATED.
+NM priorities are bounded to -999..999; device states 30 and 100 are DISCONNECTED and ACTIVATED.
 """
 
 from __future__ import annotations
@@ -41,7 +41,9 @@ Kind = Literal["credentials", "activate_saved"]
 Outcome = Literal["attempting", "connected", "failed", "unknown"]
 LegacyConnect = Callable[[Kind, bytes, str | None, str | None], str | None]
 _MARK = "palmimo.attempt."
+_DISCONNECTED = 30
 _ACTIVATED = 100
+_DISCONNECT_TIMEOUT_SECONDS = 30
 
 
 class AttemptInProgressError(Exception):
@@ -419,10 +421,10 @@ class WifiAttemptManager:
             try:
                 self._profiles.disconnect_device()
             except Exception:
-                if self._profiles.device_status().state == _ACTIVATED:
+                if self._profiles.device_status().state > _DISCONNECTED:
                     raise
-            while self._profiles.device_status().state == _ACTIVATED:
-                if self._monotonic() - started >= 30:
+            while self._profiles.device_status().state > _DISCONNECTED:
+                if self._monotonic() - started >= _DISCONNECT_TIMEOUT_SECONDS:
                     raise TimeoutError("Wi-Fi device did not disconnect")
                 self._sleep(1)
         except Exception as caught:

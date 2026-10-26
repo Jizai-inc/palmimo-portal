@@ -159,7 +159,10 @@ class WifiAttemptManager:
                         try:
                             with self._edit_lock:
                                 marked = self._marked()
-                            if not marked or any(p.user_data.get(_MARK + "phase") == "adopted" for p in marked):
+                                attempt = self._state.read_last_wifi_attempt()
+                            if any(p.user_data.get(_MARK + "phase") == "adopted" for p in marked):
+                                break
+                            if not marked and (attempt is None or attempt.result != "attempting"):
                                 break
                             status = self._profiles.device_status()
                             if status.state == _ACTIVATED and any(
@@ -324,19 +327,23 @@ class WifiAttemptManager:
                     self._active = None
 
     def display_ssid(self, ssid: str | None) -> str | None:
-        if ssid is None or not ssid.startswith("palmimo-parked-"):
-            return ssid
+        if ssid is None:
+            return None
         with self._edit_lock:
+            try:
+                profiles = self._profiles.list_profiles()
+            except AdapterUnavailableError:
+                return ssid
             profile = next(
                 (
                     p
-                    for p in self._profiles.list_profiles()
+                    for p in profiles
                     if p.ssid.decode("utf-8", errors="replace") == ssid and p.user_data.get(_MARK + "role") == "parked"
                 ),
                 None,
             )
             return (
-                bytes.fromhex(profile.user_data[_MARK + "ssid"]).decode("utf-8", errors="replace") if profile else None
+                bytes.fromhex(profile.user_data[_MARK + "ssid"]).decode("utf-8", errors="replace") if profile else ssid
             )
 
     def _prepare(self, attempt_id: str, kind: Kind, ssid: bytes, psk: str | None, saved_uuid: str | None) -> int:
@@ -620,8 +627,15 @@ class WifiAttemptManager:
                 self._cleanup(attempt_id, kick=kick)
             with self._edit_lock:
                 attempt = self._state.read_last_wifi_attempt()
-                if not groups and attempt is not None and attempt.result == "attempting":
-                    self._state.write_last_wifi_attempt(replace(attempt, result="failed"))
+            if not groups and attempt is not None and attempt.result == "attempting":
+                status = self._legacy_status()
+                connected = status.state is ConnectionState.CONNECTED
+                result = "connected" if connected and status.ssid == attempt.ssid else "failed"
+                observed = status.ssid if connected and status.ssid != attempt.ssid else None
+                with self._edit_lock:
+                    self._state.write_last_wifi_attempt(
+                        replace(attempt, result=result, observed_connection_name=observed)
+                    )
         except AdapterUnavailableError:
             raise
         except Exception as error:
@@ -636,23 +650,20 @@ class WifiAttemptManager:
             now = self._monotonic()
             if self._known_cache is not None and 0 <= now - self._known_cache[0] < 2:
                 return self._known_cache[1]
-            known = any(not p.name.startswith("palmimo-try-") for p in self._profiles.list_profiles())
+            known = any(p.user_data.get(_MARK + "role") != "try" for p in self._profiles.list_profiles())
             self._known_cache = (now, known)
             return known
 
     def visible_profiles(self) -> list[WifiProfile]:
         with self._edit_lock:
             return [
-                p
-                for p in self._profiles.list_profiles()
-                if not p.name.startswith(("palmimo-try-", "palmimo-parked-"))
-                and p.user_data.get(_MARK + "role") != "parked"
+                p for p in self._profiles.list_profiles() if p.user_data.get(_MARK + "role") not in {"try", "parked"}
             ]
 
     def connection_name(self, active_uuid: str | None) -> str | None:
         with self._edit_lock:
             profile = next((p for p in self._profiles.list_profiles() if p.uuid == active_uuid), None)
-            if profile is None or profile.name.startswith("palmimo-try-"):
+            if profile is None or profile.user_data.get(_MARK + "role") == "try":
                 return None
             ssid = (
                 bytes.fromhex(profile.user_data[_MARK + "ssid"])

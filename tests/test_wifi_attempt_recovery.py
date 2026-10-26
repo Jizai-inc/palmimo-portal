@@ -6,7 +6,14 @@ from collections.abc import Callable
 import pytest
 
 from palmimo_portal.core.wifi_attempt_manager import AttemptInProgressError
-from palmimo_portal.ports import AdapterUnavailableError, PolkitDeniedError, WifiDeviceStatus
+from palmimo_portal.ports import (
+    AdapterUnavailableError,
+    ConnectionState,
+    PolkitDeniedError,
+    SavedNetworkNotFoundError,
+    WifiDeviceStatus,
+    WifiStatus,
+)
 from tests.test_wifi_attempt_manager import Rig
 
 
@@ -289,3 +296,69 @@ def test_saved_edit_restores_profiles_without_disrupting_ap(priority: int, targe
     assert rig.nm.device == WifiDeviceStatus(100, "ap")
     assert rig.service.starts == starts
     assert any(p.ssid == b"new" for p in recovered.visible_profiles())
+
+
+@pytest.mark.parametrize("ssid", ["palmimo-try-home", "palmimo-parked-x"])
+def test_adopted_networks_with_internal_prefixes_remain_known_and_visible(ssid: str) -> None:
+    rig = Rig()
+    manager = rig.manager()
+    manager.start_wifi_attempt("credentials", ssid.encode(), "password", None)
+    target = next(p.uuid for p in rig.nm.list_profiles() if p.user_data.get("palmimo.attempt.role") == "try")
+    rig.nm.update_profile(target, name="User chosen name")
+    rig.tick = lambda: setattr(rig.nm, "device", WifiDeviceStatus(100, target))
+    rig.run()
+    assert manager.has_known_networks()
+    assert [(p.uuid, p.ssid) for p in manager.visible_profiles()] == [(target, ssid.encode())]
+    assert manager.connection_name(target) == ssid
+    assert manager.display_ssid(ssid) == ssid
+
+
+@pytest.mark.parametrize("reason", ["polkit", "lossy_ssid"])
+@pytest.mark.parametrize("connected", ["target", "other", None])
+@pytest.mark.parametrize("entry", ["startup", "cleanup", "next_attempt"])
+def test_unmarked_legacy_attempt_recovery_uses_current_connection(
+    reason: str, connected: str | None, entry: str
+) -> None:
+    rig = Rig()
+    ssid = "home" if reason == "polkit" else "ho\ufffdme"
+    target = rig.add(ssid.encode())
+    other = rig.add(b"other")
+
+    def status() -> WifiStatus:
+        active = rig.nm.device.active_uuid if rig.nm.device.state == 100 else None
+        name = ssid if active == target else "other" if active == other else None
+        return WifiStatus(ConnectionState.CONNECTED if name else ConnectionState.UNPROVISIONED, name, None)
+
+    original = rig.manager(legacy_status=status)
+    if reason == "polkit":
+        rig.service.raise_on_call = PolkitDeniedError("comitup.service", "start")
+    original.check_platform()
+    original.start_wifi_attempt("credentials", ssid.encode(), "password", None)
+    rig.pending.clear()
+    rig.nm.device = WifiDeviceStatus(100, "ap")
+    recovered = rig.manager(legacy_status=status, spawn_recovery=rig.pending.append)
+
+    def activate() -> None:
+        if connected is not None:
+            rig.nm.device = WifiDeviceStatus(100, target if connected == "target" else other)
+
+    if entry == "startup":
+        rig.tick = lambda: activate() if rig.now >= 5 else None
+        recovered.start_recovery()
+        with pytest.raises(AttemptInProgressError):
+            recovered.start_wifi_attempt("credentials", b"new", "password", None)
+        rig.run()
+        assert rig.now >= (90 if connected is None else 5)
+        assert not recovered.in_progress
+    else:
+        activate()
+        if entry == "next_attempt":
+            with pytest.raises(SavedNetworkNotFoundError):
+                recovered.activate_saved("missing")
+        else:
+            recovered.cleanup_marked()
+    attempt = rig.state.read_last_wifi_attempt()
+    assert attempt is not None
+    assert attempt.ssid == ssid
+    assert attempt.result == ("connected" if connected == "target" else "failed")
+    assert attempt.observed_connection_name == ("other" if connected == "other" else None)

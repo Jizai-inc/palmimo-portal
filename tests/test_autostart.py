@@ -486,3 +486,112 @@ def test_startup_starts_app_without_network_backend(
     with TestClient(app):
         assert adapters.app_unit.start_calls == ["app-a"]
         assert adapters.state.read_preempted_app() is None
+
+
+@pytest.mark.parametrize(
+    ("failure", "preempted"),
+    [
+        ("none", True),
+        ("wifi-start", True),
+        ("wifi-cleanup", True),
+        ("app-restore", True),
+        ("wifi-start", False),
+        ("wifi-cleanup", False),
+    ],
+)
+def test_startup_recovers_wifi_marks_and_preempted_apps_independently(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+    preempted: bool,
+) -> None:
+    import threading
+    from collections.abc import Callable
+    from dataclasses import replace
+
+    from palmimo_portal.core.wifi_attempt_manager import WifiAttemptManager
+    from palmimo_portal.ports import PreemptedApp, WifiAttempt, WifiDeviceStatus
+
+    settings = _settings(tmp_path)
+    for name in ("selected", "preempted"):
+        _write_app(settings, name)
+        (settings.apps_dir / name / "palmimo.toml").write_text(
+            f'schema = 1\nname = "{name}"\ndescription = "d"\ncommand = ["run"]\n'
+        )
+    app = create_app(settings)
+    adapters: FakeAdapterBundle = app.state.adapters
+    adapters.state.write_apps_state(
+        AppsState(
+            apps={
+                "selected": _record("selected", autostart=True),
+                "preempted": _record("preempted", autostart=False),
+            }
+        )
+    )
+    record = PreemptedApp("preempted", "display-firmware") if preempted else None
+    adapters.state.write_preempted_app(record)
+    uid = adapters.wifi_profiles.add_profile(
+        b"home",
+        "test-password",
+        name="palmimo-try-abandoned",
+        priority=10,
+        user_data={
+            "palmimo.attempt.id": "abandoned",
+            "palmimo.attempt.phase": "pending",
+            "palmimo.attempt.role": "try",
+        },
+    )
+    adapters.wifi_profiles.device = WifiDeviceStatus(100, uid)
+    adapters.state.write_last_wifi_attempt(WifiAttempt("home", "attempting", 1.0))
+    pending: list[Callable[[], None]] = []
+    events: list[str] = []
+
+    def spawn(work: Callable[[], None]) -> None:
+        events.append("wifi")
+        if failure == "wifi-start":
+            raise RuntimeError("recovery thread unavailable")
+        pending.append(work)
+
+    manager = WifiAttemptManager(
+        adapters.wifi_profiles,
+        adapters.comitup_service,
+        adapters.state,
+        edit_lock=threading.RLock(),
+        legacy_connect=lambda *args: None,
+        legacy_status=adapters.network.get_status,
+        spawn_recovery=spawn,
+    )
+    app.state.adapters = replace(adapters, wifi_attempts=manager)
+    original_start = adapters.app_unit.start
+
+    def start(name: str) -> None:
+        events.append("app")
+        original_start(name)
+
+    monkeypatch.setattr(adapters.app_unit, "start", start)
+    if failure == "app-restore":
+        adapters.app_unit.raise_on_start = RuntimeError("app unit unavailable")
+    if failure == "wifi-cleanup":
+        adapters.wifi_profiles.raise_on_call = RuntimeError("profile backend unavailable")
+
+    with TestClient(app):
+        assert events == ["wifi", "app"]
+        assert adapters.app_unit.start_calls == (["preempted"] if preempted else ["selected"])
+        assert adapters.state.read_preempted_app() == (record if failure == "app-restore" else None)
+        assert len(pending) == (0 if failure == "wifi-start" else 1)
+        for work in pending:
+            work()
+        adapters.wifi_profiles.raise_on_call = None
+        cleaned = failure not in {"wifi-start", "wifi-cleanup"}
+        assert adapters.wifi_profiles.list_profiles()[0].user_data == (
+            {}
+            if cleaned
+            else {
+                "palmimo.attempt.id": "abandoned",
+                "palmimo.attempt.phase": "pending",
+                "palmimo.attempt.role": "try",
+            }
+        )
+        attempt = adapters.state.read_last_wifi_attempt()
+        assert attempt is not None
+        assert attempt.result == ("connected" if cleaned else "attempting")

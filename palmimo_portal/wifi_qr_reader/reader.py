@@ -34,27 +34,102 @@ REASONS = frozenset(
 )
 
 
-class DeviceUnavailableError(Exception):
+class ReaderOperationError(RuntimeError):
+    def __init__(self, message: str, *, error: BaseException | None = None) -> None:
+        super().__init__(message)
+        self.error_type: str = (
+            (error.error_type if isinstance(error, ReaderOperationError) else type(error).__name__)
+            if error is not None
+            else type(self).__name__
+        )
+        number = getattr(error, "errno", None)
+        self.errno = number if isinstance(number, int) and not isinstance(number, bool) else None
+
+
+class DeviceUnavailableError(ReaderOperationError):
     pass
 
 
-class DependencyUnavailableError(Exception):
+class DependencyUnavailableError(ReaderOperationError):
     pass
 
 
-class ReservationUnavailableError(Exception):
-    def __init__(self, resource: str, holder: dict[str, Any] | None = None) -> None:
-        super().__init__("Hardware reservation unavailable")
+class FrameDecodeError(ValueError):
+    pass
+
+
+def valid_holder(metadata: Any) -> dict[str, Any]:
+    if not isinstance(metadata, dict):
+        return {}
+    holder: dict[str, Any] = {}
+    pid = metadata.get("pid")
+    if isinstance(pid, int) and not isinstance(pid, bool) and 0 < pid < 2**31:
+        holder["pid"] = pid
+    for key in ("user", "app"):
+        value = metadata.get(key)
+        if isinstance(value, str) and 0 < len(value) <= 128 and value.isprintable():
+            holder[key] = value
+    return holder
+
+
+class ReservationUnavailableError(ReaderOperationError):
+    def __init__(
+        self, resource: str, holder: dict[str, Any] | None = None, *, error: BaseException | None = None
+    ) -> None:
+        super().__init__("Hardware reservation unavailable", error=error)
         self.resource = resource
-        self.holder = holder or {}
+        self.holder = valid_holder(holder)
+
+
+class ReservationSetupError(DeviceUnavailableError):
+    def __init__(self, resource: str, path: Path, error: OSError) -> None:
+        super().__init__("Reservation storage unavailable", error=error)
+        self.resource = resource
+        self.path = path
+
+
+def log_failure(message: str, error: BaseException, *, level: int = logging.WARNING, **context: Any) -> None:
+    kind = error.error_type if isinstance(error, ReaderOperationError) else type(error).__name__
+    number = getattr(error, "errno", None)
+    if not isinstance(number, int) or isinstance(number, bool):
+        number = None
+    LOG.log(
+        level,
+        "%s type=%s errno=%s context=%s",
+        message,
+        kind,
+        number,
+        context,
+        extra={"error_type": kind, "error_errno": number, "error_context": context},
+    )
+
+
+def camera_failure(error: OSError) -> BaseException:
+    if error.errno == errno.EBUSY:
+        return ReservationUnavailableError("camera", error=error)
+    if error.errno in {errno.ENOENT, errno.ENODEV, errno.ENXIO, errno.EIO}:
+        return DeviceUnavailableError("Camera unavailable", error=error)
+    return error
+
+
+def display_failure(error: BaseException) -> ReaderOperationError:
+    if isinstance(error, ReaderOperationError):
+        return error
+    if isinstance(error, OSError):
+        if error.errno == errno.EBUSY:
+            return ReservationUnavailableError("display", error=error)
+        return DeviceUnavailableError("Face display unavailable", error=error)
+    return ReaderOperationError("Display communication failed", error=error)
 
 
 @contextmanager
 def reserve_resource(resource: str, directory: Path = Path("/run/lock/palmimo")) -> Iterator[None]:
     """Share the SDK's flock inode, permissions and holder metadata; never unlink it."""
     fd: int | None = None
+    path = directory / f"{resource}.lock"
     try:
-        path = directory / f"{resource}.lock"
+        if not stat.S_ISDIR(directory.lstat().st_mode):
+            raise OSError(errno.EINVAL, "Unsafe reservation directory")
         try:
             fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)
         except FileNotFoundError:
@@ -68,21 +143,24 @@ def reserve_resource(resource: str, directory: Path = Path("/run/lock/palmimo"))
                 os.unlink(temporary)
             fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK)
         if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise ReservationUnavailableError(resource)
+            raise OSError(errno.EINVAL, "Unsafe reservation file")
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as error:
-            if error.errno not in {errno.EAGAIN, errno.EACCES}:
+            if error.errno not in {errno.EAGAIN, errno.EWOULDBLOCK}:
                 raise
             holder: dict[str, Any] = {}
-            with suppress(OSError, ValueError):
-                metadata = json.loads(os.pread(fd, 65536, 0))
-                if isinstance(metadata, dict):
-                    holder = {key: metadata.get(key) for key in ("pid", "user", "app")}
-            raise ReservationUnavailableError(resource, holder) from None
+            with suppress(OSError, ValueError, RecursionError):
+                holder = valid_holder(json.loads(os.pread(fd, 65536, 0)))
+            raise ReservationUnavailableError(resource, holder, error=error) from None
+        uid = os.geteuid()
+        try:
+            user = pwd.getpwuid(uid).pw_name
+        except KeyError:
+            user = str(uid)
         metadata = {
             "pid": os.getpid(),
-            "user": pwd.getpwuid(os.geteuid()).pw_name,
+            "user": user,
             "app": "palmimo-wifi-qr",
             "acquired_at": datetime.now(UTC).isoformat(),
         }
@@ -90,10 +168,10 @@ def reserve_resource(resource: str, directory: Path = Path("/run/lock/palmimo"))
             stream.seek(0)
             json.dump(metadata, stream)
             stream.truncate()
-    except (OSError, KeyError):
+    except OSError as error:
         if fd is not None:
             os.close(fd)
-        raise ReservationUnavailableError(resource) from None
+        raise ReservationSetupError(resource, path, error) from None
     except BaseException:
         if fd is not None:
             os.close(fd)
@@ -110,10 +188,10 @@ def load_dependencies() -> None:
         importlib.import_module("serial")
         library = ctypes.util.find_library("turbojpeg")
         if library is None:
-            raise DependencyUnavailableError
+            raise DependencyUnavailableError("Required hardware dependency unavailable")
         ctypes.CDLL(library)
-    except (ImportError, OSError):
-        raise DependencyUnavailableError("Required hardware dependency unavailable") from None
+    except (ImportError, OSError) as error:
+        raise DependencyUnavailableError("Required hardware dependency unavailable", error=error) from None
 
 
 # Layouts and ioctl numbers follow Linux UAPI <linux/videodev2.h> on 64-bit Linux.
@@ -203,11 +281,13 @@ VIDIOC_STREAMON = 0x40045612
 VIDIOC_STREAMOFF = 0x40045613
 
 
+LIBC = ctypes.CDLL(None, use_errno=True)
+LIBC.ioctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_void_p]
+LIBC.ioctl.restype = ctypes.c_int
+
+
 def video_ioctl(fd: int, request: int, argument: Any) -> None:
-    libc = ctypes.CDLL(None, use_errno=True)
-    libc.ioctl.argtypes = [ctypes.c_int, ctypes.c_ulong, ctypes.c_void_p]
-    libc.ioctl.restype = ctypes.c_int
-    while libc.ioctl(fd, request, ctypes.byref(argument)) < 0:
+    while LIBC.ioctl(fd, request, ctypes.byref(argument)) < 0:
         error = ctypes.get_errno()
         if error != errno.EINTR:
             raise OSError(error, "Camera ioctl failed")
@@ -250,8 +330,8 @@ class Camera:
             self.streaming = True
         except BaseException as error:
             self.close()
-            if isinstance(error, OSError) and error.errno in {errno.ENOENT, errno.ENODEV, errno.ENXIO}:
-                raise DeviceUnavailableError("Camera unavailable") from None
+            if isinstance(error, OSError):
+                raise camera_failure(error) from None
             raise
 
     def read(self) -> bytes | None:
@@ -269,13 +349,21 @@ class Camera:
                 dequeued.append(buffer)
             for buffer in reversed(dequeued):
                 if buffer.index >= len(self.buffers) or buffer.bytesused > len(self.buffers[buffer.index]):
-                    raise RuntimeError("Invalid camera buffer")
+                    continue
                 if buffer.bytesused and not buffer.flags & 0x40:
                     return bytes(self.buffers[buffer.index][: buffer.bytesused])
+            if dequeued:
+                raise FrameDecodeError("Invalid camera buffer")
             return None
+        except OSError as error:
+            raise camera_failure(error) from None
         finally:
             for buffer in dequeued:
-                self.ioctl(self.fd, VIDIOC_QBUF, buffer)
+                if buffer.index < len(self.buffers):
+                    try:
+                        self.ioctl(self.fd, VIDIOC_QBUF, buffer)
+                    except OSError as error:
+                        raise camera_failure(error) from None
 
     def close(self) -> None:
         if self.fd is None:
@@ -299,9 +387,18 @@ def preview_gray(pixels: bytes, width: int, height: int, *, size: int = 168) -> 
         raise ValueError("Invalid grayscale image")
     side = min(width, height)
     left, top = (width - side) // 2, (height - side) // 2
-    columns = [left + x * side // size for x in range(size)]
+    rows = b"".join(
+        pixels[(top + y * side // size) * width + left : (top + y * side // size) * width + left + side]
+        for y in range(size)
+    )
+    output = bytearray(size * size)
+    for x in range(size):
+        output[x::size] = rows[x * side // size :: side]
     # The camera is mounted upside down; QR decoding itself is orientation independent.
-    return bytes(pixels[(top + y * side // size) * width + x] for y in range(size) for x in columns)[::-1]
+    return bytes(output)[::-1]
+
+
+TJERR_WARNING = 0
 
 
 class TurboJPEG:
@@ -317,6 +414,8 @@ class TurboJPEG:
             ctypes.c_int
         ] * 5
         self.library.tjDecompress2.restype = ctypes.c_int
+        self.library.tjGetErrorCode.argtypes = [ctypes.c_void_p]
+        self.library.tjGetErrorCode.restype = ctypes.c_int
         self.library.tjDestroy.argtypes = [ctypes.c_void_p]
         self.library.tjDestroy.restype = ctypes.c_int
         self.handle = self.library.tjInitDecompress()
@@ -336,14 +435,19 @@ class TurboJPEG:
                 ctypes.byref(colorspace),
             )
             != 0
+            and self.library.tjGetErrorCode(self.handle) != TJERR_WARNING
         ):
-            raise ValueError("Invalid camera JPEG")
+            raise FrameDecodeError("Invalid camera JPEG")
         if not 0 < width.value <= 2592 or not 0 < height.value <= 1944 or denominator not in {2, 4}:
-            raise ValueError("Invalid camera JPEG dimensions or scale")
+            raise FrameDecodeError("Invalid camera JPEG dimensions or scale")
         w, h = (width.value + denominator - 1) // denominator, (height.value + denominator - 1) // denominator
         output = ctypes.create_string_buffer(w * h)
-        if self.library.tjDecompress2(self.handle, jpeg, len(jpeg), output, w, 0, h, 6, 0) != 0:
-            raise ValueError("Camera JPEG decode failed")
+        # libjpeg-turbo completes the output on warnings unless STOPONWARNING is set.
+        if (
+            self.library.tjDecompress2(self.handle, jpeg, len(jpeg), output, w, 0, h, 6, 0) != 0
+            and self.library.tjGetErrorCode(self.handle) != TJERR_WARNING
+        ):
+            raise FrameDecodeError("Camera JPEG decode failed")
         return output.raw, w, h
 
     def close(self) -> None:
@@ -408,6 +512,7 @@ class FrameClient:
         self.gate = gate if gate is not None else threading.RLock()
         self.partial = bytearray()
         self.original_power: bool | None = None
+        self.firmware = "unknown"
         self.mode = "expr"
         self.powered_on = False
 
@@ -466,7 +571,17 @@ class FrameClient:
     def initialize(self) -> str:
         self._synchronize()
         self._write(b"STAT")
-        self.original_power = parse_power(self._response())
+        status = self._response()
+        if status == b"ERR STAT (try LIST)":
+            return self.mode
+        self.original_power = parse_power(status)
+        versions = [field[3:] for field in status.split() if field.startswith(b"fw=")]
+        if len(versions) == 1:
+            version = versions[0]
+            if 0 < len(version) <= 64 and all(
+                byte in b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-" for byte in version
+            ):
+                self.firmware = version.decode("ascii")
         for attempt in range(2):
             if attempt:
                 self._synchronize()
@@ -671,9 +786,9 @@ def open_display_port() -> Any:
     try:
         return serial.Serial(devices[0], 115200, timeout=0.05, write_timeout=0.2)
     except OSError as error:
-        if error.errno in {errno.ENOENT, errno.ENODEV, errno.ENXIO}:
-            raise DeviceUnavailableError("Face display unavailable") from None
-        raise
+        raise display_failure(error) from None
+    except Exception as error:
+        raise DeviceUnavailableError("Face display unavailable", error=error) from None
 
 
 class Display:
@@ -700,6 +815,7 @@ class Display:
         self.generation = 0
         self.state = "scanning"
         self.mode = "expr"
+        self.firmware = "unknown"
         self.pending_screen: tuple[str, bytes, int] | None = None
         self.pending_live: bytes | None = None
         self.pending_ping = False
@@ -753,6 +869,13 @@ class Display:
             port = port_factory()
             protocol = FrameClient(port, clock=clock, gate=self.condition)
             self.mode = protocol.initialize()
+            self.firmware = protocol.firmware
+            LOG.info(
+                "display mode=%s fw=%s",
+                self.mode,
+                self.firmware,
+                extra={"display_mode": self.mode, "display_firmware": self.firmware},
+            )
             self.ready.set()
             while True:
                 request: tuple[str, bytes | None, int, str] | None
@@ -796,24 +919,24 @@ class Display:
                         format_,
                         cancelled=cancelled,
                     )
-        except DeviceUnavailableError:
-            self.failure = DeviceUnavailableError("Face display unavailable")
-        except Exception:
-            self.failure = RuntimeError("Display communication failed")
+        except Exception as error:
+            self.failure = display_failure(error)
         finally:
             self.ready.set()
             if protocol is not None:
                 try:
                     protocol.restore()
-                except Exception:
+                except Exception as error:
+                    log_failure("Display restore failed", error)
                     if self.failure is None:
-                        self.failure = RuntimeError("Display restore failed")
+                        self.failure = display_failure(error)
             if port is not None:
                 try:
                     port.close()
-                except Exception:
+                except Exception as error:
+                    log_failure("Display close failed", error)
                     if self.failure is None:
-                        self.failure = RuntimeError("Display close failed")
+                        self.failure = display_failure(error)
 
     def close(self) -> None:
         with self.condition:
@@ -823,6 +946,10 @@ class Display:
             self.pending_screen = None
             self.condition.notify()
         self.thread.join()
+
+
+def encode_message(message: dict[str, Any]) -> bytes:
+    return json.dumps(message, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
 
 
 def peer_uid(connection: socket.socket) -> int:
@@ -870,6 +997,7 @@ class Reader:
         self.state = "scanning"
         self.last_text: str | None = None
         self.absent_frames = 0
+        self.frame_failures = 0
         self.incoming = bytearray()
         self.outgoing = bytearray()
         self.discarding_line = False
@@ -880,8 +1008,8 @@ class Reader:
     def _cleanup(self, callback: Callable[[], Any]) -> None:
         try:
             callback()
-        except Exception:
-            LOG.warning("Hardware cleanup failed")
+        except Exception as error:
+            log_failure("Hardware cleanup failed", error)
 
     def start(self) -> None:
         if self.started:
@@ -899,8 +1027,8 @@ class Reader:
             self.stack.enter_context(self.reserve(resource))
         try:
             self.load_dependencies()
-        except (ImportError, OSError):
-            raise DependencyUnavailableError("Required hardware dependency unavailable") from None
+        except (ImportError, OSError) as error:
+            raise DependencyUnavailableError("Required hardware dependency unavailable", error=error) from None
         self.camera = self.camera_factory()
         self.stack.callback(self._cleanup, self.camera.close)
         self.decoder = self.decoder_factory()
@@ -918,7 +1046,7 @@ class Reader:
         self.display.screen(state, fields)
 
     def _send(self, message: dict[str, Any]) -> None:
-        line = json.dumps(message, ensure_ascii=True, separators=(",", ":")).encode("utf-8")
+        line = encode_message(message)
         if len(line) <= MAX_LINE:
             self.outgoing.extend(line + b"\n")
 
@@ -937,15 +1065,14 @@ class Reader:
                 connection.close()
                 continue
             self.client = connection
-            self.stack.callback(connection.close)
             connection.setblocking(False)
             self._send({"type": "hello", "proto": 1, "display": self.display.mode})
 
     def _line(self, line: bytes) -> None:
         try:
             message = json.loads(line.decode("utf-8"))
-        except (ValueError, RecursionError):
-            LOG.warning("Invalid control message discarded")
+        except (ValueError, RecursionError) as error:
+            log_failure("Invalid control message discarded", error)
             return
         if not isinstance(message, dict) or message.get("type") != "screen":
             return
@@ -998,20 +1125,33 @@ class Reader:
             del self.outgoing[:sent]
 
     def _frame(self) -> None:
-        frame = self.camera.read()
-        if frame is None:
+        try:
+            frame = self.camera.read()
+            if frame is None:
+                return
+            texts = self.decoder.decode(frame)
+        except ValueError as error:
+            self.frame_failures += 1
+            if self.frame_failures in {1, 100}:
+                log_failure("Frame discarded", error, consecutive_frames=self.frame_failures)
+            if self.frame_failures >= 100:
+                raise ReaderOperationError("Too many consecutive invalid frames", error=error) from None
             return
-        texts = self.decoder.decode(frame)
+        if self.frame_failures:
+            LOG.info("Frame decoding recovered count=%d", self.frame_failures)
+            self.frame_failures = 0
+        texts = [text for text in texts if len(encode_message({"type": "qr", "text": text})) <= MAX_LINE]
         if self.last_text is not None:
             self.absent_frames = 0 if self.last_text in texts else self.absent_frames + 1
             if self.absent_frames >= 30:
                 self.last_text = None
         text = next((text for text in texts if text != self.last_text), None)
-        if text is not None and self.client is not None:
+        if text is not None:
             self._screen("checking", {})
-            self.last_text = text
-            self.absent_frames = 0
-            self._send({"type": "qr", "text": text})
+            if self.client is not None:
+                self.last_text = text
+                self.absent_frames = 0
+                self._send({"type": "qr", "text": text})
         elif self.display.mode == "frame":
             self.display.live(getattr(self.decoder, "preview", frame))
 
@@ -1046,7 +1186,12 @@ class Reader:
         self.stopped = True
 
     def close(self) -> None:
-        self.stack.close()
+        try:
+            self.stack.close()
+        finally:
+            if self.client is not None:
+                self.client.close()
+                self.client = None
         self.incoming.clear()
         self.outgoing.clear()
         self.last_text = None
@@ -1058,17 +1203,20 @@ class Reader:
             while self.step():
                 self.sleep(0.01)
         except ReservationUnavailableError as error:
-            LOG.warning("Reservation unavailable resource=%s holder=%s", error.resource, error.holder)
+            log_failure("Hardware busy", error, resource=error.resource, holder=error.holder)
             self.exit_code = 75
-        except DependencyUnavailableError:
-            LOG.warning("Required hardware dependency unavailable")
+        except DependencyUnavailableError as error:
+            log_failure("Required hardware dependency unavailable", error)
             self.exit_code = 69
-        except DeviceUnavailableError:
-            LOG.warning("Camera or display unavailable")
+        except ReservationSetupError as error:
+            log_failure("Reservation storage unavailable", error, resource=error.resource, path=str(error.path))
             self.exit_code = 78
-        except Exception:
+        except DeviceUnavailableError as error:
+            log_failure("Camera or display unavailable", error)
+            self.exit_code = 78
+        except Exception as error:
             # Decoder and JSON exceptions may embed credentials, including in chained tracebacks.
-            LOG.error("Reader operation failed")
+            log_failure("Reader operation failed", error, level=logging.ERROR)
             self.exit_code = 1
         finally:
             self.close()
@@ -1080,8 +1228,8 @@ def main() -> int:
     try:
         runtime_directory = Path(os.environ.get("RUNTIME_DIRECTORY", "/run/palmimo-wifi-qr"))
         allowed_uid = pwd.getpwnam(os.environ["PALMIMO_WIFI_QR_PEER_USER"]).pw_uid
-    except KeyError:
-        LOG.error("Portal peer user is not configured or does not exist")
+    except KeyError as error:
+        log_failure("Portal peer user is not configured or does not exist", error, level=logging.ERROR)
         return 1
     reader = Reader(runtime_directory, allowed_uid)
     previous = signal.signal(signal.SIGTERM, lambda signum, frame: reader.stop())

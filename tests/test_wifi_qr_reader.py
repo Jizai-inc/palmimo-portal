@@ -358,17 +358,18 @@ def test_qr_exceptions_do_not_expose_payload(harness: Harness, caplog: pytest.Lo
     with harness.connect() as client:
         receive(client)
         harness.camera.frames.append([])
-        assert harness.reader.run() == 1
+        harness.reader.step()
     assert "secret" not in caplog.text
-    assert "ValueError" not in caplog.text
 
 
-def test_oversized_qr_is_not_sent(harness: Harness) -> None:
+@pytest.mark.parametrize("text", ["x" * 32768, "\x00" * 6000], ids=["ascii", "escaped"])
+def test_oversized_qr_keeps_live_view_scanning(harness: Harness, text: str) -> None:
     with harness.connect() as client:
         receive(client)
-        harness.camera.frames.append(["x" * 32768])
+        harness.camera.frames.append([text])
         harness.reader.step()
-        assert harness.display.events[-1] == "checking"
+        assert harness.display.screens[-1][0] == "scanning"
+        assert harness.display.events[-1] == ("live", [text])
         with pytest.raises(TimeoutError):
             client.recv(1)
 
@@ -401,7 +402,7 @@ def test_reservation_rejects_unsafe_lock_paths(module: Any, tmp_path: Path, kind
         path.mkdir()
     else:
         os.mkfifo(path)
-    with pytest.raises(module.ReservationUnavailableError), module.reserve_resource("camera", tmp_path):
+    with pytest.raises(module.ReservationSetupError), module.reserve_resource("camera", tmp_path):
         pytest.fail("An unsafe lock was acquired")
     assert target.read_text() == "unchanged"
 

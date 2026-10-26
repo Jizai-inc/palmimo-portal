@@ -377,6 +377,7 @@ def test_turbojpeg_binding_requests_scaled_gray_pixels(module: Any, denominator:
         tjInitDecompress=Mock(return_value=0x100000001),
         tjDecompressHeader3=Mock(side_effect=header),
         tjDecompress2=Mock(side_effect=decompress),
+        tjGetErrorCode=Mock(return_value=1),
         tjDestroy=Mock(return_value=0),
     )
     jpeg = module.TurboJPEG(library)

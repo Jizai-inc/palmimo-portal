@@ -683,6 +683,7 @@ class UpdateState:
 class PreemptedApp:
     preempted_app: str | None
     by: str
+    hold: bool = False
 
 
 class StateStore(Protocol):
@@ -1821,3 +1822,11 @@ class WifiQrUnitPort(Protocol):
     def stop(self) -> None: ...
 
     def status(self) -> WifiQrUnitStatus: ...
+
+
+class WifiQrClientPort(Protocol):
+    def connect(self) -> None: ...
+
+    def send(self, message: dict[str, Any]) -> bool: ...
+
+    def close(self) -> None: ...

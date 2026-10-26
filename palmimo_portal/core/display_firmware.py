@@ -38,7 +38,11 @@ def _restore_locked(deps: StartDeps) -> Literal["restored", "pending", "discarde
                 time.sleep(0.1)
                 active_state = deps.app_unit.status(name).active_state
         if active_state in {"inactive", "failed"}:
-            _start_app_locked(replace(deps, platform_ready=lambda: True), name, host=socket.gethostname())
+            _start_app_locked(
+                replace(deps, platform_ready=lambda: True, before_start=lambda devices: None),
+                name,
+                host=socket.gethostname(),
+            )
         elif active_state not in {"active", "activating"}:
             logger.warning("preempt: app=%s state=%s cannot be restored; retaining record", name, active_state)
             return "pending"

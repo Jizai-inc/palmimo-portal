@@ -25,6 +25,7 @@ from palmimo_portal.adapters.dbus_support import SharedEventLoopThread, get_shar
 from palmimo_portal.ports import (
     AdapterUnavailableError,
     AppUnitPort,
+    ComitupServicePort,
     PolkitDeniedError,
     SyncUnitPort,
     SystemPort,
@@ -496,3 +497,67 @@ class SystemdSyncUnitPort(SyncUnitPort):
                 raise
             time.sleep(_SYNC_POLL_INTERVAL_SECONDS)
         raise TimeoutError(f"sync unit {instance} did not finish within {timeout_s:g}s")
+
+
+_COMITUP_UNIT = "comitup.service"
+_COMITUP_JOB_TIMEOUT_SECONDS = 60.0
+
+
+class SystemdComitupServicePort(ComitupServicePort):
+    def __init__(self, *, loop_thread: SharedEventLoopThread | None = None) -> None:
+        self._unit_port = SystemdAppUnitPort(loop_thread=loop_thread)
+        self._job_lock = asyncio.Lock()
+
+    async def _change(self, verb: str) -> None:
+        async with self._job_lock:
+            interface, _ = await self._unit_port._connect()
+            completed: dict[str, str] = {}
+            changed = asyncio.Event()
+
+            def removed(job_id: int, path: str, unit: str, result: str) -> None:
+                if unit == _COMITUP_UNIT:
+                    completed[path] = result
+                    changed.set()
+
+            # Subscribe before queuing: JobRemoved may arrive before StartUnit's reply.
+            interface.on_job_removed(removed)  # type: ignore[attr-defined]
+            subscribed = False
+            try:
+                await asyncio.wait_for(interface.call_subscribe(), CALL_TIMEOUT_SECONDS)  # type: ignore[attr-defined]
+                subscribed = True
+                job = await self._unit_port._call(
+                    f"{verb}_unit", (_COMITUP_UNIT, "replace"), unit=_COMITUP_UNIT, verb=verb
+                )
+                while job not in completed:
+                    changed.clear()
+                    await changed.wait()
+                if completed[job] != "done":
+                    raise AdapterUnavailableError(_ADAPTER_ERROR_CODE, f"comitup {verb} job: {completed[job]}")
+            finally:
+                interface.off_job_removed(removed)  # type: ignore[attr-defined]
+                if subscribed:
+                    try:
+                        await asyncio.wait_for(interface.call_unsubscribe(), CALL_TIMEOUT_SECONDS)  # type: ignore[attr-defined]
+                    except Exception:
+                        logger.debug("systemd1 unsubscribe failed", exc_info=True)
+
+    def _run(self, verb: str) -> None:
+        async def run() -> None:
+            await asyncio.wait_for(self._change(verb), _COMITUP_JOB_TIMEOUT_SECONDS)
+
+        try:
+            self._unit_port._loop_thread.run(run(), timeout=_COMITUP_JOB_TIMEOUT_SECONDS + CALL_TIMEOUT_SECONDS + 1)
+        except (PolkitDeniedError, AdapterUnavailableError):
+            raise
+        except DBusError as error:
+            if error.type in _POLKIT_DENIED_DBUS_ERRORS:
+                raise PolkitDeniedError(_COMITUP_UNIT, verb) from error
+            raise AdapterUnavailableError(_ADAPTER_ERROR_CODE, f"comitup {verb} failed: {error}") from error
+        except Exception as error:
+            raise AdapterUnavailableError(_ADAPTER_ERROR_CODE, f"comitup {verb} failed: {error}") from error
+
+    def start(self) -> None:
+        self._run("start")
+
+    def stop(self) -> None:
+        self._run("stop")

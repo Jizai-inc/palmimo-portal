@@ -22,7 +22,10 @@ from palmimo_portal.ports import (
     SavedNetworkActiveError,
     SavedNetworkNotFoundError,
     SavedNetworkOrderError,
+    WifiDeviceStatus,
+    WifiProfilePort,
 )
+from palmimo_portal.testing.fakes import FakeWifiProfilePort
 
 
 def _wifi(ssid: str, *, priority: int | None = None, mode: str = "infrastructure", psk: bool = True) -> Settings:
@@ -62,16 +65,23 @@ class _FakeNetworkManager(NetworkManagerSavedNetworkPort):
                 raise NetworkManagerCallError(member, "org.freedesktop.DBus.Error.UnknownMethod", "gone")
             if path in self.deny_get:
                 raise NetworkManagerCallError(member, "org.freedesktop.NetworkManager.PermissionDenied", "denied")
-            return [copy.deepcopy(self.profiles[path])]
+            settings = copy.deepcopy(self.profiles[path])
+            settings.get("802-11-wireless-security", {}).pop("psk", None)
+            return [settings]
         if member == "AddConnection":
             new_path = f"/Settings/{self._next}"
             self._next += 1
-            self.profiles[new_path] = body[0]
+            self.profiles[new_path] = copy.deepcopy(body[0])
             return [new_path]
         if member == "Update":
             assert interface == CONNECTION_INTERFACE
             self.updates.append((path, body[0]))
-            self.profiles[path] = body[0]
+            updated = copy.deepcopy(body[0])
+            security = updated.get("802-11-wireless-security")
+            stored_psk = self.profiles[path].get("802-11-wireless-security", {}).get("psk")
+            if security is not None and "psk" not in security and stored_psk is not None:
+                security["psk"] = stored_psk
+            self.profiles[path] = updated
             return []
         if member == "Delete":
             del self.profiles[path]
@@ -250,3 +260,154 @@ def test_activate_raises_not_found_for_an_unknown_ssid() -> None:
 
     with pytest.raises(SavedNetworkNotFoundError):
         port.activate("nowhere")
+
+
+@pytest.fixture(params=["networkmanager", "fake"])
+def profile_port(request: pytest.FixtureRequest) -> WifiProfilePort:
+    return _FakeNetworkManager({}) if request.param == "networkmanager" else FakeWifiProfilePort()
+
+
+def test_list_profiles_preserves_raw_ssids_metadata_and_duplicates() -> None:
+    settings = _wifi("office")
+    settings["connection"].update({"uuid": Variant("s", "one"), "autoconnect": Variant("b", False)})
+    settings["802-11-wireless"]["ssid"] = Variant("ay", b"\xff\xfeAB")
+    settings["user"] = {"data": Variant("a{ss}", {"owner": "portal"})}
+    duplicate = copy.deepcopy(settings)
+    duplicate["connection"]["uuid"] = Variant("s", "two")
+    port = _FakeNetworkManager(
+        {
+            "/1": settings,
+            "/2": duplicate,
+            "/ap": _wifi("ap", mode="ap"),
+            "/wired": {"connection": {"type": Variant("s", "802-3-ethernet")}},
+        }
+    )
+
+    profiles = port.list_profiles()
+
+    assert [(p.uuid, p.name, p.ssid, p.priority, p.autoconnect, p.user_data) for p in profiles] == [
+        (uid, "office", b"\xff\xfeAB", 0, False, {"owner": "portal"}) for uid in ("one", "two")
+    ]
+
+
+@pytest.mark.parametrize("psk", ["", "secret123"])
+def test_add_profile_creates_an_independent_persistent_profile(psk: str) -> None:
+    port = _FakeNetworkManager({})
+    uid = port.add_profile(b"\xffAB", psk, name="trial", priority=999, user_data={"attempt": "id"})
+    profile = port.list_profiles()[0]
+    assert (profile.uuid, profile.ssid, profile.name, profile.priority, profile.autoconnect, profile.user_data) == (
+        uid,
+        b"\xffAB",
+        "trial",
+        999,
+        True,
+        {"attempt": "id"},
+    )
+    settings = port.profiles["/Settings/100"]
+    assert settings["ipv4"]["method"].value == settings["ipv6"]["method"].value == "auto"
+    assert settings.get("802-11-wireless-security", {}).get("psk", Variant("s", "")).value == psk
+    if not psk:
+        assert "802-11-wireless-security" not in settings
+
+
+def test_update_profile_changes_only_supplied_fields_and_can_clear_metadata(profile_port: WifiProfilePort) -> None:
+    port = profile_port
+    uid = port.add_profile(b"office", "secret123", name="office", priority=2, user_data={"owner": "other"})
+    port.update_profile(uid, ssid=b"parked", autoconnect=False)
+    parked = port.list_profiles()[0]
+    assert (parked.ssid, parked.autoconnect, parked.priority, parked.name, parked.user_data) == (
+        b"parked",
+        False,
+        2,
+        "office",
+        {"owner": "other"},
+    )
+    port.update_profile(uid, ssid=b"office", autoconnect=True, priority=-999, name="restored", user_data={})
+    restored = port.list_profiles()[0]
+    assert (restored.ssid, restored.autoconnect, restored.priority, restored.name, restored.user_data) == (
+        b"office",
+        True,
+        -999,
+        "restored",
+        {},
+    )
+
+
+def test_delete_profile_allows_an_active_uuid(profile_port: WifiProfilePort) -> None:
+    port = profile_port
+    uid = port.add_profile(b"office", "", name="office", priority=0, user_data={})
+    if isinstance(port, FakeWifiProfilePort):
+        port.device = WifiDeviceStatus(100, uid)
+    else:
+        assert isinstance(port, _FakeNetworkManager)
+        port.active.add("/Settings/100")
+    port.delete_profile(uid)
+    assert port.list_profiles() == []
+
+
+@pytest.mark.parametrize("operation", ["update_profile", "delete_profile"])
+def test_profile_edit_reports_missing_uuid(operation: str, profile_port: WifiProfilePort) -> None:
+    port = profile_port
+    with pytest.raises(SavedNetworkNotFoundError):
+        getattr(port, operation)("missing")
+
+
+@pytest.mark.parametrize("active_uuid", [None, "ap-profile", "office-profile"])
+def test_device_status_reads_wlan0_and_disconnects(active_uuid: str | None) -> None:
+    class DeviceNM(_FakeNetworkManager):
+        state = 100
+        active_uuid_value = active_uuid
+
+        async def _nm_call(
+            self, path: str, interface: str, member: str, signature: str = "", body: list[Any] | None = None
+        ) -> list[Any]:
+            if member == "GetDeviceByIpIface":
+                return ["/Devices/wlan0"]
+            if member == "Disconnect":
+                self.state = 30
+                self.active_uuid_value = None
+                return []
+            if member == "Get" and body:
+                if body[1] == "State":
+                    return [Variant("u", self.state)]
+                if body[1] == "ActiveConnection":
+                    return [Variant("o", "/Active/1" if self.active_uuid_value else "/")]
+                if body[1] == "Uuid":
+                    return [Variant("s", self.active_uuid_value)]
+            return await super()._nm_call(path, interface, member, signature, body)
+
+    port = DeviceNM({})
+    assert port.device_status() == WifiDeviceStatus(100, active_uuid)
+    port.disconnect_device()
+    assert port.device_status() == WifiDeviceStatus(30, None)
+
+
+def test_fake_profile_restore_preserves_password() -> None:
+    port = FakeWifiProfilePort()
+    uid = port.add_profile(b"\xffoffice", "secret123", name="office", priority=10, user_data={})
+    port.update_profile(uid, ssid=b"parked", autoconnect=False)
+    port.update_profile(uid, ssid=b"\xffoffice", autoconnect=True)
+    assert port.psks[uid] == "secret123"
+    assert port.list_profiles()[0].ssid == b"\xffoffice"
+    assert port.list_profiles()[0].autoconnect
+
+
+def test_profile_creation_keeps_duplicate_ssids_and_isolates_metadata(profile_port: WifiProfilePort) -> None:
+    data = {"owner": "portal"}
+    first = profile_port.add_profile(b"\xffoffice", "secret123", name="office", priority=2, user_data=data)
+    second = profile_port.add_profile(b"\xffoffice", "", name="trial", priority=999, user_data=data)
+    data.clear()
+    profiles = profile_port.list_profiles()
+    assert first != second
+    assert [(p.uuid, p.ssid, p.user_data) for p in profiles] == [
+        (uid, b"\xffoffice", {"owner": "portal"}) for uid in (first, second)
+    ]
+    profiles[0].user_data.clear()
+    assert profile_port.list_profiles()[0].user_data == {"owner": "portal"}
+
+
+def test_fake_device_disconnect_clears_active_uuid() -> None:
+    port = FakeWifiProfilePort(device=WifiDeviceStatus(100, "active"))
+    assert port.device_status() == WifiDeviceStatus(100, "active")
+    port.disconnect_device()
+    assert port.device_status() == WifiDeviceStatus(30, None)

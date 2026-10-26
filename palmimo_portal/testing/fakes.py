@@ -14,8 +14,9 @@ import secrets
 import shutil
 import threading
 import time
+import uuid as uuid_module
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,7 @@ from palmimo_portal.ports import (
     CatalogSource,
     CatalogSourceError,
     ClockPort,
+    ComitupServicePort,
     ConnectionState,
     DiskPort,
     DuplicateKeyError,
@@ -96,7 +98,10 @@ from palmimo_portal.ports import (
     UpdateStepError,
     UvPort,
     WifiAttempt,
+    WifiDeviceStatus,
     WifiNetwork,
+    WifiProfile,
+    WifiProfilePort,
     WifiStatus,
 )
 from palmimo_portal.settings import DEFAULT_REQUIRED_PLATFORM_VERSION
@@ -1140,6 +1145,8 @@ class FakeAdapterBundle:
 
     network: FakeNetworkPort
     saved_networks: FakeSavedNetworkPort
+    wifi_profiles: FakeWifiProfilePort
+    comitup_service: FakeComitupServicePort
     system: FakeSystemPort
     ssh_keys: FakeSshKeyPort
     state: FakeStateStore
@@ -1159,3 +1166,80 @@ class FakeAdapterBundle:
     platform_releases: FakeReleaseSource
     clock: FakeClockPort
     catalog: FakeCatalogSource
+
+
+@dataclass
+class FakeWifiProfilePort(WifiProfilePort):
+    profiles: dict[str, WifiProfile] = field(default_factory=dict)
+    psks: dict[str, str] = field(default_factory=dict)
+    device: WifiDeviceStatus = field(default_factory=lambda: WifiDeviceStatus(30, None))
+    raise_on_call: Exception | None = None
+
+    def _check(self) -> None:
+        if self.raise_on_call is not None:
+            raise self.raise_on_call
+
+    def list_profiles(self) -> list[WifiProfile]:
+        self._check()
+        return [replace(profile, user_data=dict(profile.user_data)) for profile in self.profiles.values()]
+
+    def add_profile(self, ssid: bytes, psk: str, *, name: str, priority: int, user_data: dict[str, str]) -> str:
+        self._check()
+        uid = str(uuid_module.uuid4())
+        self.profiles[uid] = WifiProfile(uid, name, ssid, priority, True, dict(user_data))
+        self.psks[uid] = psk
+        return uid
+
+    def update_profile(
+        self,
+        uuid: str,
+        *,
+        ssid: bytes | None = None,
+        autoconnect: bool | None = None,
+        priority: int | None = None,
+        name: str | None = None,
+        user_data: dict[str, str] | None = None,
+    ) -> None:
+        self._check()
+        if uuid not in self.profiles:
+            raise SavedNetworkNotFoundError(uuid)
+        profile = self.profiles[uuid]
+        self.profiles[uuid] = WifiProfile(
+            uuid,
+            name if name is not None else profile.name,
+            ssid if ssid is not None else profile.ssid,
+            priority if priority is not None else profile.priority,
+            autoconnect if autoconnect is not None else profile.autoconnect,
+            dict(user_data if user_data is not None else profile.user_data),
+        )
+
+    def delete_profile(self, uuid: str) -> None:
+        self._check()
+        if uuid not in self.profiles:
+            raise SavedNetworkNotFoundError(uuid)
+        del self.profiles[uuid]
+        self.psks.pop(uuid, None)
+
+    def device_status(self) -> WifiDeviceStatus:
+        self._check()
+        return self.device
+
+    def disconnect_device(self) -> None:
+        self._check()
+        self.device = WifiDeviceStatus(30, None)
+
+
+@dataclass
+class FakeComitupServicePort(ComitupServicePort):
+    running: bool = True
+    raise_on_call: Exception | None = None
+
+    def start(self) -> None:
+        if self.raise_on_call is not None:
+            raise self.raise_on_call
+        self.running = True
+
+    def stop(self) -> None:
+        if self.raise_on_call is not None:
+            raise self.raise_on_call
+        self.running = False

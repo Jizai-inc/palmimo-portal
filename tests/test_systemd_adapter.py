@@ -652,3 +652,119 @@ def test_sync_unit_wait_raises_timeout_error_when_still_running_past_the_budget(
 
     with pytest.raises(TimeoutError):
         port.wait("jabc123", timeout_s=0.01)
+
+
+class _ComitupManager:
+    def __init__(
+        self, result: str = "done", error: Exception | None = None, *, early: bool = False, complete: bool = True
+    ) -> None:
+        self.result = result
+        self.early = early
+        self.complete = complete
+        self.error = error
+        self.callback: Any = None
+        self.finished = False
+        self.subscribed = False
+
+    def on_job_removed(self, callback: Any) -> None:
+        self.callback = callback
+
+    def off_job_removed(self, callback: Any) -> None:
+        self.callback = None
+
+    async def call_subscribe(self) -> None:
+        self.subscribed = True
+
+    async def call_unsubscribe(self) -> None:
+        self.subscribed = False
+
+    async def call_start_unit(self, unit: str, mode: str) -> str:
+        if self.error:
+            raise self.error
+
+        self.callback(2, "/job/2", unit, "done")
+        self.callback(3, "/job/3", "other.service", "done")
+        if not self.complete:
+            return "/job/1"
+
+        async def finish() -> None:
+            if not self.early:
+                await asyncio.sleep(0.01)
+            self.finished = True
+            self.callback(1, "/job/1", unit, self.result)
+
+        if self.early:
+            await finish()
+        else:
+            self.task = asyncio.create_task(finish())
+        return "/job/1"
+
+    async def call_stop_unit(self, unit: str, mode: str) -> str:
+        return await self.call_start_unit(unit, mode)
+
+
+def _comitup_port(manager: _ComitupManager) -> Any:
+    from palmimo_portal.adapters.systemd import SystemdComitupServicePort
+
+    port = SystemdComitupServicePort()
+    port._unit_port._interface = cast(ProxyInterface, manager)
+    port._unit_port._bus = cast(MessageBus, _FakeBus("comitup"))
+    return port
+
+
+@pytest.mark.parametrize("verb", ["start", "stop"])
+@pytest.mark.parametrize("early", [False, True])
+def test_comitup_service_waits_for_job_completion(verb: str, early: bool) -> None:
+    manager = _ComitupManager(early=early)
+    getattr(_comitup_port(manager), verb)()
+    assert manager.finished
+    assert manager.callback is None
+    assert not manager.subscribed
+
+
+@pytest.mark.parametrize("verb", ["start", "stop"])
+@pytest.mark.parametrize(
+    "error, expected",
+    [
+        (DBusError("org.freedesktop.DBus.Error.AccessDenied", "denied"), PolkitDeniedError),
+        (DBusError("org.freedesktop.systemd1.NoSuchUnit", "missing"), AdapterUnavailableError),
+        (ConnectionError("bus gone"), AdapterUnavailableError),
+    ],
+)
+def test_comitup_service_distinguishes_permission_denial(
+    verb: str, error: Exception, expected: type[Exception]
+) -> None:
+    manager = _ComitupManager(error=error)
+    with pytest.raises(expected):
+        getattr(_comitup_port(manager), verb)()
+    assert manager.callback is None
+
+
+@pytest.mark.parametrize("result", ["failed", "canceled", "timeout"])
+def test_comitup_service_reports_unsuccessful_job(result: str) -> None:
+    manager = _ComitupManager(result=result)
+    with pytest.raises(AdapterUnavailableError):
+        _comitup_port(manager).start()
+
+
+def test_fake_comitup_service_tracks_state_and_propagates_errors() -> None:
+    from palmimo_portal.testing.fakes import FakeComitupServicePort
+
+    port = FakeComitupServicePort()
+    port.stop()
+    assert not port.running
+    port.start()
+    assert port.running
+    port.raise_on_call = PolkitDeniedError("comitup.service", "stop")
+    with pytest.raises(PolkitDeniedError):
+        port.stop()
+    assert port.running
+
+
+def test_comitup_service_bounds_job_wait_and_releases_subscription(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(systemd_module, "_COMITUP_JOB_TIMEOUT_SECONDS", 0.02)
+    manager = _ComitupManager(complete=False)
+    with pytest.raises(AdapterUnavailableError):
+        _comitup_port(manager).stop()
+    assert manager.callback is None
+    assert not manager.subscribed

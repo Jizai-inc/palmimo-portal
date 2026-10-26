@@ -28,12 +28,18 @@ from palmimo_portal.adapters.secrets import JsonSecretsStore
 from palmimo_portal.adapters.ssh_keys import AuthorizedKeysSshKeyPort
 from palmimo_portal.adapters.state import JsonFileStateStore, preflight_state_dir
 from palmimo_portal.adapters.static_asset import repair_static_dir
-from palmimo_portal.adapters.systemd import SystemdAppUnitPort, SystemdSyncUnitPort, SystemdSystemPort
+from palmimo_portal.adapters.systemd import (
+    SystemdAppUnitPort,
+    SystemdComitupServicePort,
+    SystemdSyncUnitPort,
+    SystemdSystemPort,
+)
 from palmimo_portal.adapters.uv_port import SubprocessUvPort
 from palmimo_portal.ports import (
     AppUnitPort,
     CatalogSource,
     ClockPort,
+    ComitupServicePort,
     DiskPort,
     GitPort,
     IdentityStore,
@@ -51,12 +57,14 @@ from palmimo_portal.ports import (
     SystemPort,
     Updater,
     UvPort,
+    WifiProfilePort,
 )
 from palmimo_portal.settings import Settings
 from palmimo_portal.testing.fakes import (
     FakeAppUnitPort,
     FakeCatalogSource,
     FakeClockPort,
+    FakeComitupServicePort,
     FakeDiskPort,
     FakeGitPort,
     FakeIdentityStore,
@@ -74,6 +82,7 @@ from palmimo_portal.testing.fakes import (
     FakeSystemPort,
     FakeUpdater,
     FakeUvPort,
+    FakeWifiProfilePort,
 )
 
 
@@ -91,6 +100,8 @@ class AdapterBundle:
 
     network: NetworkPort
     saved_networks: SavedNetworkPort
+    wifi_profiles: WifiProfilePort
+    comitup_service: ComitupServicePort
     system: SystemPort
     ssh_keys: SshKeyPort
     state: StateStore
@@ -131,6 +142,8 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         return AdapterBundle(
             network=FakeNetworkPort(state_store=fake_state),
             saved_networks=FakeSavedNetworkPort(),
+            wifi_profiles=FakeWifiProfilePort(),
+            comitup_service=FakeComitupServicePort(),
             system=FakeSystemPort(),
             ssh_keys=FakeSshKeyPort(),
             state=fake_state,
@@ -153,12 +166,15 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         )
     preflight_state_dir(settings.state_dir)
     real_state = JsonFileStateStore(settings.state_dir)
+    saved_networks = NetworkManagerSavedNetworkPort()
     return AdapterBundle(
         network=ComitupNetworkPort(
             known_network_marker=settings.state_dir / KNOWN_NETWORK_MARKER_FILENAME,
             state_store=real_state,
         ),
-        saved_networks=NetworkManagerSavedNetworkPort(),
+        saved_networks=saved_networks,
+        wifi_profiles=saved_networks,
+        comitup_service=SystemdComitupServicePort(),
         system=SystemdSystemPort(unit=settings.portal_unit),
         ssh_keys=AuthorizedKeysSshKeyPort(),
         state=real_state,

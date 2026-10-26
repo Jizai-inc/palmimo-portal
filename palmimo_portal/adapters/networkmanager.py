@@ -32,6 +32,9 @@ from palmimo_portal.ports import (
     SavedNetworkNotFoundError,
     SavedNetworkOrderError,
     SavedNetworkPort,
+    WifiDeviceStatus,
+    WifiProfile,
+    WifiProfilePort,
 )
 
 
@@ -136,10 +139,10 @@ def _with_psk(settings: Settings, psk: str) -> Settings:
     return updated
 
 
-class NetworkManagerSavedNetworkPort(SavedNetworkPort):
+class NetworkManagerSavedNetworkPort(SavedNetworkPort, WifiProfilePort):
     """Edits NetworkManager's saved Wi-Fi profiles. See the module docstring.
 
-    Every public method holds :attr:`_edit_lock` across its whole
+    Profile operations hold :attr:`_edit_lock` across their whole
     read-modify-write, so two requests reordering at once cannot interleave.
     :meth:`_nm_call` is the single D-Bus seam tests stub.
     """
@@ -327,5 +330,108 @@ class NetworkManagerSavedNetworkPort(SavedNetworkPort):
         async def run() -> None:
             async with self._edit_lock:
                 await self._activate(ssid)
+
+        self._run(run())
+
+    def list_profiles(self) -> list[WifiProfile]:
+        async def run() -> list[WifiProfile]:
+            async with self._edit_lock:
+                return [
+                    WifiProfile(
+                        uuid=str(settings["connection"]["uuid"].value),
+                        name=str(settings["connection"]["id"].value),
+                        ssid=bytes(settings["802-11-wireless"]["ssid"].value),
+                        priority=_priority_of(settings),
+                        autoconnect=bool(settings["connection"].get("autoconnect", Variant("b", True)).value),
+                        user_data=dict(settings.get("user", {}).get("data", Variant("a{ss}", {})).value),
+                    )
+                    for _, settings in await self._profiles()
+                ]
+
+        result: list[WifiProfile] = self._run(run())
+        return result
+
+    def add_profile(self, ssid: bytes, psk: str, *, name: str, priority: int, user_data: dict[str, str]) -> str:
+        async def run() -> str:
+            async with self._edit_lock:
+                settings = _new_profile(name, psk, priority)
+                settings["802-11-wireless"]["ssid"] = Variant("ay", ssid)
+                settings["user"] = {"data": Variant("a{ss}", user_data)}
+                await self._nm_call(SETTINGS_PATH, SETTINGS_INTERFACE, "AddConnection", "a{sa{sv}}", [settings])
+                return str(settings["connection"]["uuid"].value)
+
+        return str(self._run(run()))
+
+    async def _profile_by_uuid(self, uuid: str) -> tuple[str, Settings]:
+        for path, settings in await self._profiles():
+            if settings["connection"]["uuid"].value == uuid:
+                return path, settings
+        raise SavedNetworkNotFoundError(uuid)
+
+    def update_profile(
+        self,
+        uuid: str,
+        *,
+        ssid: bytes | None = None,
+        autoconnect: bool | None = None,
+        priority: int | None = None,
+        name: str | None = None,
+        user_data: dict[str, str] | None = None,
+    ) -> None:
+        async def run() -> None:
+            async with self._edit_lock:
+                path, settings = await self._profile_by_uuid(uuid)
+                if ssid is not None:
+                    settings["802-11-wireless"]["ssid"] = Variant("ay", ssid)
+                if autoconnect is not None:
+                    settings["connection"]["autoconnect"] = Variant("b", autoconnect)
+                if priority is not None:
+                    settings["connection"]["autoconnect-priority"] = Variant("i", priority)
+                if name is not None:
+                    settings["connection"]["id"] = Variant("s", name)
+                if user_data is not None:
+                    settings.setdefault("user", {})["data"] = Variant("a{ss}", user_data)
+                await self._nm_call(path, CONNECTION_INTERFACE, "Update", "a{sa{sv}}", [settings])
+
+        self._run(run())
+
+    def delete_profile(self, uuid: str) -> None:
+        async def run() -> None:
+            async with self._edit_lock:
+                path, _ = await self._profile_by_uuid(uuid)
+                await self._nm_call(path, CONNECTION_INTERFACE, "Delete")
+
+        self._run(run())
+
+    async def _device_path(self) -> str:
+        (path,) = await self._nm_call(NM_PATH, NM_INTERFACE, "GetDeviceByIpIface", "s", ["wlan0"])
+        return str(path)
+
+    def device_status(self) -> WifiDeviceStatus:
+        async def run() -> WifiDeviceStatus:
+            path = await self._device_path()
+            device_interface = "org.freedesktop.NetworkManager.Device"
+            (state,) = await self._nm_call(path, PROPERTIES_INTERFACE, "Get", "ss", [device_interface, "State"])
+            (active,) = await self._nm_call(
+                path, PROPERTIES_INTERFACE, "Get", "ss", [device_interface, "ActiveConnection"]
+            )
+            active_uuid = None
+            if active.value != "/":
+                try:
+                    (value,) = await self._nm_call(
+                        active.value, PROPERTIES_INTERFACE, "Get", "ss", [ACTIVE_INTERFACE, "Uuid"]
+                    )
+                    active_uuid = str(value.value)
+                except NetworkManagerCallError as error:
+                    if not error.gone:
+                        raise
+            return WifiDeviceStatus(int(state.value), active_uuid)
+
+        result: WifiDeviceStatus = self._run(run())
+        return result
+
+    def disconnect_device(self) -> None:
+        async def run() -> None:
+            await self._nm_call(await self._device_path(), "org.freedesktop.NetworkManager.Device", "Disconnect")
 
         self._run(run())

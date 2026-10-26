@@ -591,3 +591,18 @@ def test_unavailable_profile_reads_cannot_leave_outcome_attempting_after_worker_
     rig.nm.raise_on_call = None
     rig.manager().cleanup_marked()
     assert rig.nm.list_profiles() == []
+
+
+def test_completed_outcome_remains_available_after_later_web_trials() -> None:
+    rig = Rig()
+    manager = rig.manager()
+    first = manager.start_wifi_attempt("credentials", b"first", "password")
+    rig.run()
+    assert manager.outcome(first) == "failed"
+    second = manager.start_wifi_attempt("credentials", b"second", "password")
+    assert manager.outcome(first) == "failed"
+    rig.run()
+    manager.start_wifi_attempt("credentials", b"third", "password")
+    assert manager.outcome(first) == "failed"
+    assert manager.outcome(second) == "failed"
+    rig.run()

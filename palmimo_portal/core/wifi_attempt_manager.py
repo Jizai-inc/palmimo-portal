@@ -115,6 +115,7 @@ class WifiAttemptManager:
         self._active: tuple[str, float] | None = None
         self._last_id: str | None = None
         self._result: Outcome = "unknown"
+        self._completed_outcomes: dict[str, Outcome] = {}
         self._known_cache: tuple[float, bool] | None = None
 
     @property
@@ -511,6 +512,7 @@ class WifiAttemptManager:
 
     def _record(self, attempt_id: str, result: Outcome, *, only_pending: bool = False) -> None:
         self._last_id, self._result = attempt_id, result
+        self._completed_outcomes[attempt_id] = result
         attempt = self._state.read_last_wifi_attempt()
         if attempt is None or (only_pending and attempt.result != "attempting"):
             return
@@ -656,8 +658,9 @@ class WifiAttemptManager:
             raise CleanupFailedError from error
 
     def outcome(self, attempt_id: str) -> Outcome:
+        """Completed trial results remain queryable for this process's lifetime."""
         with self._edit_lock:
-            return self._result if attempt_id == self._last_id else "unknown"
+            return self._result if attempt_id == self._last_id else self._completed_outcomes.get(attempt_id, "unknown")
 
     def has_known_networks(self) -> bool:
         with self._edit_lock:

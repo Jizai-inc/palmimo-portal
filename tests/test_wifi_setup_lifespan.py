@@ -1,5 +1,6 @@
 import asyncio
 import threading
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -220,3 +221,71 @@ async def test_lifespan_finishes_other_cleanup_if_setup_shutdown_is_cancelled(
         async with _lifespan(app):
             pass
     assert cleanup == ["recovery"]
+
+
+def test_startup_ap_recorded_live_app_is_preempted_after_entry_delay(
+    app: FastAPI,
+    adapters: FakeAdapterBundle,
+) -> None:
+    install_app(app, "auto", autostart=True, devices='"audio"')
+    install_app(app, "face", autostart=False)
+    record = PreemptedApp("face", "wifi-setup")
+    adapters.state.write_preempted_app(record)
+    adapters.app_unit.simulate_active_state("face", UnitStatus("active", "running", "success", 0))
+    with TestClient(app):
+        assert adapters.app_unit.start_calls == []
+        assert adapters.app_unit.stop_calls == []
+        app.state.wifi_setup.tick()
+        for _ in range(3):
+            adapters.clock.monotonic_value += 2
+            app.state.wifi_setup.tick()
+        assert adapters.app_unit.stop_calls == ["face"]
+        assert adapters.state.read_preempted_app() == record
+        reader = adapters.wifi_qr_client.clients[-1]
+        reader.emit({"type": "hello", "proto": 1, "display": "frame"})
+        assert app.state.wifi_setup.status().mode == "active"
+    assert adapters.state.read_preempted_app() == record
+    assert adapters.app_unit.start_calls == []
+
+
+def test_unavailable_reader_does_not_prevent_later_lan_app_recovery(
+    app: FastAPI,
+    adapters: FakeAdapterBundle,
+) -> None:
+    install_app(app, "auto", autostart=True)
+    install_app(app, "face", autostart=False)
+    adapters.state.write_preempted_app(PreemptedApp("face", "wifi-setup"))
+    adapters.wifi_qr_unit.error = WifiQrUnitMissingError()
+    with TestClient(app):
+        assert adapters.app_unit.start_calls == []
+        adapters.network.status = WifiStatus(ConnectionState.CONNECTED, "home", "192.0.2.1")
+        adapters.wifi_profiles.device = WifiDeviceStatus(100, None)
+        app.state.wifi_setup.tick()
+        assert app.state.wifi_setup.status().mode == "unavailable"
+        assert adapters.app_unit.start_calls == ["face"]
+        assert adapters.state.read_preempted_app() is None
+
+
+def test_startup_deadline_continues_to_autostart_without_late_reader_stop(
+    app: FastAPI,
+    adapters: FakeAdapterBundle,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.test_wifi_qr_deadlines import Bus, port_for
+
+    install_app(app, "auto", autostart=True, devices='"audio"')
+    bus = Bus()
+    bus.block = "service"
+    port = port_for(bus, monkeypatch)
+    app.state.wifi_setup.unit = port
+    monkeypatch.setattr(app.state.wifi_setup, "READER_STOP_TIMEOUT", 0.05)
+    started = time.monotonic()
+    with TestClient(app):
+        assert time.monotonic() - started < 0.7
+        assert adapters.app_unit.start_calls == ["auto"]
+        assert bus.cancelled.wait(1)
+        bus.block = None
+        port.start()
+        port._unit_port._loop_thread.run(asyncio.sleep(0), timeout=1)
+        assert bus.state == "active"
+        assert bus.calls.count("stop") == 1

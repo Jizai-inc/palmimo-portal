@@ -210,3 +210,39 @@ def test_wifi_setup_refuses_user_start_while_firmware_recovery_owns_record(
     with deps.state.lock_run(), pytest.raises(AppBusyError):
         WifiSetupApps(deps).hold_locked()
     assert adapters.state.read_preempted_app() == record
+
+
+@pytest.mark.parametrize("lock_name", ["lock_apps", "lock_run"])
+def test_wifi_setup_restore_retries_after_actual_lock_contention(
+    prepared: tuple[StartDeps, FakeAdapterBundle],
+    lock_name: str,
+) -> None:
+    deps, adapters = prepared
+    record = PreemptedApp("face", "wifi-setup")
+    adapters.state.write_preempted_app(record)
+    coordinator = WifiSetupApps(deps)
+    with getattr(adapters.state, lock_name)():
+        assert not coordinator.restore(hold=False)
+        assert adapters.state.read_preempted_app() == record
+        assert adapters.app_unit.start_calls == []
+    assert coordinator.restore(hold=False)
+    assert adapters.state.read_preempted_app() is None
+    assert adapters.app_unit.start_calls == ["face"]
+
+
+@pytest.mark.parametrize("failure", ["removed", "platform_not_ready"])
+def test_wifi_setup_restore_discards_record_after_fatal_precheck(
+    prepared: tuple[StartDeps, FakeAdapterBundle],
+    failure: str,
+) -> None:
+    deps, adapters = prepared
+    adapters.state.write_preempted_app(PreemptedApp("face", "wifi-setup"))
+    if failure == "removed":
+        adapters.state.write_apps_state(AppsState())
+    else:
+        deps = replace(deps, platform_ready=lambda: False)
+    assert WifiSetupApps(deps).restore(hold=False)
+    assert adapters.state.read_preempted_app() is None
+    assert adapters.app_unit.start_calls == []
+    assert adapters.app_unit.device_allow_calls == []
+    assert adapters.run_dir.written == {}

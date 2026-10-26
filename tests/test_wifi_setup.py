@@ -68,8 +68,11 @@ class Rig:
 @pytest.fixture
 def rig(prepared: tuple[StartDeps, FakeAdapterBundle], monkeypatch: pytest.MonkeyPatch) -> Rig:
     deps, adapters = prepared
-    unit = FakeWifiQrUnitPort()
     clock = FakeClockPort()
+    unit = FakeWifiQrUnitPort(
+        monotonic=clock.monotonic,
+        sleep=lambda seconds: setattr(clock, "monotonic_value", clock.monotonic() + seconds),
+    )
     reader = Reader()
     adapters.wifi_profiles.device = WifiDeviceStatus(100, None)
     setup = WifiSetup(
@@ -80,7 +83,6 @@ def rig(prepared: tuple[StartDeps, FakeAdapterBundle], monkeypatch: pytest.Monke
         apps=WifiSetupApps(deps, hostname="robot"),
         client_factory=lambda on_message, on_disconnect: reader,
         monotonic=clock.monotonic,
-        sleep=lambda seconds: setattr(clock, "monotonic_value", clock.monotonic() + seconds),
         hostname="robot",
     )
     monkeypatch.setattr(adapters.wifi_attempts, "start_wifi_attempt", lambda *a: "attempt-one")
@@ -651,3 +653,41 @@ def test_setup_stopping_discards_delayed_trial_start(
     assert not thread.is_alive()
     assert rig.setup.status().mode == "idle"
     assert rig.setup.status().screen is None
+
+
+def test_setup_shutdown_finishes_during_slow_reader_status(
+    rig: Rig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.test_wifi_qr_deadlines import Bus, port_for
+
+    rig.active()
+    bus = Bus()
+    bus.block = "service"
+    bus.unblock_on_cancel = True
+    port = port_for(bus, monkeypatch)
+    rig.setup.unit = port
+    monitor = threading.Thread(target=rig.setup.run_forever)
+    shutdown = threading.Thread(target=rig.setup.shutdown)
+    monitor.start()
+    try:
+        assert bus.entered.wait(1)
+        shutdown.start()
+        assert bus.cancelled.wait(1)
+    finally:
+        bus.block = None
+        if not shutdown.ident:
+            shutdown.start()
+        shutdown.join(2)
+        monitor.join(2)
+    assert not shutdown.is_alive()
+    assert not monitor.is_alive()
+    assert rig.setup.status().mode == "idle"
+    port.start()
+    assert bus.state == "active"
+
+
+def test_setup_startup_distinguishes_not_found_load_state(rig: Rig) -> None:
+    rig.unit.unit_status = WifiQrUnitStatus(load_state="not-found")
+    rig.setup.startup()
+    assert rig.setup.status().mode == "unavailable"

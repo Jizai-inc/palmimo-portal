@@ -1821,6 +1821,10 @@ class WifiQrUnitPort(Protocol):
 
     def stop(self) -> None: ...
 
+    def stop_and_wait(self, *, timeout_s: float) -> None:
+        """Include the stop request and all status reads in one cancellable deadline, in seconds."""
+        ...
+
     def status(self) -> WifiQrUnitStatus: ...
 
 

@@ -105,6 +105,7 @@ from palmimo_portal.ports import (
     WifiNetwork,
     WifiProfile,
     WifiProfilePort,
+    WifiQrUnitMissingError,
     WifiQrUnitStatus,
     WifiStatus,
 )
@@ -1298,6 +1299,8 @@ class FakeWifiQrUnitPort:
     unit_status: WifiQrUnitStatus = field(default_factory=WifiQrUnitStatus)
     error: Exception | None = None
     calls: list[str] = field(default_factory=list)
+    monotonic: Callable[[], float] = time.monotonic
+    sleep: Callable[[float], None] = time.sleep
 
     def _check(self, verb: str) -> None:
         self.calls.append(verb)
@@ -1315,6 +1318,19 @@ class FakeWifiQrUnitPort:
     def status(self) -> WifiQrUnitStatus:
         self._check("status")
         return self.unit_status
+
+    def stop_and_wait(self, *, timeout_s: float) -> None:
+        deadline = self.monotonic() + timeout_s
+        self.stop()
+        while True:
+            status = self.status()
+            if status.load_state == "not-found":
+                raise WifiQrUnitMissingError("Wi-Fi QR unit is not installed")
+            if status.active_state in {"inactive", "failed"}:
+                return
+            if self.monotonic() >= deadline:
+                raise TimeoutError("Wi-Fi QR unit did not stop")
+            self.sleep(min(0.1, deadline - self.monotonic()))
 
 
 @dataclass

@@ -147,6 +147,7 @@ class WifiSetup:
     """Never hold the setup condition across D-Bus calls, trial operations, or socket close."""
 
     APP_STOP_TIMEOUT = 10.0
+    READER_STOP_TIMEOUT = 6.0
 
     def __init__(
         self,
@@ -158,7 +159,6 @@ class WifiSetup:
         apps: WifiSetupApps,
         client_factory: Callable[[Callable[[dict[str, Any]], None], Callable[[], None]], WifiQrClientPort],
         monotonic: Callable[[], float] = time.monotonic,
-        sleep: Callable[[float], None] = time.sleep,
         hostname: str,
     ) -> None:
         self.network = network
@@ -168,7 +168,6 @@ class WifiSetup:
         self.apps = apps
         self._factory = client_factory
         self._now = monotonic
-        self._sleep = sleep
         self._hostname = hostname
         self._condition = threading.Condition()
         self._mode = "idle"
@@ -302,8 +301,7 @@ class WifiSetup:
                 with self._condition:
                     stale = self._generation != generation or self._shutdown.is_set()
                 if stale:
-                    self.unit.stop()
-                    self._wait_stopped(6)
+                    self.unit.stop_and_wait(timeout_s=self.READER_STOP_TIMEOUT)
                     return
         except RunLockTimeoutError:
             return
@@ -322,18 +320,9 @@ class WifiSetup:
             return
         self._connect_socket()
 
-    def _wait_stopped(self, timeout: float) -> None:
-        deadline = self._now() + timeout
-        while self.unit.status().active_state not in {"inactive", "failed"}:
-            if self._now() >= deadline:
-                raise TimeoutError("Wi-Fi QR reader did not stop")
-            self._sleep(min(0.1, deadline - self._now()))
-
     def startup(self) -> None:
-        deadline = self._now() + 6
         try:
-            self.unit.stop()
-            self._wait_stopped(max(0, deadline - self._now()))
+            self.unit.stop_and_wait(timeout_s=self.READER_STOP_TIMEOUT)
         except WifiQrUnitMissingError:
             with self._condition:
                 self._mode = "unavailable"
@@ -383,8 +372,7 @@ class WifiSetup:
             except Exception:
                 logger.warning("wifi-setup: reader exit status unavailable")
         try:
-            self.unit.stop()
-            self._wait_stopped(6)
+            self.unit.stop_and_wait(timeout_s=self.READER_STOP_TIMEOUT)
         except Exception:
             logger.warning("wifi-setup: reader stop failed")
         with self._condition:

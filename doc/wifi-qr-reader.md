@@ -21,10 +21,13 @@ normally after restoring the face and releasing its devices.
 
 | type | Fields | Meaning |
 | --- | --- | --- |
-| hello | proto: 1, display: frame or expr | Camera and display initialization completed; sent once |
+| hello | proto: 1 | Camera and display initialization completed; sent once |
+| close | None | Connected screen Close button pressed |
 | qr | text: string | Decoded QR contents, without interpretation |
 
-The Portal accepts qr only while its screen state is scanning. On decoding
+Any hello display field is ignored. The Portal accepts close only on the
+connected screen, then stops the reader normally and restores the app.
+It accepts qr only while its screen state is scanning. On decoding
 a QR, the reader immediately stops the live preview and shows checking
 before waiting for the Portal. It suppresses the same text until that text
 has been absent for 30 consecutive frames.
@@ -40,15 +43,20 @@ All messages have type: screen.
 | rejected | reason |
 | connecting | ssid |
 | failed | reason |
-| connected | hostname, without the .local suffix |
+| connected | url: http://hostname.local; qr: {size: n, rows: [binary strings]} |
 
 Reasons are not_wifi, unsupported_security, hidden_network, invalid_ssid,
-invalid_psk, busy, or connect_failed. The connected screen presents the
-hostname and sticker-login guidance without a network name: the connected
-LAN can differ from the QR's network.
+invalid_psk, busy, or connect_failed. The connected screen presents the URL,
+its QR code, a Close button, and an automatic-close notice without a network
+name: the connected LAN can differ from the QR's network.
+
+The Portal encodes the URL with error correction M. The square matrix has
+size rows of size characters each; 1 is dark and 0 is light. It excludes the
+quiet zone, which the reader adds when rendering. The URL has no trailing
+slash. The reader sends close when the connected screen's button is tapped.
 
 The Portal owns screen timing: rejected lasts 5 seconds, failed 8 seconds,
-and connected 60 seconds. An unresolved QR trial screen fails after 120
+and connected 300 seconds unless closed earlier. An unresolved QR trial screen fails after 120
 seconds; this does not cancel the independent network trial.
 
 ## Reader timers and termination
@@ -63,6 +71,7 @@ seconds. SIGTERM restores the sleeping face and releases devices.
 | 0 | Normal disconnect, termination, or client wait expiry | Normal completion |
 | 69 | Required decoding dependencies unavailable | Disable until the Portal restarts |
 | 75 | Camera or display reservation unavailable | Retry after 30 seconds |
+| 76 | Face firmware does not support FRAME | Disable until the Portal restarts; expose firmware_too_old in setup status |
 | 78 | Camera or face display missing | Retry after one hour |
 | Other | Abnormal termination | Retry after 30 seconds, doubling to at most 10 minutes |
 

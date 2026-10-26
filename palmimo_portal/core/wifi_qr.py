@@ -1,5 +1,18 @@
 from dataclasses import dataclass, field
 from string import hexdigits
+from typing import TypedDict
+
+import segno
+
+
+class QrMatrix(TypedDict):
+    size: int
+    rows: list[str]
+
+
+def make_url_qr(url: str) -> QrMatrix:
+    qr = segno.make_qr(url, error="M", boost_error=False)
+    return {"size": len(qr.matrix), "rows": ["".join(str(bit) for bit in row) for row in qr.matrix]}
 
 
 @dataclass(frozen=True)

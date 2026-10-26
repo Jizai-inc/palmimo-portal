@@ -11,6 +11,7 @@ dependencies = [
     "itsdangerous>=2.2.0",
     "packaging>=26.3",
     "python-multipart>=0.0.32",
+    "segno>=1.6.6",
     "uvicorn[standard]>=0.52.0",
 ]
 

@@ -19,9 +19,13 @@ def test_system_status_reports_setup_mode_and_screen(
         app.state.wifi_setup.tick()
     reader = adapters.wifi_qr_client.clients[-1]
     reader.emit({"type": "hello", "proto": 1, "display": "frame"})
-    assert client.get("/api/v1/system/status").json()["wifi_setup"] == {"mode": "active", "screen": "scanning"}
+    assert client.get("/api/v1/system/status").json()["wifi_setup"] == {
+        "mode": "active",
+        "screen": "scanning",
+        "reason": None,
+    }
     app.state.wifi_setup.stop("app")
-    assert client.get("/api/v1/system/status").json()["wifi_setup"] == {"mode": "idle", "screen": None}
+    assert client.get("/api/v1/system/status").json()["wifi_setup"] == {"mode": "idle", "screen": None, "reason": None}
 
 
 @pytest.mark.parametrize(
@@ -122,3 +126,32 @@ def test_web_start_explains_pending_display_recovery(
     assert response.json()["error"]["code"] == "display_recovery_pending"
     assert adapters.state.read_preempted_app() == record
     assert adapters.app_unit.start_calls == []
+
+
+def test_old_firmware_reason_is_reported_by_system_and_platform(
+    app: FastAPI,
+    client: TestClient,
+    adapters: FakeAdapterBundle,
+) -> None:
+    from palmimo_portal.ports import WifiQrUnitStatus
+
+    headers = {"X-Requested-With": "PalmimoPortal"}
+    client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=headers)
+    adapters.saved_networks.save("home", "", first=False)
+    client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=headers)
+    app.state.wifi_setup.tick()
+    for _ in range(30):
+        adapters.clock.monotonic_value += 2
+        app.state.wifi_setup.tick()
+    adapters.wifi_qr_unit.unit_status = WifiQrUnitStatus("failed", "loaded", "exit-code", 1, 76)
+    app.state.wifi_setup.tick()
+    system = client.get("/api/v1/system/status")
+    platform = client.get("/api/v1/platform")
+    assert system.status_code == platform.status_code == 200
+    for response in (system, platform):
+        assert response.json()["wifi_setup"] == {
+            "mode": "unavailable",
+            "screen": None,
+            "reason": "firmware_too_old",
+        }
+    assert platform.json()["ready"] is True

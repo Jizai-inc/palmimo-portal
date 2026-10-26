@@ -19,7 +19,7 @@ from palmimo_portal.core.apps_start import (
     _stop_app_locked,
 )
 from palmimo_portal.core.wifi_attempt_manager import AttemptInProgressError, WifiAttemptManager
-from palmimo_portal.core.wifi_qr import Rejection, parse_wifi_qr
+from palmimo_portal.core.wifi_qr import Rejection, make_url_qr, parse_wifi_qr
 from palmimo_portal.ports import (
     AdapterUnavailableError,
     AppsLockTimeoutError,
@@ -170,6 +170,7 @@ class WifiSetupApps:
 class WifiSetupStatus:
     mode: str
     screen: str | None
+    reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -186,6 +187,7 @@ class WifiSetup:
 
     APP_STOP_TIMEOUT = 10.0
     READER_STOP_TIMEOUT = 6.0
+    CONNECTED_SCREEN_SECONDS = 300.0
 
     def __init__(
         self,
@@ -230,9 +232,11 @@ class WifiSetup:
 
     def status(self) -> WifiSetupStatus:
         with self._condition:
-            return WifiSetupStatus(self._mode, self._screen)
+            return WifiSetupStatus(
+                self._mode, self._screen, self._unavailable_reason if self._mode == "unavailable" else None
+            )
 
-    def _show_locked(self, state: str, **fields: str) -> None:
+    def _show_locked(self, state: str, **fields: Any) -> None:
         self._screen = state
         self._screen_at = self._now()
         if self._client is not None:
@@ -244,6 +248,15 @@ class WifiSetup:
                 logger.warning("wifi-setup: screen send failed")
 
     def on_message(self, message: dict[str, Any], *, generation: int | None = None) -> None:
+        if message.get("type") == "close":
+            with self._condition:
+                if generation is not None and generation != self._generation:
+                    return
+                accepted = self._mode == "active" and self._screen == "connected"
+            if accepted:
+                self.stop("connected")
+                self._restore()
+            return
         with self._condition:
             if generation is not None and generation != self._generation:
                 return
@@ -457,9 +470,9 @@ class WifiSetup:
                     and result.active_state in {"inactive", "failed"}
                     else None
                 )
-                if code in {69, 78}:
+                if code in {69, 76, 78}:
                     self._unavailable_locked(
-                        "dependencies_missing" if code == 69 else "devices_missing",
+                        {69: "dependencies_missing", 76: "firmware_too_old", 78: "devices_missing"}[code],
                         retry_s=3600 if code == 78 else None,
                     )
                 elif code == 75:
@@ -594,7 +607,8 @@ class WifiSetup:
                 return
             if lan and self._pending is not None:
                 self._pending = None
-                self._show_locked("connected", hostname=self._hostname)
+                url = f"http://{self._hostname}.local"
+                self._show_locked("connected", url=url, qr=make_url_qr(url))
             elif lan and self._screen != "connected":
                 should_stop = True
             elif (
@@ -608,7 +622,7 @@ class WifiSetup:
                 5 if self._screen == "rejected" else 8
             ):
                 self._show_locked("scanning")
-            if self._screen == "connected" and now - self._screen_at >= 60:
+            if self._screen == "connected" and now - self._screen_at >= self.CONNECTED_SCREEN_SECONDS:
                 should_stop = True
         if should_stop:
             self.stop("connected")

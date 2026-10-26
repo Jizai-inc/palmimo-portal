@@ -693,6 +693,8 @@
   },
   "wifiQr": {
     "title": "Setting up Wi-Fi with QR",
-    "body": "Show your phone’s Wi-Fi sharing QR code to the robot’s camera."
+    "body": "Show your phone’s Wi-Fi sharing QR code to the robot’s camera.",
+    "oldFirmwareTitle": "QR setup is unavailable because the face firmware is too old.",
+    "oldFirmwareBody": "Connect using Wi-Fi settings, then repair the face firmware on the Updates page."
   }
 }

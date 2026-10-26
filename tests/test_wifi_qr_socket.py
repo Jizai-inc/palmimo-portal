@@ -30,7 +30,7 @@ def test_socket_delivers_messages_and_sends_screens() -> None:
         client.connect()
         reader.send({"type": "hello", "proto": 1, "display": "frame"})
         assert ready.wait(2)
-        assert received == [{"type": "hello", "proto": 1, "display": "frame"}]
+        assert received == [{"type": "hello", "proto": 1}]
         assert threads[0] != caller
         client.send({"type": "screen", "state": "connecting", "ssid": "home"})
         assert reader.receive() == {"type": "screen", "state": "connecting", "ssid": "home"}
@@ -46,7 +46,6 @@ def test_socket_delivers_messages_and_sends_screens() -> None:
         b'{"type":"unknown","text":"secret-password"}\n',
         b'{"type":"qr","text":17}\n',
         b'{"type":"hello","proto":2,"display":"frame"}\n',
-        b'{"type":"hello","proto":1,"display":"unknown"}\n',
         b"x" * 32769 + b"\n",
         b"[" * 2000 + b'"secret-password"' + b"]" * 2000 + b"\n",
     ],
@@ -171,3 +170,41 @@ def test_socket_sanitizes_outgoing_encoding_error() -> None:
         client.send({"type": "screen", "ssid": "secret-password\ud800"})
     assert "secret-password" not in str(error.value)
     assert error.value.__suppress_context__
+
+
+@pytest.mark.parametrize("display", [None, "frame", "expr", "unknown", 3, {}])
+def test_socket_accepts_hello_without_interpreting_display(display: object) -> None:
+    received: list[dict[str, object]] = []
+    ready = threading.Event()
+
+    def message(value: dict[str, object]) -> None:
+        received.append(value)
+        ready.set()
+
+    with FakeWifiQrReader(Path("reader.sock")) as reader:
+        client = WifiQrSocketClient(message, path=reader.path)
+        client.connect()
+        hello: dict[str, object] = {"type": "hello", "proto": 1}
+        if display is not None:
+            hello["display"] = display
+        reader.send(hello)
+        assert ready.wait(2)
+        client.close()
+    assert received == [{"type": "hello", "proto": 1}]
+
+
+def test_socket_delivers_close_message() -> None:
+    received: list[dict[str, object]] = []
+    ready = threading.Event()
+
+    def message(value: dict[str, object]) -> None:
+        received.append(value)
+        ready.set()
+
+    with FakeWifiQrReader(Path("reader.sock")) as reader:
+        client = WifiQrSocketClient(message, path=reader.path)
+        client.connect()
+        reader.send({"type": "close"})
+        assert ready.wait(2)
+        client.close()
+    assert received == [{"type": "close"}]

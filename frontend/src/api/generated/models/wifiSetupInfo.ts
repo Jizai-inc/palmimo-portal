@@ -7,5 +7,6 @@
 
 export interface WifiSetupInfo {
   mode: string;
+  reason?: string | null;
   screen: string | null;
 }

@@ -149,6 +149,7 @@ export function PlatformUpdateCard({
           ) : null}
           {!firmwareRunning && firmwareWarning ? (
             <Button
+              id="face-firmware"
               variant="outline"
               className="w-fit"
               onClick={repairFirmware}

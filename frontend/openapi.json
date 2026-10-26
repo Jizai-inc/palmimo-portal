@@ -1660,6 +1660,16 @@
             },
             "title": "Verify Diffs",
             "type": "array"
+          },
+          "wifi_setup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WifiSetupInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2376,6 +2386,17 @@
           "mode": {
             "title": "Mode",
             "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
           },
           "screen": {
             "anyOf": [

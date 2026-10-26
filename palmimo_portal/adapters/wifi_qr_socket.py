@@ -90,8 +90,9 @@ class WifiQrSocketClient:
         elif kind == "hello":
             if type(message.get("proto")) is not int or message["proto"] != 1:
                 return
-            if message.get("display") not in ("frame", "expr"):
-                return
+            message = {"type": "hello", "proto": 1}
+        elif kind == "close":
+            message = {"type": "close"}
         else:
             return
         try:

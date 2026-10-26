@@ -65,6 +65,7 @@ class RunningAppInfo(BaseModel):
 class WifiSetupInfo(BaseModel):
     mode: str
     screen: str | None
+    reason: str | None = None
 
 
 class SystemStatus(BaseModel):
@@ -176,7 +177,7 @@ def get_status(
         ntp_synchronized=clock.ntp_synchronized(),
         disk_free_bytes=disk.free_bytes(settings.state_dir),
         running_app=_running_app_for(request, app_unit, state),
-        wifi_setup=WifiSetupInfo(mode=wifi_setup.mode, screen=wifi_setup.screen),
+        wifi_setup=WifiSetupInfo(mode=wifi_setup.mode, screen=wifi_setup.screen, reason=wifi_setup.reason),
     )
 
 

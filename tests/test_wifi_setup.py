@@ -204,16 +204,14 @@ def test_setup_uses_attempt_outcome_for_failure(rig: Rig, monkeypatch: pytest.Mo
     assert rig.setup.status().screen == "scanning"
 
 
-def test_setup_shows_any_lan_connection_for_sixty_seconds(rig: Rig) -> None:
+def test_setup_accepts_connection_to_a_different_lan(rig: Rig) -> None:
     rig.active()
     rig.setup.on_message({"type": "qr", "text": "WIFI:S:home;P:password;;"})
     rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTED, "another-network", "192.0.2.1")
     rig.setup.tick()
-    assert rig.reader.messages[-1] == {"type": "screen", "state": "connected", "hostname": "robot"}
-    rig.advance(58)
-    assert rig.setup.status().mode == "active"
-    rig.advance(2)
-    assert rig.setup.status().mode == "idle"
+    assert rig.setup.status().screen == "connected"
+    assert rig.reader.messages[-1]["url"] == "http://robot.local"
+    assert "ssid" not in rig.reader.messages[-1]
 
 
 @pytest.mark.parametrize(
@@ -463,8 +461,10 @@ def test_setup_completes_qr_flow_over_unix_socket(
         assert accepted.wait(2)
         rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTED, "another", "192.0.2.1")
         rig.setup.tick()
-        assert reader.receive() == {"type": "screen", "state": "connected", "hostname": "robot"}
-        rig.advance(60)
+        connected = reader.receive()
+        assert connected["state"] == "connected"
+        assert connected["url"] == "http://robot.local"
+        rig.advance(300)
         assert rig.setup.status().mode == "idle"
     assert "secret-password" not in caplog.text
     assert "WIFI:" not in caplog.text
@@ -827,3 +827,125 @@ def test_setup_diagnostics_do_not_log_qr_or_password(
             rig.advance(18)
     assert text not in caplog.text
     assert "secret-password" not in caplog.text
+
+
+def test_setup_connected_screen_contains_url_and_reference_qr(rig: Rig) -> None:
+    # Reference independently decoded with ZXing-C++: http://robot.local, ECC M, no border.
+    rows = """1111111011000010001111111
+1000001010111100101000001
+1011101011110101101011101
+1011101001100010101011101
+1011101010111010101011101
+1000001000010000001000001
+1111111010101010101111111
+0000000000110111000000000
+1001111111010101110010111
+0010110000010111000111110
+0110011111011101111101001
+1011100101011101010111111
+1101111001011100101100001
+1101100011000111100010010
+1100101000111101110111111
+1001010011110000010010101
+1010011101100010111110110
+0000000010011110100010010
+1111111011110000101011001
+1000001010101011100010000
+1011101010101111111111001
+1011101010100010011101011
+1011101001101010100110111
+1000001000100010001110111
+1111111011000111111001001""".splitlines()
+    rig.active()
+    rig.setup.on_message({"type": "qr", "text": "WIFI:S:home;P:password;;"})
+    rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTED, "home", "192.0.2.1")
+    rig.setup.tick()
+    assert rig.reader.messages[-1] == {
+        "type": "screen",
+        "state": "connected",
+        "url": "http://robot.local",
+        "qr": {"size": 25, "rows": rows},
+    }
+
+
+def test_setup_connected_screen_expires_after_five_minutes(rig: Rig) -> None:
+    rig.active()
+    rig.setup.on_message({"type": "qr", "text": "WIFI:S:home;P:password;;"})
+    rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTED, "home", "192.0.2.1")
+    rig.setup.tick()
+    rig.advance(298)
+    assert rig.setup.status().mode == "active"
+    assert rig.setup.status().screen == "connected"
+    rig.advance(2)
+    assert rig.setup.status().mode == "idle"
+    assert rig.reader.closed
+
+
+def test_setup_close_stops_connected_screen(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> None:
+    rig.active()
+    rig.setup.on_message({"type": "qr", "text": "WIFI:S:home;P:password;;"})
+    rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTED, "home", "192.0.2.1")
+    rig.setup.tick()
+    stop = rig.unit.stop_and_wait
+    modes: list[str] = []
+
+    def stop_and_wait(*, timeout_s: float) -> None:
+        modes.append(rig.setup.status().mode)
+        stop(timeout_s=timeout_s)
+
+    monkeypatch.setattr(rig.unit, "stop_and_wait", stop_and_wait)
+    rig.setup.on_message({"type": "close"})
+    assert modes == ["stopping"]
+    assert rig.setup.status().mode == "idle"
+    assert rig.reader.closed
+
+
+@pytest.mark.parametrize("screen", ["scanning", "checking", "rejected", "connecting", "failed"])
+def test_setup_ignores_close_outside_connected_screen(
+    rig: Rig,
+    screen: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from palmimo_portal.core import wifi_setup
+
+    rig.active()
+
+    def close() -> None:
+        assert rig.setup.status().screen == screen
+        rig.setup.on_message({"type": "close"})
+        assert rig.setup.status().mode == "active"
+        assert not rig.reader.closed
+
+    if screen == "checking":
+        parse = wifi_setup.parse_wifi_qr
+
+        def parse_and_close(text: str) -> Any:
+            close()
+            return parse(text)
+
+        monkeypatch.setattr(wifi_setup, "parse_wifi_qr", parse_and_close)
+        rig.setup.on_message({"type": "qr", "text": "poster"})
+        return
+    if screen == "failed":
+
+        def fail(*args: Any) -> str:
+            raise RuntimeError
+
+        monkeypatch.setattr(rig.adapters.wifi_attempts, "start_wifi_attempt", fail)
+    if screen == "rejected":
+        rig.setup.on_message({"type": "qr", "text": "poster"})
+    elif screen in {"connecting", "failed"}:
+        rig.setup.on_message({"type": "qr", "text": "WIFI:S:home;P:password;;"})
+    close()
+
+
+def test_setup_old_firmware_disables_reader_until_portal_restart(rig: Rig) -> None:
+    rig.active()
+    rig.unit.unit_status = WifiQrUnitStatus("failed", "loaded", "exit-code", 1, 76)
+    rig.setup.tick()
+    assert rig.setup.status().mode == "unavailable"
+    assert rig.setup.status().reason == "firmware_too_old"
+    starts = rig.unit.calls.count("start")
+    rig.advance(7200)
+    assert rig.setup.status().mode == "unavailable"
+    assert rig.unit.calls.count("start") == starts

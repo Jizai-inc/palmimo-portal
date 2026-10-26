@@ -7,6 +7,7 @@
 import type { DisplayFirmwareState } from './displayFirmwareState';
 import type { PlatformLatestInfo } from './platformLatestInfo';
 import type { PlatformVerifyDiffInfo } from './platformVerifyDiffInfo';
+import type { WifiSetupInfo } from './wifiSetupInfo';
 
 export interface PlatformStatusResponse {
   display_firmware?: DisplayFirmwareState | null;
@@ -19,4 +20,5 @@ export interface PlatformStatusResponse {
   reason: string | null;
   required_version: number;
   verify_diffs: PlatformVerifyDiffInfo[];
+  wifi_setup?: WifiSetupInfo | null;
 }

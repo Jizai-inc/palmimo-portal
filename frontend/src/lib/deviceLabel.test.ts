@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import i18n from "@/i18n";
 import { deviceLabel } from "@/lib/deviceLabel";
 
-// would render as an empty string instead of the raw id.
 describe("deviceLabel", () => {
   it.each([
     ["camera", "Camera"],

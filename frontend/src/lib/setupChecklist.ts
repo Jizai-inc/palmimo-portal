@@ -7,10 +7,7 @@ export interface ChecklistItem {
   done: boolean;
 }
 
-/**
- * "Build your own app" counts any non-official install (own GitHub repo or zip): the template
- * repo URL is still a stand-in (`TEMPLATE_REPO_URL`), so an exact source match can't be made yet.
- */
+/** "Build your own app" counts any non-official install: an app made from the template lives at the owner's own URL, so it can't be matched against `TEMPLATE_REPO_URL`. */
 export function checklistItems({
   apps,
   gitCredentialCount,

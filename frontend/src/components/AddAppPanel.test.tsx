@@ -86,7 +86,6 @@ describe("AddAppPanel", () => {
     expect(screen.getByText("Optional")).toBeInTheDocument();
   });
 
-  // readable label.
   it("shows a human-readable label for a catalog app's declared device instead of its raw id", async () => {
     server.use(getGetCatalogApiV1CatalogGetMockHandler(CATALOG));
     renderWithProviders(<AddAppPanel />);
@@ -95,12 +94,6 @@ describe("AddAppPanel", () => {
     expect(screen.queryByText("camera")).not.toBeInTheDocument();
   });
 
-  // backend with a correctly-shaped git source and the chosen device-name part, or the job
-  // dialog + the caller's completion callback would never fire once the job finishes.
-  //
-  // `onInstalled` receiving the finished job's `app_id` is what routes/apps.tsx uses to
-  // navigate straight to the new app's detail page instead of the plain list -- asserted here,
-  // at the router-free component boundary, rather than by mocking the router itself.
   it("confirms then installs a catalog app, sending the default ID name and reporting completion with the installed app's id", async () => {
     const user = userEvent.setup();
     const onInstalled = vi.fn();
@@ -146,7 +139,6 @@ describe("AddAppPanel", () => {
     await waitFor(() => expect(onInstalled).toHaveBeenCalledWith("palmimo.teleop"));
   });
 
-  // explicitly confirms it.
   it("does not install when the confirmation dialog is cancelled", async () => {
     const user = userEvent.setup();
     let installRequests = 0;
@@ -170,8 +162,6 @@ describe("AddAppPanel", () => {
     expect(installRequests).toBe(0);
   });
 
-  // "palmimo." on a fork) or a device-name-part change could fail to reach the install request
-  // (design doc 3.9's add-app screen: namespace read-only, name part editable and sent).
   it("shows the namespace as read-only and sends an edited device name part on install", async () => {
     const user = userEvent.setup();
     let installedName: string | undefined;
@@ -203,8 +193,6 @@ describe("AddAppPanel", () => {
     await waitFor(() => expect(installedName).toBe("my-fork"));
   });
 
-  // and install can race) would leave the operator stuck retrying an id that will never install,
-  // instead of being shown a fresh suggested name.
   it("re-runs preview and shows a new suggested name when install returns app_exists", async () => {
     const user = userEvent.setup();
     let previewCount = 0;
@@ -330,8 +318,6 @@ describe("AddAppPanel", () => {
     await waitFor(() => expect(manifests).toEqual(["palmimo.realtime.toml", "palmimo.realtime.toml"]));
   });
 
-  // future backend regression) could get a `javascript:` URL turned into a clickable link,
-  // letting an installed app's manifest execute script in the operator's browser session.
   it("only renders an env help_url as a link when its scheme is http(s)", async () => {
     server.use(
       getGetCatalogApiV1CatalogGetMockHandler({
@@ -354,7 +340,6 @@ describe("AddAppPanel", () => {
     expect(screen.queryByRole("link", { name: "Learn more" })?.getAttribute("href")).toBe("https://example.com/docs");
   });
 
-  // as a clock-sync or rate-limit failure, leaving the operator without a next step.
   it("shows the offline-specific stale-catalog message distinct from the generic one", async () => {
     server.use(getGetCatalogApiV1CatalogGetMockHandler({ ...CATALOG, stale: true, reason: "offline" }));
     renderWithProviders(<AddAppPanel />);
@@ -363,7 +348,6 @@ describe("AddAppPanel", () => {
     expect(screen.queryByText("Showing the last known catalog — could not refresh it just now.")).not.toBeInTheDocument();
   });
 
-  // required secret was never registered, and only find out once the app fails to start.
   it("marks a required preview env var with no matching secret as not yet registered", async () => {
     const user = userEvent.setup();
     server.use(
@@ -397,8 +381,6 @@ describe("AddAppPanel", () => {
     expect(wifiRow && within(wifiRow).queryByText("Not yet registered")).not.toBeInTheDocument();
   });
 
-  // pattern would only be caught after a round trip to /install, instead of being flagged
-  // (and blocking Install) right in the form.
   it("disables Install and shows a hint when the device name part is invalid", async () => {
     const user = userEvent.setup();
     server.use(

@@ -44,7 +44,7 @@ interface FlowProps {
 }
 
 /**
- * The add-app screen's logic (see routes/apps.add.tsx, which wraps this in `AppShell`). Free of
+ * The add-app form and confirmation, hosted by `AddAppDialog` and `DiscoverPanel`. Free of
  * router hooks -- `onInstalled` is the only reach-out to routing, mirroring
  * `UpdatePanel`'s `onRestarted` -- so it's unit-testable directly. `onInstalled` receives the
  * finished job's `app_id` (the namespaced app id, known only once install completes) so the

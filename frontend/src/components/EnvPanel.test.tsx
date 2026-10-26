@@ -34,7 +34,6 @@ describe("EnvPanel", () => {
     await waitFor(() => expect(putBody).toEqual({ value: "hunter2" }));
   });
 
-  // remove it, and the operator would only discover the breakage the next time that app starts.
   it("shows the secret-in-use error inline when deleting a bound secret is refused", async () => {
     const user = userEvent.setup();
     server.use(
@@ -54,7 +53,6 @@ describe("EnvPanel", () => {
     expect(await screen.findByText("This secret is still bound to an app and cannot be deleted.")).toBeInTheDocument();
   });
 
-  // instead of reading `used_by` straight off the list response.
   it("shows which apps use a secret, sourced from the list response's used_by field", async () => {
     server.use(
       getListSecretsApiV1SecretsGetMockHandler({
@@ -120,7 +118,6 @@ describe("EnvPanel", () => {
     expect(within(otherRow as HTMLElement).queryByText("Rejected")).not.toBeInTheDocument();
   });
 
-  // installed apps depend on it, sourced straight off the list response's app_ids field.
   it("shows the apps installed from a credential's host/owner", async () => {
     server.use(
       getListGitCredentialsApiV1GitCredentialsGetMockHandler({

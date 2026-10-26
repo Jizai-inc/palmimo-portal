@@ -32,7 +32,7 @@ describe("isPathAllowedForGate", () => {
     [DASHBOARD_GATE, "/settings", true],
     [DASHBOARD_GATE, "/settings/network", true],
     [DASHBOARD_GATE, "/settings/device", true],
-    // Old URLs no longer exist; the guard bounces a stale bookmark to /home.
+    // Retired URLs bounce to /home.
     [DASHBOARD_GATE, "/dashboard", false],
     [DASHBOARD_GATE, "/wifi-settings", false],
     [DASHBOARD_GATE, "/power", false],

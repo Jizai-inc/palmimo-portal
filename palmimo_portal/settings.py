@@ -194,6 +194,7 @@ def get_settings() -> Settings:
         allowed_hosts=allowed_hosts,
         adapters=adapters,
         enable_docs=enable_docs,
+        wifi_setup_enabled=_env_flag("PALMIMO_WIFI_QR_SETUP") if "PALMIMO_WIFI_QR_SETUP" in os.environ else None,
         portal_dir=portal_dir,
         update_repo=update_repo,
         update_channel=update_channel,

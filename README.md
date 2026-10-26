@@ -37,6 +37,12 @@ make test           # frontend unit tests (vitest)
 uv run pytest        # backend unit + integration tests
 ```
 
+## Configuration
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| PALMIMO_WIFI_QR_SETUP | Enabled with real adapters | Set to 0 to disable automatic Wi-Fi QR setup; 1 enables it explicitly. |
+
 ## Adapters: fake vs. real
 
 Every port (network, system, SSH keys, state, identity, releases, updater)

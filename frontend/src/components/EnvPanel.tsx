@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -10,6 +11,7 @@ import {
 } from "@/api/generated/secrets/secrets";
 import type { SecretRecordInfo } from "@/api/generated/models";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
+import { PageHeader } from "@/components/PageHeader";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -23,6 +25,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatUtcTimestamp } from "@/lib/formatTimestamp";
+import { cn } from "@/lib/utils";
+
+const TABLE_GRID = "md:grid-cols-[1.2fr_1fr_1.2fr_1.2fr_150px] md:gap-3";
 
 type SecretDialog = { mode: "register" } | { mode: "update"; name: string } | null;
 
@@ -42,50 +47,69 @@ export function EnvPanel() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-2">
-          <p className="font-semibold">{t("env.title")}</p>
-          <Button onClick={() => setDialog({ mode: "register" })}>{t("env.registerButton")}</Button>
-        </div>
-        <ApiErrorAlert error={error} />
-        {error ? null : isLoading ? (
-          <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
-        ) : secrets.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t("env.emptyState")}</p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {secrets.map((secret) => (
-              <li key={secret.name} className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4 md:flex-row md:items-center md:gap-4">
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="sr-only">{t("env.columnName")}</span>
-                  <code className="font-mono text-sm">{secret.name}</code>
-                  <span className="sr-only">{t("env.columnValue")}</span>
-                  <span className="font-mono text-xs text-muted-foreground">••••••••</span>
-                  <span className="text-xs text-muted-foreground">{t("env.columnUpdatedAt")}: {formatUtcTimestamp(secret.updated_at)}</span>
-                  <div className="flex flex-wrap items-center gap-1">
-                    <span className="text-xs text-muted-foreground">{t("env.columnUsedBy")}:</span>
-                    {secret.used_by.length === 0 ? (
-                      <span className="text-xs text-muted-foreground">{t("env.notUsedByAny")}</span>
-                    ) : (
-                      secret.used_by.map((appName) => (
-                        <Badge key={appName} variant="outline">{appName}</Badge>
-                      ))
-                    )}
-                  </div>
+      <PageHeader
+        title={t("nav.secrets")}
+        description={t("env.pageDescription")}
+        actions={
+          <Button onClick={() => setDialog({ mode: "register" })}>
+            <Plus className="size-4" aria-hidden />
+            {t("env.registerButton")}
+          </Button>
+        }
+      />
+      <ApiErrorAlert error={error} />
+      {error ? null : isLoading ? (
+        <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
+      ) : secrets.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-border-strong p-5 text-[13px] text-muted-foreground">{t("env.emptyState")}</p>
+      ) : (
+        <div className="overflow-hidden rounded-xl border border-border text-[13px]">
+          <div aria-hidden className={cn(TABLE_GRID, "hidden border-b border-border bg-subtle px-5 py-2.5 text-xs font-medium text-muted-foreground md:grid")}>
+            <span>{t("env.columnName")}</span>
+            <span>{t("env.columnValue")}</span>
+            <span>{t("env.columnUsedBy")}</span>
+            <span>{t("env.columnUpdatedAt")}</span>
+            <span />
+          </div>
+          <ul className="flex flex-col">
+            {secrets.map((secret, index) => (
+              <li key={secret.name} className={cn(TABLE_GRID, "flex flex-col gap-2 px-5 py-3.5 md:grid md:items-center", index > 0 && "border-t border-border")}>
+                <code className="min-w-0 truncate font-mono font-medium">{secret.name}</code>
+                <span className="font-mono tracking-[2px] text-muted-foreground" aria-label={t("env.columnValue")}>
+                  ••••••••
+                </span>
+                <div className="flex min-w-0 flex-wrap items-center gap-1">
+                  {secret.used_by.length === 0 ? (
+                    <span className="text-muted-foreground">{t("env.notUsedByAny")}</span>
+                  ) : (
+                    secret.used_by.map((appName) => (
+                      <Badge key={appName} variant="outline">
+                        {appName}
+                      </Badge>
+                    ))
+                  )}
                 </div>
-                <div className="flex shrink-0 gap-2">
-                  <Button variant="outline" onClick={() => setDialog({ mode: "update", name: secret.name })}>
+                <span className="text-muted-foreground">{formatUtcTimestamp(secret.updated_at)}</span>
+                <div className="flex gap-1 md:justify-end">
+                  <Button variant="outline" size="sm" onClick={() => setDialog({ mode: "update", name: secret.name })}>
                     {t("env.updateValueButton")}
                   </Button>
-                  <Button variant="outline" onClick={() => { deleteSecret.reset(); setDeleteTarget(secret); }}>
+                  <Button
+                    variant="dangerGhost"
+                    size="sm"
+                    onClick={() => {
+                      deleteSecret.reset();
+                      setDeleteTarget(secret);
+                    }}
+                  >
                     {t("env.deleteButton")}
                   </Button>
                 </div>
               </li>
             ))}
           </ul>
-        )}
-      </div>
+        </div>
+      )}
 
       <SecretDialogContent dialog={dialog} onClose={() => setDialog(null)} onSaved={invalidateSecrets} />
 

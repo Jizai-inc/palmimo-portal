@@ -12,15 +12,27 @@
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.94 0 0);
+  --muted-foreground: #6b6b6b;
+  --accent: #ececea;
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
+  --border: #e7e7e5;
+  --input: #e7e7e5;
   --ring: oklch(0.708 0 0);
   --radius: 0.625rem;
+  --sidebar: #fafaf9;
+  --subtle: #fafaf9;
+  --border-strong: #dcdcda;
+  --success: #16a34a;
+  --success-soft: #ecf8f0;
+  --warning: #d49a1a;
+  --warning-soft: #fffaf0;
+  --warning-pill: #fdf4e3;
+  --warning-border: #f0dcb2;
+  --warning-foreground: #7a4f00;
+  --danger-foreground: #c81e1e;
+  --danger-border: #f1d2d2;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -42,6 +54,18 @@
     --border: oklch(1 0 0 / 12%);
     --input: oklch(1 0 0 / 18%);
     --ring: oklch(0.556 0 0);
+    --sidebar: oklch(0.18 0 0);
+    --subtle: oklch(0.18 0 0);
+    --border-strong: oklch(1 0 0 / 22%);
+    --success: #22c55e;
+    --success-soft: rgb(34 197 94 / 14%);
+    --warning: #e0a82e;
+    --warning-soft: rgb(224 168 46 / 10%);
+    --warning-pill: rgb(224 168 46 / 16%);
+    --warning-border: rgb(224 168 46 / 35%);
+    --warning-foreground: #f2c46a;
+    --danger-foreground: #f87171;
+    --danger-border: rgb(248 113 113 / 35%);
   }
 }
 
@@ -63,6 +87,20 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-subtle: var(--subtle);
+  --color-border-strong: var(--border-strong);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-pill: var(--warning-pill);
+  --color-warning-border: var(--warning-border);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-danger-border: var(--danger-border);
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --radius-lg: var(--radius);
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);

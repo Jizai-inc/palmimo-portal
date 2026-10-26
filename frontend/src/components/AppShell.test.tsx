@@ -186,7 +186,7 @@ describe("AppShell mobile drawer", () => {
     expect(document.body.style.overflow).not.toBe("hidden");
   });
 
-  it("traps Tab within the drawer, wrapping from the last link to the close button", async () => {
+  it("traps Tab within the drawer, wrapping from the last control to the close button", async () => {
     const user = userEvent.setup();
     stubStatuses();
     renderAppShell();
@@ -195,8 +195,8 @@ describe("AppShell mobile drawer", () => {
     await user.click(toggleButton());
     const dialog = await screen.findByRole("dialog", { name: "Primary navigation" });
     const closeButton = within(dialog).getByRole("button", { name: "Close menu" });
-    const links = within(dialog).getAllByRole("link");
-    links[links.length - 1].focus();
+    const controls = dialog.querySelectorAll<HTMLElement>("a[href], button:not([disabled])");
+    controls[controls.length - 1].focus();
 
     await user.tab();
 
@@ -286,15 +286,15 @@ describe("AppShell update badge", () => {
     expect(await screen.findAllByText("Update available")).not.toHaveLength(0);
   });
 
-  it("links the header badge to Settings → Software update and marks the Settings entry", async () => {
+  it("links the header badge to Settings → Software update and marks the Software update entry", async () => {
     stubStatuses({ update: { ...BASE_UPDATE_STATUS, update_available: true } });
     stubMatchMedia(true);
     const { container } = renderAppShell();
 
     const badge = await screen.findByRole("link", { name: "Update available" });
     expect(badge).toHaveAttribute("href", "/settings/update");
-    const settingsToggle = within(container.querySelector("aside") as HTMLElement).getByRole("button", { name: /^Settings/ });
-    expect(within(settingsToggle).getByText("Update available")).toBeInTheDocument();
+    const updateEntry = within(container.querySelector("aside") as HTMLElement).getByRole("link", { name: /^Software update/ });
+    expect(within(updateEntry).getByText("Update available")).toBeInTheDocument();
   });
 
   it("renders no update-available announcement when already up to date", async () => {

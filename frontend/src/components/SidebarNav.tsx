@@ -3,6 +3,8 @@ import { BookOpen, ChevronRight, ExternalLink } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { AccountMenu } from "@/components/HeaderMenus";
+import { LanguageToggle } from "@/components/LanguageToggle";
 import { UpdateDot } from "@/components/UpdateDot";
 import { DOCS_URL, isActive, NAV_ITEMS, type NavItem } from "@/lib/navigation";
 import { navLabel } from "@/lib/navLabels";
@@ -12,9 +14,9 @@ import { cn } from "@/lib/utils";
 const UPDATE_PATH = "/settings/update";
 
 // Row, pill and sub-list styles follow shadcn/ui's Sidebar (SidebarMenuButton / SidebarMenuSub).
-const ROW = "flex h-8 w-full items-center gap-2 rounded-md px-2 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
-const PILL = "bg-accent font-medium text-accent-foreground";
-const IDLE = "text-foreground hover:bg-accent/60";
+const ROW = "flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
+const PILL = "bg-accent font-semibold text-accent-foreground";
+const IDLE = "font-medium text-foreground hover:bg-accent/60";
 
 function storageKey(groupTo: string) {
   return `portal.navExpanded:${groupTo}`;
@@ -22,9 +24,9 @@ function storageKey(groupTo: string) {
 
 function readExpanded(groupTo: string): boolean {
   try {
-    return localStorage.getItem(storageKey(groupTo)) === "true";
+    return localStorage.getItem(storageKey(groupTo)) !== "false";
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -55,7 +57,7 @@ export function SidebarNav({
   const { t } = useTranslation();
   const { pathname } = useLocation();
   return (
-    <nav className="flex flex-col gap-1" aria-label={t("nav.primaryNavigation")}>
+    <nav className="flex flex-col gap-0.5" aria-label={t("nav.primaryNavigation")}>
       {NAV_ITEMS.map((item) =>
         item.children ? (
           <NavGroup
@@ -169,7 +171,7 @@ function NavGroup({
         aria-expanded={expanded}
         aria-controls={listId}
         onClick={() => setAndRemember(!expanded)}
-        className={cn(ROW, IDLE, containsActive && "font-semibold")}
+        className={cn(ROW, IDLE, "font-semibold")}
       >
         <span className="relative flex items-center">
           <Icon className="size-4" />
@@ -177,9 +179,9 @@ function NavGroup({
         </span>
         <span className="min-w-0 flex-1 truncate">{navLabel(t, item.labelKey)}</span>
         {showParentBadge ? <span className="sr-only">{t("nav.updateAvailable")}</span> : null}
-        <ChevronRight aria-hidden className={cn("size-4 shrink-0 transition-transform duration-200", expanded && "rotate-90")} />
+        <ChevronRight aria-hidden className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform duration-200", expanded && "rotate-90")} />
       </button>
-      <ul id={listId} hidden={!expanded} className="mx-3.5 mt-0.5 flex min-w-0 flex-col gap-0.5 border-l border-border px-2.5 py-0.5">
+      <ul id={listId} hidden={!expanded} className="ml-[18px] mt-0.5 flex min-w-0 flex-col gap-0.5 border-l border-border pl-2 py-0.5">
         {items.map((child) => {
           const active = isActive(pathname, child.to);
           const showBadge = updateAvailable && child.to === UPDATE_PATH;
@@ -190,14 +192,14 @@ function NavGroup({
                 aria-current={active ? "page" : undefined}
                 onClick={onNavigate}
                 className={cn(
-                  "flex h-7 min-w-0 items-center gap-2 rounded-md px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  active ? PILL : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
+                  "flex h-8 min-w-0 items-center justify-between gap-2 rounded-md px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  active ? PILL : "text-foreground/75 hover:bg-accent/60 hover:text-foreground",
                 )}
               >
                 <span className="truncate">{navLabel(t, child.labelKey)}</span>
                 {showBadge ? (
                   <>
-                    <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-red-500" />
+                    <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-warning" />
                     <span className="sr-only">{t("nav.updateAvailable")}</span>
                   </>
                 ) : null}
@@ -217,8 +219,18 @@ function DocsLink({ rail }: { rail: boolean }) {
     <a href={DOCS_URL} target="_blank" rel="noreferrer" title={rail ? label : undefined} className={cn(ROW, IDLE, rail && "justify-center px-0")}>
       <BookOpen className="size-4" />
       <span className={cn(rail && "sr-only")}>{label}</span>
-      {rail ? null : <ExternalLink className="size-3" aria-hidden />}
+      {rail ? null : <ExternalLink className="size-3 text-muted-foreground" aria-hidden />}
       <span className="sr-only">{t("nav.opensInNewTab")}</span>
     </a>
+  );
+}
+
+/** Pinned to the bottom of the sidebar and drawer: the account menu and the language switch. */
+export function SidebarFooter({ rail = false }: { rail?: boolean }) {
+  return (
+    <div className={cn("mt-auto flex items-center gap-2 border-t border-border pt-3", rail ? "flex-col px-0" : "px-1")}>
+      <AccountMenu compact={rail} />
+      {rail ? null : <LanguageToggle />}
+    </div>
   );
 }

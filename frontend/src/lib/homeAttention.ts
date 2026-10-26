@@ -6,19 +6,16 @@ export type AttentionItem =
   | { kind: "missingKeys"; appId: string; appName: string }
   | { kind: "chooseDefault" }
   | { kind: "appUpdate"; appId: string; appName: string }
-  | { kind: "platformUpdate" }
   | { kind: "portalUpdate" };
 
-/** Problems first, then available updates; each app contributes at most one item per kind. */
+/** Problems first, then available updates; each app contributes at most one item per kind. The device platform is the top bar's job (`PlatformUpdatePill`). */
 export function attentionItems({
   apps,
-  platformReady,
   portalUpdateAvailable,
   autostartConflict = [],
 }: {
   apps: readonly AppSummary[];
   autostartConflict?: readonly string[];
-  platformReady: boolean | undefined;
   portalUpdateAvailable: boolean | undefined;
 }): AttentionItem[] {
   const items: AttentionItem[] = [];
@@ -32,7 +29,6 @@ export function attentionItems({
     if (app.missing_env && app.missing_env.length > 0) items.push({ kind: "missingKeys", appId: app.id, appName: app.name });
   }
   if (autostartConflict.length > 0) items.push({ kind: "chooseDefault" });
-  if (platformReady === false) items.push({ kind: "platformUpdate" });
   for (const app of apps) {
     if (app.update_available) items.push({ kind: "appUpdate", appId: app.id, appName: app.name });
   }

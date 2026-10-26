@@ -18,7 +18,8 @@
     "logout": "ログアウト",
     "networkError": "Palmimo に接続できませんでした。接続状況を確認してもう一度お試しください。",
     "inProgress": "進行中",
-    "togglePasswordVisibility": "パスワードの表示・非表示を切り替え"
+    "togglePasswordVisibility": "パスワードの表示・非表示を切り替え",
+    "learnMore": "詳しく見る"
   },
   "nav": {
     "primaryNavigation": "メインナビゲーション",
@@ -154,16 +155,13 @@
     "subtitle": "Palmimo が接続しているネットワークの確認と変更",
     "connectedLabel": "接続中",
     "disconnectedLabel": "未接続",
-    "networkLabel": "ネットワーク",
     "ipAddressLabel": "IP アドレス",
     "hostnameLabel": "ホスト名",
-    "lastAttemptLabel": "直近の接続",
     "lastAttemptConnected": "接続成功（{{datetime}}）",
     "lastAttemptFailed": "接続失敗（{{datetime}}）",
     "lastAttemptConnecting": "接続中…",
-    "connectAnother": "別のネットワークに接続",
+    "connectAnother": "ネットワークを切り替える",
     "forgetNetwork": "このネットワークを忘れる",
-    "noteTitle": "「このネットワークを忘れる」を押すと",
     "noteBody": "Palmimo は {{ssid}} との接続を解除して、自身の Wi-Fi「{{hostname}}」を出し直します。この画面からは切断されるので、再設定はスマホや PC でその Wi-Fi に参加して行ってください。",
     "reconnectDialogTitle": "別のネットワークに接続しますか？",
     "reconnectDialogBody": "新しいネットワークを保存済みの一番上に入れて、そちらに切り替えます。いまの接続先（{{ssid}}）の設定は残ります。新しいネットワークにつながらなかった場合、Palmimo はほかの保存済みネットワークを試し、どれにもつながらなければ自身の Wi-Fi「{{hostname}}」を出します。",
@@ -191,17 +189,17 @@
     "savedSwitchDialogBody": "いまの接続先（{{current}}）の設定は残ります。{{ssid}} がこの端末とは別のネットワークなら、切り替えたあとは {{ssid}} につないだ端末から http://{{hostname}}.local を開いてください。",
     "savedSwitchConfirm": "切り替える",
     "switchingTitle": "{{ssid}} に切り替えています",
-    "switchingBody": "この画面が反応しなくなったら、スマホや PC を {{ssid}} につないで http://{{hostname}}.local を開いてください。"
+    "switchingBody": "この画面が反応しなくなったら、スマホや PC を {{ssid}} につないで http://{{hostname}}.local を開いてください。",
+    "connectedSince": "{{datetime}} から接続中",
+    "fallbackHotspotLabel": "予備のアクセスポイント",
+    "forgetHint": "削除するとこのページの接続が切れ、Palmimo は自身の Wi-Fi を再び有効にします。"
   },
   "dashboard": {
     "title": "ホーム",
-    "statusConnected": "接続中",
     "statusDisconnected": "未接続",
     "hostnameLabel": "ホスト名",
     "deviceIdLabel": "デバイスID",
     "portalLabel": "Portal",
-    "sdkLabel": "SDK",
-    "softwareTitle": "ソフトウェア",
     "updateAvailableBadge": "更新あり",
     "ntpBanner": "時刻同期を待っています…",
     "diskLowWarning": "この端末のディスク空き容量が少なくなっています（空き {{freeGb}} GB）。"
@@ -211,7 +209,6 @@
     "attentionAppBroken": "{{name}} の修復が必要です",
     "attentionCredentialRejected": "{{name}} の認証情報が GitHub に拒否されました",
     "attentionAppUpdate": "{{name}} のアップデートがあります",
-    "attentionPlatformUpdate": "アプリを実行するにはデバイスのプラットフォーム更新が必要です",
     "attentionPortalUpdate": "Portal のアップデートがあります",
     "checklistTitle": "はじめに",
     "checklistProgress": "{{total}} 件中 {{done}} 件完了",
@@ -237,7 +234,17 @@
     "activityWifiFailed": "Wi-Fi {{ssid}} に接続できませんでした",
     "attentionMissingKeys": "{{name}} を開始するには API キーが必要です",
     "attentionChooseDefault": "起動時に開始するアプリが複数設定されています。デフォルトアプリを 1 つ選んでください。",
-    "checklistGuideLink": "はじめにガイドを読む"
+    "checklistGuideLink": "はじめにガイドを読む",
+    "tileNetwork": "ネットワーク",
+    "tileRunningApp": "実行中のアプリ",
+    "tileNone": "なし",
+    "tileOpenApps": "アプリを開く",
+    "tileSdk": "SDK {{version}}",
+    "tileSdkMissing": "SDK 未インストール",
+    "tilePlatformVersion": "v{{version}}",
+    "tilePlatformUpdateRequired": "更新が必要",
+    "tilePlatformBlocked": "更新するまでアプリを実行できません",
+    "deviceIdUnassigned": "未割り当て"
   },
   "sshKeys": {
     "title": "SSH 鍵",
@@ -283,29 +290,28 @@
     "confirmedNoteBody": "対応する公開鍵を下の欄に自動入力しました。「鍵を追加」をクリックして登録してください。"
   },
   "power": {
-    "systemsNoteTitle": "Palmimo DevKit には電源が 2 系統あります（サーボ電源と Raspberry Pi 電源）",
-    "systemsNoteBody": "サーボ電源は、本体裏のサーボ電源スイッチで制御します。Raspberry Pi の電源は、この画面か SSH で制御してください（動作中に USB Type-C を抜くと、SD カードが壊れることがあります）。",
-    "shutdownStepsTitle": "電源を切る手順",
-    "shutdownStep1": "機体を台の上に載せる",
-    "shutdownStep2": "サーボ電源スイッチを OFF にする（サーボも保持しなくなります）",
-    "shutdownStep3": "この画面で Raspberry Pi をシャットダウンする",
-    "shutdownStep4": "製品への給電を完全に断ちたいときは、本体から DC プラグと USB Type-C ケーブルを抜く",
     "restart": "再起動",
-    "restartCardDescription": "Palmimo 上の Raspberry Pi を再起動します。この画面との接続も一度切れ、1 分ほど接続できなくなりますが、復帰後に自動で戻ります（サーボトルクが入っている場合はそのまま保持します）。",
+    "restartCardDescription": "1 分ほどでこのページに再接続します。トルクの入ったサーボはそのまま保持します。",
     "shutdown": "シャットダウン",
-    "shutdownCardDescription": "Palmimo 上の Raspberry Pi を安全に停止します（サーボトルクが入っている場合はそのまま保持します）。シャットダウン後にもう一度起動するには、USB Type-C を抜いて挿し直してください。",
+    "shutdownCardDescription": "再起動するには、USB-C ケーブルを抜いて挿し直してください。",
     "restartDialogTitle": "Palmimo を再起動しますか？",
     "restartDialogBody": "再起動中はしばらく Palmimo に接続できなくなります。",
     "restartDialogConfirm": "再起動",
     "shutdownDialogTitle": "Palmimo をシャットダウンしますか？",
-    "shutdownDialogBody": "Raspberry Pi は停止し、電源（USB Type-C）を挿し直すまでそのままになります。サーボトルクが入っている場合はそのまま保持します。",
     "shutdownDialogConfirm": "シャットダウン",
     "rebootingTitle": "再起動しています…",
     "rebootingBody": "Palmimo が復帰すると、このページは自動的に再読み込みされます。",
     "reopenPortal": "Portal を開き直す",
     "shuttingDownTitle": "Palmimo をシャットダウンしています",
     "shuttingDownBody": "電源を抜く前に少しお待ちください。もう一度起動するには、Raspberry Pi の電源（USB Type-C）を抜いて挿し直してから、このページを開き直してください。",
-    "updateInProgress": "更新が進行中です。完了するまで再起動とシャットダウンは無効になっています。"
+    "updateInProgress": "更新が進行中です。完了するまで再起動とシャットダウンは無効になっています。",
+    "pageDescription": "Palmimo 内部の Raspberry Pi の電源を操作します。サーボ電源は本体裏のスイッチで操作します。",
+    "howPowerWorks": "電源のしくみ",
+    "unplugWarning": "動作中に USB-C を抜かないでください。SD カードが壊れることがあります。",
+    "shutdownChecklistIntro": "シャットダウンする前に:",
+    "checkOnStand": "Palmimo を台の上に載せた",
+    "checkServoOff": "サーボ電源スイッチを OFF にした",
+    "shutdownAfterNote": "その後すべての給電を断つには、DC プラグと USB-C ケーブルを抜いてください。"
   },
   "update": {
     "newVersionAvailable": "新しいバージョンがあります",
@@ -356,7 +362,13 @@
     "platformLegacyLedger": "先にアプリをリセットしてから、デバイス基盤を更新してください。",
     "platformLatestErrorClockUnsynced": "時刻同期を待ってから更新を確認します。",
     "platformLatestErrorRateLimited": "確認の間隔が短すぎます。しばらくしてからもう一度お試しください。",
-    "platformLatestErrorUnknown": "最新バージョンを確認できませんでした。"
+    "platformLatestErrorUnknown": "最新バージョンを確認できませんでした。",
+    "pageDescription": "更新には数分かかり、Portal が再起動します。ロボットを動かさないでください。",
+    "portalDescription": "この Web アプリとバックグラウンドサービスです。",
+    "platformDescription": "Palmimo のアプリが動作するシステムソフトウェアです。",
+    "platformRequiredTitle": "更新が必要",
+    "platformRequiredBody": "アプリ、保存済みネットワーク、SDK にはより新しいバージョンが必要です。",
+    "platformCheckFailedTitle": "更新を確認できませんでした"
   },
   "errors": {
     "app_broken": "このアプリのファイルが見つからないか壊れています。再インストールしてください。",
@@ -506,7 +518,8 @@
     "jobClose": "閉じる",
     "jobCompleted": "完了しました",
     "defaultBadge": "デフォルト",
-    "missingKeysBadge": "API キーが必要"
+    "missingKeysBadge": "API キーが必要",
+    "emptyStateBody": "公式アプリから始めるか、GitHub リポジトリや zip ファイルから自分のアプリを追加しましょう。"
   },
   "appAdd": {
     "continueButton": "次へ",
@@ -612,15 +625,14 @@
     "motor_display": "モーター・ディスプレイ"
   },
   "env": {
-    "title": "環境変数",
-    "registerButton": "登録",
+    "registerButton": "シークレットを追加",
     "emptyState": "登録済みの環境変数はありません。",
     "columnName": "名前",
     "columnValue": "値",
     "columnUpdatedAt": "更新日時",
     "columnUsedBy": "使用中のアプリ",
     "notUsedByAny": "使用しているアプリはありません",
-    "updateValueButton": "値を更新",
+    "updateValueButton": "編集",
     "deleteButton": "削除",
     "dialogTitleRegister": "環境変数を登録",
     "dialogTitleUpdate": "{{name}} を更新",
@@ -629,7 +641,8 @@
     "valueLabel": "値",
     "saveButton": "保存",
     "deleteDialogTitle": "{{name}} を削除しますか？",
-    "deleteDialogConfirm": "削除"
+    "deleteDialogConfirm": "削除",
+    "pageDescription": "アプリが読み取れる環境変数です。保存後は値が表示されません。"
   },
   "gitCredentials": {
     "title": "Git 認証情報",
@@ -647,5 +660,20 @@
     "tokenLabel": "個人アクセストークン",
     "replacing": "すでに登録されています。保存すると置き換えます。",
     "replaceButton": "置き換える"
+  },
+  "account": {
+    "name": "ログイン中",
+    "kind": "ローカルアカウント"
+  },
+  "platformPill": {
+    "label": "プラットフォームの更新が必要",
+    "updating": "プラットフォームを更新中…",
+    "title": "デバイスプラットフォームの更新が必要です",
+    "body": "インストール済みは v{{version}} です。アプリ、保存済みネットワーク、SDK にはより新しいプラットフォームが必要です。",
+    "hint": "数分かかります。ロボットを動かさないでください。",
+    "details": "詳細"
+  },
+  "developer": {
+    "pageDescription": "SSH アクセスと、非公開アプリ用の Git 認証情報"
   }
 }

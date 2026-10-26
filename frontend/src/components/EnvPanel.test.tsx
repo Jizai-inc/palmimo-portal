@@ -26,7 +26,7 @@ describe("EnvPanel", () => {
     renderWithProviders(<EnvPanel />);
 
     await screen.findByText("No environment variables registered yet.");
-    await user.click(screen.getByRole("button", { name: "Register" }));
+    await user.click(screen.getByRole("button", { name: "Add secret" }));
     await user.type(screen.getByLabelText("Name"), "wifi_password");
     await user.type(screen.getByLabelText("Value"), "hunter2");
     await user.click(screen.getByRole("button", { name: "Save" }));

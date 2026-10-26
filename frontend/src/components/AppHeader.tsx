@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { Download, PanelLeft } from "lucide-react";
+import { CircleArrowDown, PanelLeft } from "lucide-react";
 import type * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -7,7 +7,6 @@ import logoDark from "@/assets/palmimo-devkit-logo-white.png";
 import logoLight from "@/assets/palmimo-devkit-logo.png";
 import { LanguageToggle } from "@/components/LanguageToggle";
 import { UpdateDot } from "@/components/UpdateDot";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 /**
@@ -41,11 +40,14 @@ export function AppHeader({
   showToggleBadge,
   updateAvailable = false,
   wordmarkLinksHome = false,
+  showLanguageToggle = true,
 }: {
   /** Renders the `panel-left` nav toggle when set -- collapses the sidebar on desktop, opens the drawer on mobile. */
   onToggleSidebar?: () => void;
   /** Rendered after the language toggle on every viewport. */
   actions?: React.ReactNode;
+  /** The dashboard moves the toggle into the sidebar footer; auth screens keep it here. */
+  showLanguageToggle?: boolean;
   /** Renders an {@link UpdateDot} pinned to the toggle button plus its accessible announcement. Ignored when `onToggleSidebar` is unset. */
   showToggleBadge?: boolean;
   /** Renders a link to Settings → Software update. */
@@ -60,7 +62,7 @@ export function AppHeader({
 }) {
   const { t } = useTranslation();
   return (
-    <header className="flex h-14 items-center gap-2 border-b border-border bg-background px-4">
+    <header className="flex h-14 items-center gap-2 border-b border-border bg-background px-3 sm:gap-3 sm:px-5">
       {onToggleSidebar ? (
         <div className="relative">
           <Button
@@ -87,16 +89,17 @@ export function AppHeader({
       ) : (
         <Wordmark />
       )}
-      <div className="ml-auto flex items-center gap-1 sm:gap-2">
+      <div className="ml-auto flex min-w-0 items-center gap-1 text-[13px] sm:gap-3">
         {updateAvailable ? (
-          <Link to="/settings/update" className="hover:opacity-80">
-            <Badge className="gap-1">
-              <Download className="size-3" aria-hidden />
-              <span className="sr-only sm:not-sr-only">{t("nav.updateAvailable")}</span>
-            </Badge>
+          <Link
+            to="/settings/update"
+            className="flex items-center gap-1.5 rounded-full bg-secondary px-2.5 py-1 font-semibold hover:bg-accent"
+          >
+            <CircleArrowDown className="size-3.5" aria-hidden />
+            <span className="sr-only sm:not-sr-only">{t("nav.updateAvailable")}</span>
           </Link>
         ) : null}
-        <LanguageToggle />
+        {showLanguageToggle ? <LanguageToggle /> : null}
         {actions}
       </div>
     </header>

@@ -5,13 +5,16 @@ import { useTranslation } from "react-i18next";
 
 import { useListAppsApiV1AppsGet } from "@/api/generated/apps/apps";
 import { useGetStatusApiV1WifiStatusGet } from "@/api/generated/wifi/wifi";
+import { useGetPlatformApiV1PlatformGet } from "@/api/generated/platform/platform";
 import { useGetStatusApiV1SystemStatusGet } from "@/api/generated/system/system";
 import { useGetStatusApiV1UpdateStatusGet } from "@/api/generated/update/update";
 import { AppHeader } from "@/components/AppHeader";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
-import { AccountMenu, DeviceMenu } from "@/components/HeaderMenus";
+import { DeviceMenu } from "@/components/HeaderMenus";
+import { PageHeader } from "@/components/PageHeader";
+import { PlatformUpdatePill } from "@/components/PlatformUpdatePill";
 import { RunningAppControl } from "@/components/RunningAppControl";
-import { SidebarNav } from "@/components/SidebarNav";
+import { SidebarFooter, SidebarNav } from "@/components/SidebarNav";
 import { Button } from "@/components/ui/button";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { cn } from "@/lib/utils";
@@ -29,22 +32,23 @@ const DESKTOP_QUERY = "(min-width: 768px)";
 /**
  * Chrome for the dashboard family (Home, Apps, Settings). {@link SidebarNav} renders the nav as
  * a desktop sidebar (collapsible to an icon rail) and as a mobile slide-in drawer opened from
- * the header toggle. The header carries the update badge and the device and account menus.
+ * the header toggle. The header carries the update pills, the running app and the device menu;
+ * the account menu and language switch sit in the sidebar footer.
  */
 export function AppShell({
   title,
-  subtitle,
+  description,
+  actions,
   breadcrumbs,
   fitViewport = false,
-  alignStart = false,
   children,
 }: {
-  title: string;
-  subtitle?: string;
+  title?: string;
+  description?: React.ReactNode;
+  /** The page's primary action, right-aligned in the page header. */
+  actions?: React.ReactNode;
   breadcrumbs?: React.ReactNode[];
   fitViewport?: boolean;
-  /** Left-aligns the content column beside the sidebar instead of centring it. */
-  alignStart?: boolean;
   children: React.ReactNode;
 }) {
   const { t } = useTranslation();
@@ -80,6 +84,8 @@ export function AppShell({
   // `update/status` is a plain read; the badge never fires `update/check` itself, so it never
   // touches that endpoint's own rate limit (see UpdatePanel's "Check now" button).
   const updateAvailable = updateStatus?.update_available ?? false;
+  const { data: platform } = useGetPlatformApiV1PlatformGet();
+  const updateAttention = updateAvailable || platform?.ready === false;
 
   function handleToggleClick() {
     if (isDesktop) {
@@ -166,13 +172,14 @@ export function AppShell({
 
   const headerActions = (
     <>
+      <PlatformUpdatePill />
+      <span aria-hidden className="hidden h-5 w-px bg-border sm:block" />
       <RunningAppControl runningApp={systemStatus?.running_app} defaultApp={defaultApp} />
       <DeviceMenu
         hostname={systemStatus?.hostname ?? ""}
         network={[wifiStatus?.ssid, wifiStatus?.ip_address].filter(Boolean).join(" · ")}
         connected={systemStatus?.state === "connected"}
       />
-      <AccountMenu />
     </>
   );
 
@@ -181,31 +188,32 @@ export function AppShell({
       <AppHeader
         onToggleSidebar={handleToggleClick}
         actions={headerActions}
-        showToggleBadge={updateAvailable}
-        updateAvailable={updateAvailable}
+        showToggleBadge={updateAttention}
+        updateAvailable={updateAvailable && platform?.ready !== false}
+        showLanguageToggle={false}
         wordmarkLinksHome
       />
       <div className={cn("flex flex-1 md:flex-row", fitViewport && "min-h-0")}>
         <aside
           data-rail={sidebarCollapsed || undefined}
           className={cn(
-            "hidden shrink-0 flex-col gap-4 border-r border-border bg-muted/40 md:flex",
-            sidebarCollapsed ? "w-14 p-2" : "w-64 p-3",
+            "hidden shrink-0 flex-col gap-4 border-r border-border bg-sidebar md:flex",
+            sidebarCollapsed ? "w-14 px-2 py-3.5" : "w-58 px-2.5 py-3.5",
           )}
         >
-          <SidebarNav rail={sidebarCollapsed} updateAvailable={updateAvailable} idPrefix="sidebar" />
+          <SidebarNav rail={sidebarCollapsed} updateAvailable={updateAttention} idPrefix="sidebar" />
+          <SidebarFooter rail={sidebarCollapsed} />
         </aside>
         {/* min-w-0: as a flex item, <main> otherwise refuses to be narrower than its widest
             unbreakable line (`truncate` does not shrink that), widening every page past a phone's viewport. */}
-        <main className={cn("min-w-0 flex-1 p-5 md:p-8 lg:p-10", fitViewport && "flex min-h-0 flex-col overflow-y-auto")}>
-          <div className={cn("flex max-w-[960px] flex-col gap-6", !alignStart && "mx-auto", fitViewport && "min-h-0 w-full flex-1")}>
-            <div className={cn("flex items-center justify-between gap-2", fitViewport && "shrink-0")}>
-              <div className="flex flex-col gap-1">
+        <main className={cn("min-w-0 flex-1 px-5 py-6 md:px-12 md:py-10", fitViewport && "flex min-h-0 flex-col overflow-y-auto")}>
+          <div className={cn("mx-auto flex w-full max-w-[1040px] flex-col gap-7", fitViewport && "min-h-0 flex-1")}>
+            {title || breadcrumbs ? (
+              <div className={cn("flex flex-col gap-2", fitViewport && "shrink-0")}>
                 {breadcrumbs ? <Breadcrumbs items={breadcrumbs} label={t("common.breadcrumb")} /> : null}
-                <h1 className="text-2xl font-semibold [overflow-wrap:anywhere]">{title}</h1>
-                {subtitle ? <p className="text-sm text-muted-foreground">{subtitle}</p> : null}
+                {title ? <PageHeader title={title} description={description} actions={actions} /> : null}
               </div>
-            </div>
+            ) : null}
             {children}
           </div>
         </main>
@@ -219,14 +227,15 @@ export function AppShell({
             role="dialog"
             aria-modal="true"
             aria-label={t("nav.primaryNavigation")}
-            className="fixed inset-y-0 left-0 flex w-[280px] max-w-[80vw] flex-col gap-4 overscroll-contain border-r border-border bg-background p-4 shadow-lg"
+            className="fixed inset-y-0 left-0 flex w-[280px] max-w-[80vw] flex-col gap-4 overscroll-contain border-r border-border bg-sidebar p-4 shadow-lg"
           >
             <div className="flex items-center justify-end px-2">
               <Button type="button" variant="ghost" size="icon" aria-label={t("nav.closeMenu")} onClick={closeDrawer}>
                 <X className="size-4" />
               </Button>
             </div>
-            <SidebarNav updateAvailable={updateAvailable} onNavigate={() => setDrawerOpen(false)} idPrefix="drawer" />
+            <SidebarNav updateAvailable={updateAttention} onNavigate={() => setDrawerOpen(false)} idPrefix="drawer" />
+            <SidebarFooter />
           </div>
         </div>
       ) : null}

@@ -3,7 +3,8 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PowerPanel } from "@/components/PowerPanel";
-import { SettingsSection } from "@/components/SettingsSection";
+import { LearnMoreLink } from "@/components/LearnMoreLink";
+import { PageHeader } from "@/components/PageHeader";
 
 interface DeviceSearch {
   /** Set by the header's device menu to open that confirm dialog on arrival. */
@@ -31,13 +32,21 @@ function DeviceSettings() {
   }, [action, navigate]);
 
   return (
-    <SettingsSection title={t("nav.device")}>
+    <div className="flex flex-col gap-6">
+      <PageHeader
+        title={t("nav.device")}
+        description={
+          <>
+            {t("power.pageDescription")} <LearnMoreLink label={t("power.howPowerWorks")} />
+          </>
+        }
+      />
       {/*
         "/" re-runs the root guard (routes/__root.tsx), which lands back on
         `/home` once the device is reachable again -- sessions survive a
         reboot because the cookie signing key lives in auth.json.
       */}
-      <PowerPanel key={request?.id} initialDialog={request?.action}onRebooted={() => void navigate({ to: "/" })} />
-    </SettingsSection>
+      <PowerPanel key={request?.id} initialDialog={request?.action} onRebooted={() => void navigate({ to: "/" })} />
+    </div>
   );
 }

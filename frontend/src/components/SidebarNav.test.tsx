@@ -31,12 +31,12 @@ describe("SidebarNav settings group", () => {
     expect(current.map((link) => link.textContent)).toEqual(["Device"]);
   });
 
-  it("is collapsed by default elsewhere, with Home as the only current page", async () => {
+  it("is expanded by default elsewhere, with Home as the only current page", async () => {
     renderNavAt("/home");
 
     await screen.findByRole("navigation", { name: "Primary navigation" });
-    expect(settingsToggle()).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByRole("link", { name: "Network" })).not.toBeInTheDocument();
+    expect(settingsToggle()).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("link", { name: "Network" })).toBeInTheDocument();
     const current = screen.getAllByRole("link").filter((link) => link.getAttribute("aria-current") === "page");
     expect(current.map((link) => link.textContent)).toEqual(["Home"]);
   });
@@ -47,13 +47,13 @@ describe("SidebarNav settings group", () => {
 
     await user.click(await screen.findByRole("button", { name: "Settings" }));
 
-    expect(settingsToggle()).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("link", { name: "Network" })).toBeInTheDocument();
+    expect(settingsToggle()).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("link", { name: "Network" })).not.toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/home");
 
     await user.click(settingsToggle());
 
-    expect(settingsToggle()).toHaveAttribute("aria-expanded", "false");
+    expect(settingsToggle()).toHaveAttribute("aria-expanded", "true");
   });
 
   it("toggles from the keyboard", async () => {
@@ -63,7 +63,7 @@ describe("SidebarNav settings group", () => {
 
     await user.keyboard("{Enter}");
 
-    expect(settingsToggle()).toHaveAttribute("aria-expanded", "true");
+    expect(settingsToggle()).toHaveAttribute("aria-expanded", "false");
   });
 
   it("points the toggle at the list it controls", async () => {
@@ -75,7 +75,7 @@ describe("SidebarNav settings group", () => {
     expect(within(list as HTMLElement).getAllByRole("link")).toHaveLength(SETTINGS_ITEMS.length);
   });
 
-  it("remembers an expand choice across page loads", async () => {
+  it("remembers a collapse choice across page loads", async () => {
     const user = userEvent.setup();
     const { unmount } = renderNavAt("/home");
     await user.click(await screen.findByRole("button", { name: "Settings" }));
@@ -84,7 +84,7 @@ describe("SidebarNav settings group", () => {
     renderNavAt("/apps");
 
     await screen.findByRole("navigation", { name: "Primary navigation" });
-    expect(settingsToggle()).toHaveAttribute("aria-expanded", "true");
+    expect(settingsToggle()).toHaveAttribute("aria-expanded", "false");
   });
 
   it("shows the update dot on Software update when expanded, and on Settings when collapsed", async () => {

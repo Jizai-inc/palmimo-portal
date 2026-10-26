@@ -52,15 +52,14 @@ function stubStatuses({
 }
 
 describe("WifiSettingsPanel", () => {
-  it("renders the current ssid, IP address, hostname, and last attempt", async () => {
+  it("renders the current ssid, IP address, hostname, and when it connected", async () => {
     stubStatuses({ lastAttempt: { ssid: "HomeNet", result: "connected", timestamp: 0 } });
     renderWithProviders(<WifiSettingsPanel onReconnect={vi.fn()} onAdd={vi.fn()} />);
 
     expect(await screen.findByText("HomeNet")).toBeInTheDocument();
     expect(screen.getByText("198.51.100.7")).toBeInTheDocument();
-    expect(screen.getByText("palmimo-1234")).toBeInTheDocument();
-    expect(screen.getByText("Connected")).toBeInTheDocument();
-    expect(screen.getByText(/^Connected \(/)).toBeInTheDocument();
+    expect(screen.getAllByText("palmimo-1234")).toHaveLength(2);
+    expect(screen.getByText(/^Connected since /)).toBeInTheDocument();
   });
 
   it('renders "Not connected" and dashes when there is no connection or attempt on record', async () => {
@@ -139,7 +138,7 @@ describe("WifiSettingsPanel", () => {
     );
     renderWithProviders(<WifiSettingsPanel onReconnect={onReconnect} onAdd={vi.fn()} />);
 
-    await user.click(await screen.findByRole("button", { name: "Connect to a different network" }));
+    await user.click(await screen.findByRole("button", { name: "Switch network" }));
     expect(await screen.findByText("Connect to a different network?")).toBeInTheDocument();
     const dialog = screen.getByRole("alertdialog");
     await user.click(within(dialog).getByRole("button", { name: "Continue" }));

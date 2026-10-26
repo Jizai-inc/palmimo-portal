@@ -18,7 +18,8 @@
     "logout": "Log out",
     "networkError": "Could not reach Palmimo. Check your connection and try again.",
     "inProgress": "In progress",
-    "togglePasswordVisibility": "Show or hide password"
+    "togglePasswordVisibility": "Show or hide password",
+    "learnMore": "Learn more"
   },
   "nav": {
     "primaryNavigation": "Primary navigation",
@@ -154,16 +155,13 @@
     "subtitle": "See and change the network Palmimo is on",
     "connectedLabel": "Connected",
     "disconnectedLabel": "Not connected",
-    "networkLabel": "Network",
     "ipAddressLabel": "IP address",
     "hostnameLabel": "Hostname",
-    "lastAttemptLabel": "Last connection",
     "lastAttemptConnected": "Connected ({{datetime}})",
     "lastAttemptFailed": "Failed ({{datetime}})",
     "lastAttemptConnecting": "Connecting…",
-    "connectAnother": "Connect to a different network",
+    "connectAnother": "Switch network",
     "forgetNetwork": "Forget this network",
-    "noteTitle": "When you tap “Forget this network”",
     "noteBody": "Palmimo will disconnect from {{ssid}} and bring back its own Wi-Fi (“{{hostname}}”). You will be disconnected from this page, so reconnect from your phone or computer to that Wi-Fi to set it up again.",
     "reconnectDialogTitle": "Connect to a different network?",
     "reconnectDialogBody": "Palmimo saves the new network at the top of your saved networks and switches to it. {{ssid}} stays saved. If the new network fails, Palmimo tries your other saved networks, then brings up its own Wi-Fi (“{{hostname}}”).",
@@ -191,17 +189,17 @@
     "savedSwitchDialogBody": "{{current}} stays saved. If {{ssid}} is a different network from this device's, open http://{{hostname}}.local from a device on {{ssid}} afterwards.",
     "savedSwitchConfirm": "Switch",
     "switchingTitle": "Switching to {{ssid}}",
-    "switchingBody": "If this page stops responding, connect your phone or PC to {{ssid}} and open http://{{hostname}}.local."
+    "switchingBody": "If this page stops responding, connect your phone or PC to {{ssid}} and open http://{{hostname}}.local.",
+    "connectedSince": "Connected since {{datetime}}",
+    "fallbackHotspotLabel": "Fallback hotspot",
+    "forgetHint": "Forgetting disconnects this page; Palmimo turns its own Wi-Fi back on."
   },
   "dashboard": {
     "title": "Home",
-    "statusConnected": "Connected",
     "statusDisconnected": "Not connected",
     "hostnameLabel": "Hostname",
     "deviceIdLabel": "Device ID",
     "portalLabel": "Portal",
-    "sdkLabel": "SDK",
-    "softwareTitle": "Software",
     "updateAvailableBadge": "Update available",
     "ntpBanner": "Waiting for time sync…",
     "diskLowWarning": "This device is low on disk space ({{freeGb}} GB free)."
@@ -211,7 +209,6 @@
     "attentionAppBroken": "{{name}} needs repair",
     "attentionCredentialRejected": "GitHub rejected the credential for {{name}}",
     "attentionAppUpdate": "Update available for {{name}}",
-    "attentionPlatformUpdate": "Device platform update needed before apps can run",
     "attentionPortalUpdate": "Portal update available",
     "checklistTitle": "Get started",
     "checklistProgress": "{{done}} of {{total}} done",
@@ -237,7 +234,17 @@
     "activityWifiFailed": "Could not connect to Wi-Fi {{ssid}}",
     "attentionMissingKeys": "{{name}} needs an API key before it can start",
     "attentionChooseDefault": "Several apps are set to start when Palmimo turns on. Choose one default app.",
-    "checklistGuideLink": "Read the getting started guide"
+    "checklistGuideLink": "Read the getting started guide",
+    "tileNetwork": "Network",
+    "tileRunningApp": "Running app",
+    "tileNone": "None",
+    "tileOpenApps": "Open Apps",
+    "tileSdk": "SDK {{version}}",
+    "tileSdkMissing": "SDK not installed",
+    "tilePlatformVersion": "v{{version}}",
+    "tilePlatformUpdateRequired": "Update required",
+    "tilePlatformBlocked": "Apps can't run until updated",
+    "deviceIdUnassigned": "Not assigned"
   },
   "sshKeys": {
     "title": "SSH keys",
@@ -283,29 +290,28 @@
     "confirmedNoteBody": "The matching public key has been filled in below. Click \"Add key\" to register it."
   },
   "power": {
-    "systemsNoteTitle": "Palmimo DevKit has two power systems (servo power and Raspberry Pi power)",
-    "systemsNoteBody": "Servo power is controlled by the servo power switch on Palmimo's back. Control the Raspberry Pi's power from this screen or over SSH (unplugging the USB Type-C cable while it is running can corrupt the SD card).",
-    "shutdownStepsTitle": "How to power off",
-    "shutdownStep1": "Put Palmimo on a stand",
-    "shutdownStep2": "Switch the servo power switch off (the servos stop holding too)",
-    "shutdownStep3": "Shut down the Raspberry Pi from this screen",
-    "shutdownStep4": "To cut power to the product completely, unplug the DC plug and the USB Type-C cable from Palmimo",
     "restart": "Restart",
-    "restartCardDescription": "Restarts the Raspberry Pi inside Palmimo. This screen loses its connection for about a minute, then returns automatically once Palmimo is back (servos that are under torque keep holding).",
+    "restartCardDescription": "This page reconnects in about a minute. Servos under torque keep holding.",
     "shutdown": "Shut down",
-    "shutdownCardDescription": "Safely stops the Raspberry Pi inside Palmimo (servos that are under torque keep holding). To start it again after a shutdown, unplug the USB Type-C cable and plug it back in.",
+    "shutdownCardDescription": "To start again, unplug and replug the USB-C cable.",
     "restartDialogTitle": "Restart Palmimo?",
     "restartDialogBody": "Palmimo will be unreachable for a short while as it restarts.",
     "restartDialogConfirm": "Restart",
     "shutdownDialogTitle": "Shut down Palmimo?",
-    "shutdownDialogBody": "The Raspberry Pi will stop and stay off until you re-plug its power (USB Type-C). Servos that are under torque keep holding.",
     "shutdownDialogConfirm": "Shut down",
     "rebootingTitle": "Restarting…",
     "rebootingBody": "This page will reload when Palmimo is back.",
     "reopenPortal": "Reopen the Portal",
     "shuttingDownTitle": "Palmimo is shutting down",
     "shuttingDownBody": "Wait a moment before unplugging the power. To start Palmimo again, unplug the Raspberry Pi's power (USB Type-C) and plug it back in, then reopen this page.",
-    "updateInProgress": "An update is in progress. Restart and shut down are disabled until it finishes."
+    "updateInProgress": "An update is in progress. Restart and shut down are disabled until it finishes.",
+    "pageDescription": "Power the Raspberry Pi inside Palmimo. Servo power uses the switch on its back.",
+    "howPowerWorks": "How power works",
+    "unplugWarning": "Don't unplug USB-C while running. It can corrupt the SD card.",
+    "shutdownChecklistIntro": "Before shutting down:",
+    "checkOnStand": "Palmimo is on its stand",
+    "checkServoOff": "Servo power switch is off",
+    "shutdownAfterNote": "To cut all power afterwards, unplug the DC plug and USB-C cable."
   },
   "update": {
     "newVersionAvailable": "A new version is available",
@@ -356,7 +362,13 @@
     "platformLegacyLedger": "Reset the apps first, then update the device platform.",
     "platformLatestErrorClockUnsynced": "Waiting for the clock to sync before checking for updates.",
     "platformLatestErrorRateLimited": "Checked for updates too recently; try again in a moment.",
-    "platformLatestErrorUnknown": "Could not check for the latest version."
+    "platformLatestErrorUnknown": "Could not check for the latest version.",
+    "pageDescription": "Updates take a few minutes and restart the Portal. Keep the robot still.",
+    "portalDescription": "This web app and its background service.",
+    "platformDescription": "System software Palmimo's apps run on.",
+    "platformRequiredTitle": "Update required",
+    "platformRequiredBody": "Apps, saved networks and the SDK need a newer version.",
+    "platformCheckFailedTitle": "Couldn't check for updates"
   },
   "errors": {
     "app_broken": "This app's files are missing or damaged. Reinstall it to continue.",
@@ -506,7 +518,8 @@
     "jobClose": "Close",
     "jobCompleted": "Completed",
     "defaultBadge": "Default",
-    "missingKeysBadge": "Needs API key"
+    "missingKeysBadge": "Needs API key",
+    "emptyStateBody": "Start with an official app, or add your own from a GitHub repository or zip file."
   },
   "appAdd": {
     "continueButton": "Continue",
@@ -612,15 +625,14 @@
     "motor_display": "Motors & display"
   },
   "env": {
-    "title": "Environment variables",
-    "registerButton": "Register",
+    "registerButton": "Add secret",
     "emptyState": "No environment variables registered yet.",
     "columnName": "Name",
     "columnValue": "Value",
     "columnUpdatedAt": "Updated",
     "columnUsedBy": "Used by",
     "notUsedByAny": "Not used by any app",
-    "updateValueButton": "Update value",
+    "updateValueButton": "Edit",
     "deleteButton": "Delete",
     "dialogTitleRegister": "Register environment variable",
     "dialogTitleUpdate": "Update {{name}}",
@@ -629,7 +641,8 @@
     "valueLabel": "Value",
     "saveButton": "Save",
     "deleteDialogTitle": "Delete {{name}}?",
-    "deleteDialogConfirm": "Delete"
+    "deleteDialogConfirm": "Delete",
+    "pageDescription": "Environment variables your apps can read. Values stay hidden after saving."
   },
   "gitCredentials": {
     "title": "Git credentials",
@@ -647,5 +660,20 @@
     "tokenLabel": "Personal access token",
     "replacing": "This credential is already registered. Saving will replace it.",
     "replaceButton": "Replace"
+  },
+  "account": {
+    "name": "Signed in",
+    "kind": "Local account"
+  },
+  "platformPill": {
+    "label": "Platform update required",
+    "updating": "Updating platform…",
+    "title": "Device platform update required",
+    "body": "Installed v{{version}}. Apps, saved networks and the SDK need a newer platform.",
+    "hint": "Takes a few minutes. Keep the robot still.",
+    "details": "Details"
+  },
+  "developer": {
+    "pageDescription": "SSH access and Git credentials for private apps"
   }
 }

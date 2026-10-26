@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { Plus } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
@@ -10,6 +11,7 @@ import {
 } from "@/api/generated/secrets/secrets";
 import type { GitCredentialRecordInfo } from "@/api/generated/models";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
+import { SectionHeader } from "@/components/PageHeader";
 import { AlertDialog, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -33,14 +35,17 @@ export function GitCredentialsPanel() {
   const credentials = data?.credentials ?? [];
   const invalidate = () => void queryClient.invalidateQueries({ queryKey: getListGitCredentialsApiV1GitCredentialsGetQueryKey() });
   const deletion = useDeleteGitCredentialApiV1GitCredentialsHostOwnerDelete({ mutation: { onSuccess: () => { setDeleteTarget(null); invalidate(); } } });
-  return <div className="flex flex-col gap-4">
-    <div className="flex items-center justify-between gap-2"><Button onClick={() => setDialog({})}>{t("gitCredentials.addButton")}</Button></div>
-    <p className="text-sm text-muted-foreground">{t("gitCredentials.description")}</p>
+  return <section className="flex flex-col gap-3.5">
+    <SectionHeader
+      title={t("gitCredentials.title")}
+      description={t("gitCredentials.description")}
+      actions={<Button variant="outline" onClick={() => setDialog({})}><Plus className="size-4" aria-hidden />{t("gitCredentials.addButton")}</Button>}
+    />
     <ApiErrorAlert error={error} />
-    {error ? null : isLoading ? <p className="text-sm text-muted-foreground">{t("common.loading")}</p> : credentials.length === 0 ? <p className="text-sm text-muted-foreground">{t("gitCredentials.emptyState")}</p> : <ul className="flex flex-col gap-2">{credentials.map((credential) => <li key={credential.host_owner} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border bg-card p-4"><div className="flex flex-wrap items-center gap-2"><code className="font-mono text-sm">{credential.host_owner}</code><span className="text-xs text-muted-foreground">{t("gitCredentials.updatedAt")}: {formatUtcTimestamp(credential.updated_at)}</span>{credential.rejected_at != null ? <Badge variant="destructive">{t("gitCredentials.rejected")}</Badge> : null}{(credential.app_ids ?? []).map((appId) => <Badge key={appId} variant="outline">{appId}</Badge>)}</div><div className="flex gap-2"><Button variant="outline" onClick={() => setDialog({ hostOwner: credential.host_owner })}>{t("gitCredentials.updateButton")}</Button><Button variant="outline" onClick={() => setDeleteTarget(credential)}>{t("common.delete")}</Button></div></li>)}</ul>}
+    {error ? null : isLoading ? <p className="text-sm text-muted-foreground">{t("common.loading")}</p> : credentials.length === 0 ? <p className="rounded-xl border border-dashed border-border-strong p-5 text-[13px] text-muted-foreground">{t("gitCredentials.emptyState")}</p> : <ul className="flex flex-col overflow-hidden rounded-xl border border-border">{credentials.map((credential, index) => <li key={credential.host_owner} className={`flex flex-wrap items-center justify-between gap-2 px-5 py-3.5 ${index === 0 ? "" : "border-t border-border"}`}><div className="flex flex-wrap items-center gap-2"><code className="font-mono text-sm font-medium">{credential.host_owner}</code><span className="text-xs text-muted-foreground">{t("gitCredentials.updatedAt")}: {formatUtcTimestamp(credential.updated_at)}</span>{credential.rejected_at != null ? <Badge variant="destructive">{t("gitCredentials.rejected")}</Badge> : null}{(credential.app_ids ?? []).map((appId) => <Badge key={appId} variant="outline">{appId}</Badge>)}</div><div className="flex gap-1"><Button variant="outline" size="sm" onClick={() => setDialog({ hostOwner: credential.host_owner })}>{t("gitCredentials.updateButton")}</Button><Button variant="dangerGhost" size="sm" onClick={() => setDeleteTarget(credential)}>{t("common.delete")}</Button></div></li>)}</ul>}
     <CredentialDialog dialog={dialog} credentials={credentials} onClose={() => setDialog(null)} onSaved={invalidate} />
     <AlertDialog open={deleteTarget !== null} onOpenChange={(open) => !open && setDeleteTarget(null)}><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>{t("gitCredentials.deleteTitle", { hostOwner: deleteTarget?.host_owner ?? "" })}</AlertDialogTitle></AlertDialogHeader><ApiErrorAlert error={deletion.error} /><AlertDialogFooter><AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel><Button variant="destructive" disabled={deletion.isPending} onClick={() => deleteTarget && deletion.mutate({ hostOwner: deleteTarget.host_owner })}>{t("common.delete")}</Button></AlertDialogFooter></AlertDialogContent></AlertDialog>
-  </div>;
+  </section>;
 }
 
 function CredentialDialog({ dialog, credentials, onClose, onSaved }: { dialog: Dialog; credentials: GitCredentialRecordInfo[]; onClose: () => void; onSaved: () => void }) {

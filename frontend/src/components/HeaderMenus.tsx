@@ -15,7 +15,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 
-export function AccountMenu() {
+/** `compact` is the icon-only trigger for the collapsed sidebar rail; otherwise a full-width account row. */
+export function AccountMenu({ compact = false }: { compact?: boolean } = {}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -24,11 +25,25 @@ export function AccountMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button type="button" variant="ghost" size="icon" aria-label={t("header.accountMenu")}>
-          <User className="size-4" />
-        </Button>
+        {compact ? (
+          <Button type="button" variant="ghost" size="icon" aria-label={t("header.accountMenu")}>
+            <AccountAvatar />
+          </Button>
+        ) : (
+          <button
+            type="button"
+            aria-label={t("header.accountMenu")}
+            className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg p-1 text-left outline-none hover:bg-accent/60 focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <AccountAvatar />
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate text-[13px] font-semibold">{t("account.name")}</span>
+              <span className="truncate text-xs text-muted-foreground">{t("account.kind")}</span>
+            </span>
+          </button>
+        )}
       </DropdownMenuTrigger>
-      <DropdownMenuContent>
+      <DropdownMenuContent align={compact ? "start" : "end"} side={compact ? "right" : "top"}>
         <DropdownMenuItem
           disabled={logout.isPending}
           onSelect={() =>
@@ -49,6 +64,14 @@ export function AccountMenu() {
   );
 }
 
+function AccountAvatar() {
+  return (
+    <span className="flex size-[30px] shrink-0 items-center justify-center rounded-full bg-accent" aria-hidden>
+      <User className="size-[15px] text-foreground/80" />
+    </span>
+  );
+}
+
 /** Device name and connection in the header; Restart and Shut down hand off to Settings → Device, which owns the confirm and reboot-wait flow. */
 export function DeviceMenu({ hostname, network, connected }: { hostname: string; network: string; connected: boolean }) {
   const { t } = useTranslation();
@@ -58,10 +81,16 @@ export function DeviceMenu({ hostname, network, connected }: { hostname: string;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button type="button" variant="ghost" className="gap-2 px-2" aria-label={`${t("header.deviceMenu")} ${hostname}`.trim()}>
-          <span className={cn("size-2.5 rounded-full", connected ? "bg-green-500" : "bg-muted-foreground")} aria-hidden />
-          <span className="hidden max-w-40 truncate text-sm font-medium sm:inline">{hostname}</span>
-          <ChevronDown className="size-4 text-muted-foreground" />
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="gap-1.5 border-border px-2.5 font-medium"
+          aria-label={`${t("header.deviceMenu")} ${hostname}`.trim()}
+        >
+          <span className={cn("size-[7px] rounded-full", connected ? "bg-success" : "bg-muted-foreground")} aria-hidden />
+          <span className="hidden max-w-40 truncate sm:inline">{hostname}</span>
+          <ChevronDown className="size-3.5 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent>

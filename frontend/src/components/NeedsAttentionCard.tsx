@@ -23,7 +23,6 @@ function AttentionLink({ item, children }: { item: AttentionItem; children: Reac
           {children}
         </Link>
       );
-    case "platformUpdate":
     case "chooseDefault":
       return (
         <Link to="/apps" search={{}} className={className}>
@@ -52,8 +51,6 @@ function attentionText(t: TFunction, item: AttentionItem): string {
       return t("home.attentionMissingKeys", { name: item.appName });
     case "chooseDefault":
       return t("home.attentionChooseDefault");
-    case "platformUpdate":
-      return t("home.attentionPlatformUpdate");
     case "portalUpdate":
       return t("home.attentionPortalUpdate");
   }
@@ -62,13 +59,13 @@ function attentionText(t: TFunction, item: AttentionItem): string {
 export function NeedsAttentionCard({ items }: { items: readonly AttentionItem[] }) {
   const { t } = useTranslation();
   return (
-    <section aria-labelledby="home-attention" className="flex flex-col gap-1 rounded-xl border border-border bg-card p-2">
-      <h2 id="home-attention" className="px-2 py-1.5 text-sm font-semibold">
+    <section aria-labelledby="home-attention" className="flex flex-col gap-1 rounded-xl border border-border bg-card p-3">
+      <h2 id="home-attention" className="px-2 py-1 text-[15px] font-semibold">
         {t("home.attentionTitle")}
       </h2>
       <ul className="flex flex-col">
         {items.map((item) => {
-          const update = item.kind === "appUpdate" || item.kind === "portalUpdate" || item.kind === "platformUpdate";
+          const update = item.kind === "appUpdate" || item.kind === "portalUpdate";
           const Icon = update ? Download : AlertTriangle;
           return (
             <li key={"appId" in item ? `${item.kind}:${item.appId}` : item.kind}>

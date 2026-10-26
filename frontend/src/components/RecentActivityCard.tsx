@@ -25,20 +25,20 @@ function activityText(t: TFunction, item: ActivityItem): string {
 export function RecentActivityCard({ items }: { items: readonly ActivityItem[] }) {
   const { t, i18n } = useTranslation();
   return (
-    <section aria-labelledby="home-activity" className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
-      <h2 id="home-activity" className="font-semibold">
+    <section aria-labelledby="home-activity" className="flex flex-col gap-3.5 rounded-xl border border-border bg-card p-5">
+      <h2 id="home-activity" className="text-[15px] font-semibold">
         {t("home.activityTitle")}
       </h2>
       {items.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t("home.activityEmpty")}</p>
       ) : (
-        <ul className="flex flex-col gap-2">
+        <ul className="flex flex-col gap-3">
           {items.map((item) => {
             const Icon = item.kind === "wifi" ? Wifi : Package;
             const text = activityText(t, item);
             return (
-              <li key={item.kind === "wifi" ? "wifi" : `app:${item.appId}`} className="flex items-start gap-3 text-sm">
-                <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+              <li key={item.kind === "wifi" ? "wifi" : `app:${item.appId}`} className="flex items-center gap-3 text-sm">
+                <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                 <span className="min-w-0 flex-1">
                   {item.kind === "appJob" && item.job !== "delete" ? (
                     <Link to="/apps/$id" params={{ id: item.appId }} className="hover:underline">

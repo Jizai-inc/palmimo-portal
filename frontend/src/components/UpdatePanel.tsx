@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
-import { Download } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -16,6 +16,7 @@ import type { UpdateJobInfo, UpdateStatusResponse } from "@/api/generated/models
 import { PortalApiError } from "@/api/client";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { PlatformUpdateCard } from "@/components/PlatformUpdateCard";
+import { UpdateCardFrame, UpdateFact } from "@/components/UpdateCardFrame";
 import { ProgressBar } from "@/components/ProgressBar";
 import { useRetryCountdown } from "@/lib/useRetryCountdown";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -281,8 +282,12 @@ export function UpdatePanel({
   }
 
   return (
-    <div className="flex flex-col gap-6 md:flex-row md:items-start">
-      <div className="flex flex-1 flex-col gap-6">
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 md:items-stretch">
+        <PlatformUpdateCard
+          installedPortalVersion={status.installed.tag ?? undefined}
+          portalUpdateRunning={job?.state === "running" || job?.state === "restarting"}
+        />
         <UpdateCard
           status={status}
           job={job as UpdateJobInfo}
@@ -300,22 +305,18 @@ export function UpdatePanel({
           applyError={apply.error}
           restartTimedOut={restartTimedOut}
         />
-        {/* previous_tag can coincide with installed.tag after a retry; hide rather than show a no-op rollback. */}
-        {status.previous_tag && status.previous_tag !== status.installed.tag ? (
-          <RollbackCard
-            previousTag={status.previous_tag}
-            dialogKind={dialogKind}
-            setDialogKind={setDialogKind}
-            onConfirmRollback={() => rollback.mutate(undefined)}
-            rollbackPending={rollback.isPending}
-            rollbackError={rollback.error}
-          />
-        ) : null}
-        <PlatformUpdateCard
-          installedPortalVersion={status.installed.tag ?? undefined}
-          portalUpdateRunning={job?.state === "running" || job?.state === "restarting"}
-        />
       </div>
+      {/* previous_tag can coincide with installed.tag after a retry; hide rather than show a no-op rollback. */}
+      {status.previous_tag && status.previous_tag !== status.installed.tag ? (
+        <RollbackCard
+          previousTag={status.previous_tag}
+          dialogKind={dialogKind}
+          setDialogKind={setDialogKind}
+          onConfirmRollback={() => rollback.mutate(undefined)}
+          rollbackPending={rollback.isPending}
+          rollbackError={rollback.error}
+        />
+      ) : null}
     </div>
   );
 }
@@ -350,105 +351,111 @@ function UpdateCard({
   const checkErrorShown = useRetryCountdown(checkError);
   const { t } = useTranslation();
 
-  return (
-    <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-4">
-      <div className="flex items-center gap-2">
-        <Download className="size-5 text-muted-foreground" aria-hidden />
-        <p className="font-semibold">
-          {status.update_available
-            ? t("update.newVersionAvailable")
-            : status.latest !== null
-              ? t("update.upToDate")
-              : checkPending
-                ? t("update.checkingTitle")
-                : t("update.checkFailedTitle")}
-        </p>
-        {status.latest ? (
-          <Badge variant="outline" className="ml-auto">
-            {status.latest.tag}
-          </Badge>
-        ) : null}
-      </div>
-      <div className="border-t border-border" />
-      <dl className="flex flex-col gap-2 text-sm">
-        <KvRow label={t("update.installedVersionLabel")} value={status.installed.tag ?? status.installed.commit} />
-        <KvRow
-          label={t("update.latestReleaseLabel")}
-          value={status.latest ? `${status.latest.tag} (${formatReleaseDate(status.latest.published_at)})` : null}
-        />
-        <KvRow label={t("update.lastCheckedLabel")} value={formatCheckedAt(status.checked_at)} />
-      </dl>
+  const title = status.update_available
+    ? t("update.newVersionAvailable")
+    : status.latest !== null
+      ? t("update.upToDate")
+      : checkPending
+        ? t("update.checkingTitle")
+        : t("update.checkFailedTitle");
 
-      {job.state === "running" ? (
-        <div className="flex flex-col gap-2 rounded-lg bg-muted p-3">
-          <p className="text-sm">{t("update.progressLabel", { step: stepLabel(t, job.step) })}</p>
-          <ProgressBar label={t("common.inProgress")} />
-        </div>
-      ) : job.state === "restarting" && restartTimedOut ? (
-        <div className="flex flex-col gap-2">
-          <Alert variant="destructive">
-            <AlertDescription>{t("update.restartTimedOut")}</AlertDescription>
-          </Alert>
-          <Button variant="outline" className="w-fit" onClick={() => window.location.reload()}>
-            {t("update.reopenPortalButton")}
-          </Button>
-        </div>
-      ) : job.state === "restarting" ? (
-        <div className="flex flex-col gap-2 rounded-lg bg-muted p-3">
-          <p className="text-sm font-medium">{t("update.restartingTitle")}</p>
-          <p className="text-sm text-muted-foreground">{t("update.restartingBody")}</p>
-          <ProgressBar label={t("common.inProgress")} />
-        </div>
-      ) : job.state === "failed" ? (
-        <div className="flex flex-col gap-2">
-          <Alert variant="destructive">
-            <AlertDescription>
-              {t("update.failedTitle")}
-              {job.step ? ` (${stepLabel(t, job.step)})` : ""}
-              {job.error ? `: ${job.error}` : ""}
-            </AlertDescription>
-          </Alert>
-          {status.retry_available ? (
-            <Button variant="outline" className="w-fit" onClick={onRetry} disabled={applyPending}>
-              {t("update.retryButton")}
+  return (
+    <>
+      <UpdateCardFrame
+      eyebrow={t("dashboard.portalLabel")}
+      title={
+        <span className="flex items-center gap-2">
+          {checkPending && status.latest === null ? <Loader2 className="size-4 animate-spin text-muted-foreground" aria-hidden /> : null}
+          {title}
+        </span>
+      }
+      description={t("update.portalDescription")}
+      badge={status.latest ? <Badge variant="outline">{status.latest.tag}</Badge> : null}
+      facts={
+        <>
+          <UpdateFact label={t("update.installedVersionLabel")}>
+            <span className="font-mono">{status.installed.tag ?? status.installed.commit ?? "—"}</span>
+          </UpdateFact>
+          <UpdateFact label={t("update.latestReleaseLabel")}>
+            {status.latest ? `${status.latest.tag} (${formatReleaseDate(status.latest.published_at)})` : "—"}
+          </UpdateFact>
+          <UpdateFact label={t("update.lastCheckedLabel")}>{formatCheckedAt(status.checked_at)}</UpdateFact>
+        </>
+      }
+      status={
+        <>
+          {job.state === "running" ? (
+            <div className="flex flex-col gap-2 rounded-lg bg-muted p-3">
+              <p className="text-sm">{t("update.progressLabel", { step: stepLabel(t, job.step) })}</p>
+              <ProgressBar label={t("common.inProgress")} />
+            </div>
+          ) : job.state === "restarting" && restartTimedOut ? (
+            <div className="flex flex-col gap-2">
+              <Alert variant="destructive">
+                <AlertDescription>{t("update.restartTimedOut")}</AlertDescription>
+              </Alert>
+              <Button variant="outline" className="w-fit" onClick={() => window.location.reload()}>
+                {t("update.reopenPortalButton")}
+              </Button>
+            </div>
+          ) : job.state === "restarting" ? (
+            <div className="flex flex-col gap-2 rounded-lg bg-muted p-3">
+              <p className="text-sm font-medium">{t("update.restartingTitle")}</p>
+              <p className="text-sm text-muted-foreground">{t("update.restartingBody")}</p>
+              <ProgressBar label={t("common.inProgress")} />
+            </div>
+          ) : job.state === "failed" ? (
+            <div className="flex flex-col gap-2">
+              <Alert variant="destructive">
+                <AlertDescription>
+                  {t("update.failedTitle")}
+                  {job.step ? ` (${stepLabel(t, job.step)})` : ""}
+                  {job.error ? `: ${job.error}` : ""}
+                </AlertDescription>
+              </Alert>
+              {status.retry_available ? (
+                <Button variant="outline" className="w-fit" onClick={onRetry} disabled={applyPending}>
+                  {t("update.retryButton")}
+                </Button>
+              ) : null}
+            </div>
+          ) : job.state === "done" ? (
+            <Alert>
+              <AlertDescription>{t("update.doneMessage", { target: job.target ?? "" })}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          {/* A manual "Check now" failure must be visible; 429 stays silent, matching auto-check. */}
+          <ApiErrorAlert error={checkErrorShown} />
+          <ApiErrorAlert error={applyError} />
+        </>
+      }
+      footer={
+        <>
+          {status.latest ? (
+            <Button
+              className={cn("flex-1 md:flex-initial")}
+              disabled={
+                (!status.update_available && !status.retry_available) || applyPending || job.state === "running" || job.state === "restarting"
+              }
+              onClick={() => setDialogKind("update")}
+            >
+              {t("update.updateButton", { tag: status.latest.tag })}
             </Button>
           ) : null}
-        </div>
-      ) : job.state === "done" ? (
-        <Alert>
-          <AlertDescription>{t("update.doneMessage", { target: job.target ?? "" })}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      <p className="text-xs text-muted-foreground">{t("update.notes")}</p>
-      {/* A manual "Check now" failure must be visible; 429 stays silent, matching auto-check. */}
-      <ApiErrorAlert error={checkErrorShown} />
-      <ApiErrorAlert error={applyError} />
-
-      <div className="flex flex-col gap-3 md:flex-row">
-        {status.latest ? (
-          <Button
-            className={cn("flex-1 md:flex-initial")}
-            disabled={
-              (!status.update_available && !status.retry_available) || applyPending || job.state === "running" || job.state === "restarting"
-            }
-            onClick={() => setDialogKind("update")}
-          >
-            {t("update.updateButton", { tag: status.latest.tag })}
+          {status.latest ? (
+            <Button variant="outline" asChild>
+              <a href={status.latest.html_url} target="_blank" rel="noreferrer">
+                {t("update.releaseNotesButton")}
+              </a>
+            </Button>
+          ) : null}
+          <Button variant="ghost" onClick={onCheckNow} disabled={checkPending}>
+            {t("update.checkNowButton")}
           </Button>
-        ) : null}
-        {status.latest ? (
-          <Button variant="outline" asChild>
-            <a href={status.latest.html_url} target="_blank" rel="noreferrer">
-              {t("update.releaseNotesButton")}
-            </a>
-          </Button>
-        ) : null}
-        <Button variant="ghost" onClick={onCheckNow} disabled={checkPending}>
-          {t("update.checkNowButton")}
-        </Button>
-      </div>
-
+        </>
+      }
+    />
       <AlertDialog open={dialogKind === "update"} onOpenChange={(open) => !open && setDialogKind(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -463,7 +470,7 @@ function UpdateCard({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </>
   );
 }
 
@@ -485,8 +492,8 @@ function RollbackCard({
   const { t } = useTranslation();
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
-      <p className="font-semibold">{t("update.rollbackTitle")}</p>
+    <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-5">
+      <h2 className="text-[15px] font-semibold">{t("update.rollbackTitle")}</h2>
       <dl className="flex flex-col gap-2 text-sm">
         <KvRow label={t("update.previousVersionLabel")} value={previousTag} />
       </dl>
@@ -510,7 +517,7 @@ function RollbackCard({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </section>
   );
 }
 

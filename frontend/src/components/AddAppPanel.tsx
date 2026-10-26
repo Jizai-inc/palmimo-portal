@@ -86,7 +86,7 @@ export function AddAppPanel({
   return (
     <div className="flex flex-col gap-4">
       {tabs.length > 1 && !confirming ? (
-        <div className="flex gap-2 border-b border-border">
+        <div className="flex gap-6 border-b border-border">
           {tabs.map((option) => (
             <TabButton key={option} active={tab === option} onClick={() => setTab(option)}>
               {tabLabel(t, option)}

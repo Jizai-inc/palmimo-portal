@@ -32,22 +32,12 @@ describe("PowerPanel", () => {
     server.use(getGetStatusApiV1UpdateStatusGetMockHandler(IDLE_UPDATE_STATUS));
   });
 
-  it("opens the idle screen with the two power systems and how each is controlled", async () => {
+  it("opens the idle screen with both power actions and the USB-C warning", async () => {
     renderWithProviders(<PowerPanel onRebooted={vi.fn()} pollIntervalMs={50} />);
 
-    expect(
-      await screen.findByText("Palmimo DevKit has two power systems (servo power and Raspberry Pi power)"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Servo power is controlled by the servo power switch on Palmimo's back. Control the Raspberry Pi's power from this screen or over SSH (unplugging the USB Type-C cable while it is running can corrupt the SD card).",
-      ),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        "Safely stops the Raspberry Pi inside Palmimo (servos that are under torque keep holding). To start it again after a shutdown, unplug the USB Type-C cable and plug it back in.",
-      ),
-    ).toBeInTheDocument();
+    expect(await screen.findByText("To start again, unplug and replug the USB-C cable.")).toBeInTheDocument();
+    expect(screen.getByText("This page reconnects in about a minute. Servos under torque keep holding.")).toBeInTheDocument();
+    expect(screen.getByText("Don't unplug USB-C while running. It can corrupt the SD card.")).toBeInTheDocument();
   });
 
   it.each([
@@ -59,18 +49,29 @@ describe("PowerPanel", () => {
     expect(await screen.findByRole("alertdialog", { name: title })).toBeInTheDocument();
   });
 
-  it("orders the power-off steps posture-first, before the servo switch", async () => {
-    renderWithProviders(<PowerPanel onRebooted={vi.fn()} pollIntervalMs={50} />);
+  it("orders the shut-down checks posture-first, before the servo switch", async () => {
+    renderWithProviders(<PowerPanel onRebooted={vi.fn()} initialDialog="shutdown" pollIntervalMs={50} />);
 
-    const stepsPanel = (await screen.findByText("How to power off")).closest('[data-slot="alert"]');
-    expect(stepsPanel).not.toBeNull();
-    const steps = within(stepsPanel as HTMLElement).getByRole("list").querySelectorAll("li");
-    expect([...steps].map((li) => li.textContent)).toEqual([
-      "Put Palmimo on a stand",
-      "Switch the servo power switch off (the servos stop holding too)",
-      "Shut down the Raspberry Pi from this screen",
-      "To cut power to the product completely, unplug the DC plug and the USB Type-C cable from Palmimo",
+    const dialog = await screen.findByRole("alertdialog", { name: "Shut down Palmimo?" });
+    expect(within(dialog).getAllByRole("checkbox").map((box) => box.closest("label")?.textContent)).toEqual([
+      "Palmimo is on its stand",
+      "Servo power switch is off",
     ]);
+  });
+
+  it("keeps Shut down disabled until every check is ticked", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<PowerPanel onRebooted={vi.fn()} initialDialog="shutdown" pollIntervalMs={50} />);
+
+    const dialog = await screen.findByRole("alertdialog", { name: "Shut down Palmimo?" });
+    const confirm = within(dialog).getByRole("button", { name: "Shut down" });
+    expect(confirm).toBeDisabled();
+
+    await user.click(within(dialog).getByRole("checkbox", { name: "Palmimo is on its stand" }));
+    expect(confirm).toBeDisabled();
+
+    await user.click(within(dialog).getByRole("checkbox", { name: "Servo power switch is off" }));
+    expect(confirm).toBeEnabled();
   });
 
   it("reboots: dialog -> confirm -> POST called -> rebooting state shown", async () => {
@@ -236,6 +237,7 @@ describe("PowerPanel", () => {
     await user.click(screen.getByRole("button", { name: "Shut down" }));
     expect(await screen.findByText("Shut down Palmimo?")).toBeInTheDocument();
     const dialog = screen.getByRole("alertdialog");
+    for (const box of within(dialog).getAllByRole("checkbox")) await user.click(box);
     await user.click(within(dialog).getByRole("button", { name: "Shut down" }));
 
     await waitFor(() => expect(shutdownCalled).toBe(true));

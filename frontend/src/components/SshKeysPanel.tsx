@@ -116,18 +116,20 @@ function SshCommandHint() {
   }
 
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="text-muted-foreground">{t("sshKeys.sshCommandLabel")}</span>
-        <code className="rounded-md border border-input bg-muted px-2 py-1 font-mono text-xs break-all">{command}</code>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center gap-3 rounded-[10px] bg-secondary px-3.5 py-3">
+        <span className="text-xs text-muted-foreground">{t("sshKeys.sshCommandLabel")}</span>
+        <code className="min-w-0 flex-1 font-mono text-[13px] break-all">{command}</code>
         <Button
           type="button"
-          variant="ghost"
-          size="icon"
+          variant="outline"
+          size="sm"
+          className="h-7 gap-1.5 px-2.5 text-xs"
           aria-label={copied ? t("sshKeys.copiedCommand") : t("sshKeys.copyCommand")}
           onClick={() => void handleCopy()}
         >
-          {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+          {copied ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
+          <span aria-hidden>{copied ? t("sshKeys.copiedCommand") : t("sshKeys.copyCommand")}</span>
         </Button>
       </div>
       <p className="text-xs text-muted-foreground">{t("sshKeys.sshCommandNote")}</p>
@@ -359,41 +361,30 @@ export function SshKeysPanel() {
     </form>
   );
 
+  const choiceCard = "h-auto flex-1 items-start justify-start gap-3 whitespace-normal rounded-[10px] border-border p-4 text-left font-normal";
   const branchChoice = (
-    <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
-      <p className="text-sm font-semibold">{t("sshKeys.addChoiceTitle")}</p>
-      <div className="flex flex-col gap-2 md:flex-row">
-        <Button
-          type="button"
-          variant="outline"
-          className="h-auto flex-1 flex-col items-start justify-start gap-1 whitespace-normal py-3 text-left"
-          onClick={() => setMode("generate")}
-        >
-          <span className="flex items-center gap-2 font-semibold">
-            <KeyRound className="size-4" />
-            {t("sshKeys.chooseGenerate")}
-          </span>
-          <span className="text-xs font-normal text-muted-foreground">{t("sshKeys.chooseGenerateHelp")}</span>
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          className="h-auto flex-1 flex-col items-start justify-start gap-1 whitespace-normal py-3 text-left"
-          onClick={() => setMode("register")}
-        >
-          <span className="flex items-center gap-2 font-semibold">
-            <Upload className="size-4" />
-            {t("sshKeys.chooseRegister")}
-          </span>
-          <span className="text-xs font-normal text-muted-foreground">{t("sshKeys.chooseRegisterHelp")}</span>
-        </Button>
-      </div>
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2" role="group" aria-label={t("sshKeys.addChoiceTitle")}>
+      <Button type="button" variant="outline" className={choiceCard} onClick={() => setMode("generate")}>
+        <KeyRound className="mt-0.5 size-[18px]" aria-hidden />
+        <span className="flex flex-col gap-0.5">
+          <span className="text-sm font-semibold">{t("sshKeys.chooseGenerate")}</span>
+          <span className="text-xs text-muted-foreground">{t("sshKeys.chooseGenerateHelp")}</span>
+        </span>
+      </Button>
+      <Button type="button" variant="outline" className={choiceCard} onClick={() => setMode("register")}>
+        <Upload className="mt-0.5 size-[18px]" aria-hidden />
+        <span className="flex flex-col gap-0.5">
+          <span className="text-sm font-semibold">{t("sshKeys.chooseRegister")}</span>
+          <span className="text-xs text-muted-foreground">{t("sshKeys.chooseRegisterHelp")}</span>
+        </span>
+      </Button>
     </div>
   );
 
+  const keysEmpty = !listError && !isLoading && (keys ?? []).length === 0;
+
   return (
-    <div className="flex flex-col gap-4">
-      <p className="text-sm text-muted-foreground">{t("sshKeys.body")}</p>
+    <div className="flex flex-col gap-3.5">
       <SshCommandHint />
       <ApiErrorAlert error={listError} />
       {showDeleteError ? <ApiErrorAlert error={deleteKey.error} /> : null}
@@ -401,12 +392,12 @@ export function SshKeysPanel() {
       {/* A list error means we don't know the real key list -- render neither empty state nor form. */}
       {listError ? null : isLoading ? (
         <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
-      ) : (keys ?? []).length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t("sshKeys.emptyState")}</p>
+      ) : keysEmpty ? (
+        activeMode === null || canGenerateKey === null ? null : <p className="text-[13px] text-muted-foreground">{t("sshKeys.emptyState")}</p>
       ) : (
-        <div className="overflow-hidden rounded-md border border-input">
+        <div className="overflow-hidden rounded-xl border border-border">
           {/* Desktop-only column header. */}
-          <div className="hidden grid-cols-[1fr_120px_1fr_44px] gap-2 bg-muted px-3 py-2 text-xs font-medium text-muted-foreground md:grid">
+          <div className="hidden grid-cols-[1fr_120px_1fr_44px] gap-2 border-b border-border bg-subtle px-5 py-2.5 text-xs font-medium text-muted-foreground md:grid">
             <span>{t("sshKeys.columnComment")}</span>
             <span>{t("sshKeys.columnType")}</span>
             <span>{t("sshKeys.columnFingerprint")}</span>
@@ -416,7 +407,7 @@ export function SshKeysPanel() {
             {(keys ?? []).map((key, index) => (
               <li
                 key={key.fingerprint}
-                className={`flex flex-col gap-1 p-3 md:grid md:grid-cols-[1fr_120px_1fr_44px] md:items-center md:gap-2 md:px-3 md:py-2 ${index === 0 ? "" : "border-t border-input"}`}
+                className={`flex flex-col gap-1 p-4 md:grid md:grid-cols-[1fr_120px_1fr_44px] md:items-center md:gap-2 md:px-5 md:py-3 ${index === 0 ? "" : "border-t border-border"}`}
               >
                 <span className="min-w-0 max-w-full truncate text-sm font-medium">{key.comment || t("sshKeys.noComment")}</span>
                 <Badge variant="outline" className="w-fit">
@@ -438,7 +429,12 @@ export function SshKeysPanel() {
         </div>
       )}
 
-      {listError || canGenerateKey === null ? null : activeMode === null ? (
+      {keysEmpty && (activeMode === null || canGenerateKey === null) ? (
+        <div className="flex flex-col gap-3.5 rounded-xl border border-dashed border-border-strong p-5">
+          <p className="text-[13px] text-muted-foreground">{t("sshKeys.emptyState")}</p>
+          {canGenerateKey === null ? null : branchChoice}
+        </div>
+      ) : listError || canGenerateKey === null ? null : activeMode === null ? (
         branchChoice
       ) : (
         <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-4">

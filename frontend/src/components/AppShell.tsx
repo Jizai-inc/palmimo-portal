@@ -32,8 +32,8 @@ const DESKTOP_QUERY = "(min-width: 768px)";
 /**
  * Chrome for the dashboard family (Home, Apps, Settings). {@link SidebarNav} renders the nav as
  * a desktop sidebar (collapsible to an icon rail) and as a mobile slide-in drawer opened from
- * the header toggle. The header carries the update pills, the running app and the device menu;
- * the account menu and language switch sit in the sidebar footer.
+ * the header toggle. The header carries the language switch, the update pills, the running app
+ * and the device menu; the account menu sits in the sidebar footer.
  */
 export function AppShell({
   title,
@@ -190,7 +190,6 @@ export function AppShell({
         actions={headerActions}
         showToggleBadge={updateAttention}
         updateAvailable={updateAvailable && platform?.ready !== false}
-        showLanguageToggle={false}
         wordmarkLinksHome
       />
       <div className={cn("flex flex-1 md:flex-row", fitViewport && "min-h-0")}>

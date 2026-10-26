@@ -40,14 +40,11 @@ export function AppHeader({
   showToggleBadge,
   updateAvailable = false,
   wordmarkLinksHome = false,
-  showLanguageToggle = true,
 }: {
   /** Renders the `panel-left` nav toggle when set -- collapses the sidebar on desktop, opens the drawer on mobile. */
   onToggleSidebar?: () => void;
   /** Rendered after the language toggle on every viewport. */
   actions?: React.ReactNode;
-  /** The dashboard moves the toggle into the sidebar footer; auth screens keep it here. */
-  showLanguageToggle?: boolean;
   /** Renders an {@link UpdateDot} pinned to the toggle button plus its accessible announcement. Ignored when `onToggleSidebar` is unset. */
   showToggleBadge?: boolean;
   /** Renders a link to Settings → Software update. */
@@ -99,7 +96,7 @@ export function AppHeader({
             <span className="sr-only sm:not-sr-only">{t("nav.updateAvailable")}</span>
           </Link>
         ) : null}
-        {showLanguageToggle ? <LanguageToggle /> : null}
+        <LanguageToggle />
         {actions}
       </div>
     </header>

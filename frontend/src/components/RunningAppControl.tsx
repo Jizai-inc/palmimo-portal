@@ -4,6 +4,7 @@ import { Loader2, Play, Square } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import {
+  getGetAppApiV1AppsNameGetQueryKey,
   getListAppsApiV1AppsGetQueryKey,
   useStartAppEndpointApiV1AppsNameStartPost,
   useStopAppEndpointApiV1AppsNameStopPost,
@@ -33,9 +34,10 @@ export function RunningAppControl({
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const refresh = () => {
+  const refresh = (_data: unknown, _error: unknown, { name }: { name: string }) => {
     void queryClient.invalidateQueries({ queryKey: getGetStatusApiV1SystemStatusGetQueryKey() });
     void queryClient.invalidateQueries({ queryKey: getListAppsApiV1AppsGetQueryKey() });
+    void queryClient.invalidateQueries({ queryKey: getGetAppApiV1AppsNameGetQueryKey(name) });
   };
   const stopApp = useStopAppEndpointApiV1AppsNameStopPost({ mutation: { onSettled: refresh } });
   const startApp = useStartAppEndpointApiV1AppsNameStartPost({ mutation: { onSettled: refresh } });

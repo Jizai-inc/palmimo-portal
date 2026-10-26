@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
 
+import { getGetAppApiV1AppsNameGetQueryKey } from "@/api/generated/apps/apps";
 import type { RunningAppInfo } from "@/api/generated/models";
 import { getGetStatusApiV1SystemStatusGetQueryKey } from "@/api/generated/system/system";
 import { RunningAppControl } from "@/components/RunningAppControl";
@@ -45,7 +46,7 @@ describe("RunningAppControl", () => {
     expect(await screen.findByRole("link", { name: "Running app: Hello Robot" })).toHaveAttribute("href", "/apps/robot");
   });
 
-  it("stops the running app and refreshes system status", async () => {
+  it("stops the running app and refreshes system status and its detail query", async () => {
     const user = userEvent.setup();
     const stopSpy = vi.fn();
     server.use(
@@ -59,6 +60,7 @@ describe("RunningAppControl", () => {
     await waitFor(() =>
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: getGetStatusApiV1SystemStatusGetQueryKey() }),
     );
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: getGetAppApiV1AppsNameGetQueryKey("robot") });
   });
 
   it("disables Stop while the app is already stopping", async () => {
@@ -81,17 +83,20 @@ describe("RunningAppControl", () => {
     expect(await screen.findByRole("alert")).not.toBeEmptyDOMElement();
   });
 
-  it("offers to start the default app when nothing runs", async () => {
+  it("starts the default app and refreshes its detail query", async () => {
     const user = userEvent.setup();
     const startSpy = vi.fn();
     server.use(
       http.post("*/api/v1/apps/robot/start", () => (startSpy(), HttpResponse.json({ status: "activating" }, { status: 202 }))),
     );
-    renderControl(null, { id: "robot", name: "Hello Robot" });
+    const { invalidateSpy } = renderControl(null, { id: "robot", name: "Hello Robot" });
 
     await user.click(await screen.findByRole("button", { name: "Start Hello Robot" }));
 
     await waitFor(() => expect(startSpy).toHaveBeenCalledOnce());
     expect(screen.queryByText("No app running")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: getGetAppApiV1AppsNameGetQueryKey("robot") }),
+    );
   });
 });

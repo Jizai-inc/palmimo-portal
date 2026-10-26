@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { AccountMenu } from "@/components/HeaderMenus";
-import { LanguageToggle } from "@/components/LanguageToggle";
 import { UpdateDot } from "@/components/UpdateDot";
 import { DOCS_URL, isActive, NAV_ITEMS, type NavItem } from "@/lib/navigation";
 import { navLabel } from "@/lib/navLabels";
@@ -225,12 +224,11 @@ function DocsLink({ rail }: { rail: boolean }) {
   );
 }
 
-/** Pinned to the bottom of the sidebar and drawer: the account menu and the language switch. */
+/** Pinned to the bottom of the sidebar and drawer: the account menu. */
 export function SidebarFooter({ rail = false }: { rail?: boolean }) {
   return (
     <div className={cn("mt-auto flex items-center gap-2 border-t border-border pt-3", rail ? "flex-col px-0" : "px-1")}>
       <AccountMenu compact={rail} />
-      {rail ? null : <LanguageToggle />}
     </div>
   );
 }

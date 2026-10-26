@@ -359,9 +359,12 @@ class WifiSetup:
                 client.close()
             except Exception:
                 logger.warning("wifi-setup: socket close failed")
-        try:
-            if result is None:
+        if result is None:
+            try:
                 result = self.unit.status()
+            except Exception:
+                logger.warning("wifi-setup: reader exit status unavailable")
+        try:
             self.unit.stop()
             self._wait_stopped(6)
         except Exception:

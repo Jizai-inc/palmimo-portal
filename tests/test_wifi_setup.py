@@ -546,3 +546,11 @@ def test_setup_unavailable_does_not_retry_until_restart(rig: Rig) -> None:
     rig.advance(120)
     assert rig.setup.status().mode == "unavailable"
     assert "start" not in rig.unit.calls
+
+
+def test_setup_attempts_stop_even_when_exit_status_read_fails(rig: Rig) -> None:
+    rig.active()
+    rig.unit.error = RuntimeError("status unavailable")
+    rig.setup.stop("app")
+    assert "stop" in rig.unit.calls
+    assert rig.setup.status().mode == "idle"

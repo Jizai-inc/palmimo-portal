@@ -12,18 +12,6 @@ import { formatUtcTimestamp } from "@/lib/formatTimestamp";
 import { usePlatformUpdate } from "@/lib/usePlatformUpdate";
 import { useRetryCountdown } from "@/lib/useRetryCountdown";
 
-function firmwareResult(value: unknown): { result: string; reason?: string; after?: string } | null {
-  if (!value || typeof value !== "object") return null;
-  const state = value as Record<string, unknown>;
-  const result = typeof state.last_result === "string" ? state.last_result : state.result;
-  if (typeof result !== "string") return null;
-  return {
-    result,
-    reason: typeof state.last_reason === "string" ? state.last_reason : typeof state.reason === "string" ? state.reason : undefined,
-    after: typeof state.after === "string" ? state.after : undefined,
-  };
-}
-
 /**
  * `platform.latest_error`'s two named codes get their own message; anything else (``no_release``,
  * a missing release asset, or any other fetch/parse failure -- see `core/platform.py`'s
@@ -63,7 +51,10 @@ export function PlatformUpdateCard({
     return <ApiErrorAlert error={platformError} />;
   }
 
-  const firmware = firmwareResult(displayFirmware ?? platform.display_firmware);
+  const toolFirmware = platform.display_firmware ? {
+    result: platform.display_firmware.last_result, reason: platform.display_firmware.last_reason, after: null,
+  } : null;
+  const firmware = job?.state === "running" ? displayFirmware : toolFirmware ?? displayFirmware;
   const firmwareWarning = firmware && ["busy", "failed", "interrupted", "skipped"].includes(firmware.result);
   const firmwareMessages: Record<string, string> = {
     absent: t("update.displayFirmwareAbsent"),

@@ -195,10 +195,10 @@ def put_checklist(body: ChecklistState, state: StateStore = Depends(get_state_st
     return ChecklistState(dismissed=body.dismissed)
 
 
-def _refuse_while_updating(state: StateStore, runner_alive: bool) -> None:
+def _refuse_while_updating(state: StateStore, runner_alive: bool, platform_runner_alive: bool) -> None:
     """Use self-healing Portal state so an abandoned runner cannot block power operations forever."""
     platform_job = state.read_platform_update_state().job
-    if platform_job.state == "running" and platform_job.step == "display_firmware":
+    if platform_runner_alive and platform_job.state == "running" and platform_job.step == "display_firmware":
         raise PortalError(409, "platform_update_in_progress")
     if update_core.current_update_state(state, now=time.time(), runner_alive=runner_alive).job.state == "running":
         raise PortalError(409, "update_in_progress")
@@ -220,9 +220,11 @@ def reboot(
             the app-wide exception handler in :mod:`palmimo_portal.api.app`.
             409 ``update_in_progress`` while an update/rollback job is
             ``"running"``; 409 ``platform_update_in_progress`` during a
-            display firmware job.
+            live display firmware job.
     """
-    _refuse_while_updating(state, request.app.state.update_runner_alive.is_set())
+    _refuse_while_updating(
+        state, request.app.state.update_runner_alive.is_set(), request.app.state.platform_job_runner.is_alive()
+    )
     system.reboot()
     return StatusResponse()
 
@@ -241,6 +243,8 @@ def shutdown(
             :func:`reboot`. 409 ``update_in_progress`` or
             ``platform_update_in_progress`` -- see :func:`reboot`.
     """
-    _refuse_while_updating(state, request.app.state.update_runner_alive.is_set())
+    _refuse_while_updating(
+        state, request.app.state.update_runner_alive.is_set(), request.app.state.platform_job_runner.is_alive()
+    )
     system.shutdown()
     return StatusResponse()

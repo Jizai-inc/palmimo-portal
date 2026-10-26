@@ -4,12 +4,12 @@
  * Palmimo Portal
  * OpenAPI spec version: 0.1.0
  */
+import type { DisplayFirmwareState } from './displayFirmwareState';
 import type { PlatformLatestInfo } from './platformLatestInfo';
-import type { PlatformStatusResponseDisplayFirmware } from './platformStatusResponseDisplayFirmware';
 import type { PlatformVerifyDiffInfo } from './platformVerifyDiffInfo';
 
 export interface PlatformStatusResponse {
-  display_firmware?: PlatformStatusResponseDisplayFirmware;
+  display_firmware?: DisplayFirmwareState | null;
   display_firmware_available?: boolean;
   installed_at: string | null;
   installed_version: number | null;

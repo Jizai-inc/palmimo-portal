@@ -240,7 +240,7 @@ export const usePutChecklistApiV1SystemChecklistPut = <TError = HTTPValidationEr
  *         the app-wide exception handler in :mod:`palmimo_portal.api.app`.
  *         409 ``update_in_progress`` while an update/rollback job is
  *         ``"running"``; 409 ``platform_update_in_progress`` during a
- *         display firmware job.
+ *         live display firmware job.
  * @summary Reboot
  */
 export const rebootApiV1SystemRebootPost = async ( options?: RequestInit): Promise<StatusResponse> => {

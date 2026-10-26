@@ -253,7 +253,7 @@ export const useCheckPlatformApiV1PlatformCheckPost = <TError = unknown,
 }
 
 /**
- * Check and repair display firmware as a platform job, excluding app jobs and Portal updates.
+ * Exclude app jobs and Portal updates; return 409 display_firmware_unavailable without the tool.
  * @summary Rewrite Display Firmware
  */
 export const rewriteDisplayFirmwareApiV1PlatformDisplayFirmwarePost = async ( options?: RequestInit): Promise<PlatformUpdateAcceptedResponse> => {
@@ -324,7 +324,7 @@ export const useRewriteDisplayFirmwareApiV1PlatformDisplayFirmwarePost = <TError
 }
 
 /**
- * Report the current (or last finished) platform-bundle update job.
+ * Report the job, treating an abandoned firmware stage as finished.
  * @summary Get Update Job
  */
 export const getUpdateJobApiV1PlatformUpdateGet = async ( options?: RequestInit): Promise<PlatformUpdateAcceptedResponse> => {

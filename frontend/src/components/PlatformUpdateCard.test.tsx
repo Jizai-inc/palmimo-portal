@@ -228,3 +228,22 @@ it("shows the boot tool's last reason when automatic repair is paused", async ()
   expect(await screen.findByText(/Automatic face firmware repair is paused/)).toHaveTextContent("three flash failures");
   expect(screen.getByRole("button", { name: "Repair face firmware" })).toBeEnabled();
 });
+
+it.each(["running", "done"])("prefers the boot tool result after the job is %s", async (state) => {
+  server.use(
+    http.get("*/api/v1/platform", () => HttpResponse.json({
+      ...BASE_PLATFORM, display_firmware: { last_result: "updated", last_reason: null },
+    })),
+    http.get("*/api/v1/platform/update", () => HttpResponse.json({
+      job: { state, step: "restart", target_version: 2, error: null, started_at: 999, finished_at: 1000 },
+      display_firmware: { result: "failed", reason: "old failure" },
+    })),
+  );
+  renderWithProviders(<PlatformUpdateCard />);
+  if (state === "running") {
+    expect(await screen.findByText(/Face firmware will be retried/)).toHaveTextContent("old failure");
+  } else {
+    expect(await screen.findByText("Face firmware was updated.")).toBeInTheDocument();
+    expect(screen.queryByText(/Face firmware will be retried/)).not.toBeInTheDocument();
+  }
+});

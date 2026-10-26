@@ -70,12 +70,10 @@ def _ensure_no_apps_job_in_progress(state_store: StateStore) -> None:
         raise PortalError(409, "app_job_in_progress") from error
 
 
-def _ensure_no_platform_update_in_progress(state_store: StateStore) -> None:
-    """Refuse a Portal self-update while a platform-bundle update (``api/platform.py``) is running.
-
-    Symmetric with :func:`_ensure_no_apps_job_in_progress`.
-    """
-    if state_store.read_platform_update_state().job.state == "running":
+def _ensure_no_platform_update_in_progress(state_store: StateStore, runner_alive: bool) -> None:
+    """Firmware stages use runner liveness; earlier stages use persisted job state."""
+    job = state_store.read_platform_update_state().job
+    if job.state == "running" and (job.step != "display_firmware" or runner_alive):
         raise PortalError(409, "platform_update_in_progress")
 
 
@@ -247,7 +245,7 @@ def apply(
     """
     settings: Settings = request.app.state.settings
     with lock:
-        _ensure_no_platform_update_in_progress(state_store)
+        _ensure_no_platform_update_in_progress(state_store, request.app.state.platform_job_runner.is_alive())
         apps_lock = state_store.lock_apps()
         try:
             apps_lock.__enter__()
@@ -298,7 +296,7 @@ def rollback(
     """
     settings: Settings = request.app.state.settings
     with lock:
-        _ensure_no_platform_update_in_progress(state_store)
+        _ensure_no_platform_update_in_progress(state_store, request.app.state.platform_job_runner.is_alive())
         apps_lock = state_store.lock_apps()
         try:
             apps_lock.__enter__()

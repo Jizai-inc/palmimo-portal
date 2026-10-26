@@ -952,6 +952,40 @@
         "title": "DisplayFirmwareResult",
         "type": "object"
       },
+      "DisplayFirmwareState": {
+        "properties": {
+          "last_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Reason"
+          },
+          "last_result": {
+            "enum": [
+              "updated",
+              "current",
+              "absent",
+              "undeclared",
+              "skipped",
+              "busy",
+              "failed",
+              "interrupted"
+            ],
+            "title": "Last Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "last_result"
+        ],
+        "title": "DisplayFirmwareState",
+        "type": "object"
+      },
       "EnvSpecInfo": {
         "properties": {
           "description": {
@@ -1530,14 +1564,12 @@
           "display_firmware": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/DisplayFirmwareState"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Display Firmware"
+            ]
           },
           "display_firmware_available": {
             "default": false,
@@ -3543,7 +3575,7 @@
     },
     "/api/v1/platform/display-firmware": {
       "post": {
-        "description": "Check and repair display firmware as a platform job, excluding app jobs and Portal updates.",
+        "description": "Exclude app jobs and Portal updates; return 409 display_firmware_unavailable without the tool.",
         "operationId": "rewrite_display_firmware_api_v1_platform_display_firmware_post",
         "responses": {
           "202": {
@@ -3565,7 +3597,7 @@
     },
     "/api/v1/platform/update": {
       "get": {
-        "description": "Report the current (or last finished) platform-bundle update job.",
+        "description": "Report the job, treating an abandoned firmware stage as finished.",
         "operationId": "get_update_job_api_v1_platform_update_get",
         "responses": {
           "200": {
@@ -3908,7 +3940,7 @@
     },
     "/api/v1/system/reboot": {
       "post": {
-        "description": "Reboot the machine.\n\nRaises:\n    PortalError: 503 ``system_backend_unavailable`` if the real\n        adapter's D-Bus call to logind times out or fails. Translated\n        from :class:`~palmimo_portal.ports.AdapterUnavailableError` by\n        the app-wide exception handler in :mod:`palmimo_portal.api.app`.\n        409 ``update_in_progress`` while an update/rollback job is\n        ``\"running\"``; 409 ``platform_update_in_progress`` during a\n        display firmware job.",
+        "description": "Reboot the machine.\n\nRaises:\n    PortalError: 503 ``system_backend_unavailable`` if the real\n        adapter's D-Bus call to logind times out or fails. Translated\n        from :class:`~palmimo_portal.ports.AdapterUnavailableError` by\n        the app-wide exception handler in :mod:`palmimo_portal.api.app`.\n        409 ``update_in_progress`` while an update/rollback job is\n        ``\"running\"``; 409 ``platform_update_in_progress`` during a\n        live display firmware job.",
         "operationId": "reboot_api_v1_system_reboot_post",
         "responses": {
           "200": {

@@ -395,6 +395,7 @@ def test_manual_display_firmware_refuses_conflicting_job(
     from contextlib import nullcontext
 
     client = _authenticated_client(client, adapters)
+    adapters.platform.display_firmware_available = True
     if blocker == "platform":
         adapters.state.write_platform_update_state(
             PlatformUpdateState(
@@ -418,27 +419,37 @@ def test_manual_display_firmware_refuses_conflicting_job(
     assert adapters.platform.display_firmware_calls == 0
 
 
-@pytest.mark.parametrize("action", ["reboot", "shutdown"])
-def test_power_action_refuses_during_display_firmware(
+def test_platform_status_exposes_tool_state(
     client: TestClient,
     adapters: FakeAdapterBundle,
-    action: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import json
+
+    from palmimo_portal.adapters.platform import SudoPlatformPort
+
     client = _authenticated_client(client, adapters)
-    adapters.state.write_platform_update_state(
-        PlatformUpdateState(
-            job=PlatformJob("running", None, "display_firmware", None, 1, None),
+    path = tmp_path / "firmware.json"
+    path.write_text(
+        json.dumps(
+            {
+                "seen": True,
+                "chip_id": "private-device-id",
+                "declared_version": "1.0.0",
+                "consecutive_failures": 2,
+                "last_result": "failed",
+                "last_reason": "missing",
+                "at": "2026-10-26T00:00:00Z",
+            }
         )
     )
-    assert client.post(f"/api/v1/system/{action}", headers=CSRF_HEADERS).status_code == 409
-    assert adapters.system.reboot_calls == 0
-    assert adapters.system.shutdown_calls == 0
-
-
-def test_platform_status_exposes_tool_state(client: TestClient, adapters: FakeAdapterBundle) -> None:
-    client = _authenticated_client(client, adapters)
-    adapters.platform.display_firmware_state = {"seen": True, "last_result": {"result": "failed", "reason": "missing"}}
-    assert client.get("/api/v1/platform").json()["display_firmware"] == adapters.platform.display_firmware_state
+    port = SudoPlatformPort(installed_path=tmp_path / "installed.json", display_firmware_state_path=path)
+    monkeypatch.setattr(adapters.platform, "read_display_firmware_state", port.read_display_firmware_state)
+    assert client.get("/api/v1/platform").json()["display_firmware"] == {
+        "last_result": "failed",
+        "last_reason": "missing",
+    }
 
 
 def test_display_firmware_job_holds_app_locks_and_blocks_power_and_updates(
@@ -492,3 +503,42 @@ def test_display_firmware_job_holds_app_locks_and_blocks_power_and_updates(
     state = adapters.state.read_platform_update_state()
     assert state.job.state == "done"
     assert state.display_firmware == DisplayFirmwareResult(result="updated", before="legacy", after="1.0.0")
+
+
+@pytest.mark.parametrize(
+    "operation", ["system/reboot", "system/shutdown", "platform/display-firmware", "platform/update"]
+)
+def test_dead_display_firmware_job_does_not_block_recovery(
+    app: FastAPI,
+    adapters: FakeAdapterBundle,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    with TestClient(app, raise_server_exceptions=False) as client:
+        client = _authenticated_client(client, adapters)
+        adapters.platform.display_firmware_available = True
+        _set_available_release(adapters)
+        original_write = adapters.state.write_platform_update_state
+        fail_once = True
+
+        def write(state: PlatformUpdateState) -> None:
+            nonlocal fail_once
+            if state.job.state == "done" and fail_once:
+                fail_once = False
+                raise OSError("disk full")
+            original_write(state)
+
+        monkeypatch.setattr(adapters.state, "write_platform_update_state", write)
+        assert client.post("/api/v1/platform/display-firmware", headers=CSRF_HEADERS).status_code == 500
+        assert adapters.state.read_platform_update_state().job.state == "running"
+        response = client.post(f"/api/v1/{operation}", headers=CSRF_HEADERS)
+        assert response.status_code in (200, 202), response.text
+        assert client.get("/api/v1/platform/update").json()["job"]["state"] == "done"
+
+
+def test_manual_display_firmware_refuses_missing_tool(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+    response = client.post("/api/v1/platform/display-firmware", headers=CSRF_HEADERS)
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "display_firmware_unavailable"
+    assert adapters.state.read_platform_update_state().job.state == "idle"

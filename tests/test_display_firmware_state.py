@@ -48,7 +48,7 @@ def test_preempt_record_survives_store_recreation_and_clears(tmp_path: Path) -> 
     from palmimo_portal.ports import PreemptedApp
 
     path = tmp_path / "run" / "preempt.json"
-    record = PreemptedApp("face", "display-firmware", False)
+    record = PreemptedApp("face", "display-firmware")
     store = JsonFileStateStore(tmp_path / "state", preempt_path=path)
     store.write_preempted_app(record)
     restarted = JsonFileStateStore(tmp_path / "state", preempt_path=path)

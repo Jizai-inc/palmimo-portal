@@ -468,7 +468,8 @@
     "zip_too_large": "That zip file is too large to upload.",
     "wifi_saved_not_found": "That network is no longer saved.",
     "wifi_saved_active": "Palmimo is connected to that network. Use “Forget this network” to remove it.",
-    "wifi_saved_order_mismatch": "The saved networks changed. Reload and try again."
+    "wifi_saved_order_mismatch": "The saved networks changed. Reload and try again.",
+    "display_firmware_unavailable": "Face firmware repair is unavailable on this platform."
   },
   "apps": {
     "tabsLabel": "App sections",

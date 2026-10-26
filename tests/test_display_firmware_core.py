@@ -96,26 +96,10 @@ def test_display_firmware_failure_finishes_update_and_restores_app(
     assert adapters.state.read_preempted_app() is None
 
 
-@pytest.mark.parametrize("connected", [True, False])
-@pytest.mark.parametrize("by", ["display-firmware", "wifi-setup"])
-def test_preempted_app_recovery_obeys_network_state(
-    prepared: tuple[StartDeps, FakeAdapterBundle],
-    connected: bool,
-    by: str,
-) -> None:
-    deps, adapters = prepared
-    adapters.app_unit.statuses.clear()
-    record = PreemptedApp(preempted_app="face", by=by, hold=False)
-    adapters.state.write_preempted_app(record)
-    assert restore_preempted_app(deps, connected=connected)
-    assert adapters.app_unit.start_calls == (["face"] if connected else [])
-    assert adapters.state.read_preempted_app() == (None if connected else record)
-
-
 def test_preempted_running_app_is_not_restarted(prepared: tuple[StartDeps, FakeAdapterBundle]) -> None:
     deps, adapters = prepared
-    adapters.state.write_preempted_app(PreemptedApp("face", "display-firmware", False))
-    restore_preempted_app(deps, connected=True)
+    adapters.state.write_preempted_app(PreemptedApp("face", "display-firmware"))
+    restore_preempted_app(deps)
     assert adapters.app_unit.start_calls == []
     assert adapters.app_unit.device_allow_calls == []
     assert adapters.state.read_preempted_app() is None
@@ -137,7 +121,7 @@ def test_display_firmware_retains_record_when_restore_fails(prepared: tuple[Star
     adapters.app_unit.raise_on_start = RuntimeError("start unavailable")
     result = run_display_firmware(deps, adapters.platform)
     assert result == DisplayFirmwareResult(result="current")
-    assert adapters.state.read_preempted_app() == PreemptedApp("face", "display-firmware", False)
+    assert adapters.state.read_preempted_app() == PreemptedApp("face", "display-firmware")
 
 
 def test_display_firmware_skips_missing_tool(prepared: tuple[StartDeps, FakeAdapterBundle], tmp_path: Path) -> None:
@@ -174,16 +158,20 @@ def test_display_firmware_refuses_run_lock_contention(prepared: tuple[StartDeps,
     assert adapters.app_unit.stop_calls == []
 
 
-def test_display_firmware_leaves_existing_preemption_untouched(prepared: tuple[StartDeps, FakeAdapterBundle]) -> None:
+def test_display_firmware_retains_pending_record_when_recovery_fails(
+    prepared: tuple[StartDeps, FakeAdapterBundle],
+) -> None:
     deps, adapters = prepared
-    record = PreemptedApp("face", "wifi-setup", False)
+    adapters.app_unit.statuses.clear()
+    adapters.app_unit.raise_on_start = RuntimeError("start unavailable")
+    record = PreemptedApp("face", "display-firmware")
     adapters.state.write_preempted_app(record)
     result = run_display_firmware(deps, adapters.platform)
-    assert result.result == "busy"
+    assert result.result == "failed"
     assert adapters.state.read_preempted_app() == record
     assert adapters.platform.display_firmware_calls == 0
     assert adapters.app_unit.stop_calls == []
-    assert adapters.app_unit.start_calls == []
+    assert adapters.app_unit.start_calls == ["face"]
 
 
 def test_display_firmware_does_not_flash_when_app_never_stops(
@@ -204,12 +192,59 @@ def test_display_firmware_does_not_flash_when_app_never_stops(
     assert adapters.state.read_preempted_app() is None
 
 
-def test_preempt_hold_suppresses_autostart_until_connected(prepared: tuple[StartDeps, FakeAdapterBundle]) -> None:
+def test_display_firmware_recovers_pending_app_before_manual_repair(
+    prepared: tuple[StartDeps, FakeAdapterBundle],
+) -> None:
     deps, adapters = prepared
-    record = PreemptedApp(None, "wifi-setup", True)
-    adapters.state.write_preempted_app(record)
-    assert restore_preempted_app(deps, connected=False)
-    assert adapters.state.read_preempted_app() == record
-    assert not restore_preempted_app(deps, connected=True)
+    adapters.app_unit.statuses.clear()
+    adapters.state.write_preempted_app(PreemptedApp("face", "display-firmware"))
+    result = run_display_firmware(deps, adapters.platform)
+    assert result.result == "current"
+    assert adapters.platform.display_firmware_calls == 1
+    assert adapters.app_unit.start_calls == ["face", "face"]
+    assert adapters.app_unit.stop_calls == ["face"]
     assert adapters.state.read_preempted_app() is None
-    assert adapters.app_unit.start_calls == []
+
+
+@pytest.mark.parametrize("stopped_state", ["inactive", "failed"])
+def test_display_firmware_accepts_terminal_unit_state_after_stop(
+    prepared: tuple[StartDeps, FakeAdapterBundle],
+    monkeypatch: pytest.MonkeyPatch,
+    stopped_state: str,
+) -> None:
+    from palmimo_portal.core import display_firmware
+
+    deps, adapters = prepared
+    clock = iter((0.0, 21.0))
+    monkeypatch.setattr(display_firmware.time, "monotonic", lambda: next(clock))
+
+    def stop(name: str) -> None:
+        adapters.app_unit.statuses[name] = UnitStatus(stopped_state, "dead", "exit-code", 1)
+
+    monkeypatch.setattr(adapters.app_unit, "stop", stop)
+    assert run_display_firmware(deps, adapters.platform).result == "current"
+    assert adapters.platform.display_firmware_calls == 1
+    assert adapters.app_unit.start_calls == ["face"]
+
+
+def test_display_firmware_waits_for_transient_app_operation(prepared: tuple[StartDeps, FakeAdapterBundle]) -> None:
+    import threading
+
+    deps, adapters = prepared
+    lock = adapters.state.lock_run()
+    lock.__enter__()
+    released = threading.Event()
+
+    def release() -> None:
+        lock.__exit__(None, None, None)
+        released.set()
+
+    timer = threading.Timer(0.1, release)
+    timer.start()
+    try:
+        result = run_display_firmware(deps, adapters.platform)
+    finally:
+        timer.join()
+    assert released.is_set()
+    assert result.result == "current"
+    assert adapters.platform.display_firmware_calls == 1

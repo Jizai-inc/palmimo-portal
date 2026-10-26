@@ -302,9 +302,9 @@ class JsonFileStateStore(StateStore):
             app = data["preempted_app"]
             if app is not None and not isinstance(app, str):
                 raise ValueError("invalid preempted app")
-            if data["by"] not in {"display-firmware", "wifi-setup"} or not isinstance(data["hold"], bool):
-                raise ValueError("invalid preempt owner or hold")
-            return PreemptedApp(app, data["by"], data["hold"])
+            if not isinstance(data["by"], str):
+                raise ValueError("invalid preempt owner")
+            return PreemptedApp(app, data["by"])
         except FileNotFoundError:
             return None
         except (OSError, ValueError, KeyError, TypeError) as error:

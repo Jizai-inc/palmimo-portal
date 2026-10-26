@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from palmimo_portal.adapters.platform import GitHubPlatformBundleSource, SudoPlatformPort
-from palmimo_portal.ports import PlatformCommandError, PlatformVerifyDiff
+from palmimo_portal.ports import DisplayFirmwareState, PlatformCommandError, PlatformVerifyDiff
 
 
 class _FakeResponse:
@@ -174,7 +174,14 @@ def test_display_firmware_detects_missing_tool_and_unreadable_state(tmp_path: Pa
     assert port.read_display_firmware_state() is None
     (tmp_path / "tool").touch()
     assert port.has_display_firmware_tool()
-    (tmp_path / "state.json").write_text('{"last_result":{"result":"current"},"seen":true}')
-    assert port.read_display_firmware_state() == {"last_result": {"result": "current"}, "seen": True}
+    (tmp_path / "state.json").write_text('{"last_result":"current","last_reason":null,"seen":true}')
+    assert port.read_display_firmware_state() == DisplayFirmwareState(last_result="current")
     (tmp_path / "state.json").write_text("broken")
     assert port.read_display_firmware_state() is None
+
+
+def test_display_firmware_invalid_json_keeps_stderr_reason(tmp_path: Path) -> None:
+    runner = _ScriptedRunner(1, stdout="", stderr="Traceback:\nOSError: firmware archive is unreadable\n")
+    port = SudoPlatformPort(installed_path=tmp_path / "installed.json", runner=runner)
+    with pytest.raises(PlatformCommandError, match="OSError: firmware archive is unreadable"):
+        port.ensure_display_firmware()

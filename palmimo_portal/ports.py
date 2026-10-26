@@ -683,7 +683,6 @@ class UpdateState:
 class PreemptedApp:
     preempted_app: str | None
     by: str
-    hold: bool
 
 
 class StateStore(Protocol):
@@ -1623,6 +1622,24 @@ class DisplayFirmwareResult:
         return cls(payload["result"], payload.get("before"), payload.get("after"), payload.get("reason"))
 
 
+@dataclass(frozen=True)
+class DisplayFirmwareState:
+    last_result: DisplayFirmwareOutcome
+    last_reason: str | None = None
+
+    @classmethod
+    def from_payload(cls, payload: object) -> DisplayFirmwareState:
+        if not isinstance(payload, dict):
+            raise ValueError("invalid display firmware state")
+        result = DisplayFirmwareResult.from_payload(
+            {"result": payload.get("last_result"), "reason": payload.get("last_reason")}
+        )
+        return cls(last_result=result.result, last_reason=result.reason)
+
+    def as_result(self) -> DisplayFirmwareResult:
+        return DisplayFirmwareResult(result=self.last_result, reason=self.last_reason)
+
+
 class PlatformPort(Protocol):
     """Reads/applies the realtime platform bundle (design doc 2.8). See :class:`~palmimo_portal.adapters.platform.SudoPlatformPort`.
 
@@ -1637,7 +1654,7 @@ class PlatformPort(Protocol):
         """Return the tool's result; raise PlatformCommandError on invalid output or execution failure."""
         ...
 
-    def read_display_firmware_state(self) -> dict[str, Any] | None:
+    def read_display_firmware_state(self) -> DisplayFirmwareState | None:
         """Return the tool-owned state, or None when absent or unreadable."""
         ...
 

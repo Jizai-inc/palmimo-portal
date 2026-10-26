@@ -27,6 +27,7 @@ from palmimo_portal.ports import (
     AppsLockTimeoutError,
     AppsStateFileState,
     DisplayFirmwareResult,
+    DisplayFirmwareState,
     PlatformLockTimeoutError,
     StateStore,
 )
@@ -82,7 +83,7 @@ class PlatformStatusResponse(BaseModel):
     verify_diffs: list[PlatformVerifyDiffInfo]
     latest: PlatformLatestInfo | None
     latest_error: str | None
-    display_firmware: dict[str, Any] | None = None
+    display_firmware: DisplayFirmwareState | None = None
     display_firmware_available: bool = False
 
 
@@ -210,11 +211,11 @@ def start_update(
     except (PlatformLockTimeoutError, PlatformUpdateInProgressError) as error:
         raise PortalError(409, "platform_update_in_progress") from error
 
-    return _update_response(state_store)
+    return _update_response(request)
 
 
-def _update_response(state_store: StateStore) -> PlatformUpdateAcceptedResponse:
-    state = state_store.read_platform_update_state()
+def _update_response(request: Request) -> PlatformUpdateAcceptedResponse:
+    state = request.app.state.platform_job_runner.current_state()
     return PlatformUpdateAcceptedResponse(job=_job_info(state.job), display_firmware=state.display_firmware)
 
 
@@ -222,7 +223,9 @@ def _update_response(state_store: StateStore) -> PlatformUpdateAcceptedResponse:
 def rewrite_display_firmware(
     request: Request, state_store: StateStore = Depends(get_state_store)
 ) -> PlatformUpdateAcceptedResponse:
-    """Check and repair display firmware as a platform job, excluding app jobs and Portal updates."""
+    """Exclude app jobs and Portal updates; return 409 display_firmware_unavailable without the tool."""
+    if not request.app.state.adapters.platform.has_display_firmware_tool():
+        raise PortalError(409, "display_firmware_unavailable")
     _ensure_apps_ledger_is_current(state_store)
     _ensure_no_portal_update_in_progress(state_store)
     try:
@@ -231,10 +234,10 @@ def rewrite_display_firmware(
         raise PortalError(409, "app_job_in_progress") from error
     except (PlatformLockTimeoutError, PlatformUpdateInProgressError) as error:
         raise PortalError(409, "platform_update_in_progress") from error
-    return _update_response(state_store)
+    return _update_response(request)
 
 
 @router.get("/update")
-def get_update_job(state_store: StateStore = Depends(get_state_store)) -> PlatformUpdateAcceptedResponse:
-    """Report the current (or last finished) platform-bundle update job."""
-    return _update_response(state_store)
+def get_update_job(request: Request) -> PlatformUpdateAcceptedResponse:
+    """Report the job, treating an abandoned firmware stage as finished."""
+    return _update_response(request)

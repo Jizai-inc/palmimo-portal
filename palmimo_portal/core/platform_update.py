@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from palmimo_portal.ports import DisplayFirmwareResult, PlatformJob, PlatformUpdateState
+from palmimo_portal.ports import DisplayFirmwareResult, DisplayFirmwareState, PlatformJob, PlatformUpdateState
 
 
 IDLE_PLATFORM_JOB = PlatformJob(
@@ -60,15 +60,24 @@ def mark_failed(state: PlatformUpdateState, step: str, error: str, now: float) -
     return replace(state, job=replace(state.job, state="failed", step=step, error=error, finished_at=now))
 
 
-def finalize_after_restart(state: PlatformUpdateState, now: float) -> PlatformUpdateState:
-    """An interrupted firmware stage completes the platform job; earlier interrupted stages fail it."""
+def finalize_after_restart(
+    state: PlatformUpdateState,
+    now: float,
+    *,
+    display_firmware: DisplayFirmwareState | None = None,
+) -> PlatformUpdateState:
+    """Boot-tool results supersede interruption; earlier interrupted stages fail the job."""
     if state.job.state != "running":
         return state
     if state.job.step == "display_firmware":
         return replace(
             mark_done(state, now),
-            display_firmware=DisplayFirmwareResult(
-                result="interrupted", reason="Portal restarted during display firmware update"
+            display_firmware=(
+                display_firmware.as_result()
+                if display_firmware is not None
+                else DisplayFirmwareResult(
+                    result="interrupted", reason="Portal restarted during display firmware update"
+                )
             ),
         )
     job = state.job

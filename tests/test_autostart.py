@@ -378,8 +378,7 @@ def test_startup_blocks_app_jobs_but_still_finalizes_when_an_orphan_sync_unit_ca
 
 
 @pytest.mark.parametrize("connected", [True, False])
-@pytest.mark.parametrize("by", ["display-firmware", "wifi-setup"])
-def test_startup_recovers_preempted_app_before_autostart(tmp_path: Path, connected: bool, by: str) -> None:
+def test_startup_recovers_preempted_app_before_autostart(tmp_path: Path, connected: bool) -> None:
     from palmimo_portal.core.platform_update import IDLE_PLATFORM_STATE, advance, start_update
     from palmimo_portal.ports import ConnectionState, PreemptedApp, WifiStatus
 
@@ -399,7 +398,7 @@ def test_startup_recovers_preempted_app_before_autostart(tmp_path: Path, connect
             }
         )
     )
-    record = PreemptedApp("preempted", by, False)
+    record = PreemptedApp("preempted", "display-firmware")
     adapters.state.write_preempted_app(record)
     adapters.network.status = WifiStatus(
         state=ConnectionState.CONNECTED if connected else ConnectionState.UNPROVISIONED,
@@ -408,9 +407,63 @@ def test_startup_recovers_preempted_app_before_autostart(tmp_path: Path, connect
     )
     adapters.state.write_platform_update_state(advance(start_update(IDLE_PLATFORM_STATE, 2, 1), "display_firmware"))
     with TestClient(app):
-        assert adapters.app_unit.start_calls == (["preempted"] if connected else [])
-        assert adapters.state.read_preempted_app() == (None if connected else record)
+        assert adapters.app_unit.start_calls == ["preempted"]
+        assert adapters.state.read_preempted_app() is None
         state = adapters.state.read_platform_update_state()
         assert state.job.state == "done"
         assert state.display_firmware is not None
         assert state.display_firmware.result == "interrupted"
+
+
+@pytest.mark.parametrize("result", ["updated", "current", None])
+def test_startup_prefers_boot_firmware_result_to_interruption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    result: str | None,
+) -> None:
+    import json
+
+    from palmimo_portal.adapters.platform import SudoPlatformPort
+    from palmimo_portal.core.platform_update import IDLE_PLATFORM_STATE, advance, start_update
+
+    app = create_app(_settings(tmp_path))
+    adapters: FakeAdapterBundle = app.state.adapters
+    path = tmp_path / "firmware.json"
+    if result is not None:
+        path.write_text(json.dumps({"last_result": result, "last_reason": None}))
+    port = SudoPlatformPort(installed_path=tmp_path / "installed.json", display_firmware_state_path=path)
+    monkeypatch.setattr(adapters.platform, "read_display_firmware_state", port.read_display_firmware_state)
+    adapters.state.write_platform_update_state(advance(start_update(IDLE_PLATFORM_STATE, 2, 1), "display_firmware"))
+    with TestClient(app):
+        state = adapters.state.read_platform_update_state()
+        assert state.job.state == "done"
+        assert state.display_firmware is not None
+        assert state.display_firmware.result == (result or "interrupted")
+
+
+@pytest.mark.parametrize("preempted", [False, True])
+def test_startup_starts_app_without_network_backend(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    preempted: bool,
+) -> None:
+    from palmimo_portal.ports import PreemptedApp
+
+    settings = _settings(tmp_path)
+    _write_app(settings, "app-a")
+    (settings.apps_dir / "app-a" / "palmimo.toml").write_text(
+        'schema = 1\nname = "app-a"\ndescription = "d"\ncommand = ["run"]\n'
+    )
+    app = create_app(settings)
+    adapters: FakeAdapterBundle = app.state.adapters
+    adapters.state.write_apps_state(AppsState(apps={"app-a": _record("app-a", autostart=True)}))
+    if preempted:
+        adapters.state.write_preempted_app(PreemptedApp("app-a", "display-firmware"))
+
+    def unavailable() -> None:
+        raise RuntimeError("comitup unavailable")
+
+    monkeypatch.setattr(adapters.network, "get_status", unavailable)
+    with TestClient(app):
+        assert adapters.app_unit.start_calls == ["app-a"]
+        assert adapters.state.read_preempted_app() is None

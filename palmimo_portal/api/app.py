@@ -78,7 +78,6 @@ from palmimo_portal.core.platform import (
     compute_status,
     run_verify,
 )
-from palmimo_portal.core.platform_update import finalize_after_restart as finalize_platform_after_restart
 from palmimo_portal.core.provisioning import is_serving_setup_ap
 from palmimo_portal.core.update import finalize_after_restart
 from palmimo_portal.core.update_runner import UpdateRunner
@@ -494,7 +493,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     try:
         platform_state = adapters.state.read_platform_update_state()
-        finalized_platform = finalize_platform_after_restart(platform_state, time.time())
+        finalized_platform = app.state.platform_update_runner.finalize_after_restart(platform_state)
         if finalized_platform is not platform_state:
             adapters.state.write_platform_update_state(finalized_platform)
         logger.info(
@@ -521,13 +520,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     skip_autostart = False
     try:
-        skip_autostart = await anyio.to_thread.run_sync(
-            lambda: restore_preempted_app(
-                app.state.start_deps, connected=adapters.network.get_status().state.value == "connected"
-            )
-        )
+        record = adapters.state.read_preempted_app()
+        skip_autostart = record is not None and record.by == "display-firmware"
+        if skip_autostart:
+            await anyio.to_thread.run_sync(restore_preempted_app, app.state.start_deps)
     except Exception:
-        skip_autostart = True
         logger.exception("preempt: startup recovery failed")
 
     if app.state.settings.autostart_enabled and not skip_autostart:

@@ -48,6 +48,7 @@ from palmimo_portal.ports import (
     ConnectionState,
     DiskPort,
     DisplayFirmwareResult,
+    DisplayFirmwareState,
     DuplicateKeyError,
     GitCommandError,
     GitCredentialRecord,
@@ -614,7 +615,7 @@ class FakePlatformPort(PlatformPort):
     display_firmware_result: DisplayFirmwareResult = field(
         default_factory=lambda: DisplayFirmwareResult(result="current")
     )
-    display_firmware_state: dict[str, Any] | None = None
+    display_firmware_state: DisplayFirmwareState | None = None
     display_firmware_calls: int = 0
 
     def has_display_firmware_tool(self) -> bool:
@@ -626,7 +627,7 @@ class FakePlatformPort(PlatformPort):
             raise PlatformCommandError("display_firmware", self.fail_message)
         return self.display_firmware_result
 
-    def read_display_firmware_state(self) -> dict[str, Any] | None:
+    def read_display_firmware_state(self) -> DisplayFirmwareState | None:
         return self.display_firmware_state
 
     def read_installed(self) -> PlatformInstalled | None:

@@ -38,6 +38,7 @@ from palmimo_portal.adapters.static_asset import (
 )
 from palmimo_portal.ports import (
     DisplayFirmwareResult,
+    DisplayFirmwareState,
     PlatformBundleFetchError,
     PlatformCommandError,
     PlatformInstalled,
@@ -87,13 +88,14 @@ class SudoPlatformPort(PlatformPort):
         return self.display_firmware_tool.is_file()
 
     def ensure_display_firmware(self) -> DisplayFirmwareResult:
-        output = self._run(
+        process = self._run(
             "display_firmware",
             [str(self.display_firmware_tool), "ensure", "--json"],
             command_timeout=600.0,
             subprocess_timeout=660.0,
             success_codes=(0, 75, 1, 78),
         )
+        output, stderr = process.stdout, process.stderr or ""
         try:
             if len(output.strip().splitlines()) != 1:
                 raise ValueError("expected one JSON line")
@@ -102,12 +104,15 @@ class SudoPlatformPort(PlatformPort):
                 raise ValueError("unexpected tool result")
             return result
         except (ValueError, TypeError) as error:
-            raise PlatformCommandError("display_firmware", f"invalid tool output: {error}") from error
+            detail = f"invalid tool output: {error}"
+            if stderr.strip():
+                detail += f": {stderr[-2000:].strip()}"
+            raise PlatformCommandError("display_firmware", detail) from error
 
-    def read_display_firmware_state(self) -> dict[str, Any] | None:
+    def read_display_firmware_state(self) -> DisplayFirmwareState | None:
         try:
             payload: Any = json.loads(self.display_firmware_state_path.read_text(encoding="utf-8"))
-            return payload if isinstance(payload, dict) else None
+            return DisplayFirmwareState.from_payload(payload)
         except (OSError, ValueError):
             return None
 
@@ -132,7 +137,7 @@ class SudoPlatformPort(PlatformPort):
             command_timeout=VERIFY_TIMEOUT_SECONDS,
             subprocess_timeout=VERIFY_SUBPROCESS_TIMEOUT_SECONDS,
             success_codes=_VERIFY_SUCCESS_CODES,
-        )
+        ).stdout
         diffs: list[PlatformVerifyDiff] = []
         for raw_line in output.splitlines():
             line = raw_line.strip()
@@ -176,7 +181,7 @@ class SudoPlatformPort(PlatformPort):
         command_timeout: float,
         subprocess_timeout: float,
         success_codes: tuple[int, ...] = (0,),
-    ) -> str:
+    ) -> subprocess.CompletedProcess[str]:
         # `-n`: never fall back to a password prompt no one can answer. `timeout -k 5 <secs>`:
         # a bounded budget enforced on the command itself, independent of (and smaller than) the
         # subprocess-level timeout below, which exists only to catch `timeout`/`sudo` itself hanging.
@@ -195,7 +200,7 @@ class SudoPlatformPort(PlatformPort):
         if result.returncode not in success_codes:
             tail = (result.stderr or "").strip()
             raise PlatformCommandError(step, tail or f"exited {result.returncode}")
-        return result.stdout
+        return result
 
 
 @dataclass

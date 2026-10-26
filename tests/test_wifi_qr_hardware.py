@@ -46,7 +46,7 @@ def test_v4l2_structures_match_linux_64bit_abi(module: Any, name: str, size: int
 
 @pytest.mark.parametrize(
     "width,height,expected",
-    [(6, 4, bytes([15, 13, 3, 1])), (4, 6, bytes([14, 12, 6, 4])), (4, 4, bytes([10, 8, 2, 0]))],
+    [(6, 4, bytes([18, 16, 6, 4])), (4, 6, bytes([16, 14, 8, 6])), (4, 4, bytes([12, 10, 4, 2]))],
 )
 def test_gray_preview_crops_center_scales_and_rotates(module: Any, width: int, height: int, expected: bytes) -> None:
     assert module.preview_gray(bytes(range(width * height)), width, height, size=2) == expected
@@ -74,7 +74,9 @@ class Serial:
     def write(self, line: bytes) -> int:
         self.threads.add(threading.get_ident())
         self.writes.append(line)
-        if line == b"STAT\n":
+        if line == b"VERSION\n":
+            self.incoming.append(b"VERSION test\n")
+        elif line == b"STAT\n":
             self.incoming.extend([b"EVT POWER OFF\n", b"PONG\n", f"STAT up=10 power={self.power} fw=test\n".encode()])
         elif line.startswith(b"FRAME BEGIN "):
             self.total = 0
@@ -112,39 +114,23 @@ class Serial:
 
 
 @pytest.mark.parametrize("power", ["ON", "OFF"])
-def test_frame_client_initializes_with_empty_line_stat_and_restores_power(module: Any, power: str) -> None:
+def test_frame_client_probes_version_and_frames_then_restores_power(module: Any, power: str) -> None:
     clock = Clock()
     serial = Serial(clock, power)
     client = module.FrameClient(serial, clock=clock)
-    assert client.initialize() == "frame"
+    client.initialize()
     assert serial.writes[0] == b"\n"
-    assert serial.writes[1] == b"STAT\n"
+    assert serial.writes[1] == b"VERSION\n"
+    assert b"STAT\n" in serial.writes
     client.restore()
     assert serial.writes[-1] == (b"IDLE\n" if power == "ON" else b"EXPR SLEEPING\n")
-
-
-@pytest.mark.parametrize(
-    "probe,attempts",
-    [([b"ERR FRAME (try LIST)\n"], 1), ([b"ERR FRAME ARGS\n", b"ERR FRAME (try LIST)\n"], 2), ([None, None], 2)],
-)
-def test_old_or_unresponsive_frame_firmware_uses_expressions_and_restores_off(
-    module: Any, probe: list[bytes | None], attempts: int
-) -> None:
-    clock = Clock()
-    serial = Serial(clock, probes=probe)
-    client = module.FrameClient(serial, clock=clock)
-    assert client.initialize() == "expr"
-    assert sum(line.startswith(b"FRAME BEGIN ") for line in serial.writes) == attempts
-    assert serial.writes[-1] == b"POWER ON\n"
-    client.restore()
-    assert serial.writes[-2:] == [b"EXPR SLEEPING\n", b"POWER OFF\n"]
 
 
 def test_frame_probe_retries_after_unrecognized_response(module: Any) -> None:
     clock = Clock()
     serial = Serial(clock, power="ON", probes=[b"ERR parse\n", b"OK FRAME BEGIN\n"])
     client = module.FrameClient(serial, clock=clock)
-    assert client.initialize() == "frame"
+    client.initialize()
     assert serial.writes.count(b"\n") == 2
 
 
@@ -247,11 +233,10 @@ def test_state_screen_assets_have_complete_rgb565_pixels(module: Any, state: str
     assert len(set(pixels)) > 2
 
 
-def test_connected_screen_renders_hostname_and_connecting_omits_non_ascii_ssid(module: Any) -> None:
+def test_connecting_omits_non_ascii_ssid(module: Any) -> None:
     baseline = module.state_screen("connecting", {})
     assert module.state_screen("connecting", {"ssid": "日本語"}) == baseline
     assert module.state_screen("connecting", {"ssid": "office"}) != baseline
-    assert module.state_screen("connected", {"hostname": "palmimo-123"}) != module.state_screen("connected", {})
 
 
 class VideoDevice:
@@ -461,36 +446,40 @@ def test_display_worker_drops_stale_previews_and_prioritizes_screen_without_shar
 
 
 @pytest.mark.parametrize(
-    "state,expression",
+    "state,fields",
     [
-        ("scanning", "CURIOUS"),
-        ("checking", "THINKING"),
-        ("connecting", "THINKING"),
-        ("rejected", "BATSU"),
-        ("failed", "SAD"),
-        ("connected", "HAPPY"),
+        ("scanning", {}),
+        ("checking", {}),
+        ("connecting", {"ssid": "office"}),
+        ("rejected", {"reason": "not_wifi"}),
+        ("failed", {"reason": "connect_failed"}),
+        ("connected", {"url": "http://robot.local", "qr": {"size": 2, "rows": ["10", "01"]}}),
     ],
 )
-def test_display_worker_uses_fallback_expression(module: Any, state: str, expression: str) -> None:
+def test_display_worker_renders_each_state_as_frames(module: Any, state: str, fields: dict[str, Any]) -> None:
     clock = Clock()
-    serial = Serial(clock, power="ON", probes=[b"ERR FRAME (try LIST)\n"])
+    serial = Serial(clock, power="ON")
+    display = module.Display(port_factory=lambda: serial, clock=clock)
     sent = threading.Event()
     original_write = serial.write
 
     def write(line: bytes) -> int:
         result = original_write(line)
-        if line == f"EXPR {expression}\n".encode():
+        if line == b"FRAME END\n":
             sent.set()
         return result
 
     serial.write = write  # type: ignore[method-assign]
-    display = module.Display(port_factory=lambda: serial, clock=clock)
+    before = len(serial.writes)
     try:
-        display.screen(state, {})
+        display.screen(state, fields)
         assert sent.wait(1)
         display.check()
+        format_ = "GRAY8" if state == "scanning" else "RGB565"
+        assert f"FRAME BEGIN 168 168 {format_}\n".encode() in serial.writes[before:]
     finally:
         display.close()
+    assert not any(line.startswith(b"EXPR") for line in serial.writes)
     assert serial.writes[-1] == b"IDLE\n"
 
 
@@ -567,29 +556,26 @@ def test_display_port_selection_requires_pico_vid(
         serial.Serial.assert_not_called()
 
 
-@pytest.mark.parametrize("unacknowledged", [b"POWER ON\n", b"EXPR SLEEPING\n"])
-def test_original_power_is_restored_off_when_acknowledgment_is_lost(module: Any, unacknowledged: bytes) -> None:
+@pytest.mark.parametrize("power,command", [("ON", b"IDLE\n"), ("OFF", b"EXPR SLEEPING\n")])
+def test_unacknowledged_restore_still_closes_display_port(module: Any, power: str, command: bytes) -> None:
     clock = Clock()
-    serial = Serial(clock, probes=[b"ERR FRAME (try LIST)\n"])
+    serial = Serial(clock, power=power)
+    display = module.Display(port_factory=lambda: serial, clock=clock)
     original_write = serial.write
 
     def write(line: bytes) -> int:
         result = original_write(line)
-        if line == unacknowledged:
+        if line == command:
             serial.incoming.clear()
         return result
 
     serial.write = write  # type: ignore[method-assign]
-    client = module.FrameClient(serial, clock=clock)
-    if unacknowledged == b"POWER ON\n":
-        with pytest.raises(module.DisplayProtocolError):
-            client.initialize()
-        client.restore()
-    else:
-        client.initialize()
-        with pytest.raises(module.DisplayProtocolError):
-            client.restore()
-    assert serial.writes[-2:] == [b"EXPR SLEEPING\n", b"POWER OFF\n"]
+    display.close()
+    assert serial.closed
+    assert serial.writes[-1] == command
+    assert not any(line.startswith(b"POWER ") for line in serial.writes)
+    with pytest.raises(RuntimeError):
+        display.check()
 
 
 def test_heartbeat_consumes_reply_before_next_command(module: Any) -> None:

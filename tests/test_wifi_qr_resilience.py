@@ -264,7 +264,7 @@ def test_qr_detected_before_portal_connection_hides_preview_without_caching(harn
     harness.reader.step()
     assert harness.display.screens[-1][0] == "checking"
     with harness.connect() as client:
-        assert receive(client) == [{"type": "hello", "proto": 1, "display": "frame"}]
+        assert receive(client) == [{"type": "hello", "proto": 1}]
         harness.clock.now = 15
         harness.reader.step()
         assert harness.display.screens[-1][0] == "scanning"
@@ -272,7 +272,7 @@ def test_qr_detected_before_portal_connection_hides_preview_without_caching(harn
             client.recv(1)
 
 
-def test_firmware_without_stat_keeps_unknown_power_untouched(module: Any) -> None:
+def test_firmware_without_power_status_is_unavailable_without_power_changes(module: Any) -> None:
     clock = Clock()
     serial = Serial(clock)
     original = serial.write
@@ -286,8 +286,8 @@ def test_firmware_without_stat_keeps_unknown_power_untouched(module: Any) -> Non
 
     serial.write = write  # type: ignore[method-assign]
     client = module.FrameClient(serial, clock=clock)
-    assert client.initialize() == "expr"
-    client.command(b"EXPR CURIOUS")
+    with pytest.raises(module.DeviceUnavailableError):
+        client.initialize()
     before = list(serial.writes)
     client.restore()
     assert serial.writes == before
@@ -324,13 +324,12 @@ def test_reader_closes_portal_connection_after_releasing_reservations(module: An
             client.close()
 
 
-def test_display_start_logs_mode_and_firmware_once(module: Any, caplog: pytest.LogCaptureFixture) -> None:
+def test_display_start_logs_version_once(module: Any, caplog: pytest.LogCaptureFixture) -> None:
     caplog.set_level("INFO")
     clock = Clock()
     serial = Serial(clock)
     display = module.Display(port_factory=lambda: serial, clock=clock)
     display.close()
-    records = [record for record in caplog.records if hasattr(record, "display_mode")]
+    records = [record for record in caplog.records if hasattr(record, "display_firmware")]
     assert len(records) == 1
-    assert records[0].display_mode == "frame"
     assert getattr(records[0], "display_firmware", None) == "test"

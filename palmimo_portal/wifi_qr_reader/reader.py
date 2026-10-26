@@ -50,6 +50,10 @@ class DeviceUnavailableError(ReaderOperationError):
     pass
 
 
+class UnsupportedFirmwareError(ReaderOperationError):
+    pass
+
+
 class DependencyUnavailableError(ReaderOperationError):
     pass
 
@@ -387,13 +391,15 @@ def preview_gray(pixels: bytes, width: int, height: int, *, size: int = 168) -> 
         raise ValueError("Invalid grayscale image")
     side = min(width, height)
     left, top = (width - side) // 2, (height - side) // 2
-    rows = b"".join(
-        pixels[(top + y * side // size) * width + left : (top + y * side // size) * width + left + side]
-        for y in range(size)
-    )
-    output = bytearray(size * size)
-    for x in range(size):
-        output[x::size] = rows[x * side // size :: side]
+    edges = [x * side // size for x in range(size + 1)]
+    output = bytearray()
+    for y in range(size):
+        y0, y1 = edges[y], max(edges[y] + 1, edges[y + 1])
+        rows = [pixels[(top + row) * width + left : (top + row) * width + left + side] for row in range(y0, y1)]
+        columns = [sum(values) for values in zip(*rows, strict=True)]
+        for x in range(size):
+            x0, x1 = edges[x], max(edges[x] + 1, edges[x + 1])
+            output.append(sum(columns[x0:x1]) // ((x1 - x0) * (y1 - y0)))
     # The camera is mounted upside down; QR decoding itself is orientation independent.
     return bytes(output)[::-1]
 
@@ -506,15 +512,23 @@ def parse_power(line: bytes) -> bool:
 
 
 class FrameClient:
-    def __init__(self, port: Any, *, clock: Callable[[], float] = time.monotonic, gate: Any = None) -> None:
+    def __init__(
+        self,
+        port: Any,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+        gate: Any = None,
+        on_tap: Callable[[int, int], None] = lambda x, y: None,
+    ) -> None:
         self.port = port
         self.clock = clock
         self.gate = gate if gate is not None else threading.RLock()
         self.partial = bytearray()
         self.original_power: bool | None = None
         self.firmware = "unknown"
-        self.mode = "expr"
-        self.powered_on = False
+        self.on_tap = on_tap
+        self.transferring = False
+        self.frame_active = False
 
     def _write(self, line: bytes, cancelled: Callable[[], bool] = lambda: False) -> None:
         with self.gate:
@@ -532,6 +546,15 @@ class FrameClient:
         if self.partial.endswith(b"\n"):
             line = bytes(self.partial).strip()
             self.partial.clear()
+            if not self.transferring and line.startswith(b"EVT TAP "):
+                fields = line.split()
+                if len(fields) == 4:
+                    try:
+                        x, y = int(fields[2]), int(fields[3])
+                    except ValueError:
+                        pass
+                    else:
+                        self.on_tap(x, y)
             return line
         return None
 
@@ -568,39 +591,46 @@ class FrameClient:
         self._write(command, cancelled)
         self._expect(b"OK " + command.removeprefix(b"EXPR "), cancelled=cancelled)
 
-    def initialize(self) -> str:
+    def initialize(self) -> None:
         self._synchronize()
-        self._write(b"STAT")
-        status = self._response()
-        if status == b"ERR STAT (try LIST)":
-            return self.mode
-        self.original_power = parse_power(status)
-        versions = [field[3:] for field in status.split() if field.startswith(b"fw=")]
-        if len(versions) == 1:
-            version = versions[0]
-            if 0 < len(version) <= 64 and all(
-                byte in b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._+-" for byte in version
-            ):
-                self.firmware = version.decode("ascii")
-        for attempt in range(2):
-            if attempt:
-                self._synchronize()
-            self._write(b"FRAME BEGIN 168 168 GRAY8")
+        try:
+            self._write(b"VERSION")
             try:
-                response = self._response()
+                version = self._response()
             except DisplayProtocolError:
-                response = b""
-            if response == b"OK FRAME BEGIN":
-                self.mode = "frame"
-                self.send_frame(bytes(168 * 168), 168, 168, "GRAY8", begun=True)
-                return self.mode
-            if response == b"ERR FRAME (try LIST)":
-                break
-        if not self.original_power:
-            # An unacknowledged POWER ON may still have changed the device.
-            self.powered_on = True
-            self.command(b"POWER ON")
-        return self.mode
+                version = b""
+            safe_version = 0 < len(version) <= 256 and all(32 <= byte <= 126 for byte in version)
+            if safe_version and version.startswith(b"VERSION "):
+                self.firmware = version[8:].decode("ascii")
+            LOG.info(
+                "%s",
+                version.decode("ascii") if safe_version else "VERSION unavailable",
+                extra={"display_firmware": self.firmware},
+            )
+            for attempt in range(2):
+                if attempt:
+                    self._synchronize()
+                self._write(b"FRAME BEGIN 168 168 GRAY8")
+                try:
+                    response = self._response()
+                except DisplayProtocolError:
+                    response = b""
+                if response == b"ERR FRAME (try LIST)":
+                    raise UnsupportedFirmwareError("Display firmware does not support frames")
+                if response == b"OK FRAME BEGIN":
+                    self.frame_active = True
+                    break
+            else:
+                raise DeviceUnavailableError("Face display did not acknowledge frames")
+            self._write(b"STAT")
+            self.original_power = parse_power(self._response())
+            self.send_frame(bytes(168 * 168), 168, 168, "GRAY8", begun=True)
+        except DisplayProtocolError as error:
+            raise DeviceUnavailableError("Face display did not initialize", error=error) from None
+
+    def poll(self) -> None:
+        if getattr(self.port, "in_waiting", 1):
+            self._read()
 
     def send_frame(
         self,
@@ -616,137 +646,143 @@ class FrameClient:
             raise ValueError("Invalid display frame format or dimensions")
         if len(pixels) != width * height * (1 if format_ == "GRAY8" else 2):
             raise ValueError("Invalid display frame size")
-        for attempt in range(2):
-            try:
-                if not begun or attempt:
-                    self._write(f"FRAME BEGIN {width} {height} {format_}".encode(), cancelled)
-                    self._expect(b"OK FRAME BEGIN", cancelled=cancelled)
-                for offset in range(0, len(pixels), 1536):
-                    chunk = pixels[offset : offset + 1536]
-                    self._write(b"FRAME DATA " + base64.b64encode(chunk), cancelled)
-                    self._expect(f"ACK {offset + len(chunk)}".encode(), cancelled=cancelled)
-                self._write(b"FRAME END", cancelled)
-                self._expect(b"OK FRAME", cancelled=cancelled)
-                return True
-            except (DisplayProtocolError, TransferCancelledError) as error:
-                self._write(b"FRAME ABORT")
-                self._expect(b"OK FRAME ABORT")
-                if isinstance(error, TransferCancelledError):
-                    return False
-                if attempt:
-                    raise DisplayProtocolError("Display frame transfer failed") from None
-        return False
+        self.transferring = True
+        try:
+            for attempt in range(2):
+                try:
+                    if not begun or attempt:
+                        self._write(f"FRAME BEGIN {width} {height} {format_}".encode(), cancelled)
+                        self._expect(b"OK FRAME BEGIN", cancelled=cancelled)
+                    for offset in range(0, len(pixels), 1536):
+                        chunk = pixels[offset : offset + 1536]
+                        self._write(b"FRAME DATA " + base64.b64encode(chunk), cancelled)
+                        self._expect(f"ACK {offset + len(chunk)}".encode(), cancelled=cancelled)
+                    self._write(b"FRAME END", cancelled)
+                    self._expect(b"OK FRAME", cancelled=cancelled)
+                    return True
+                except (DisplayProtocolError, TransferCancelledError) as error:
+                    self._write(b"FRAME ABORT")
+                    self._expect(b"OK FRAME ABORT")
+                    if isinstance(error, TransferCancelledError):
+                        return False
+                    if attempt:
+                        raise DisplayProtocolError("Display frame transfer failed") from None
+            return False
+        finally:
+            self.transferring = False
 
     def ping(self) -> None:
         self._write(b"PING")
         self._expect(b"PONG")
 
     def restore(self) -> None:
-        if self.original_power is None:
-            return
-        try:
+        if self.frame_active and self.original_power is not None:
             self.command(b"IDLE" if self.original_power else b"EXPR SLEEPING")
-        finally:
-            if self.powered_on:
-                self.command(b"POWER OFF")
+
+
+FONT_WIDTH = 6
+FONT_HEIGHT = 10
+QR_RECT = (39, 40, 129, 130)
+CLOSE_RECT = (50, 132, 118, 149)
 
 
 ASCII_FONT: dict[str, tuple[int, ...]] = {
-    " ": (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-    "!": (0, 0, 16, 16, 16, 16, 16, 16, 0, 16, 0, 0),
-    '"': (0, 0, 20, 20, 20, 0, 0, 0, 0, 0, 0, 0),
-    "#": (0, 0, 40, 40, 60, 40, 124, 40, 40, 0, 0, 0),
-    "$": (0, 16, 16, 40, 32, 48, 8, 4, 4, 56, 16, 0),
-    "%": (0, 0, 196, 40, 40, 54, 217, 41, 41, 70, 0, 0),
-    "&": (0, 0, 24, 40, 40, 16, 50, 74, 68, 59, 0, 0),
-    "'": (0, 0, 8, 8, 8, 0, 0, 0, 0, 0, 0, 0),
-    "(": (0, 8, 16, 16, 16, 16, 16, 16, 16, 16, 8, 0),
-    ")": (0, 32, 16, 16, 16, 16, 16, 16, 16, 16, 32, 0),
-    "*": (0, 0, 8, 28, 24, 0, 0, 0, 0, 0, 0, 0),
-    "+": (0, 0, 0, 16, 16, 124, 16, 16, 0, 0, 0, 0),
-    ",": (0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 0, 0),
-    "-": (0, 0, 0, 0, 0, 0, 0, 56, 0, 0, 0, 0),
-    ".": (0, 0, 0, 0, 0, 0, 0, 0, 8, 0, 0, 0),
-    "/": (0, 0, 4, 8, 8, 8, 16, 16, 16, 32, 32, 32),
-    "0": (0, 0, 56, 36, 68, 68, 68, 68, 36, 56, 0, 0),
-    "1": (0, 0, 48, 16, 16, 16, 16, 16, 16, 60, 0, 0),
-    "2": (0, 0, 56, 4, 4, 8, 8, 16, 48, 124, 0, 0),
-    "3": (0, 0, 56, 4, 4, 24, 4, 4, 4, 56, 0, 0),
-    "4": (0, 0, 8, 24, 24, 40, 72, 124, 8, 8, 0, 0),
-    "5": (0, 0, 60, 32, 32, 56, 4, 4, 4, 56, 0, 0),
-    "6": (0, 0, 28, 32, 32, 56, 36, 36, 36, 24, 0, 0),
-    "7": (0, 0, 124, 8, 8, 8, 16, 16, 16, 16, 0, 0),
-    "8": (0, 0, 56, 36, 36, 56, 44, 68, 68, 56, 0, 0),
-    "9": (0, 0, 56, 68, 68, 68, 60, 4, 8, 56, 0, 0),
-    ":": (0, 0, 0, 0, 8, 0, 0, 0, 8, 0, 0, 0),
-    ";": (0, 0, 0, 0, 8, 0, 0, 0, 8, 8, 0, 0),
-    "<": (0, 0, 0, 0, 4, 56, 96, 28, 0, 0, 0, 0),
-    "=": (0, 0, 0, 0, 0, 124, 0, 124, 0, 0, 0, 0),
-    ">": (0, 0, 0, 0, 96, 24, 4, 56, 0, 0, 0, 0),
-    "?": (0, 0, 24, 4, 4, 4, 8, 8, 0, 8, 0, 0),
-    "@": (0, 0, 0, 60, 66, 149, 169, 169, 170, 148, 192, 56),
-    "A": (0, 0, 24, 24, 24, 36, 36, 60, 66, 66, 0, 0),
-    "B": (0, 0, 60, 34, 34, 60, 34, 34, 34, 60, 0, 0),
-    "C": (0, 0, 28, 32, 32, 32, 32, 32, 34, 28, 0, 0),
-    "D": (0, 0, 60, 34, 34, 34, 34, 34, 34, 60, 0, 0),
-    "E": (0, 0, 60, 32, 32, 60, 32, 32, 32, 60, 0, 0),
-    "F": (0, 0, 60, 32, 32, 60, 32, 32, 32, 32, 0, 0),
-    "G": (0, 0, 30, 34, 32, 32, 38, 34, 34, 30, 0, 0),
-    "H": (0, 0, 68, 68, 68, 124, 68, 68, 68, 68, 0, 0),
-    "I": (0, 0, 8, 8, 8, 8, 8, 8, 8, 8, 0, 0),
-    "J": (0, 0, 8, 8, 8, 8, 8, 8, 8, 56, 0, 0),
-    "K": (0, 0, 34, 36, 40, 56, 52, 36, 34, 34, 0, 0),
-    "L": (0, 0, 32, 32, 32, 32, 32, 32, 32, 60, 0, 0),
-    "M": (0, 0, 66, 102, 102, 102, 90, 90, 74, 66, 0, 0),
-    "N": (0, 0, 68, 100, 100, 84, 84, 76, 76, 68, 0, 0),
-    "O": (0, 0, 56, 68, 66, 66, 66, 66, 68, 56, 0, 0),
-    "P": (0, 0, 60, 34, 34, 34, 60, 32, 32, 32, 0, 0),
-    "Q": (0, 0, 56, 68, 66, 66, 66, 66, 68, 56, 24, 6),
-    "R": (0, 0, 60, 34, 34, 34, 60, 36, 36, 34, 0, 0),
-    "S": (0, 0, 28, 32, 32, 48, 12, 4, 4, 60, 0, 0),
-    "T": (0, 0, 126, 16, 16, 16, 16, 16, 16, 16, 0, 0),
-    "U": (0, 0, 68, 68, 68, 68, 68, 68, 68, 56, 0, 0),
-    "V": (0, 0, 66, 68, 36, 36, 40, 40, 24, 24, 0, 0),
-    "W": (0, 0, 137, 137, 89, 85, 85, 102, 102, 34, 0, 0),
-    "X": (0, 0, 36, 36, 24, 24, 24, 40, 36, 68, 0, 0),
-    "Y": (0, 0, 136, 72, 80, 80, 32, 32, 32, 32, 0, 0),
-    "Z": (0, 0, 62, 4, 8, 8, 16, 16, 32, 126, 0, 0),
-    "[": (0, 0, 24, 16, 16, 16, 16, 16, 16, 16, 16, 24),
-    "\\": (0, 0, 32, 32, 16, 16, 16, 16, 8, 8, 8, 4),
-    "]": (0, 0, 48, 16, 16, 16, 16, 16, 16, 16, 16, 48),
-    "^": (0, 0, 16, 24, 40, 40, 0, 0, 0, 0, 0, 0),
-    "_": (0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 124),
-    "`": (0, 16, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0),
-    "a": (0, 0, 0, 0, 56, 4, 12, 52, 36, 60, 0, 0),
-    "b": (0, 32, 32, 60, 36, 34, 34, 36, 60, 0, 0, 0),
-    "c": (0, 0, 0, 0, 28, 32, 32, 32, 32, 28, 0, 0),
-    "d": (0, 4, 4, 28, 36, 36, 36, 36, 60, 0, 0, 0),
-    "e": (0, 0, 0, 0, 24, 36, 60, 32, 32, 28, 0, 0),
-    "f": (0, 12, 16, 16, 56, 16, 16, 16, 16, 16, 0, 0),
-    "g": (0, 0, 0, 0, 60, 36, 36, 56, 32, 60, 68, 68),
-    "h": (0, 32, 32, 60, 36, 36, 36, 36, 36, 0, 0, 0),
-    "i": (0, 8, 0, 8, 8, 8, 8, 8, 8, 0, 0, 0),
-    "j": (0, 16, 0, 16, 16, 16, 16, 16, 16, 16, 16, 32),
-    "k": (0, 32, 32, 32, 36, 40, 48, 56, 36, 36, 0, 0),
-    "l": (0, 8, 8, 8, 8, 8, 8, 8, 8, 0, 0, 0),
-    "m": (0, 0, 0, 0, 246, 154, 146, 146, 146, 146, 0, 0),
-    "n": (0, 0, 0, 0, 60, 36, 36, 36, 36, 36, 0, 0),
-    "o": (0, 0, 0, 0, 24, 36, 34, 34, 36, 24, 0, 0),
-    "p": (0, 0, 0, 0, 60, 36, 34, 34, 36, 60, 32, 32),
-    "q": (0, 0, 0, 0, 28, 36, 36, 36, 36, 60, 4, 4),
-    "r": (0, 0, 0, 0, 28, 16, 16, 16, 16, 16, 0, 0),
-    "s": (0, 0, 0, 0, 28, 32, 16, 12, 4, 28, 0, 0),
-    "t": (0, 0, 16, 16, 56, 16, 16, 16, 16, 28, 0, 0),
-    "u": (0, 0, 0, 0, 36, 36, 36, 36, 36, 60, 0, 0),
-    "v": (0, 0, 0, 0, 68, 36, 40, 40, 40, 16, 0, 0),
-    "w": (0, 0, 0, 0, 153, 90, 90, 106, 102, 36, 0, 0),
-    "x": (0, 0, 0, 0, 20, 20, 8, 8, 20, 34, 0, 0),
-    "y": (0, 0, 0, 0, 68, 36, 40, 40, 40, 16, 16, 16),
-    "z": (0, 0, 0, 0, 28, 4, 8, 8, 16, 60, 0, 0),
-    "{": (0, 0, 24, 16, 16, 16, 48, 16, 16, 16, 16, 8),
-    "|": (0, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8),
-    "}": (0, 0, 48, 16, 16, 16, 8, 16, 16, 16, 16, 32),
-    "~": (0, 0, 0, 0, 0, 32, 20, 8, 0, 0, 0, 0),
+    " ": (0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+    "!": (0, 16, 16, 16, 16, 0, 16, 0, 0, 0),
+    '"': (0, 48, 48, 0, 0, 0, 0, 0, 0, 0),
+    "#": (0, 0, 40, 40, 120, 120, 80, 0, 0, 0),
+    "$": (0, 16, 56, 64, 32, 24, 8, 56, 16, 0),
+    "%": (0, 0, 208, 80, 96, 124, 212, 92, 0, 0),
+    "&": (0, 0, 96, 96, 96, 168, 144, 120, 0, 0),
+    "'": (0, 16, 16, 0, 0, 0, 0, 0, 0, 0),
+    "(": (0, 16, 16, 16, 16, 16, 16, 16, 16, 0),
+    ")": (0, 32, 16, 16, 16, 16, 16, 16, 32, 0),
+    "*": (0, 0, 48, 48, 0, 0, 0, 0, 0, 0),
+    "+": (0, 0, 0, 16, 16, 120, 16, 0, 0, 0),
+    ",": (0, 0, 0, 0, 0, 0, 16, 16, 0, 0),
+    "-": (0, 0, 0, 0, 0, 48, 0, 0, 0, 0),
+    ".": (0, 0, 0, 0, 0, 0, 16, 0, 0, 0),
+    "/": (0, 0, 16, 16, 32, 32, 32, 64, 64, 64),
+    "0": (0, 0, 48, 72, 72, 72, 72, 48, 0, 0),
+    "1": (0, 0, 48, 16, 16, 16, 16, 56, 0, 0),
+    "2": (0, 0, 48, 8, 8, 16, 32, 120, 0, 0),
+    "3": (0, 0, 48, 8, 48, 8, 8, 48, 0, 0),
+    "4": (0, 0, 16, 48, 48, 80, 120, 16, 0, 0),
+    "5": (0, 0, 56, 64, 56, 8, 8, 48, 0, 0),
+    "6": (0, 0, 56, 64, 80, 104, 72, 56, 0, 0),
+    "7": (0, 0, 120, 16, 16, 16, 32, 32, 0, 0),
+    "8": (0, 0, 48, 72, 40, 88, 72, 56, 0, 0),
+    "9": (0, 0, 48, 72, 72, 56, 8, 48, 0, 0),
+    ":": (0, 0, 0, 16, 0, 0, 16, 0, 0, 0),
+    ";": (0, 0, 0, 16, 0, 0, 16, 16, 0, 0),
+    "<": (0, 0, 0, 0, 56, 96, 24, 0, 0, 0),
+    "=": (0, 0, 0, 0, 120, 0, 120, 0, 0, 0),
+    ">": (0, 0, 0, 64, 48, 8, 112, 0, 0, 0),
+    "?": (0, 0, 48, 16, 16, 32, 0, 32, 0, 0),
+    "@": (0, 0, 120, 132, 52, 84, 84, 40, 128, 112),
+    "A": (0, 0, 16, 48, 40, 56, 72, 68, 0, 0),
+    "B": (0, 0, 112, 72, 112, 72, 72, 112, 0, 0),
+    "C": (0, 0, 48, 64, 128, 128, 64, 112, 0, 0),
+    "D": (0, 0, 112, 72, 72, 72, 72, 112, 0, 0),
+    "E": (0, 0, 56, 32, 56, 32, 32, 56, 0, 0),
+    "F": (0, 0, 56, 32, 56, 32, 32, 32, 0, 0),
+    "G": (0, 0, 56, 64, 128, 152, 72, 120, 0, 0),
+    "H": (0, 0, 72, 72, 120, 72, 72, 72, 0, 0),
+    "I": (0, 0, 16, 16, 16, 16, 16, 16, 0, 0),
+    "J": (0, 0, 8, 8, 8, 8, 16, 48, 0, 0),
+    "K": (0, 0, 80, 80, 96, 80, 80, 72, 0, 0),
+    "L": (0, 0, 32, 32, 32, 32, 32, 56, 0, 0),
+    "M": (0, 0, 68, 76, 116, 116, 84, 68, 0, 0),
+    "N": (0, 0, 72, 72, 104, 88, 88, 72, 0, 0),
+    "O": (0, 0, 112, 72, 136, 136, 72, 112, 0, 0),
+    "P": (0, 0, 112, 72, 72, 112, 64, 64, 0, 0),
+    "Q": (0, 0, 112, 72, 136, 136, 72, 112, 16, 12),
+    "R": (0, 0, 112, 72, 72, 112, 80, 72, 0, 0),
+    "S": (0, 0, 56, 64, 32, 24, 8, 56, 0, 0),
+    "T": (0, 0, 124, 16, 16, 16, 16, 16, 0, 0),
+    "U": (0, 0, 72, 72, 72, 72, 72, 112, 0, 0),
+    "V": (0, 0, 72, 72, 40, 40, 48, 16, 0, 0),
+    "W": (0, 0, 36, 104, 104, 216, 216, 136, 0, 0),
+    "X": (0, 0, 72, 40, 16, 16, 40, 72, 0, 0),
+    "Y": (0, 0, 144, 144, 96, 32, 64, 64, 0, 0),
+    "Z": (0, 0, 56, 8, 16, 32, 32, 120, 0, 0),
+    "[": (0, 16, 16, 16, 16, 16, 16, 16, 0, 0),
+    "\\": (0, 0, 64, 64, 64, 32, 32, 32, 16, 16),
+    "]": (0, 16, 16, 16, 16, 16, 16, 16, 0, 0),
+    "^": (0, 0, 16, 48, 40, 0, 0, 0, 0, 0),
+    "_": (0, 0, 0, 0, 0, 0, 0, 0, 48, 0),
+    "`": (0, 32, 16, 0, 0, 0, 0, 0, 0, 0),
+    "a": (0, 0, 0, 48, 8, 56, 72, 56, 0, 0),
+    "b": (0, 0, 32, 56, 40, 36, 40, 56, 0, 0),
+    "c": (0, 0, 0, 56, 64, 64, 64, 56, 0, 0),
+    "d": (0, 8, 8, 56, 72, 72, 72, 56, 0, 0),
+    "e": (0, 0, 0, 56, 72, 120, 64, 56, 0, 0),
+    "f": (0, 24, 16, 56, 16, 16, 16, 16, 0, 0),
+    "g": (0, 0, 0, 56, 72, 72, 112, 56, 72, 56),
+    "h": (0, 0, 32, 56, 40, 40, 40, 40, 0, 0),
+    "i": (0, 16, 0, 16, 16, 16, 16, 16, 0, 0),
+    "j": (0, 32, 0, 64, 64, 64, 64, 64, 64, 64),
+    "k": (32, 32, 40, 48, 48, 48, 40, 0, 0, 0),
+    "l": (0, 16, 16, 16, 16, 16, 16, 0, 0, 0),
+    "m": (0, 0, 0, 248, 164, 164, 164, 164, 0, 0),
+    "n": (0, 0, 0, 56, 40, 40, 40, 40, 0, 0),
+    "o": (0, 0, 0, 56, 72, 72, 72, 56, 0, 0),
+    "p": (0, 0, 0, 56, 40, 36, 40, 56, 32, 32),
+    "q": (0, 0, 0, 56, 72, 72, 72, 56, 8, 8),
+    "r": (0, 0, 0, 48, 32, 32, 32, 32, 0, 0),
+    "s": (0, 0, 0, 48, 64, 48, 16, 112, 0, 0),
+    "t": (0, 32, 112, 32, 32, 32, 48, 0, 0, 0),
+    "u": (0, 0, 0, 40, 40, 40, 40, 56, 0, 0),
+    "v": (0, 0, 0, 72, 72, 48, 48, 48, 0, 0),
+    "w": (0, 0, 0, 148, 148, 116, 120, 72, 0, 0),
+    "x": (0, 0, 0, 80, 48, 32, 48, 72, 0, 0),
+    "y": (0, 0, 0, 72, 72, 48, 48, 16, 32, 96),
+    "z": (0, 0, 0, 48, 16, 32, 32, 120, 0, 0),
+    "{": (0, 16, 16, 16, 32, 16, 16, 16, 0, 0),
+    "|": (0, 0, 16, 16, 16, 16, 16, 16, 16, 16),
+    "}": (0, 16, 16, 16, 16, 16, 16, 16, 0, 0),
+    "~": (0, 0, 0, 0, 32, 24, 0, 0, 0, 0),
+    "…": (0, 0, 0, 0, 0, 0, 0, 168, 0, 0),
 }
 
 
@@ -754,12 +790,34 @@ def draw_ascii(pixels: bytearray, width: int, height: int, text: str, x: int, y:
     ink = color.to_bytes(2, "little")
     for character in text:
         for row, bits in enumerate(ASCII_FONT.get(character, ASCII_FONT.get("?", ()))):
-            for column in range(8):
+            for column in range(FONT_WIDTH):
                 px, py = x + column, y + row
                 if bits & (0x80 >> column) and 0 <= px < width and 0 <= py < height:
                     offset = (py * width + px) * 2
                     pixels[offset : offset + 2] = ink
-        x += 8
+        x += FONT_WIDTH
+
+
+def valid_qr(qr: Any) -> bool:
+    if not isinstance(qr, dict):
+        return False
+    size, rows = qr.get("size"), qr.get("rows")
+    return (
+        isinstance(size, int)
+        and not isinstance(size, bool)
+        and 1 <= size <= min(QR_RECT[2] - QR_RECT[0], QR_RECT[3] - QR_RECT[1]) - 8
+        and isinstance(rows, list)
+        and len(rows) == size
+        and all(isinstance(row, str) and len(row) == size and set(row) <= {"0", "1"} for row in rows)
+    )
+
+
+def fill_rect(pixels: bytearray, rect: tuple[int, int, int, int], color: int) -> None:
+    x0, y0, x1, y1 = rect
+    row = color.to_bytes(2, "little") * (x1 - x0)
+    for y in range(y0, y1):
+        offset = (y * 168 + x0) * 2
+        pixels[offset : offset + len(row)] = row
 
 
 def state_screen(state: str, fields: dict[str, Any]) -> bytes:
@@ -767,13 +825,35 @@ def state_screen(state: str, fields: dict[str, Any]) -> bytes:
     pixels = bytearray(Path(__file__).with_name(f"{state}{suffix}.bin").read_bytes())
     if len(pixels) != 168 * 168 * 2:
         raise ValueError("Invalid state screen asset")
-    value = fields.get("ssid", "") if state == "connecting" else fields.get("hostname", "")
-    if value and state in {"connecting", "connected"} and all(32 <= ord(character) <= 126 for character in value):
-        if state == "connected":
-            value += ".local"
-        lines = [value[index : index + 18] for index in range(0, min(len(value), 72), 18)]
-        for index, line in enumerate(lines):
-            draw_ascii(pixels, 168, 168, line, (168 - len(line) * 8) // 2, 64 + index * 12)
+    if state == "connected":
+        url = fields.get("url", "")
+        capacity = 168 // FONT_WIDTH
+        text = url if len(url) <= capacity else url[: capacity - 1] + "…"
+        draw_ascii(pixels, 168, 168, text, (168 - len(text) * FONT_WIDTH) // 2, 26)
+        qr = fields.get("qr")
+        if qr is not None:
+            if not valid_qr(qr):
+                raise ValueError("Invalid connection QR matrix")
+            size = qr["size"]
+            scale = min(QR_RECT[2] - QR_RECT[0], QR_RECT[3] - QR_RECT[1]) // (size + 8)
+            side = (size + 8) * scale
+            left = QR_RECT[0] + (QR_RECT[2] - QR_RECT[0] - side) // 2 + 4 * scale
+            top = QR_RECT[1] + (QR_RECT[3] - QR_RECT[1] - side) // 2 + 4 * scale
+            fill_rect(pixels, QR_RECT, 0xFFFF)
+            for y, row in enumerate(qr["rows"]):
+                for x, value in enumerate(row):
+                    if value == "1":
+                        fill_rect(
+                            pixels,
+                            (left + x * scale, top + y * scale, left + (x + 1) * scale, top + (y + 1) * scale),
+                            0,
+                        )
+    elif state == "connecting":
+        ssid = fields.get("ssid", "")
+        if ssid and all(32 <= ord(character) <= 126 for character in ssid):
+            for index in range(0, min(len(ssid), 56), 28):
+                text = ssid[index : index + 28]
+                draw_ascii(pixels, 168, 168, text, (168 - len(text) * FONT_WIDTH) // 2, 74 + (index // 28) * 12)
     return bytes(pixels)
 
 
@@ -792,19 +872,6 @@ def open_display_port() -> Any:
 
 
 class Display:
-    """Expression fallback: scanning=CURIOUS, checking/connecting=THINKING,
-    rejected=BATSU, failed=SAD, connected=HAPPY.
-    """
-
-    EXPRESSIONS: ClassVar[dict[str, str]] = {
-        "scanning": "CURIOUS",
-        "checking": "THINKING",
-        "connecting": "THINKING",
-        "rejected": "BATSU",
-        "failed": "SAD",
-        "connected": "HAPPY",
-    }
-
     def __init__(
         self, *, port_factory: Callable[[], Any] = open_display_port, clock: Callable[[], float] = time.monotonic
     ) -> None:
@@ -814,8 +881,8 @@ class Display:
         self.failure: Exception | None = None
         self.generation = 0
         self.state = "scanning"
-        self.mode = "expr"
-        self.firmware = "unknown"
+        self.rendered_connected: int | None = None
+        self.close_pending = False
         self.pending_screen: tuple[str, bytes, int] | None = None
         self.pending_live: bytes | None = None
         self.pending_ping = False
@@ -837,17 +904,19 @@ class Display:
     def screen(self, state: str, fields: dict[str, Any]) -> None:
         self.check()
         format_ = "GRAY8" if state == "scanning" else "RGB565"
-        pixels = bytes(168 * 168) if state == "scanning" or self.mode == "expr" else state_screen(state, fields)
+        pixels = bytes(168 * 168) if state == "scanning" else state_screen(state, fields)
         with self.condition:
             self.state = state
             self.generation += 1
+            self.rendered_connected = None
+            self.close_pending = False
             self.pending_live = None
             self.pending_screen = (format_, pixels, self.generation)
             self.condition.notify()
 
     def live(self, frame: bytes | None) -> None:
         self.check()
-        if frame is None or self.mode != "frame":
+        if frame is None:
             return
         if len(frame) != 168 * 168:
             raise ValueError("Invalid live preview size")
@@ -862,23 +931,35 @@ class Display:
             self.pending_ping = True
             self.condition.notify()
 
+    def _tap(self, x: int, y: int) -> None:
+        with self.condition:
+            image_x, image_y = (x - 72) // 2, (y - 72) // 2
+            if (
+                not self.stopping
+                and self.state == "connected"
+                and self.rendered_connected == self.generation
+                and CLOSE_RECT[0] <= image_x < CLOSE_RECT[2]
+                and CLOSE_RECT[1] <= image_y < CLOSE_RECT[3]
+            ):
+                self.close_pending = True
+
+    def take_close(self) -> bool:
+        with self.condition:
+            close = self.close_pending
+            self.close_pending = False
+            return close
+
     def _run(self, port_factory: Callable[[], Any], clock: Callable[[], float]) -> None:
         port: Any = None
         protocol: FrameClient | None = None
         try:
             port = port_factory()
-            protocol = FrameClient(port, clock=clock, gate=self.condition)
-            self.mode = protocol.initialize()
-            self.firmware = protocol.firmware
-            LOG.info(
-                "display mode=%s fw=%s",
-                self.mode,
-                self.firmware,
-                extra={"display_mode": self.mode, "display_firmware": self.firmware},
-            )
+            protocol = FrameClient(port, clock=clock, gate=self.condition, on_tap=self._tap)
+            protocol.initialize()
             self.ready.set()
             while True:
-                request: tuple[str, bytes | None, int, str] | None
+                request: tuple[str, bytes, int, str] | None
+                heartbeat = False
                 with self.condition:
                     self.condition.wait_for(
                         lambda: (
@@ -886,42 +967,44 @@ class Display:
                             or self.pending_screen is not None
                             or self.pending_live is not None
                             or self.pending_ping
-                        )
+                        ),
+                        timeout=0.02,
                     )
                     if self.stopping:
                         break
                     if self.pending_screen is not None:
-                        request = (*self.pending_screen, self.EXPRESSIONS[self.state])
+                        request = (*self.pending_screen, self.state)
                         self.pending_screen = None
                     elif self.pending_ping:
                         self.pending_ping = False
+                        heartbeat = True
                         request = None
-                    else:
-                        request = ("GRAY8", self.pending_live, self.generation, "CURIOUS")
+                    elif self.pending_live is not None:
+                        request = ("GRAY8", self.pending_live, self.generation, "scanning")
                         self.pending_live = None
+                    else:
+                        request = None
                 if request is None:
-                    if self.mode == "frame":
+                    if heartbeat:
                         protocol.ping()
+                    else:
+                        protocol.poll()
                     continue
-                format_, pixels, generation, expression = request
+                format_, pixels, generation, state = request
 
                 def cancelled(generation: int = generation) -> bool:
                     return self.stopping or generation != self.generation
 
-                if self.mode == "expr":
-                    with suppress(TransferCancelledError):
-                        protocol.command(f"EXPR {expression}".encode(), cancelled=cancelled)
-                elif pixels is not None:
-                    protocol.send_frame(
-                        pixels,
-                        168,
-                        168,
-                        format_,
-                        cancelled=cancelled,
-                    )
+                completed = protocol.send_frame(pixels, 168, 168, format_, cancelled=cancelled)
+                with self.condition:
+                    if completed and state == "connected" and generation == self.generation and not self.stopping:
+                        self.rendered_connected = generation
         except Exception as error:
             self.failure = display_failure(error)
         finally:
+            with self.condition:
+                self.rendered_connected = None
+                self.close_pending = False
             self.ready.set()
             if protocol is not None:
                 try:
@@ -942,6 +1025,8 @@ class Display:
         with self.condition:
             self.stopping = True
             self.generation += 1
+            self.rendered_connected = None
+            self.close_pending = False
             self.pending_live = None
             self.pending_screen = None
             self.condition.notify()
@@ -1004,6 +1089,7 @@ class Reader:
         self.stopped = False
         self.exit_code = 0
         self.started = False
+        self.close_sent = False
 
     def _cleanup(self, callback: Callable[[], Any]) -> None:
         try:
@@ -1066,7 +1152,7 @@ class Reader:
                 continue
             self.client = connection
             connection.setblocking(False)
-            self._send({"type": "hello", "proto": 1, "display": self.display.mode})
+            self._send({"type": "hello", "proto": 1})
 
     def _line(self, line: bytes) -> None:
         try:
@@ -1085,8 +1171,18 @@ class Reader:
             if not isinstance(reason, str) or reason not in REASONS:
                 return
             fields["reason"] = reason
-        elif state in {"connecting", "connected"}:
-            key = "ssid" if state == "connecting" else "hostname"
+        elif state == "connected":
+            url, qr = message.get("url"), message.get("qr")
+            if (
+                not isinstance(url, str)
+                or not url
+                or not all(32 <= ord(character) <= 126 for character in url)
+                or not valid_qr(qr)
+            ):
+                return
+            fields.update(url=url, qr=qr)
+        elif state == "connecting":
+            key = "ssid"
             value = message.get(key)
             if not isinstance(value, str):
                 return
@@ -1152,7 +1248,7 @@ class Reader:
                 self.last_text = text
                 self.absent_frames = 0
                 self._send({"type": "qr", "text": text})
-        elif self.display.mode == "frame":
+        else:
             self.display.live(getattr(self.decoder, "preview", frame))
 
     def step(self) -> bool:
@@ -1172,9 +1268,17 @@ class Reader:
                 return False
             if self.state == "checking" and now - self.checking_since >= 15:
                 self._screen("scanning", {})
-            if self.display.mode == "frame" and now - self.last_ping >= 2:
+            if now - self.last_ping >= 2:
                 self.display.ping()
                 self.last_ping = now
+            if (
+                self.state == "connected"
+                and self.client is not None
+                and not self.close_sent
+                and getattr(self.display, "take_close", lambda: False)()
+            ):
+                self._send({"type": "close"})
+                self.close_sent = True
             if self.state == "scanning":
                 self._frame()
             self._flush()
@@ -1205,6 +1309,9 @@ class Reader:
         except ReservationUnavailableError as error:
             log_failure("Hardware busy", error, resource=error.resource, holder=error.holder)
             self.exit_code = 75
+        except UnsupportedFirmwareError as error:
+            log_failure("Display firmware unsupported", error)
+            self.exit_code = 76
         except DependencyUnavailableError as error:
             log_failure("Required hardware dependency unavailable", error)
             self.exit_code = 69

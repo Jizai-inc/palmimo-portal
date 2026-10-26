@@ -61,8 +61,7 @@ class Decoder:
 
 
 class Display:
-    def __init__(self, mode: str = "frame") -> None:
-        self.mode = mode
+    def __init__(self) -> None:
         self.events: list[Any] = []
         self.screens: list[tuple[str, dict[str, Any]]] = []
 
@@ -81,10 +80,10 @@ class Display:
 
 
 class Harness:
-    def __init__(self, module: Any, tmp_path: Path, mode: str = "frame") -> None:
+    def __init__(self, module: Any, tmp_path: Path) -> None:
         self.clock = Clock()
         self.camera = Camera()
-        self.display = Display(mode)
+        self.display = Display()
         self.events: list[str] = []
         self.uid = os.getuid()
         self.reader = module.Reader(
@@ -117,8 +116,10 @@ class Harness:
         return client
 
     def message(self, client: socket.socket, **fields: Any) -> None:
-        client.sendall(json.dumps({"type": "screen", **fields}).encode() + b"\n")
-        self.reader.step()
+        payload = json.dumps({"type": "screen", **fields}).encode() + b"\n"
+        for offset in range(0, len(payload), 4096):
+            client.sendall(payload[offset : offset + 4096])
+            self.reader.step()
 
 
 def receive(client: socket.socket) -> list[Any]:
@@ -139,15 +140,14 @@ def test_reader_directory_contains_only_standalone_script() -> None:
     assert sorted(path.name for path in READER_PATH.parent.rglob("*.py")) == ["reader.py"]
 
 
-@pytest.mark.parametrize("mode", ["frame", "expr"])
-def test_startup_opens_socket_before_reservations_and_sends_ready_hello(module: Any, tmp_path: Path, mode: str) -> None:
-    harness = Harness(module, tmp_path, mode)
+def test_startup_opens_socket_before_reservations_and_sends_ready_hello(module: Any, tmp_path: Path) -> None:
+    harness = Harness(module, tmp_path)
     harness.reader.start()
     try:
         assert harness.events == ["camera", "display", "dependencies"]
         assert harness.reader.socket_path.stat().st_mode & 0o777 == 0o666
         with harness.connect() as client:
-            assert receive(client) == [{"type": "hello", "proto": 1, "display": mode}]
+            assert receive(client) == [{"type": "hello", "proto": 1}]
     finally:
         harness.reader.close()
     assert harness.camera.closed
@@ -272,10 +272,10 @@ def test_checking_returns_to_scanning_after_fifteen_seconds_without_screen(harne
         ("rejected", {"reason": "not_wifi"}),
         ("connecting", {"ssid": "home"}),
         ("failed", {"reason": "connect_failed"}),
-        ("connected", {"hostname": "palmimo"}),
+        ("connected", {"url": "http://palmimo.local", "qr": {"size": 2, "rows": ["10", "01"]}}),
     ],
 )
-def test_socket_screen_updates_display(harness: Harness, state: str, fields: dict[str, str]) -> None:
+def test_socket_screen_updates_display(harness: Harness, state: str, fields: dict[str, Any]) -> None:
     with harness.connect() as client:
         receive(client)
         harness.message(client, state=state, **fields)
@@ -285,15 +285,14 @@ def test_socket_screen_updates_display(harness: Harness, state: str, fields: dic
         assert harness.display.screens[-1][0] == ("scanning" if state == "checking" else state)
 
 
-@pytest.mark.parametrize("mode,expected", [("frame", 2), ("expr", 0)])
-def test_display_heartbeat_runs_every_two_seconds(module: Any, tmp_path: Path, mode: str, expected: int) -> None:
-    harness = Harness(module, tmp_path, mode)
+def test_display_heartbeat_runs_every_two_seconds(module: Any, tmp_path: Path) -> None:
+    harness = Harness(module, tmp_path)
     harness.reader.start()
     try:
         for now in [1.99, 2, 3.99, 4]:
             harness.clock.now = now
             harness.reader.step()
-        assert harness.display.events.count("ping") == expected
+        assert harness.display.events.count("ping") == 2
     finally:
         harness.reader.close()
 
@@ -480,7 +479,6 @@ class Camera:
 class Decoder:
     def decode(self, frame): return []
 class Display:
-    mode = "expr"
     def screen(self, state, fields): pass
     def close(self): print("sleeping", flush=True)
 def factory(runtime, uid):
@@ -514,7 +512,7 @@ raise SystemExit(result)
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
             client.settimeout(2)
             client.connect(str(path))
-            assert receive(client) == [{"type": "hello", "proto": 1, "display": "expr"}]
+            assert receive(client) == [{"type": "hello", "proto": 1}]
             process.send_signal(signal.SIGTERM)
             output, errors = process.communicate(timeout=3)
         assert process.returncode == 0, errors

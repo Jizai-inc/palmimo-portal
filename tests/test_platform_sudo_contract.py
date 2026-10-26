@@ -51,19 +51,21 @@ def test_display_firmware_runs_with_bounded_noninteractive_privilege(tmp_path: P
 
     port = SudoPlatformPort(installed_path=tmp_path / "installed.json", runner=run)
     port.ensure_display_firmware()
-    assert calls == [
-        (
-            [
-                "sudo",
-                "-n",
-                "timeout",
-                "-k",
-                "5",
-                "600",
-                "/usr/local/libexec/palmimo/palmimo-display-firmware",
-                "ensure",
-                "--json",
-            ],
-            {"capture_output": True, "text": True, "timeout": 660.0},
-        )
+    assert len(calls) == 1
+    argv, options = calls[0]
+    assert argv == [
+        "sudo",
+        "-n",
+        "timeout",
+        "-k",
+        "5",
+        "600",
+        "/usr/local/libexec/palmimo/palmimo-display-firmware",
+        "ensure",
+        "--json",
     ]
+    assert {key: options[key] for key in ("capture_output", "text", "timeout")} == {
+        "capture_output": True,
+        "text": True,
+        "timeout": 660.0,
+    }

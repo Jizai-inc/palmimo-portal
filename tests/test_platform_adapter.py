@@ -180,9 +180,17 @@ def test_display_firmware_detects_missing_tool_and_unreadable_state(tmp_path: Pa
     assert port.read_display_firmware_state() is None
 
 
-def test_display_firmware_invalid_json_keeps_stderr_reason(tmp_path: Path) -> None:
-    runner = _ScriptedRunner(1, stdout="", stderr="Traceback:\nOSError: firmware archive is unreadable\n")
-    port = SudoPlatformPort(installed_path=tmp_path / "installed.json", runner=runner)
+def test_display_firmware_invalid_json_keeps_stderr_reason(firmware_process: tuple[SudoPlatformPort, Path]) -> None:
+    import sys
+
+    port, script = firmware_process
+    script.write_text(
+        f"#!{sys.executable}\n"
+        "import sys\n"
+        'print("Traceback:", file=sys.stderr, flush=True)\n'
+        'print("OSError: firmware archive is unreadable", file=sys.stderr, flush=True)\n'
+        "sys.exit(1)\n"
+    )
     with pytest.raises(PlatformCommandError, match="OSError: firmware archive is unreadable"):
         port.ensure_display_firmware()
 
@@ -194,3 +202,93 @@ def test_boot_identity_is_optional_when_kernel_file_is_unavailable(tmp_path: Pat
         path.write_bytes(content)
     port = SudoPlatformPort(installed_path=tmp_path / "installed.json", boot_id_path=path)
     assert port.read_boot_id() == ("boot-a" if content == b"boot-a\n" else None)
+
+
+@pytest.fixture
+def firmware_process(tmp_path: Path) -> tuple[SudoPlatformPort, Path]:
+    wrapper = tmp_path / "privilege-wrapper"
+    wrapper.write_text('#!/bin/sh\nshift 5\nexec "$@"\n')
+    wrapper.chmod(0o755)
+    script = tmp_path / "firmware-tool"
+    script.touch()
+    script.chmod(0o755)
+    return SudoPlatformPort(
+        installed_path=tmp_path / "installed.json",
+        sudo_bin=str(wrapper),
+        display_firmware_tool=script,
+    ), script
+
+
+def test_display_firmware_logs_progress_before_tool_finishes(
+    firmware_process: tuple[SudoPlatformPort, Path],
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+    import sys
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from palmimo_portal.ports import DisplayFirmwareResult
+
+    port, script = firmware_process
+    release = tmp_path / "release"
+    script.write_text(
+        f"#!{sys.executable}\n"
+        "import pathlib, sys, time\n"
+        'print("flash in progress", file=sys.stderr, flush=True)\n'
+        f"while not pathlib.Path({str(release)!r}).exists():\n"
+        "    time.sleep(0.01)\n"
+        'print(\'{"result":"current"}\', flush=True)\n'
+    )
+    logged = threading.Event()
+
+    class ProgressHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            if "flash in progress" in record.getMessage():
+                logged.set()
+
+    handler = ProgressHandler()
+    logger = logging.getLogger("palmimo_portal")
+    caplog.set_level(logging.INFO, logger="palmimo_portal")
+    logger.addHandler(handler)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(port.ensure_display_firmware)
+            try:
+                assert logged.wait(3)
+                assert not future.done()
+            finally:
+                release.touch()
+            assert future.result(timeout=3) == DisplayFirmwareResult(result="current")
+    finally:
+        logger.removeHandler(handler)
+
+
+def test_display_firmware_timeout_stops_and_reaps_tool(
+    firmware_process: tuple[SudoPlatformPort, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+    import sys
+    import time
+
+    from palmimo_portal.adapters import platform
+
+    port, script = firmware_process
+    pid_file = tmp_path / "pid"
+    script.write_text(
+        f"#!{sys.executable}\n"
+        "import os, pathlib, sys, time\n"
+        f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
+        'print("waiting for flash", file=sys.stderr, flush=True)\n'
+        "time.sleep(30)\n"
+    )
+    monkeypatch.setattr(platform, "DISPLAY_FIRMWARE_SUBPROCESS_TIMEOUT_SECONDS", 1.0)
+    started = time.monotonic()
+    with pytest.raises(PlatformCommandError, match="timed out"):
+        port.ensure_display_firmware()
+    assert time.monotonic() - started < 5
+    with pytest.raises(ProcessLookupError):
+        os.kill(int(pid_file.read_text()), 0)

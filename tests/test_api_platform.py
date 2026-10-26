@@ -65,7 +65,7 @@ def client(app: FastAPI) -> Iterator[TestClient]:
 
 def _authenticated_client(client: TestClient, adapters: FakeAdapterBundle) -> TestClient:
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
     return client
 
@@ -93,7 +93,7 @@ def _install_app(client: TestClient, name: str = "palmimo-teleop") -> None:
 
 
 def test_get_platform_requires_auth(client: TestClient, adapters: FakeAdapterBundle) -> None:
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
 
     response = client.get("/api/v1/platform")
 
@@ -362,7 +362,7 @@ def test_startup_finalize_marks_an_interrupted_platform_job_as_failed(
 
     with TestClient(app) as client:
         client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-        adapters.network.known_networks.add("home")
+        adapters.saved_networks.save("home", "", first=False)
         client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
         response = client.get("/api/v1/platform/update")
 

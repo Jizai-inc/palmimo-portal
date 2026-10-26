@@ -84,7 +84,7 @@ def test_a_full_session_cookie_issued_before_the_reset_is_rejected_after(
     # every session that was issued under it, immediately.
     _carry_identity(adapters)
     _promote_to_full(client)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     old_cookie = client.cookies.get(SESSION_COOKIE_NAME)
     assert old_cookie is not None
 
@@ -141,7 +141,7 @@ def test_reset_works_while_unprovisioned(client: TestClient, adapters: FakeAdapt
     # Wi-Fi is ever configured.
     _carry_identity(adapters)
     _promote_to_full(client)
-    assert not adapters.network.known_networks
+    assert not adapters.network.has_known_networks()
 
     response = client.post("/api/v1/auth/reset", headers=CSRF_HEADERS)
 

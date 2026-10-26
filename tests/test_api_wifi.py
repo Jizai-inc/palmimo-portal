@@ -4,22 +4,17 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import logging
-import time
 from pathlib import Path
 from typing import cast
 
-import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from palmimo_portal.adapters.state import LAST_ATTEMPT_FILENAME, JsonFileStateStore
-from palmimo_portal.core.wifi_attempt import GRACE_PERIOD_SECONDS
 from palmimo_portal.ports import (
     AdapterUnavailableError,
     ConnectionState,
     Identity,
-    WifiAttempt,
     WifiNetwork,
     WifiStatus,
 )
@@ -82,10 +77,11 @@ def test_connect_returns_attempting_immediately(client: TestClient) -> None:
     assert response.json() == {"status": "attempting"}
 
 
-def test_connect_records_the_attempt_on_the_network_port(client: TestClient, adapters: FakeAdapterBundle) -> None:
+def test_connect_creates_a_temporary_nm_profile(client: TestClient, adapters: FakeAdapterBundle) -> None:
     client.post("/api/v1/wifi/connect", json={"ssid": "home", "psk": "secret123"}, headers=CSRF_HEADERS)
 
-    assert adapters.network.connect_calls == [("home", "secret123")]
+    assert adapters.saved_networks.psks["home"] == "secret123"
+    assert adapters.wifi_profiles.list_profiles()[0].name.startswith("palmimo-try-")
 
 
 def test_connect_records_the_attempt_in_the_state_store(client: TestClient, adapters: FakeAdapterBundle) -> None:
@@ -106,53 +102,19 @@ def test_system_status_exposes_the_last_wifi_attempt(client: TestClient) -> None
     assert response.json()["last_wifi_attempt"]["result"] == "attempting"
 
 
-def test_connect_records_a_failed_attempt_when_network_connect_raises(
+def test_connect_returns_502_when_trial_profile_cannot_be_added(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
-    adapters.network.raise_on_connect = RuntimeError("radio busy")
+    def fail_add(*args: object, **kwargs: object) -> str:
+        raise RuntimeError("radio busy")
+
+    adapters.wifi_profiles.add_profile = fail_add  # type: ignore[method-assign]
 
     response = client.post("/api/v1/wifi/connect", json={"ssid": "home", "psk": "secret123"}, headers=CSRF_HEADERS)
 
     assert response.status_code == 502
     assert response.json()["error"]["code"] == "wifi_connect_failed"
-    attempt = adapters.state.read_last_wifi_attempt()
-    assert attempt is not None
-    assert attempt.ssid == "home"
-    assert attempt.result == "failed"
-
-
-def test_connect_records_attempting_before_calling_the_network_port(
-    client: TestClient, adapters: FakeAdapterBundle
-) -> None:
-    order: list[str] = []
-    real_write = adapters.state.write_last_wifi_attempt
-    real_connect = adapters.network.connect
-
-    def recording_write(attempt: WifiAttempt) -> None:
-        order.append("write")
-        real_write(attempt)
-
-    def recording_connect(ssid: str, psk: str) -> None:
-        order.append("connect")
-        real_connect(ssid, psk)
-
-    adapters.state.write_last_wifi_attempt = recording_write  # type: ignore[method-assign]  # deliberate monkeypatch of a bound method for this test
-    adapters.network.connect = recording_connect  # type: ignore[method-assign]  # deliberate monkeypatch of a bound method for this test
-
-    response = client.post("/api/v1/wifi/connect", json={"ssid": "home", "psk": "secret123"}, headers=CSRF_HEADERS)
-
-    assert response.status_code == 200
-    assert order[0] == "write"
-    assert "connect" in order
-
-
-#
-# A malformed ssid or psk must be rejected before any state write or adapter
-# call -- see the module docstring's "verified" scenario: a lone-surrogate
-# ssid (valid JSON to the stdlib decoder, not valid UTF-8) used to be
-# persisted as the last attempt, and every later `GET /system/status` 500'd
-# trying to serialize it back out. These tests exercise the boundary check
-# directly, not the self-heal (that's test_state_adapter.py's).
+    assert adapters.state.read_last_wifi_attempt() is None
 
 
 def test_connect_rejects_a_lone_surrogate_ssid(client: TestClient, adapters: FakeAdapterBundle) -> None:
@@ -207,7 +169,7 @@ def test_connect_accepts_a_32_byte_multibyte_ssid(client: TestClient, adapters: 
     response = client.post("/api/v1/wifi/connect", json={"ssid": ssid, "psk": "secret123"}, headers=CSRF_HEADERS)
 
     assert response.status_code == 200
-    assert adapters.network.connect_calls == [(ssid, "secret123")]
+    assert adapters.saved_networks.psks[ssid] == "secret123"
 
 
 def test_connect_accepts_an_over_32_byte_ssid_containing_the_replacement_char(
@@ -225,7 +187,7 @@ def test_connect_accepts_an_over_32_byte_ssid_containing_the_replacement_char(
     response = client.post("/api/v1/wifi/connect", json={"ssid": ssid, "psk": "secret123"}, headers=CSRF_HEADERS)
 
     assert response.status_code == 200
-    assert adapters.network.connect_calls == [(ssid, "secret123")]
+    assert adapters.saved_networks.psks[ssid] == "secret123"
 
 
 def test_connect_rejects_a_129_byte_ssid_even_with_the_replacement_char(client: TestClient) -> None:
@@ -261,7 +223,7 @@ def test_connect_accepts_a_64_hex_char_psk(client: TestClient, adapters: FakeAda
     response = client.post("/api/v1/wifi/connect", json={"ssid": "home", "psk": psk}, headers=CSRF_HEADERS)
 
     assert response.status_code == 200
-    assert adapters.network.connect_calls == [("home", psk)]
+    assert adapters.saved_networks.psks["home"] == psk
 
 
 def test_connect_rejects_a_65_char_psk(client: TestClient) -> None:
@@ -275,7 +237,7 @@ def test_connect_accepts_an_empty_psk_for_an_open_network(client: TestClient, ad
     response = client.post("/api/v1/wifi/connect", json={"ssid": "home", "psk": ""}, headers=CSRF_HEADERS)
 
     assert response.status_code == 200
-    assert adapters.network.connect_calls == [("home", "")]
+    assert adapters.saved_networks.psks["home"] == ""
 
 
 def test_connect_rejects_a_psk_with_a_non_printable_char(client: TestClient) -> None:
@@ -299,7 +261,7 @@ def test_connect_accepts_an_8_char_japanese_psk_that_is_24_utf8_bytes(
     response = client.post("/api/v1/wifi/connect", json={"ssid": "home", "psk": psk}, headers=CSRF_HEADERS)
 
     assert response.status_code == 200
-    assert adapters.network.connect_calls == [("home", psk)]
+    assert adapters.saved_networks.psks["home"] == psk
 
 
 def test_connect_rejects_a_22_char_japanese_psk_that_is_66_utf8_bytes(client: TestClient) -> None:
@@ -351,28 +313,6 @@ def test_status_survives_and_heals_a_poisoned_attempt_file_through_the_real_stat
     assert not attempt_path.exists()
 
 
-def test_connect_while_connected_logs_a_warning_naming_the_old_and_new_network(
-    client: TestClient, adapters: FakeAdapterBundle, caplog: pytest.LogCaptureFixture
-) -> None:
-    client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.status = WifiStatus(state=ConnectionState.CONNECTED, ssid="OldNet", ip_address="198.51.100.7")
-    client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-
-    with caplog.at_level(logging.WARNING, logger="palmimo_portal"):
-        client.post("/api/v1/wifi/connect", json={"ssid": "NewNet", "psk": "secret123"}, headers=CSRF_HEADERS)
-
-    assert "wifi reconfigure: switching from 'OldNet' to 'NewNet', keeping 'OldNet' saved" in caplog.text
-
-
-def test_connect_while_not_connected_does_not_log_the_reconfigure_warning(
-    client: TestClient, adapters: FakeAdapterBundle, caplog: pytest.LogCaptureFixture
-) -> None:
-    with caplog.at_level(logging.WARNING, logger="palmimo_portal"):
-        client.post("/api/v1/wifi/connect", json={"ssid": "NewNet", "psk": "secret123"}, headers=CSRF_HEADERS)
-
-    assert "wifi reconfigure:" not in caplog.text
-
-
 def test_connect_while_connected_saves_the_new_network_first_and_switches_keeping_the_old_one(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
@@ -387,78 +327,13 @@ def test_connect_while_connected_saves_the_new_network_first_and_switches_keepin
     assert response.status_code == 200
     assert adapters.saved_networks.saved == ["NewNet", "OldNet"]
     assert adapters.saved_networks.psks["NewNet"] == "secret123"
-    assert adapters.saved_networks.activate_calls == ["NewNet"]
+    assert adapters.saved_networks.activate_calls == []
     assert adapters.network.forget_calls == []
     assert adapters.network.connect_calls == []
 
 
-def test_connect_while_connected_records_a_failed_attempt_when_the_switch_raises(
-    client: TestClient, adapters: FakeAdapterBundle
-) -> None:
-    client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.status = WifiStatus(state=ConnectionState.CONNECTED, ssid="OldNet", ip_address="198.51.100.7")
-    client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.saved_networks.raise_on_call = AdapterUnavailableError("network_backend_unavailable", "boom")
-
-    response = client.post("/api/v1/wifi/connect", json={"ssid": "NewNet", "psk": "secret123"}, headers=CSRF_HEADERS)
-
-    assert response.status_code == 502
-    assert response.json()["error"]["code"] == "wifi_connect_failed"
-    attempt = adapters.state.read_last_wifi_attempt()
-    assert attempt is not None
-    assert attempt.ssid == "NewNet"
-    assert attempt.result == "failed"
-
-
-def test_last_wifi_attempt_resolves_to_connected_after_the_network_transitions(
-    client: TestClient, adapters: FakeAdapterBundle
-) -> None:
-    client.post("/api/v1/wifi/connect", json={"ssid": "home", "psk": "secret123"}, headers=CSRF_HEADERS)
-    attempt = adapters.state.read_last_wifi_attempt()
-    assert attempt is not None
-    assert attempt.result == "attempting"
-
-    # Simulates what the real adapter's next status poll would observe once
-    # comitup actually finishes connecting -- see
-    # FakeNetworkPort.simulate_transition's docstring.
-    adapters.network.simulate_transition(ConnectionState.CONNECTED, ssid="home", ip_address="198.51.100.7")
-
-    response = client.get("/api/v1/system/status")
-    attempt = response.json()["last_wifi_attempt"]
-    assert attempt["ssid"] == "home"
-    assert attempt["result"] == "connected"
-
-
-def test_last_wifi_attempt_resolves_to_failed_after_falling_back_to_the_hotspot(
-    client: TestClient, adapters: FakeAdapterBundle
-) -> None:
-    client.post("/api/v1/wifi/connect", json={"ssid": "home", "psk": "wrong-password"}, headers=CSRF_HEADERS)
-    attempt = adapters.state.read_last_wifi_attempt()
-    assert attempt is not None
-    assert attempt.result == "attempting"
-
-    # Back-date the attempt past the grace period (see
-    # palmimo_portal.core.wifi_attempt.GRACE_PERIOD_SECONDS): a HOTSPOT
-    # observation only resolves an attempt old enough that comitup could
-    # plausibly have tried and failed already -- a just-written attempt is
-    # deliberately protected from an immediately-following HOTSPOT
-    # observation, since comitup may not have even started trying yet.
-    adapters.state.write_last_wifi_attempt(
-        WifiAttempt(ssid=attempt.ssid, result=attempt.result, timestamp=time.time() - GRACE_PERIOD_SECONDS - 1)
-    )
-
-    # comitup gave up and fell back to its own AP -- the only failure
-    # signal this adapter ever gets (comitup provides no failure reason).
-    adapters.network.simulate_transition(ConnectionState.UNPROVISIONED)
-
-    response = client.get("/api/v1/system/status")
-    attempt = response.json()["last_wifi_attempt"]
-    assert attempt["ssid"] == "home"
-    assert attempt["result"] == "failed"
-
-
 def test_wifi_endpoints_require_a_session_once_provisioned(client: TestClient, adapters: FakeAdapterBundle) -> None:
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
 
     response = client.get("/api/v1/wifi/status")
 
@@ -468,7 +343,7 @@ def test_wifi_endpoints_require_a_session_once_provisioned(client: TestClient, a
 
 def test_wifi_endpoints_are_open_again_with_a_valid_session(client: TestClient, adapters: FakeAdapterBundle) -> None:
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
 
     response = client.get("/api/v1/wifi/status")
@@ -485,7 +360,7 @@ def test_wifi_requires_a_session_when_password_already_set_even_while_unprovisio
     # behavior -- that behavior exists only for a device that has never
     # had a password set at all.
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    assert adapters.network.known_networks == set()  # still unprovisioned
+    assert not adapters.network.has_known_networks()  # still unprovisioned
 
     response = client.get("/api/v1/wifi/status")
 
@@ -524,7 +399,7 @@ def _setup_and_login(client: TestClient) -> None:
 
 def test_forget_returns_200_and_the_fake_records_the_call(client: TestClient, adapters: FakeAdapterBundle) -> None:
     adapters.network.status = WifiStatus(state=ConnectionState.CONNECTED, ssid="home", ip_address="198.51.100.42")
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     _setup_and_login(client)
 
     response = client.delete("/api/v1/wifi/connection", headers=CSRF_HEADERS)
@@ -536,7 +411,7 @@ def test_forget_returns_200_and_the_fake_records_the_call(client: TestClient, ad
 
 def test_forget_does_not_write_a_last_wifi_attempt(client: TestClient, adapters: FakeAdapterBundle) -> None:
     adapters.network.status = WifiStatus(state=ConnectionState.CONNECTED, ssid="home", ip_address="198.51.100.42")
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     _setup_and_login(client)
 
     client.delete("/api/v1/wifi/connection", headers=CSRF_HEADERS)
@@ -546,7 +421,7 @@ def test_forget_does_not_write_a_last_wifi_attempt(client: TestClient, adapters:
 
 def test_forget_requires_authentication(client: TestClient, adapters: FakeAdapterBundle) -> None:
     adapters.network.status = WifiStatus(state=ConnectionState.CONNECTED, ssid="home", ip_address="198.51.100.42")
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
 
     response = client.delete("/api/v1/wifi/connection", headers=CSRF_HEADERS)
 
@@ -557,7 +432,7 @@ def test_forget_requires_authentication(client: TestClient, adapters: FakeAdapte
 def test_forget_rejects_an_initial_mode_session(client: TestClient, adapters: FakeAdapterBundle) -> None:
     adapters.identity.identity = Identity(device_id="0001", initial_password="sticker-pw")
     adapters.network.status = WifiStatus(state=ConnectionState.CONNECTED, ssid="home", ip_address="198.51.100.42")
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "sticker-pw"}, headers=CSRF_HEADERS)
 
     response = client.delete("/api/v1/wifi/connection", headers=CSRF_HEADERS)
@@ -577,7 +452,7 @@ def test_forget_requires_provisioning(client: TestClient, adapters: FakeAdapterB
 
 def test_forget_maps_adapter_unavailable_to_a_503_envelope(client: TestClient, adapters: FakeAdapterBundle) -> None:
     adapters.network.status = WifiStatus(state=ConnectionState.CONNECTED, ssid="home", ip_address="198.51.100.42")
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     _setup_and_login(client)
     adapters.network.raise_on_forget = AdapterUnavailableError("network_backend_unavailable", "comitup down")
 
@@ -594,7 +469,7 @@ def test_forget_returns_409_when_not_actually_connected(client: TestClient, adap
     # fresh-state check: forgetting must not silently no-op or delete the
     # wrong profile, it must be refused with a 409 the frontend can show.
     adapters.network.status = WifiStatus(state=ConnectionState.UNPROVISIONED, ssid=None, ip_address=None)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     _setup_and_login(client)
 
     response = client.delete("/api/v1/wifi/connection", headers=CSRF_HEADERS)
@@ -612,7 +487,7 @@ def test_forget_leaves_the_device_reporting_unprovisioned_when_no_other_known_ne
     # is_provisioned is False) rather than continuing to claim "known" from
     # a network that no longer exists.
     adapters.network.status = WifiStatus(state=ConnectionState.CONNECTED, ssid="home", ip_address="198.51.100.42")
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     _setup_and_login(client)
 
     delete_response = client.delete("/api/v1/wifi/connection", headers=CSRF_HEADERS)
@@ -624,7 +499,7 @@ def test_forget_leaves_the_device_reporting_unprovisioned_when_no_other_known_ne
 
 def test_forget_maps_a_generic_failure_to_a_502_envelope(client: TestClient, adapters: FakeAdapterBundle) -> None:
     adapters.network.status = WifiStatus(state=ConnectionState.CONNECTED, ssid="home", ip_address="198.51.100.42")
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     _setup_and_login(client)
     adapters.network.raise_on_forget = RuntimeError("boom")
 

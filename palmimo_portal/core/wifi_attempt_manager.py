@@ -11,18 +11,23 @@ from typing import Literal
 
 from palmimo_portal.ports import (
     ComitupServicePort,
+    ConnectionState,
+    NetworkPort,
     PolkitDeniedError,
+    SavedNetworkNotFoundError,
+    SavedNetworkPort,
     StateStore,
     WifiAttempt,
     WifiProfile,
     WifiProfilePort,
+    WifiStatus,
 )
 
 
 logger = logging.getLogger("palmimo_portal")
 Kind = Literal["credentials", "activate_saved"]
 Outcome = Literal["attempting", "connected", "failed", "unknown"]
-LegacyConnect = Callable[[Kind, bytes, str | None, str | None], str]
+LegacyConnect = Callable[[Kind, bytes, str | None, str | None], str | None]
 _MARK = "palmimo.attempt."
 _ACTIVATED = 100
 
@@ -43,6 +48,19 @@ class KickUnavailableError(Exception):
     pass
 
 
+def connect_legacy(
+    network: NetworkPort, saved: SavedNetworkPort, kind: Kind, ssid: bytes, psk: str | None, saved_uuid: str | None
+) -> None:
+    name = ssid.decode("utf-8")
+    if kind == "activate_saved":
+        saved.activate(name)
+    elif network.get_status().state is ConnectionState.CONNECTED:
+        saved.save(name, psk or "", first=True)
+        saved.activate(name)
+    else:
+        network.connect(name, psk or "")
+
+
 def _spawn(work: Callable[[], None]) -> None:
     threading.Thread(target=work, daemon=True, name="palmimo-wifi-attempt").start()
 
@@ -61,6 +79,7 @@ class WifiAttemptManager:
         sleep: Callable[[float], None] = time.sleep,
         spawn: Callable[[Callable[[], None]], None] = _spawn,
         legacy_connect: LegacyConnect | None = None,
+        legacy_status: Callable[[], WifiStatus] | None = None,
     ) -> None:
         self._profiles = profiles
         self._service = service
@@ -71,6 +90,7 @@ class WifiAttemptManager:
         self._sleep = sleep
         self._spawn = spawn
         self._legacy_connect = legacy_connect
+        self._legacy_status = legacy_status
         self._legacy = False
         self._platform_error: Exception | None = None
         self._active: tuple[str, float] | None = None
@@ -115,7 +135,10 @@ class WifiAttemptManager:
         with self._exclusive(), self._edit_lock:
             if self._marked():
                 raise AttemptInProgressError
-            yield
+            try:
+                yield
+            finally:
+                self._known_cache = None
 
     def start_wifi_attempt(
         self, kind: Kind, ssid_bytes: bytes, psk: str | None = None, saved_uuid: str | None = None
@@ -126,10 +149,10 @@ class WifiAttemptManager:
     def _start(self, kind: Kind, ssid_bytes: bytes, psk: str | None, saved_uuid: str | None) -> str:
         self._recover_marked()
         with self._edit_lock:
-            if self._legacy:
-                if self._legacy_connect is None:
-                    raise KickUnavailableError("legacy connection flow is not configured")
-                return self._legacy_connect(kind, ssid_bytes, psk, saved_uuid)
+            if self._legacy or "\ufffd".encode() in ssid_bytes:
+                if not self._legacy:
+                    logger.warning("lossy SSID requires the legacy Wi-Fi connection flow")
+                return self._start_legacy(kind, ssid_bytes, psk, saved_uuid)
             if self._platform_error is not None:
                 raise KickUnavailableError from self._platform_error
             attempt_id = uuid.uuid4().hex[:8]
@@ -154,6 +177,98 @@ class WifiAttemptManager:
                     self._active = None
             raise WifiConnectFailed from error
         return attempt_id
+
+    def activate_saved(self, ssid: str) -> str:
+        with self._exclusive():
+            self._recover_marked()
+            with self._edit_lock:
+                if self._legacy or "\ufffd" in ssid:
+                    return self._start("activate_saved", ssid.encode(), None, None)
+                profile = next(
+                    (
+                        p
+                        for p in sorted(self._profiles.list_profiles(), key=lambda p: -p.priority)
+                        if p.ssid.decode("utf-8", errors="replace") == ssid
+                    ),
+                    None,
+                )
+                if profile is None:
+                    raise SavedNetworkNotFoundError(ssid)
+                return self._start("activate_saved", profile.ssid, None, profile.uuid)
+
+    def _start_legacy(self, kind: Kind, ssid: bytes, psk: str | None, saved_uuid: str | None) -> str:
+        if self._legacy_connect is None:
+            raise KickUnavailableError("legacy connection flow is not configured")
+        attempt_id = uuid.uuid4().hex[:8]
+        self._last_id, self._result = attempt_id, "attempting"
+        self._active = attempt_id, self._monotonic()
+        try:
+            self._state.write_last_wifi_attempt(WifiAttempt(ssid.decode(), "attempting", time.time()))
+            self._legacy_connect(kind, ssid, psk, saved_uuid)
+            self._known_cache = None
+            self._spawn(lambda: self._run_legacy(attempt_id))
+        except Exception as error:
+            try:
+                self._record(attempt_id, "failed")
+            finally:
+                self._active = None
+            if isinstance(error, SavedNetworkNotFoundError):
+                raise
+            raise WifiConnectFailed from error
+        return attempt_id
+
+    def _run_legacy(self, attempt_id: str) -> None:
+        result: Outcome = "failed"
+        observed = None
+        started = self._monotonic()
+        try:
+            while self._monotonic() - started < 90:
+                self._sleep(1)
+                try:
+                    if self._legacy_status is None:
+                        break
+                    status = self._legacy_status()
+                except Exception:
+                    continue
+                attempt = self._state.read_last_wifi_attempt()
+                if status.state is ConnectionState.CONNECTED and attempt is not None and status.ssid == attempt.ssid:
+                    result = "connected"
+                    break
+                if self._monotonic() - started >= 10 and status.state in {
+                    ConnectionState.CONNECTED,
+                    ConnectionState.UNPROVISIONED,
+                }:
+                    observed = status.ssid if status.state is ConnectionState.CONNECTED else None
+                    break
+        finally:
+            with self._edit_lock:
+                try:
+                    self._record(attempt_id, result)
+                    attempt = self._state.read_last_wifi_attempt()
+                    if attempt is not None and observed is not None:
+                        self._state.write_last_wifi_attempt(replace(attempt, observed_connection_name=observed))
+                except Exception:
+                    logger.exception("legacy Wi-Fi outcome persistence failed")
+                finally:
+                    self._active = None
+
+    def display_ssid(self, ssid: str | None) -> str | None:
+        if ssid is None or not ssid.startswith(("palmimo-try-", "palmimo-parked-")):
+            return ssid
+        if ssid.startswith("palmimo-try-"):
+            return None
+        with self._edit_lock:
+            profile = next(
+                (
+                    p
+                    for p in self._profiles.list_profiles()
+                    if p.ssid.decode("utf-8", errors="replace") == ssid and p.user_data.get(_MARK + "role") == "parked"
+                ),
+                None,
+            )
+            return (
+                bytes.fromhex(profile.user_data[_MARK + "ssid"]).decode("utf-8", errors="replace") if profile else None
+            )
 
     def _prepare(self, attempt_id: str, kind: Kind, ssid: bytes, psk: str | None, saved_uuid: str | None) -> int:
         profiles = self._profiles.list_profiles()

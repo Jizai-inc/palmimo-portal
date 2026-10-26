@@ -86,7 +86,7 @@ def test_on_setup_ap_captive_probe_head_redirects(client: TestClient) -> None:
 def test_captive_probe_redirects_when_a_provisioned_device_fell_back_to_the_setup_ap(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
 
     response = client.get("/hotspot-detect.html", headers={"Host": "captive.apple.com"}, follow_redirects=False)
 
@@ -98,7 +98,7 @@ def test_captive_probe_redirects_when_a_provisioned_device_fell_back_to_the_setu
 def test_captive_probe_host_is_rejected_with_421_when_off_the_setup_ap(
     client: TestClient, adapters: FakeAdapterBundle, state: ConnectionState
 ) -> None:
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     adapters.network.status = WifiStatus(state=state, ssid="home", ip_address=None)
 
     response = client.get("/hotspot-detect.html", headers={"Host": "captive.apple.com"})

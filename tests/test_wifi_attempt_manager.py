@@ -363,7 +363,7 @@ def test_platform_probe_distinguishes_legacy_from_unavailable_backend(denied: bo
     manager = rig.manager(legacy_connect=legacy)
     manager.check_platform()
     if denied:
-        assert manager.start_wifi_attempt("credentials", b"home", "secret", None) == "legacy-id"
+        assert manager.outcome(manager.start_wifi_attempt("credentials", b"home", "secret", None)) == "attempting"
         assert legacy_calls == [("credentials", b"home", "secret", None)]
     else:
         with pytest.raises(KickUnavailableError):

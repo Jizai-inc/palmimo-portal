@@ -35,13 +35,15 @@ def test_is_provisioned_true_when_connecting() -> None:
 def test_is_provisioned_true_when_disconnected_but_a_network_is_known() -> None:
     # E.g. rebooted out of range of the home network: unprovisioned would
     # wrongly send this device back into the setup flow.
-    network = FakeNetworkPort(known_networks={"home"})
+    network = FakeNetworkPort()
+    network.profiles.add_profile(b"home", "", name="home", priority=0, user_data={})
 
     assert is_provisioned(network) is True
 
 
 def test_is_serving_setup_ap_true_when_a_provisioned_device_fell_back_to_the_ap() -> None:
-    network = FakeNetworkPort(known_networks={"home"})
+    network = FakeNetworkPort()
+    network.profiles.add_profile(b"home", "", name="home", priority=0, user_data={})
 
     assert is_serving_setup_ap(network) is True
 
@@ -61,6 +63,7 @@ def test_require_provisioned_raises_when_unprovisioned() -> None:
 
 
 def test_require_provisioned_is_silent_when_provisioned() -> None:
-    network = FakeNetworkPort(known_networks={"home"})
+    network = FakeNetworkPort()
+    network.profiles.add_profile(b"home", "", name="home", priority=0, user_data={})
 
     require_provisioned(network)  # must not raise

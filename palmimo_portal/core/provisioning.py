@@ -1,6 +1,6 @@
 """The unprovisioned-state rule and which endpoints it gates.
 
-Unprovisioned means "no Wi-Fi connection and none has ever been configured"
+Unprovisioned means "no Wi-Fi connection and no saved infrastructure profile"
 — the out-of-box state before a buyer picks their home network. While
 unprovisioned, only the Wi-Fi endpoints, first-time password setup, and
 system status are served; every other endpoint answers 409
@@ -20,14 +20,12 @@ class NotProvisionedError(Exception):
 def is_provisioned(network: NetworkPort) -> bool:
     """Report whether the device has left the out-of-box Wi-Fi state.
 
-    True once connected or connecting (mid-attempt), or once any network
-    has ever been configured — even if currently out of range of it. Only
-    "never connected and nothing configured" is unprovisioned.
+    Profile reads must succeed even while connected; an unknown profile store
+    must never reopen unauthenticated setup access.
     """
     status = network.get_status()
-    if status.state is not ConnectionState.UNPROVISIONED:
-        return True
-    return network.has_known_networks()
+    known = network.has_known_networks()
+    return known or status.state is not ConnectionState.UNPROVISIONED
 
 
 def is_serving_setup_ap(network: NetworkPort) -> bool:

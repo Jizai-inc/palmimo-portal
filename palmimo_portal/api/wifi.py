@@ -12,7 +12,6 @@ to be possible at all.
 from __future__ import annotations
 
 import logging
-import time
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -20,24 +19,22 @@ from pydantic import BaseModel
 from palmimo_portal.api.deps import (
     get_network_port,
     get_saved_network_port,
-    get_state_store,
+    get_wifi_attempts,
     require_auth,
     require_full_session,
     require_provisioned,
     require_wifi_access,
 )
 from palmimo_portal.api.errors import PortalError
+from palmimo_portal.core.wifi_attempt_manager import WifiAttemptManager
 from palmimo_portal.ports import (
     AdapterUnavailableError,
-    ConnectionState,
     NetworkPort,
     NotConnectedError,
     SavedNetworkActiveError,
     SavedNetworkNotFoundError,
     SavedNetworkOrderError,
     SavedNetworkPort,
-    StateStore,
-    WifiAttempt,
 )
 
 
@@ -166,7 +163,7 @@ class OrderRequest(BaseModel):
 
 
 class ActivateResponse(BaseModel):
-    status: str = "switching"
+    status: str = "attempting"
 
 
 @router.get("/status")
@@ -202,56 +199,16 @@ def list_networks(network: NetworkPort = Depends(get_network_port)) -> list[Wifi
 
 
 @router.post("/connect")
-def connect(
-    body: ConnectRequest,
-    network: NetworkPort = Depends(get_network_port),
-    saved: SavedNetworkPort = Depends(get_saved_network_port),
-    state: StateStore = Depends(get_state_store),
-) -> ConnectResponse:
-    """Start a connect attempt and return immediately.
-
-    The AP-disconnection asymmetry (connecting to the home network tears
-    down the setup AP the client is talking through) means the result can
-    never come back on this response -- it is recorded via
-    :class:`~palmimo_portal.ports.StateStore` and read back later through
-    ``GET /api/v1/system/status``.
-
-    The attempt is recorded *before* :meth:`~palmimo_portal.ports.NetworkPort.connect`
-    is called, so a process death right after the call would not lose the
-    record; if ``connect`` raises, the attempt is corrected to a durable
-    "failed" result rather than left claiming "attempting" forever. Does
-    *not* transition "attempting" to "success" asynchronously -- that
-    belongs to the real network adapter, which observes the outcome.
-
-    If the device is currently ``CONNECTED``, the new network is saved at
-    the top of the order and switched to through
-    :class:`~palmimo_portal.ports.SavedNetworkPort`, so the current one stays
-    saved as a fallback. Otherwise (the setup flow) comitup connects.
+def connect(body: ConnectRequest, attempts: WifiAttemptManager = Depends(get_wifi_attempts)) -> ConnectResponse:
+    """Start an attempt; its result is available from system status.
 
     Raises:
-        PortalError: 400 ``wifi_invalid_ssid`` / ``wifi_invalid_psk`` if
-            ``body`` fails :func:`_validate_ssid` / :func:`_validate_psk` --
-            checked first, before anything below touches state or the
-            network adapter. 502 ``wifi_connect_failed`` if
-            ``network.connect`` itself raises (e.g. the radio is busy).
+        PortalError: 400 for invalid credentials, 409 wifi_attempt_in_progress,
+            502 wifi_connect_failed, or 503 wifi_kick_unavailable / wifi_cleanup_failed.
     """
     _validate_ssid(body.ssid)
     _validate_psk(body.psk)
-    current = network.get_status()
-    old_ssid = current.ssid if current.state is ConnectionState.CONNECTED else None
-    if old_ssid is not None:
-        logger.warning("wifi reconfigure: switching from %r to %r, keeping %r saved", old_ssid, body.ssid, old_ssid)
-    state.write_last_wifi_attempt(WifiAttempt(ssid=body.ssid, result="attempting", timestamp=time.time()))
-    try:
-        if old_ssid is not None:
-            saved.save(body.ssid, body.psk, first=True)
-            saved.activate(body.ssid)
-        else:
-            network.connect(body.ssid, body.psk)
-    except Exception as error:
-        logger.error("wifi connect to %r failed", body.ssid, exc_info=True)
-        state.write_last_wifi_attempt(WifiAttempt(ssid=body.ssid, result="failed", timestamp=time.time()))
-        raise PortalError(502, "wifi_connect_failed") from error
+    attempts.start_wifi_attempt("credentials", body.ssid.encode("utf-8"), body.psk)
     return ConnectResponse()
 
 
@@ -259,7 +216,9 @@ def connect(
     "/connection",
     dependencies=[Depends(require_provisioned), Depends(require_auth)],
 )
-def forget(network: NetworkPort = Depends(get_network_port)) -> ForgetResponse:
+def forget(
+    network: NetworkPort = Depends(get_network_port), attempts: WifiAttemptManager = Depends(get_wifi_attempts)
+) -> ForgetResponse:
     """Forget the currently connected network and drop the connection.
 
     Must never be reachable anonymously -- unlike the rest of this router,
@@ -281,32 +240,40 @@ def forget(network: NetworkPort = Depends(get_network_port)) -> ForgetResponse:
             device not actually ``CONNECTED``. 502 ``wifi_forget_failed``
             for any other exception.
     """
-    status = network.get_status()
-    logger.warning("wifi forget requested for current network %r", status.ssid)
-    try:
-        network.forget_current()
-    except AdapterUnavailableError:
-        raise
-    except NotConnectedError as error:
-        raise PortalError(409, "wifi_not_connected") from error
-    except Exception as error:
-        logger.error("wifi forget_current for %r failed", status.ssid, exc_info=True)
-        raise PortalError(502, "wifi_forget_failed") from error
-    return ForgetResponse()
+    with attempts.saved_network_edit():
+        status = network.get_status()
+        logger.warning("wifi forget requested for current network %r", status.ssid)
+        try:
+            network.forget_current()
+        except AdapterUnavailableError:
+            raise
+        except NotConnectedError as error:
+            raise PortalError(409, "wifi_not_connected") from error
+        except Exception as error:
+            logger.error("wifi forget_current for %r failed", status.ssid, exc_info=True)
+            raise PortalError(502, "wifi_forget_failed") from error
+        return ForgetResponse()
 
 
 _saved_dependencies = [Depends(require_provisioned), Depends(require_auth)]
 
 
 @router.get("/saved", dependencies=_saved_dependencies)
-def list_saved(saved: SavedNetworkPort = Depends(get_saved_network_port)) -> list[SavedNetworkResponse]:
+def list_saved(
+    saved: SavedNetworkPort = Depends(get_saved_network_port), attempts: WifiAttemptManager = Depends(get_wifi_attempts)
+) -> list[SavedNetworkResponse]:
     """Return the saved networks in the order the device tries them, first first."""
-    return [SavedNetworkResponse(ssid=item.ssid, active=item.active) for item in saved.list_saved()]
+    visible = {p.ssid.decode("utf-8", errors="replace") for p in attempts.visible_profiles()}
+    return [
+        SavedNetworkResponse(ssid=item.ssid, active=item.active) for item in saved.list_saved() if item.ssid in visible
+    ]
 
 
 @router.post("/saved", dependencies=_saved_dependencies)
 def save_network(
-    body: SaveRequest, saved: SavedNetworkPort = Depends(get_saved_network_port)
+    body: SaveRequest,
+    saved: SavedNetworkPort = Depends(get_saved_network_port),
+    attempts: WifiAttemptManager = Depends(get_wifi_attempts),
 ) -> list[SavedNetworkResponse]:
     """Save a network without switching to it (last in the order), or replace a saved one's passphrase.
 
@@ -315,13 +282,16 @@ def save_network(
     """
     _validate_ssid(body.ssid)
     _validate_psk(body.psk)
-    saved.save(body.ssid, body.psk, first=False)
-    return list_saved(saved)
+    with attempts.saved_network_edit():
+        saved.save(body.ssid, body.psk, first=False)
+        return list_saved(saved, attempts)
 
 
 @router.post("/saved/delete", dependencies=_saved_dependencies)
 def delete_saved(
-    body: SsidRequest, saved: SavedNetworkPort = Depends(get_saved_network_port)
+    body: SsidRequest,
+    saved: SavedNetworkPort = Depends(get_saved_network_port),
+    attempts: WifiAttemptManager = Depends(get_wifi_attempts),
 ) -> list[SavedNetworkResponse]:
     """Delete a saved network other than the current one.
 
@@ -330,17 +300,20 @@ def delete_saved(
             current network -- ``DELETE /wifi/connection`` forgets that one.
     """
     try:
-        saved.delete(body.ssid)
+        with attempts.saved_network_edit():
+            saved.delete(body.ssid)
     except SavedNetworkNotFoundError as error:
         raise PortalError(404, "wifi_saved_not_found") from error
     except SavedNetworkActiveError as error:
         raise PortalError(409, "wifi_saved_active") from error
-    return list_saved(saved)
+    return list_saved(saved, attempts)
 
 
 @router.put("/saved/order", dependencies=_saved_dependencies)
 def reorder_saved(
-    body: OrderRequest, saved: SavedNetworkPort = Depends(get_saved_network_port)
+    body: OrderRequest,
+    saved: SavedNetworkPort = Depends(get_saved_network_port),
+    attempts: WifiAttemptManager = Depends(get_wifi_attempts),
 ) -> list[SavedNetworkResponse]:
     """Set the order the device tries saved networks in, first first.
 
@@ -349,29 +322,24 @@ def reorder_saved(
             the saved set (another client changed it meanwhile).
     """
     try:
-        saved.reorder(body.ssids)
+        with attempts.saved_network_edit():
+            saved.reorder(body.ssids)
     except SavedNetworkOrderError as error:
         raise PortalError(409, "wifi_saved_order_mismatch") from error
-    return list_saved(saved)
+    return list_saved(saved, attempts)
 
 
 @router.post("/saved/activate", dependencies=_saved_dependencies)
-def activate_saved(
-    body: SsidRequest,
-    saved: SavedNetworkPort = Depends(get_saved_network_port),
-    state: StateStore = Depends(get_state_store),
-) -> ActivateResponse:
-    """Switch to a saved network now; the current one stays saved. Returns immediately.
-
-    Recorded as a connect attempt, read back like ``POST /wifi/connect``'s.
+def activate_saved(body: SsidRequest, attempts: WifiAttemptManager = Depends(get_wifi_attempts)) -> ActivateResponse:
+    """Attempt a saved network while retaining its original priority.
 
     Raises:
-        PortalError: 404 ``wifi_saved_not_found``.
+        PortalError: 404 wifi_saved_not_found, 409 wifi_attempt_in_progress,
+            502 wifi_connect_failed, or 503 wifi_kick_unavailable / wifi_cleanup_failed.
     """
-    state.write_last_wifi_attempt(WifiAttempt(ssid=body.ssid, result="attempting", timestamp=time.time()))
+    _validate_ssid(body.ssid)
     try:
-        saved.activate(body.ssid)
+        attempts.activate_saved(body.ssid)
     except SavedNetworkNotFoundError as error:
-        state.write_last_wifi_attempt(WifiAttempt(ssid=body.ssid, result="failed", timestamp=time.time()))
         raise PortalError(404, "wifi_saved_not_found") from error
     return ActivateResponse()

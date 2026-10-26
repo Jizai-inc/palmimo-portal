@@ -171,7 +171,7 @@ def test_status_last_wifi_attempt_is_null_before_any_attempt(client: TestClient)
 
 def test_reboot_calls_the_system_port(client: TestClient, adapters: FakeAdapterBundle) -> None:
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
 
     response = client.post("/api/v1/system/reboot", headers=CSRF_HEADERS)
@@ -182,7 +182,7 @@ def test_reboot_calls_the_system_port(client: TestClient, adapters: FakeAdapterB
 
 def test_shutdown_calls_the_system_port(client: TestClient, adapters: FakeAdapterBundle) -> None:
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
 
     response = client.post("/api/v1/system/shutdown", headers=CSRF_HEADERS)
@@ -214,7 +214,7 @@ def test_reboot_is_409_while_the_update_runner_is_alive(
     client: TestClient, adapters: FakeAdapterBundle, app: FastAPI
 ) -> None:
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
     _write_running_update_job(adapters)
     app.state.update_runner_alive.set()
@@ -230,7 +230,7 @@ def test_shutdown_is_409_while_the_update_runner_is_alive(
     client: TestClient, adapters: FakeAdapterBundle, app: FastAPI
 ) -> None:
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
     _write_running_update_job(adapters)
     app.state.update_runner_alive.set()
@@ -250,7 +250,7 @@ def test_reboot_self_heals_and_succeeds_when_a_running_job_has_no_live_runner(
     # must not block reboot forever, the same self-healing
     # GET /update/status already does.
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
     _write_running_update_job(adapters)
 
@@ -269,7 +269,7 @@ def test_reboot_is_allowed_while_an_update_job_is_only_restarting(
     # anything, and gives the operator a manual way to finish a restart
     # that is not landing on its own.
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
     adapters.state.write_update_state(
         UpdateState(
@@ -306,7 +306,7 @@ def test_status_maps_adapter_unavailable_to_a_503_envelope(client: TestClient, a
 
 def test_reboot_maps_adapter_unavailable_to_a_503_envelope(client: TestClient, adapters: FakeAdapterBundle) -> None:
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
     adapters.system.raise_on_reboot = AdapterUnavailableError("system_backend_unavailable", "logind down")
 
@@ -318,7 +318,7 @@ def test_reboot_maps_adapter_unavailable_to_a_503_envelope(client: TestClient, a
 
 def test_shutdown_maps_adapter_unavailable_to_a_503_envelope(client: TestClient, adapters: FakeAdapterBundle) -> None:
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
     adapters.system.raise_on_shutdown = AdapterUnavailableError("system_backend_unavailable", "logind down")
 

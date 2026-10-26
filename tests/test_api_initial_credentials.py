@@ -73,7 +73,7 @@ def test_setup_is_409_when_identity_present_regardless_of_provisioning(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
     _carry_identity(adapters)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
 
     response = client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
 
@@ -176,7 +176,7 @@ def test_change_password_from_initial_ignores_a_supplied_current_password(
 
 def test_ssh_keys_is_403_with_an_initial_session(client: TestClient, adapters: FakeAdapterBundle) -> None:
     _carry_identity(adapters)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     _initial_login(client)
 
     response = client.get("/api/v1/ssh-keys")
@@ -225,7 +225,7 @@ def test_wifi_is_401_without_any_session_when_identity_present_even_while_unprov
 
 def test_system_reboot_is_403_with_an_initial_session(client: TestClient, adapters: FakeAdapterBundle) -> None:
     _carry_identity(adapters)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     _initial_login(client)
 
     response = client.post("/api/v1/system/reboot", headers=CSRF_HEADERS)
@@ -419,7 +419,7 @@ def test_change_password_from_full_requires_the_correct_current_password(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
 
     response = client.post(
@@ -436,7 +436,7 @@ def test_change_password_from_full_rotates_the_key_invalidating_the_old_session(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
     old_cookie = client.cookies.get(SESSION_COOKIE_NAME)
     assert old_cookie is not None
@@ -523,7 +523,7 @@ def test_login_is_503_not_409_or_open_setup_when_unprovisioned_and_identity_is_u
     # the "no identity file" branch) and never a 200/401 as open_setup would
     # produce (which would mean the unavailable read got silently treated as
     # clean absence, misrouting a sticker/OEM device into the DIY flow).
-    assert not adapters.network.known_networks  # unprovisioned
+    assert not adapters.network.has_known_networks()  # unprovisioned
     adapters.identity.unavailable = True
 
     response = client.post("/api/v1/auth/login", json={"password": "anything"}, headers=CSRF_HEADERS)
@@ -580,7 +580,7 @@ def test_login_still_works_when_a_password_is_already_set_even_if_identity_is_un
     # PRESENT takes priority over an unavailable identity read (see
     # compute_auth_state / test_set_takes_priority_over_unavailable).
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     adapters.identity.unavailable = True
 
     response = client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)

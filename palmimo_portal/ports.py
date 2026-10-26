@@ -58,10 +58,7 @@ class WifiAttempt:
     result: str
     timestamp: float
     observed_connection_name: str | None = None
-    """The connection/AP name comitup was actually observed on when this attempt resolved.
-    ``None`` while still ``"attempting"``, or when the real adapter reported no name. Distinct
-    from ``ssid`` (what the client *asked* to connect to) because comitup can settle onto a
-    different network than the one just attempted."""
+    """The other infrastructure SSID observed on failure, or None for an AP or unknown connection."""
 
 
 class NetworkPort(Protocol):
@@ -76,7 +73,7 @@ class NetworkPort(Protocol):
         ...
 
     def has_known_networks(self) -> bool:
-        """Report whether any network has ever been configured.
+        """Report whether an infrastructure Wi-Fi profile exists outside temporary trials.
 
         Used with :meth:`get_status`: a device currently disconnected but with a known
         network on file is provisioned, not out-of-box.

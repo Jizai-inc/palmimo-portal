@@ -164,7 +164,7 @@ def start_check(state: UpdateState, now: float) -> UpdateState:
         elapsed = now - state.checked_at
         # A negative elapsed time means the wall clock stepped backwards
         # (e.g. a power-cut reboot with no RTC) -- treat that as an expired
-        # rate limit, the same rule resolve_attempt uses (core/wifi_attempt.py).
+        # rate limit.
         if 0 <= elapsed < CHECK_RATE_LIMIT_SECONDS:
             raise UpdateCheckRateLimitedError(math.ceil(CHECK_RATE_LIMIT_SECONDS - elapsed))
     return state

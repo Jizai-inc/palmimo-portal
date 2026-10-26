@@ -69,12 +69,12 @@ def client(app: FastAPI) -> Iterator[TestClient]:
 def _log_in(client: TestClient, adapters: FakeAdapterBundle) -> None:
     """Provision, set a password, connect Wi-Fi, and log in -- the update router's full gate."""
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
 
 
 def test_status_requires_auth(client: TestClient, adapters: FakeAdapterBundle) -> None:
-    adapters.network.known_networks.add("home")  # provisioned, but not logged in
+    adapters.saved_networks.save("home", "", first=False)  # provisioned, but not logged in
 
     response = client.get("/api/v1/update/status")
 
@@ -553,7 +553,7 @@ def test_rollback_conflicts_with_an_in_progress_job(client: TestClient, adapters
 
 def test_status_rejects_an_initial_mode_session(client: TestClient, adapters: FakeAdapterBundle) -> None:
     adapters.identity.identity = Identity(device_id="palmimo-042", initial_password="sticker")
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "sticker"}, headers=CSRF_HEADERS)
 
     response = client.get("/api/v1/update/status")

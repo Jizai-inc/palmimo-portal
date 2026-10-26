@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass
+from functools import partial
 
 from palmimo_portal.adapters.catalog import GitHubCatalogSource
 from palmimo_portal.adapters.clock import SystemClockPort
@@ -36,7 +37,7 @@ from palmimo_portal.adapters.systemd import (
     SystemdSystemPort,
 )
 from palmimo_portal.adapters.uv_port import SubprocessUvPort
-from palmimo_portal.core.wifi_attempt_manager import WifiAttemptManager
+from palmimo_portal.core.wifi_attempt_manager import WifiAttemptManager, connect_legacy
 from palmimo_portal.ports import (
     AppUnitPort,
     CatalogSource,
@@ -88,10 +89,6 @@ from palmimo_portal.testing.fakes import (
 )
 
 
-# The real NetworkPort's known-network marker lives alongside auth.json and
-# the rest of this process's own persisted state -- see
-# palmimo_portal.adapters.comitup's module docstring for why it exists.
-KNOWN_NETWORK_MARKER_FILENAME = "network_known.marker"
 # GitHub exposes one releases/latest per repository; devkit mixes SDK and examples releases.
 CATALOG_RELEASE_TAG_PREFIX = "examples-v"
 
@@ -145,12 +142,24 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         fake_state = FakeStateStore()
         fake_profiles = FakeWifiProfilePort()
         fake_service = FakeComitupServicePort()
+        fake_network = FakeNetworkPort(profiles=fake_profiles)
+        fake_saved = FakeSavedNetworkPort(profiles=fake_profiles)
+        fake_attempts = WifiAttemptManager(
+            fake_profiles,
+            fake_service,
+            fake_state,
+            edit_lock=edit_lock,
+            legacy_connect=partial(connect_legacy, fake_network, fake_saved),
+            legacy_status=fake_network.get_status,
+        )
+        fake_network.known_profiles = fake_attempts.has_known_networks
+        fake_network.display_ssid = fake_attempts.display_ssid
         return AdapterBundle(
-            network=FakeNetworkPort(state_store=fake_state),
-            saved_networks=FakeSavedNetworkPort(),
+            network=fake_network,
+            saved_networks=fake_saved,
             wifi_profiles=fake_profiles,
             comitup_service=fake_service,
-            wifi_attempts=WifiAttemptManager(fake_profiles, fake_service, fake_state, edit_lock=edit_lock),
+            wifi_attempts=fake_attempts,
             system=FakeSystemPort(),
             ssh_keys=FakeSshKeyPort(),
             state=fake_state,
@@ -175,15 +184,23 @@ def build_adapters(settings: Settings) -> AdapterBundle:
     real_state = JsonFileStateStore(settings.state_dir)
     saved_networks = NetworkManagerSavedNetworkPort(edit_lock=edit_lock)
     comitup_service = SystemdComitupServicePort()
+    network = ComitupNetworkPort()
+    attempts = WifiAttemptManager(
+        saved_networks,
+        comitup_service,
+        real_state,
+        edit_lock=edit_lock,
+        legacy_connect=partial(connect_legacy, network, saved_networks),
+        legacy_status=network.get_status,
+    )
+    network.known_profiles = attempts.has_known_networks
+    network.display_ssid = attempts.display_ssid
     return AdapterBundle(
-        network=ComitupNetworkPort(
-            known_network_marker=settings.state_dir / KNOWN_NETWORK_MARKER_FILENAME,
-            state_store=real_state,
-        ),
+        network=network,
         saved_networks=saved_networks,
         wifi_profiles=saved_networks,
         comitup_service=comitup_service,
-        wifi_attempts=WifiAttemptManager(saved_networks, comitup_service, real_state, edit_lock=edit_lock),
+        wifi_attempts=attempts,
         system=SystemdSystemPort(unit=settings.portal_unit),
         ssh_keys=AuthorizedKeysSshKeyPort(),
         state=real_state,

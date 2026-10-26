@@ -1,4 +1,4 @@
-"""Isolated hardware owner for Wi-Fi QR setup; no Portal imports are allowed."""
+"""Isolated hardware owner; no Portal imports. Protocol: see doc/wifi-qr-reader.md."""
 
 from __future__ import annotations
 
@@ -1322,7 +1322,7 @@ class Reader:
             log_failure("Camera or display unavailable", error)
             self.exit_code = 78
         except Exception as error:
-            # Decoder and JSON exceptions may embed credentials, including in chained tracebacks.
+            # See doc/wifi-qr-reader.md#secrets.
             log_failure("Reader operation failed", error, level=logging.ERROR)
             self.exit_code = 1
         finally:

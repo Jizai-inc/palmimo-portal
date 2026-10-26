@@ -185,8 +185,8 @@ class ComitupNetworkPort(NetworkPort):
     def __init__(
         self,
         *,
-        known_profiles: Callable[[], bool] | None = None,
-        display_ssid: Callable[[str | None], str | None] | None = None,
+        known_profiles: Callable[[], bool],
+        display_ssid: Callable[[str | None], str | None],
         wlan_interface: str = "wlan0",
         loop_thread: SharedEventLoopThread | None = None,
     ) -> None:
@@ -305,17 +305,13 @@ class ComitupNetworkPort(NetworkPort):
         mapped = map_comitup_state(state_str)
         ip_address = _read_wlan_ipv4(self._wlan_interface) if mapped is ConnectionState.CONNECTED else None
         ssid = name if mapped is not ConnectionState.UNPROVISIONED else None
-        return WifiStatus(
-            state=mapped, ssid=self.display_ssid(ssid) if self.display_ssid else ssid, ip_address=ip_address
-        )
+        return WifiStatus(state=mapped, ssid=self.display_ssid(ssid), ip_address=ip_address)
 
     def list_networks(self) -> list[WifiNetwork]:
         records: list[dict[str, str]] = self._call_sync("access_points", timeout=SCAN_CALL_TIMEOUT_SECONDS)
         return parse_access_points(records)
 
     def has_known_networks(self) -> bool:
-        if self.known_profiles is None:
-            raise AdapterUnavailableError(_ADAPTER_ERROR_CODE, "profile reader is not configured")
         return self.known_profiles()
 
     def connect(self, ssid: str, psk: str) -> None:

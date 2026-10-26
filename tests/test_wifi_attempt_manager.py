@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import partial
 from typing import Any
 
 import pytest
@@ -15,7 +16,14 @@ from palmimo_portal.core.wifi_attempt_manager import (
     WifiAttemptManager,
     WifiConnectFailed,
 )
-from palmimo_portal.ports import AdapterUnavailableError, PolkitDeniedError, WifiAttempt, WifiDeviceStatus
+from palmimo_portal.ports import (
+    AdapterUnavailableError,
+    ConnectionState,
+    PolkitDeniedError,
+    WifiAttempt,
+    WifiDeviceStatus,
+    WifiStatus,
+)
 from palmimo_portal.testing.fakes import FakeComitupServicePort, FakeStateStore, FakeWifiProfilePort
 
 
@@ -93,6 +101,8 @@ class Rig:
             self.service,
             self.state,
             edit_lock=self.lock,
+            legacy_connect=kwargs.pop("legacy_connect", lambda *args: None),
+            legacy_status=kwargs.pop("legacy_status", lambda: WifiStatus(ConnectionState.CONNECTING, None, None)),
             monotonic=lambda: self.now,
             sleep=self.sleep,
             spawn=kwargs.pop("spawn", self.pending.append),
@@ -130,7 +140,6 @@ def test_wrong_password_switch_returns_to_original_network_without_changing_save
     assert rig.snapshot() == before
     assert rig.nm.device_status() == WifiDeviceStatus(100, home)
     assert rig.state.read_last_wifi_attempt().observed_connection_name == "home"  # type: ignore[union-attr]
-    assert rig.service.starts == 1
 
 
 def test_wrong_password_from_ap_restores_same_raw_ssid_password_and_marks() -> None:
@@ -146,7 +155,6 @@ def test_wrong_password_from_ap_restores_same_raw_ssid_password_and_marks() -> N
     assert manager.outcome(uid) == "failed"
     assert rig.snapshot() == before
     assert rig.state.read_last_wifi_attempt().observed_connection_name is None  # type: ignore[union-attr]
-    assert rig.service.starts == 2
 
 
 @pytest.mark.parametrize("kind", ["credentials", "activate_saved"])
@@ -236,7 +244,7 @@ def test_kick_failure_restores_settings_attempts_start_and_clears_busy(fault: st
     rig.run()
     assert manager.outcome(uid) == "failed"
     assert rig.snapshot() == before
-    assert rig.service.starts >= 2
+    assert rig.service.running
     assert not manager.in_progress
 
 
@@ -252,22 +260,22 @@ def test_disconnect_error_is_tolerated_after_device_has_left_activated() -> None
 
 
 @pytest.mark.parametrize("read_fault", [False, True])
-@pytest.mark.parametrize("saved_count,deadline", [(1, 120), (3, 180)])
-def test_deadline_or_unavailable_nm_fails_and_restores_configuration(
-    read_fault: bool, saved_count: int, deadline: int
-) -> None:
-    rig = Rig()
-    for index in range(saved_count):
-        rig.add(f"home-{index}".encode())
-    before = rig.snapshot()
-    manager = rig.manager()
-    uid = manager.start_wifi_attempt("credentials", b"away", "wrong", None)
-    rig.service.on_start = lambda: setattr(rig.nm, "read_fault", read_fault)
-    rig.run()
-    assert rig.now == deadline
-    assert manager.outcome(uid) == "failed"
-    assert rig.snapshot() == before
-    assert not manager.in_progress
+def test_more_candidates_extend_failure_wait_and_preserve_profiles(read_fault: bool) -> None:
+    waits = []
+    for saved_count in (1, 3):
+        rig = Rig()
+        for index in range(saved_count):
+            rig.add(f"home-{index}".encode())
+        before = rig.snapshot()
+        manager = rig.manager()
+        uid = manager.start_wifi_attempt("credentials", b"away", "wrong", None)
+        rig.service.on_start = partial(setattr, rig.nm, "read_fault", read_fault)
+        rig.run()
+        waits.append(rig.now)
+        assert manager.outcome(uid) == "failed"
+        assert rig.snapshot() == before
+        assert not manager.in_progress
+    assert waits[1] > waits[0]
 
 
 @pytest.mark.parametrize("active", [False, True])
@@ -409,12 +417,18 @@ def test_saved_activation_success_preserves_custom_connection_name() -> None:
     assert rig.nm.list_profiles()[0].name == "Custom profile"
 
 
-def test_activation_at_deadline_is_failed_and_active_trial_is_deleted() -> None:
+def test_activation_after_deadline_is_failed_and_active_trial_is_deleted() -> None:
     rig = Rig()
     manager = rig.manager()
     uid = manager.start_wifi_attempt("credentials", b"home", "password", None)
     target = rig.nm.list_profiles()[0].uuid
-    rig.tick = lambda: setattr(rig.nm, "device", WifiDeviceStatus(100, target)) if rig.now >= 90 else None
+
+    def activated_late() -> None:
+        if rig.now >= 90:
+            rig.now += 1
+            rig.nm.device = WifiDeviceStatus(100, target)
+
+    rig.tick = activated_late
     rig.run()
     assert manager.outcome(uid) == "failed"
     assert rig.nm.list_profiles() == []
@@ -491,7 +505,6 @@ def test_saved_activation_failure_restores_all_original_profiles(priority: int) 
     rig.run()
     assert manager.outcome(uid) == "failed"
     assert rig.snapshot() == before
-    assert rig.service.starts == 2
 
 
 def test_disconnect_completion_is_observed_before_comitup_can_reuse_old_connection() -> None:

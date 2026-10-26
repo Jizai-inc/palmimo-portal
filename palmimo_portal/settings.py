@@ -52,6 +52,7 @@ class Settings:
     """Resolved Portal configuration."""
 
     state_dir: Path = DEFAULT_STATE_DIR  #: JsonFileStateStore's auth.json / last_attempt.json dir
+    wlan_interface: str = "wlan0"
     port: int = DEFAULT_PORT  #: uvicorn bind port (__main__)
     #: FileIdentityStore's manufacturing-identity file. Read-only for the Portal; absence is
     #: a supported state (a DIY, self-flashed image) -- see ports.IdentityStore.
@@ -187,6 +188,7 @@ def get_settings() -> Settings:
         state_dir=state_dir,
         port=port,
         identity_file=identity_file,
+        wlan_interface=os.environ.get("PALMIMO_WLAN_INTERFACE", "wlan0"),
         allowed_hosts=allowed_hosts,
         adapters=adapters,
         enable_docs=enable_docs,

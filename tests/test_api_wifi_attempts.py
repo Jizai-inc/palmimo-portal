@@ -37,6 +37,7 @@ def install(app: FastAPI, rig: Rig) -> Any:
         monotonic=lambda: rig.now,
         sleep=rig.sleep,
         spawn=rig.pending.append,
+        spawn_recovery=lambda work: work(),
         legacy_connect=partial(connect_legacy, network, saved),
         legacy_status=network.get_status,
     )
@@ -148,8 +149,8 @@ def test_nm_failure_keeps_diy_wifi_access_closed(app: FastAPI, path: str, connec
             if path == "/connect"
             else client.get("/api/v1/wifi" + path)
         )
-        assert response.status_code == 503
-        assert response.json()["error"]["code"] == "network_backend_unavailable"
+        assert response.status_code == (401 if connected else 503)
+        assert response.json()["error"]["code"] == ("not_authenticated" if connected else "network_backend_unavailable")
 
 
 def test_internal_profiles_are_hidden_and_parked_status_uses_original_ssid(app: FastAPI) -> None:
@@ -247,7 +248,8 @@ def test_legacy_worker_owns_result_and_status_polls_cannot_change_it(app: FastAP
         assert client.get("/api/v1/system/status").json()["last_wifi_attempt"]["result"] == expected
 
 
-def test_cleanup_error_is_reported_when_start_cannot_recover_leftover_marks(app: FastAPI) -> None:
+@pytest.mark.parametrize("backend", [False, True])
+def test_cleanup_error_is_reported_when_start_cannot_recover_leftover_marks(app: FastAPI, backend: bool) -> None:
     rig = Rig()
     rig.add()
     install(app, rig)
@@ -258,13 +260,15 @@ def test_cleanup_error_is_reported_when_start_cannot_recover_leftover_marks(app:
 
         def fail_delete(operation: str) -> None:
             if operation == "delete":
-                raise AdapterUnavailableError("network_backend_unavailable", "offline")
+                raise (
+                    AdapterUnavailableError("network_backend_unavailable", "offline") if backend else OSError("offline")
+                )
 
         rig.nm.fault = fail_delete
         rig.run()
         response = client.post("/api/v1/wifi/connect", json={"ssid": "other", "psk": "password"}, headers=HEADERS)
         assert response.status_code == 503
-        assert response.json()["error"]["code"] == "wifi_cleanup_failed"
+        assert response.json()["error"]["code"] == ("network_backend_unavailable" if backend else "wifi_cleanup_failed")
 
 
 def test_old_marker_file_cannot_make_a_diy_device_provisioned(settings: Settings, tmp_path: Path) -> None:
@@ -276,3 +280,46 @@ def test_old_marker_file_cannot_make_a_diy_device_provisioned(settings: Settings
         assert response.status_code == 200
         assert response.json()["state"] == "unprovisioned"
         assert marker.exists()
+
+
+def test_connected_apps_remain_available_when_nm_profile_reads_fail(app: FastAPI) -> None:
+    rig = Rig()
+    rig.add()
+    bundle = install(app, rig)
+    bundle.network.status = WifiStatus(ConnectionState.CONNECTED, "home", None)
+    with TestClient(app) as client:
+        login(client)
+        rig.nm.raise_on_call = AdapterUnavailableError("network_backend_unavailable", "offline")
+        assert client.get("/api/v1/apps").status_code == 200
+
+
+def test_http_serves_during_background_recovery_and_wifi_writes_are_busy(app: FastAPI) -> None:
+    rig = Rig()
+    rig.add()
+    rig.manager().start_wifi_attempt("credentials", b"home", "password", None)
+    rig.pending.clear()
+    bundle = install(app, rig)
+    bundle.wifi_attempts._spawn_recovery = rig.pending.append
+    target = next(p.uuid for p in rig.nm.list_profiles() if p.name.startswith("palmimo-try-"))
+    with TestClient(app) as client:
+        login(client)
+        assert client.get("/api/v1/system/status").status_code == 200
+        for path, body in [
+            ("/connect", {"ssid": "other", "psk": "password"}),
+            ("/saved", {"ssid": "other", "psk": "password"}),
+        ]:
+            response = client.post("/api/v1/wifi" + path, json=body, headers=HEADERS)
+            assert response.status_code == 409
+            assert response.json()["error"]["code"] == "wifi_attempt_in_progress"
+        rig.tick = lambda: setattr(rig.nm, "device", WifiDeviceStatus(100, target)) if rig.now >= 5 else None
+        rig.run()
+        assert client.get("/api/v1/system/status").json()["last_wifi_attempt"]["result"] == "connected"
+
+
+def test_a_real_ssid_with_trial_prefix_remains_visible(app: FastAPI) -> None:
+    rig = Rig()
+    bundle = install(app, rig)
+    bundle.network.status = WifiStatus(ConnectionState.CONNECTED, "palmimo-try-home", None)
+    with TestClient(app) as client:
+        login(client)
+        assert client.get("/api/v1/wifi/status").json()["ssid"] == "palmimo-try-home"

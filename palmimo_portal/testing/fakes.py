@@ -107,13 +107,13 @@ from palmimo_portal.ports import (
 from palmimo_portal.settings import DEFAULT_REQUIRED_PLATFORM_VERSION
 
 
-@dataclass
+@dataclass(kw_only=True)
 class FakeNetworkPort(NetworkPort):
     """Scriptable comitup state with a shared infrastructure-profile store."""
 
     profiles: FakeWifiProfilePort = field(default_factory=lambda: FakeWifiProfilePort())
-    known_profiles: Callable[[], bool] | None = None
-    display_ssid: Callable[[str | None], str | None] | None = None
+    known_profiles: Callable[[], bool]
+    display_ssid: Callable[[str | None], str | None]
     status: WifiStatus = field(
         default_factory=lambda: WifiStatus(state=ConnectionState.UNPROVISIONED, ssid=None, ip_address=None)
     )
@@ -131,7 +131,7 @@ class FakeNetworkPort(NetworkPort):
     def get_status(self) -> WifiStatus:
         if self.raise_on_get_status is not None:
             raise self.raise_on_get_status
-        return replace(self.status, ssid=self.display_ssid(self.status.ssid)) if self.display_ssid else self.status
+        return replace(self.status, ssid=self.display_ssid(self.status.ssid))
 
     def list_networks(self) -> list[WifiNetwork]:
         if self.raise_on_list_networks is not None:
@@ -139,11 +139,7 @@ class FakeNetworkPort(NetworkPort):
         return list(self.scanned_networks)
 
     def has_known_networks(self) -> bool:
-        return (
-            self.known_profiles()
-            if self.known_profiles
-            else any(not p.name.startswith("palmimo-try-") for p in self.profiles.list_profiles())
-        )
+        return self.known_profiles()
 
     def connect(self, ssid: str, psk: str) -> None:
         if self.status.state is ConnectionState.CONNECTED:

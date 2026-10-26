@@ -81,7 +81,7 @@ class _StubbedNetworkPort(ComitupNetworkPort):
     """A :class:`ComitupNetworkPort` whose ``_call`` is entirely scripted -- no bus."""
 
     def __init__(self, script: dict[str, Any] | None = None, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
+        super().__init__(known_profiles=lambda: False, display_ssid=lambda ssid: ssid, **kwargs)
         self.script: dict[str, Any] = script or {}
         self.calls: list[tuple[str, tuple[Any, ...]]] = []
 
@@ -333,7 +333,7 @@ class _FlakyOnceNetworkPort(ComitupNetworkPort):
     """
 
     def __init__(self, results: dict[str, Any], **kwargs: Any) -> None:
-        super().__init__(**kwargs)
+        super().__init__(known_profiles=lambda: False, display_ssid=lambda ssid: ssid, **kwargs)
         self._results = results
         self.attempts: dict[str, int] = {}
 
@@ -355,7 +355,7 @@ def test_call_resilient_reconnects_and_retries_once_after_a_dropped_connection()
 
 class _AlwaysFailsNetworkPort(ComitupNetworkPort):
     def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
+        super().__init__(known_profiles=lambda: False, display_ssid=lambda ssid: ssid, **kwargs)
         self.attempts = 0
 
     async def _call(self, member: str, args: tuple[Any, ...], timeout: float) -> Any:
@@ -408,7 +408,7 @@ class _OpenBusScriptedNetworkPort(ComitupNetworkPort):
     """Real ``_connect``/``_disconnect``/``_call``/``_call_resilient``/``_lock`` -- only ``_open_bus`` is scripted."""
 
     def __init__(self, open_bus_script: list[Any], **kwargs: Any) -> None:
-        super().__init__(**kwargs)
+        super().__init__(known_profiles=lambda: False, display_ssid=lambda ssid: ssid, **kwargs)
         self._open_bus_script = list(open_bus_script)
         self.open_bus_calls = 0
 
@@ -494,7 +494,7 @@ class _LeakyMessageBus:
 async def test_open_bus_disconnects_a_connected_bus_when_introspect_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     _LeakyMessageBus.instances = []
     monkeypatch.setattr("palmimo_portal.adapters.comitup.MessageBus", _LeakyMessageBus)
-    port = ComitupNetworkPort()
+    port = ComitupNetworkPort(known_profiles=lambda: False, display_ssid=lambda ssid: ssid)
 
     with pytest.raises(ConnectionRefusedError):
         await port._connect()
@@ -506,7 +506,7 @@ async def test_open_bus_disconnects_a_connected_bus_when_introspect_fails(monkey
 def test_get_status_maps_introspect_failure_to_adapter_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     _LeakyMessageBus.instances = []
     monkeypatch.setattr("palmimo_portal.adapters.comitup.MessageBus", _LeakyMessageBus)
-    port = ComitupNetworkPort()
+    port = ComitupNetworkPort(known_profiles=lambda: False, display_ssid=lambda ssid: ssid)
 
     with pytest.raises(AdapterUnavailableError):
         port.get_status()
@@ -551,7 +551,7 @@ async def test_connect_disconnects_the_bus_when_open_bus_is_cancelled_by_its_own
     _HangingIntrospectMessageBus.instances = []
     monkeypatch.setattr("palmimo_portal.adapters.comitup.MessageBus", _HangingIntrospectMessageBus)
     monkeypatch.setattr("palmimo_portal.adapters.comitup.CONNECT_TIMEOUT_SECONDS", 0.01)
-    port = ComitupNetworkPort()
+    port = ComitupNetworkPort(known_profiles=lambda: False, display_ssid=lambda ssid: ssid)
 
     with pytest.raises(TimeoutError):
         await port._connect()

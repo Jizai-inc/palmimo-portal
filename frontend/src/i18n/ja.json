@@ -448,7 +448,7 @@
     "update_target_mismatch": "そのバージョンは最新の確認結果と一致しません。もう一度確認してください。",
     "validation_error": "入力内容の一部が正しくありません。",
     "venv_missing": "このアプリの依存関係が見つかりません。再インストールまたは更新してください。",
-    "wifi_attempt_in_progress": "別の接続を試しています。少し待ってからやり直してください",
+    "wifi_attempt_in_progress": "別の接続を試しています。少し待ってからやり直してください。",
     "wifi_kick_unavailable": "Wi-Fi の接続処理を開始できません。しばらくしてからやり直してください。",
     "wifi_cleanup_failed": "Wi-Fi の設定を元に戻せませんでした。しばらくしてからやり直してください。",
     "wifi_connect_failed": "Palmimo はそのネットワークへの接続を開始できませんでした。",

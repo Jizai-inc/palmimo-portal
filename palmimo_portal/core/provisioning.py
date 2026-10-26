@@ -20,12 +20,10 @@ class NotProvisionedError(Exception):
 def is_provisioned(network: NetworkPort) -> bool:
     """Report whether the device has left the out-of-box Wi-Fi state.
 
-    Profile reads must succeed even while connected; an unknown profile store
-    must never reopen unauthenticated setup access.
+    Disconnected devices require a successful profile read before setup can reopen.
     """
     status = network.get_status()
-    known = network.has_known_networks()
-    return known or status.state is not ConnectionState.UNPROVISIONED
+    return status.state is not ConnectionState.UNPROVISIONED or network.has_known_networks()
 
 
 def is_serving_setup_ap(network: NetworkPort) -> bool:

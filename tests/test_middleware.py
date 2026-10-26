@@ -139,7 +139,10 @@ def test_network_port_raising_fails_closed_to_421(client: TestClient, adapters: 
 
 
 def test_captive_probe_redirect_stops_once_ttl_observes_leaving_the_setup_ap() -> None:
-    network = FakeNetworkPort()
+    network = FakeNetworkPort(
+        known_profiles=lambda: False,
+        display_ssid=lambda ssid: ssid,
+    )
     clock = {"t": 0.0}
     middleware = HostGuardMiddleware(
         app=FastAPI(),
@@ -189,7 +192,7 @@ def test_concurrent_probe_burst_calls_the_network_port_once() -> None:
             time_module.sleep(0.05)
             return super().get_status()
 
-    network = SlowNetworkPort()
+    network = SlowNetworkPort(known_profiles=lambda: False, display_ssid=lambda ssid: ssid)
     app = FastAPI()
 
     @app.get("/hotspot-detect.html")

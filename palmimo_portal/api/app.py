@@ -395,13 +395,14 @@ async def _handle_adapter_unavailable(request: Request, exc: Exception) -> JSONR
     gated endpoint's own body ever runs, so one handler covers every site.
     """
     assert isinstance(exc, AdapterUnavailableError)
-    logger.error("adapter unavailable: %s", exc)
+    logger.error("adapter unavailable: %s", exc, exc_info=exc)
     return _error_envelope(503, exc.code, {})
 
 
 async def _handle_wifi_attempt_error(request: Request, exc: Exception) -> JSONResponse:
     if isinstance(exc, AttemptInProgressError):
         return _error_envelope(409, "wifi_attempt_in_progress", {})
+    logger.error("Wi-Fi request failed", exc_info=exc)
     if isinstance(exc, CleanupFailedError):
         return _error_envelope(503, "wifi_cleanup_failed", {})
     if isinstance(exc, KickUnavailableError):
@@ -512,11 +513,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         # crash here must never keep the app from serving every other route.
         logger.exception("app-platform: startup verify failed")
 
-    await anyio.to_thread.run_sync(adapters.wifi_attempts.check_platform)
-    try:
-        await anyio.to_thread.run_sync(adapters.wifi_attempts.cleanup_marked)
-    except CleanupFailedError:
-        logger.exception("Wi-Fi startup cleanup failed")
+    adapters.wifi_attempts.start_recovery()
 
     if app.state.settings.autostart_enabled:
         try:
@@ -533,6 +530,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
 
+    adapters.wifi_attempts.stop_recovery()
     if periodic_thread is not None:
         app.state.periodic_scheduler.stop()
         periodic_thread.join(timeout=5.0)

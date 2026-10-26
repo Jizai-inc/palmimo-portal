@@ -46,9 +46,14 @@ class _FakeNetworkManager(NetworkManagerSavedNetworkPort):
     """Answers :meth:`_nm_call` from memory: ``profiles`` maps object path to settings."""
 
     def __init__(
-        self, profiles: dict[str, Settings], active: set[str] | None = None, *, edit_lock: threading.RLock | None = None
+        self,
+        profiles: dict[str, Settings],
+        active: set[str] | None = None,
+        *,
+        edit_lock: threading.RLock | None = None,
+        wlan_interface: str = "wlan0",
     ) -> None:
-        super().__init__(edit_lock=edit_lock)
+        super().__init__(edit_lock=edit_lock, wlan_interface=wlan_interface)
         self.profiles = profiles
         self.active = set(active or ())
         self.updates: list[tuple[str, Settings]] = []
@@ -356,7 +361,8 @@ def test_profile_edit_reports_missing_uuid(operation: str, profile_port: WifiPro
 
 
 @pytest.mark.parametrize("active_uuid", [None, "ap-profile", "office-profile"])
-def test_device_status_reads_wlan0_and_disconnects(active_uuid: str | None) -> None:
+@pytest.mark.parametrize("wlan_interface", ["wlan0", "wlp2s0"])
+def test_device_status_reads_configured_interface_and_disconnects(active_uuid: str | None, wlan_interface: str) -> None:
     class DeviceNM(_FakeNetworkManager):
         state = 100
         active_uuid_value = active_uuid
@@ -365,21 +371,23 @@ def test_device_status_reads_wlan0_and_disconnects(active_uuid: str | None) -> N
             self, path: str, interface: str, member: str, signature: str = "", body: list[Any] | None = None
         ) -> list[Any]:
             if member == "GetDeviceByIpIface":
-                return ["/Devices/wlan0"]
+                return [f"/Devices/{body[0]}"]  # type: ignore[index]
             if member == "Disconnect":
+                if path != f"/Devices/{wlan_interface}":
+                    return []
                 self.state = 30
                 self.active_uuid_value = None
                 return []
             if member == "Get" and body:
                 if body[1] == "State":
-                    return [Variant("u", self.state)]
+                    return [Variant("u", self.state if path == f"/Devices/{wlan_interface}" else 30)]
                 if body[1] == "ActiveConnection":
                     return [Variant("o", "/Active/1" if self.active_uuid_value else "/")]
                 if body[1] == "Uuid":
                     return [Variant("s", self.active_uuid_value)]
             return await super()._nm_call(path, interface, member, signature, body)
 
-    port = DeviceNM({})
+    port = DeviceNM({}, wlan_interface=wlan_interface)
     assert port.device_status() == WifiDeviceStatus(100, active_uuid)
     port.disconnect_device()
     assert port.device_status() == WifiDeviceStatus(30, None)

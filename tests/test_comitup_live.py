@@ -26,7 +26,7 @@ pytestmark = pytest.mark.live
 
 @pytest.fixture
 def network() -> ComitupNetworkPort:
-    return ComitupNetworkPort()
+    return ComitupNetworkPort(known_profiles=lambda: False, display_ssid=lambda ssid: ssid)
 
 
 def test_state_returns_a_known_connection_state(network: ComitupNetworkPort) -> None:

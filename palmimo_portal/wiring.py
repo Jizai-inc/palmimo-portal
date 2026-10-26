@@ -142,7 +142,11 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         fake_state = FakeStateStore()
         fake_profiles = FakeWifiProfilePort()
         fake_service = FakeComitupServicePort()
-        fake_network = FakeNetworkPort(profiles=fake_profiles)
+        fake_network = FakeNetworkPort(
+            profiles=fake_profiles,
+            known_profiles=lambda: fake_attempts.has_known_networks(),
+            display_ssid=lambda ssid: fake_attempts.display_ssid(ssid),
+        )
         fake_saved = FakeSavedNetworkPort(profiles=fake_profiles)
         fake_attempts = WifiAttemptManager(
             fake_profiles,
@@ -152,8 +156,6 @@ def build_adapters(settings: Settings) -> AdapterBundle:
             legacy_connect=partial(connect_legacy, fake_network, fake_saved),
             legacy_status=fake_network.get_status,
         )
-        fake_network.known_profiles = fake_attempts.has_known_networks
-        fake_network.display_ssid = fake_attempts.display_ssid
         return AdapterBundle(
             network=fake_network,
             saved_networks=fake_saved,
@@ -182,9 +184,13 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         )
     preflight_state_dir(settings.state_dir)
     real_state = JsonFileStateStore(settings.state_dir)
-    saved_networks = NetworkManagerSavedNetworkPort(edit_lock=edit_lock)
+    saved_networks = NetworkManagerSavedNetworkPort(edit_lock=edit_lock, wlan_interface=settings.wlan_interface)
     comitup_service = SystemdComitupServicePort()
-    network = ComitupNetworkPort()
+    network = ComitupNetworkPort(
+        known_profiles=lambda: attempts.has_known_networks(),
+        display_ssid=lambda ssid: attempts.display_ssid(ssid),
+        wlan_interface=settings.wlan_interface,
+    )
     attempts = WifiAttemptManager(
         saved_networks,
         comitup_service,
@@ -193,8 +199,6 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         legacy_connect=partial(connect_legacy, network, saved_networks),
         legacy_status=network.get_status,
     )
-    network.known_profiles = attempts.has_known_networks
-    network.display_ssid = attempts.display_ssid
     return AdapterBundle(
         network=network,
         saved_networks=saved_networks,

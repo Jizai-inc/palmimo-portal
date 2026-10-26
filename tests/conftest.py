@@ -78,6 +78,7 @@ def app(settings: Settings) -> FastAPI:
     app = create_app(settings)
     app.state.wifi_pending = []
     app.state.adapters.wifi_attempts._spawn = app.state.wifi_pending.append
+    app.state.adapters.wifi_attempts._spawn_recovery = lambda work: work()
     return app
 
 

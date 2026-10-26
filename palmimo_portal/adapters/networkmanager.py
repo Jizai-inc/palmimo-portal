@@ -149,8 +149,13 @@ class NetworkManagerSavedNetworkPort(SavedNetworkPort, WifiProfilePort):
     """
 
     def __init__(
-        self, *, loop_thread: SharedEventLoopThread | None = None, edit_lock: threading.RLock | None = None
+        self,
+        *,
+        loop_thread: SharedEventLoopThread | None = None,
+        edit_lock: threading.RLock | None = None,
+        wlan_interface: str = "wlan0",
     ) -> None:
+        self._wlan_interface = wlan_interface
         self._call_lock = edit_lock if edit_lock is not None else threading.RLock()
         self._loop_thread = loop_thread if loop_thread is not None else get_shared_loop_thread()
         self._bus: MessageBus | None = None
@@ -412,7 +417,7 @@ class NetworkManagerSavedNetworkPort(SavedNetworkPort, WifiProfilePort):
         self._run(run())
 
     async def _device_path(self) -> str:
-        (path,) = await self._nm_call(NM_PATH, NM_INTERFACE, "GetDeviceByIpIface", "s", ["wlan0"])
+        (path,) = await self._nm_call(NM_PATH, NM_INTERFACE, "GetDeviceByIpIface", "s", [self._wlan_interface])
         return str(path)
 
     def device_status(self) -> WifiDeviceStatus:

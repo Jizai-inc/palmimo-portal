@@ -143,6 +143,7 @@ class WifiAttemptManager:
                 raise KickUnavailableError from self._platform_error
 
     def start_recovery(self) -> None:
+        """The 90-second window starts at this call and includes the platform probe."""
         with self._edit_lock:
             if self._recovering or self._active is not None:
                 raise AttemptInProgressError
@@ -160,7 +161,10 @@ class WifiAttemptManager:
                                 marked = self._marked()
                             if not marked or any(p.user_data.get(_MARK + "phase") == "adopted" for p in marked):
                                 break
-                            if self._profiles.device_status().state == _ACTIVATED:
+                            status = self._profiles.device_status()
+                            if status.state == _ACTIVATED and any(
+                                p.uuid == status.active_uuid for p in self._profiles.list_profiles()
+                            ):
                                 break
                         except AdapterUnavailableError:
                             if self._monotonic() >= deadline:
@@ -183,6 +187,7 @@ class WifiAttemptManager:
             raise
 
     def stop_recovery(self) -> None:
+        """Shutdown does not wait for the daemon recovery thread to finish."""
         self._recovery_stop.set()
 
     @contextmanager
@@ -204,7 +209,7 @@ class WifiAttemptManager:
     @contextmanager
     def saved_network_edit(self) -> Iterator[None]:
         with self._exclusive():
-            self._recover_marked()
+            self._recover_marked(kick=False)
             with self._edit_lock:
                 try:
                     yield
@@ -423,6 +428,8 @@ class WifiAttemptManager:
                 except Exception as start_error:
                     if retry == 1:
                         self._platform_error = start_error
+                        if error is not None:
+                            logger.error("Wi-Fi kick failed before restart id=%s", attempt_id, exc_info=error)
                         logger.exception("comitup restart failed id=%s; retaining recovery marks", attempt_id)
                         raise KickUnavailableError from start_error
                     logger.warning("retrying comitup start id=%s", attempt_id, exc_info=True)
@@ -572,11 +579,14 @@ class WifiAttemptManager:
                 for profile in restored:
                     self._restore(profile, keep_mark=True)
                 if restored and kick and not self._legacy:
-                    status = self._profiles.device_status()
-                    infrastructure_active = status.state == _ACTIVATED and any(
-                        p.uuid == status.active_uuid for p in self._profiles.list_profiles()
-                    )
-                    needs_kick = not infrastructure_active
+                    try:
+                        status = self._profiles.device_status()
+                        infrastructure_active = status.state == _ACTIVATED and any(
+                            p.uuid == status.active_uuid for p in self._profiles.list_profiles()
+                        )
+                        needs_kick = not infrastructure_active
+                    except Exception:
+                        logger.exception("Wi-Fi cleanup could not determine active network id=%s", attempt_id)
             self._known_cache = None
         if needs_kick:
             self._kick(attempt_id)
@@ -595,7 +605,7 @@ class WifiAttemptManager:
         with self._exclusive():
             self._recover_marked()
 
-    def _recover_marked(self) -> None:
+    def _recover_marked(self, *, kick: bool = True) -> None:
         with self._edit_lock:
             try:
                 groups = list(dict.fromkeys(p.user_data[_MARK + "id"] for p in self._marked()))
@@ -607,7 +617,7 @@ class WifiAttemptManager:
             if groups:
                 self._ensure_platform()
             for attempt_id in groups:
-                self._cleanup(attempt_id)
+                self._cleanup(attempt_id, kick=kick)
             with self._edit_lock:
                 attempt = self._state.read_last_wifi_attempt()
                 if not groups and attempt is not None and attempt.result == "attempting":

@@ -52,7 +52,7 @@ class Settings:
     """Resolved Portal configuration."""
 
     state_dir: Path = DEFAULT_STATE_DIR  #: JsonFileStateStore's auth.json / last_attempt.json dir
-    wlan_interface: str = "wlan0"
+    wlan_interface: str = "wlan0"  #: PALMIMO_WLAN_INTERFACE: NM device lookup and comitup IPv4 reads
     port: int = DEFAULT_PORT  #: uvicorn bind port (__main__)
     #: FileIdentityStore's manufacturing-identity file. Read-only for the Portal; absence is
     #: a supported state (a DIY, self-flashed image) -- see ports.IdentityStore.

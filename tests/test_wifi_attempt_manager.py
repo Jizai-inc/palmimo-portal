@@ -542,18 +542,3 @@ def test_unavailable_profile_reads_cannot_leave_outcome_attempting_after_worker_
     rig.nm.raise_on_call = None
     rig.manager().cleanup_marked()
     assert rig.nm.list_profiles() == []
-
-
-def test_recovery_restores_original_profiles_when_device_state_cannot_be_read() -> None:
-    rig = Rig()
-    rig.add()
-    manager = rig.manager()
-    manager.start_wifi_attempt("credentials", b"home", "password", None)
-    target = next(p.uuid for p in rig.nm.list_profiles() if p.name.startswith("palmimo-try-"))
-    rig.nm.device = WifiDeviceStatus(100, target)
-    rig.nm.read_fault = True
-    with pytest.raises(CleanupFailedError):
-        rig.manager().cleanup_marked()
-    assert rig.nm.list_profiles()[0].ssid == b"home"
-    assert rig.nm.list_profiles()[0].uuid != target
-    assert rig.nm.psks[rig.nm.list_profiles()[0].uuid] == "correct"

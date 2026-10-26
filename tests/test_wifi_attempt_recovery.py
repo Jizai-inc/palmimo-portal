@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 
 import pytest
 
@@ -120,16 +121,48 @@ def test_startup_waits_for_pending_target_and_blocks_writes_without_holding_read
     rig.manager().start_wifi_attempt("credentials", b"home", "password", None)
     target = next(p.uuid for p in rig.nm.list_profiles() if p.name.startswith("palmimo-try-"))
     rig.pending.clear()
-    manager = rig.manager(spawn_recovery=rig.pending.append)
+    sleeping = threading.Event()
+    release = threading.Event()
+    observed = threading.Event()
+    known: list[bool] = []
+    recovery_threads: list[threading.Thread] = []
+
+    def spawn(work: Callable[[], None]) -> None:
+        thread = threading.Thread(target=work)
+        recovery_threads.append(thread)
+        thread.start()
+
+    def sleep(seconds: float) -> None:
+        sleeping.set()
+        release.wait(5)
+        rig.nm.device = WifiDeviceStatus(100, target)
+        rig.sleep(seconds)
+
+    manager = rig.manager(spawn_recovery=spawn)
+    manager._sleep = sleep
     manager.start_recovery()
-    assert manager.in_progress
-    with pytest.raises(AttemptInProgressError):
-        manager.start_wifi_attempt("credentials", b"other", "password", None)
-    with pytest.raises(AttemptInProgressError), manager.saved_network_edit():
-        pytest.fail("edit admitted")
-    assert manager.has_known_networks()
-    rig.tick = lambda: setattr(rig.nm, "device", WifiDeviceStatus(100, target)) if rig.now >= 5 else None
-    rig.run()
+
+    def read() -> None:
+        known.append(manager.has_known_networks())
+        observed.set()
+
+    reader = threading.Thread(target=read)
+    try:
+        assert sleeping.wait(1)
+        with pytest.raises(AttemptInProgressError):
+            manager.start_wifi_attempt("credentials", b"other", "password", None)
+        with pytest.raises(AttemptInProgressError), manager.saved_network_edit():
+            pytest.fail("edit admitted")
+        reader.start()
+        assert observed.wait(1)
+        assert known == [True]
+    finally:
+        release.set()
+        for thread in recovery_threads:
+            thread.join(2)
+        if reader.ident is not None:
+            reader.join(2)
+
     assert rig.state.read_last_wifi_attempt().result == "connected"  # type: ignore[union-attr]
     assert not manager.in_progress
     assert [(p.uuid, p.name) for p in rig.nm.list_profiles()] == [(target, "home")]
@@ -199,3 +232,60 @@ def test_legacy_activation_does_not_hold_profile_lock_during_network_calls() -> 
     finally:
         for reader in readers:
             reader.join(2)
+
+
+@pytest.mark.parametrize("target_connects", [False, True])
+def test_startup_ignores_activated_ap_until_target_connects_or_wait_expires(target_connects: bool) -> None:
+    rig = Rig()
+    rig.add()
+    before = rig.snapshot()
+    rig.manager().start_wifi_attempt("credentials", b"home", "password", None)
+    target = next(p.uuid for p in rig.nm.list_profiles() if p.name.startswith("palmimo-try-"))
+    rig.pending.clear()
+    rig.nm.device = WifiDeviceStatus(100, "ap")
+    manager = rig.manager(spawn_recovery=rig.pending.append)
+    if target_connects:
+        rig.tick = lambda: setattr(rig.nm, "device", WifiDeviceStatus(100, target)) if rig.now >= 5 else None
+    manager.start_recovery()
+    rig.run()
+    attempt = rig.state.read_last_wifi_attempt()
+    assert attempt is not None
+    assert attempt.result == ("connected" if target_connects else "failed")
+    assert rig.now >= (5 if target_connects else 90)
+    if not target_connects:
+        assert rig.snapshot() == before
+
+
+@pytest.mark.parametrize("active_trial", [False, True])
+def test_cleanup_clears_restored_marks_when_device_status_is_unavailable(active_trial: bool) -> None:
+    rig = Rig()
+    known = rig.add()
+    before = rig.snapshot()
+    rig.manager().start_wifi_attempt("credentials", b"home", "wrongpass", None)
+    if active_trial:
+        target = next(p.uuid for p in rig.nm.list_profiles() if p.name.startswith("palmimo-try-"))
+        rig.nm.device = WifiDeviceStatus(100, target)
+    rig.nm.read_fault = True
+    starts = rig.service.starts
+    recovered = rig.manager()
+    recovered.cleanup_marked()
+    assert rig.snapshot() == before
+    assert [p.uuid for p in recovered.visible_profiles()] == [known]
+    assert rig.service.starts == starts
+
+
+@pytest.mark.parametrize("priority,target_ssid", [(2, b"home"), (999, b"away")])
+def test_saved_edit_restores_profiles_without_disrupting_ap(priority: int, target_ssid: bytes) -> None:
+    rig = Rig()
+    rig.add(priority=priority)
+    before = rig.snapshot()
+    rig.manager().start_wifi_attempt("credentials", target_ssid, "wrongpass", None)
+    rig.nm.device = WifiDeviceStatus(100, "ap")
+    starts = rig.service.starts
+    recovered = rig.manager()
+    with recovered.saved_network_edit():
+        assert rig.snapshot() == before
+        rig.add(b"new")
+    assert rig.nm.device == WifiDeviceStatus(100, "ap")
+    assert rig.service.starts == starts
+    assert any(p.ssid == b"new" for p in recovered.visible_profiles())

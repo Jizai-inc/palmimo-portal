@@ -293,7 +293,7 @@ def test_connected_apps_remain_available_when_nm_profile_reads_fail(app: FastAPI
         assert client.get("/api/v1/apps").status_code == 200
 
 
-def test_http_serves_during_background_recovery_and_wifi_writes_are_busy(app: FastAPI) -> None:
+def test_http_serves_with_recovery_queued_and_wifi_writes_are_busy(app: FastAPI) -> None:
     rig = Rig()
     rig.add()
     rig.manager().start_wifi_attempt("credentials", b"home", "password", None)

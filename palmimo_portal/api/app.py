@@ -513,7 +513,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         # crash here must never keep the app from serving every other route.
         logger.exception("app-platform: startup verify failed")
 
-    adapters.wifi_attempts.start_recovery()
+    try:
+        adapters.wifi_attempts.start_recovery()
+    except Exception:
+        logger.exception("Wi-Fi startup recovery could not start")
 
     if app.state.settings.autostart_enabled:
         try:

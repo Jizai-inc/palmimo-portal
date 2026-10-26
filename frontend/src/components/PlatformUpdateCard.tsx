@@ -54,7 +54,7 @@ export function PlatformUpdateCard({
   const toolFirmware = platform.display_firmware ? {
     result: platform.display_firmware.last_result, reason: platform.display_firmware.last_reason, after: null,
   } : null;
-  const firmware = job?.state === "running" ? displayFirmware : toolFirmware ?? displayFirmware;
+  const firmware = displayFirmware === undefined ? toolFirmware : displayFirmware;
   const firmwareWarning = firmware && ["busy", "failed", "interrupted", "skipped"].includes(firmware.result);
   const firmwareMessages: Record<string, string> = {
     absent: t("update.displayFirmwareAbsent"),

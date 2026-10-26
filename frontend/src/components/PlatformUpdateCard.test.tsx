@@ -229,14 +229,14 @@ it("shows the boot tool's last reason when automatic repair is paused", async ()
   expect(screen.getByRole("button", { name: "Repair face firmware" })).toBeEnabled();
 });
 
-it.each(["running", "done"])("prefers the boot tool result after the job is %s", async (state) => {
+it.each(["running", "done"])("shows the server-selected firmware result when the job is %s", async (state) => {
   server.use(
     http.get("*/api/v1/platform", () => HttpResponse.json({
       ...BASE_PLATFORM, display_firmware: { last_result: "updated", last_reason: null },
     })),
     http.get("*/api/v1/platform/update", () => HttpResponse.json({
       job: { state, step: "restart", target_version: 2, error: null, started_at: 999, finished_at: 1000 },
-      display_firmware: { result: "failed", reason: "old failure" },
+      display_firmware: state === "running" ? { result: "failed", reason: "old failure" } : { result: "updated" },
     })),
   );
   renderWithProviders(<PlatformUpdateCard />);

@@ -542,3 +542,47 @@ def test_manual_display_firmware_refuses_missing_tool(client: TestClient, adapte
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "display_firmware_unavailable"
     assert adapters.state.read_platform_update_state().job.state == "idle"
+
+
+@pytest.mark.parametrize(
+    ("recorded_boot", "current_boot", "stage_result", "expected"),
+    [
+        ("boot-a", "boot-a", "busy", "busy"),
+        ("boot-a", "boot-b", "failed", "updated"),
+        (None, "boot-b", "busy", "updated"),
+        ("boot-a", None, "busy", "updated"),
+    ],
+)
+def test_display_firmware_result_tracks_device_boot_after_pre_tool_failure(
+    client: TestClient,
+    adapters: FakeAdapterBundle,
+    monkeypatch: pytest.MonkeyPatch,
+    recorded_boot: str | None,
+    current_boot: str | None,
+    stage_result: str,
+    expected: str,
+) -> None:
+    from typing import NoReturn
+
+    from palmimo_portal.ports import DisplayFirmwareState, RunLockTimeoutError
+
+    client = _authenticated_client(client, adapters)
+    adapters.platform.display_firmware_available = True
+    adapters.platform.display_firmware_state = DisplayFirmwareState(last_result="updated")
+    monkeypatch.setattr(adapters.platform, "read_boot_id", lambda: recorded_boot, raising=False)
+
+    def unavailable_run_lock(timeout_s: float = 0) -> NoReturn:
+        if stage_result == "busy":
+            raise RunLockTimeoutError()
+        raise RuntimeError("app operation unavailable")
+
+    monkeypatch.setattr(adapters.state, "lock_run", unavailable_run_lock)
+    assert client.post("/api/v1/platform/display-firmware", headers=CSRF_HEADERS).status_code == 202
+    assert adapters.platform.display_firmware_calls == 0
+    monkeypatch.setattr(adapters.platform, "read_boot_id", lambda: current_boot)
+    state = client.get("/api/v1/platform/update").json()
+    assert state["job"]["state"] == "done"
+    assert state["display_firmware"]["result"] == expected
+    persisted = adapters.state.read_platform_update_state().display_firmware
+    assert persisted is not None
+    assert persisted.boot_id == recorded_boot

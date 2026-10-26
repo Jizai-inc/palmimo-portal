@@ -9,6 +9,7 @@ import type { DisplayFirmwareResultResult } from './displayFirmwareResultResult'
 export interface DisplayFirmwareResult {
   after?: string | null;
   before?: string | null;
+  boot_id?: string | null;
   reason?: string | null;
   result: DisplayFirmwareResultResult;
 }

@@ -185,3 +185,12 @@ def test_display_firmware_invalid_json_keeps_stderr_reason(tmp_path: Path) -> No
     port = SudoPlatformPort(installed_path=tmp_path / "installed.json", runner=runner)
     with pytest.raises(PlatformCommandError, match="OSError: firmware archive is unreadable"):
         port.ensure_display_firmware()
+
+
+@pytest.mark.parametrize("content", [None, b"", b"boot-a\n", b"\xff"])
+def test_boot_identity_is_optional_when_kernel_file_is_unavailable(tmp_path: Path, content: bytes | None) -> None:
+    path = tmp_path / "boot_id"
+    if content is not None:
+        path.write_bytes(content)
+    port = SudoPlatformPort(installed_path=tmp_path / "installed.json", boot_id_path=path)
+    assert port.read_boot_id() == ("boot-a" if content == b"boot-a\n" else None)

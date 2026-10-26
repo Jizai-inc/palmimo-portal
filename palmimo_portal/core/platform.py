@@ -34,7 +34,13 @@ from typing import Any
 
 from packaging.version import InvalidVersion, Version
 
-from palmimo_portal.core.platform_update import advance, mark_done, mark_failed, start_update
+from palmimo_portal.core.platform_update import (
+    advance,
+    mark_done,
+    mark_failed,
+    select_display_firmware_result,
+    start_update,
+)
 from palmimo_portal.core.platform_update import finalize_after_restart as finalize_platform_job
 from palmimo_portal.core.update import CHECK_RATE_LIMIT_SECONDS
 from palmimo_portal.ports import (
@@ -487,12 +493,28 @@ class PlatformUpdateRunner:
                 firmware = self._platform_port.read_display_firmware_state()
             except Exception:
                 logger.exception("display-firmware: could not read boot result")
-        return finalize_platform_job(state, time.time(), display_firmware=firmware)
+        return finalize_platform_job(
+            state,
+            time.time(),
+            display_firmware=firmware,
+            boot_id=self._platform_port.read_boot_id(),
+        )
+
+    def display_firmware_result(self, state: PlatformUpdateState) -> DisplayFirmwareResult | None:
+        if state.job.state == "running":
+            return select_display_firmware_result(state, None, None)
+        return select_display_firmware_result(
+            state,
+            self._platform_port.read_display_firmware_state(),
+            self._platform_port.read_boot_id(),
+        )
 
     def run_display_firmware(self, on_step: Callable[[str], None]) -> None:
+        boot_id = None
         try:
             if not self._platform_port.has_display_firmware_tool():
                 return
+            boot_id = self._platform_port.read_boot_id()
             on_step("display_firmware")
             if self._display_firmware is not None:
                 result = self._display_firmware()
@@ -502,6 +524,7 @@ class PlatformUpdateRunner:
         except Exception as error:
             logger.exception("display-firmware: stage failed")
             result = DisplayFirmwareResult(result="failed", reason=str(error))
+        result = replace(result, boot_id=boot_id)
         try:
             logger.info(
                 "display-firmware: result=%s before=%s after=%s reason=%s",

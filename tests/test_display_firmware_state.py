@@ -16,7 +16,7 @@ from palmimo_portal.ports import DisplayFirmwareResult, PlatformUpdateState
 
 def test_display_firmware_survives_transitions_and_disk_round_trips(tmp_path: Path) -> None:
     store = JsonFileStateStore(tmp_path)
-    result = DisplayFirmwareResult(result="busy", before="legacy", reason="reserved")
+    result = DisplayFirmwareResult(result="busy", before="legacy", reason="reserved", boot_id="boot-a")
     state = PlatformUpdateState(job=start_update(IDLE_PLATFORM_STATE, 2, 1).job, display_firmware=result)
     for step in ("display_firmware", "restart", "restart"):
         store.write_platform_update_state(advance(state, step))

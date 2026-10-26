@@ -81,8 +81,15 @@ class SudoPlatformPort(PlatformPort):
     sudo_bin: str = "sudo"
     runner: object = field(default=subprocess.run)
 
+    boot_id_path: Path = Path("/proc/sys/kernel/random/boot_id")
     display_firmware_tool: Path = Path("/usr/local/libexec/palmimo/palmimo-display-firmware")
     display_firmware_state_path: Path = Path("/var/lib/palmimo/display-firmware/state.json")
+
+    def read_boot_id(self) -> str | None:
+        try:
+            return self.boot_id_path.read_text(encoding="utf-8").strip() or None
+        except (OSError, ValueError):
+            return None
 
     def has_display_firmware_tool(self) -> bool:
         return self.display_firmware_tool.is_file()

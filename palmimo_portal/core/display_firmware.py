@@ -15,16 +15,31 @@ from palmimo_portal.ports import DisplayFirmwareResult, PlatformPort, PreemptedA
 logger = logging.getLogger("palmimo_portal")
 
 
-def _restore_locked(deps: StartDeps) -> None:
+def _restore_locked(deps: StartDeps) -> bool:
     record = deps.state.read_preempted_app()
-    if record is None or record.by != "display-firmware":
-        return
+    if record is None:
+        return True
+    if record.by != "display-firmware":
+        return False
     name = record.preempted_app
     if name is not None:
-        if deps.app_unit.status(name).active_state not in RUNNING_ACTIVE_STATES:
+        active_state = deps.app_unit.status(name).active_state
+        if active_state == "deactivating":
+            deadline = time.monotonic() + 20
+            while active_state == "deactivating":
+                if time.monotonic() >= deadline:
+                    logger.warning("preempt: app=%s is still stopping; retaining record", name)
+                    return False
+                time.sleep(0.1)
+                active_state = deps.app_unit.status(name).active_state
+        if active_state in {"inactive", "failed"}:
             _start_app_locked(replace(deps, platform_ready=lambda: True), name, host=socket.gethostname())
+        elif active_state not in {"active", "activating"}:
+            logger.warning("preempt: app=%s state=%s cannot be restored; retaining record", name, active_state)
+            return False
         logger.info("preempt: restored app=%s", name)
     deps.state.write_preempted_app(None)
+    return True
 
 
 def restore_preempted_app(deps: StartDeps) -> None:
@@ -48,7 +63,8 @@ def run_display_firmware(deps: StartDeps, platform: PlatformPort) -> DisplayFirm
                 if preemption is not None:
                     if preemption.by != "display-firmware":
                         return DisplayFirmwareResult(result="busy", reason="app recovery pending")
-                    _restore_locked(deps)
+                    if not _restore_locked(deps):
+                        return DisplayFirmwareResult(result="busy", reason="app recovery pending")
                 for name, record in deps.state.read_apps_state().apps.items():
                     if deps.app_unit.status(name).active_state not in RUNNING_ACTIVE_STATES:
                         continue

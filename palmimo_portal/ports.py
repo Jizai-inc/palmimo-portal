@@ -1602,6 +1602,7 @@ class DisplayFirmwareResult:
     before: str | None = None
     after: str | None = None
     reason: str | None = None
+    boot_id: str | None = None
 
     @classmethod
     def from_payload(cls, payload: object) -> DisplayFirmwareResult:
@@ -1616,10 +1617,16 @@ class DisplayFirmwareResult:
             "interrupted",
         }:
             raise ValueError("invalid display firmware result")
-        for key in ("before", "after", "reason"):
+        for key in ("before", "after", "reason", "boot_id"):
             if payload.get(key) is not None and not isinstance(payload[key], str):
                 raise ValueError(f"invalid display firmware {key}")
-        return cls(payload["result"], payload.get("before"), payload.get("after"), payload.get("reason"))
+        return cls(
+            payload["result"],
+            payload.get("before"),
+            payload.get("after"),
+            payload.get("reason"),
+            payload.get("boot_id"),
+        )
 
 
 @dataclass(frozen=True)
@@ -1647,6 +1654,10 @@ class PlatformPort(Protocol):
     ``sudo`` -- :attr:`~palmimo_portal.settings.Settings.sudo_bin` is
     referenced nowhere else in this tree (``tests/test_platform_sudo_contract.py``).
     """
+
+    def read_boot_id(self) -> str | None:
+        """Return the kernel boot ID, or None when unavailable."""
+        ...
 
     def has_display_firmware_tool(self) -> bool: ...
 

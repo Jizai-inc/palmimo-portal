@@ -216,7 +216,10 @@ def start_update(
 
 def _update_response(request: Request) -> PlatformUpdateAcceptedResponse:
     state = request.app.state.platform_job_runner.current_state()
-    return PlatformUpdateAcceptedResponse(job=_job_info(state.job), display_firmware=state.display_firmware)
+    return PlatformUpdateAcceptedResponse(
+        job=_job_info(state.job),
+        display_firmware=request.app.state.platform_update_runner.display_firmware_result(state),
+    )
 
 
 @router.post("/display-firmware", status_code=202)
@@ -239,5 +242,5 @@ def rewrite_display_firmware(
 
 @router.get("/update")
 def get_update_job(request: Request) -> PlatformUpdateAcceptedResponse:
-    """Report the job, treating an abandoned firmware stage as finished."""
+    """Report the job and current firmware result; abandoned firmware stages are finished."""
     return _update_response(request)

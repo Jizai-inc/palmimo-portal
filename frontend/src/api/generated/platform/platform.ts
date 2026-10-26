@@ -324,7 +324,7 @@ export const useRewriteDisplayFirmwareApiV1PlatformDisplayFirmwarePost = <TError
 }
 
 /**
- * Report the job, treating an abandoned firmware stage as finished.
+ * Report the job and current firmware result; abandoned firmware stages are finished.
  * @summary Get Update Job
  */
 export const getUpdateJobApiV1PlatformUpdateGet = async ( options?: RequestInit): Promise<PlatformUpdateAcceptedResponse> => {

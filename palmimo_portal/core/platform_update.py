@@ -60,24 +60,42 @@ def mark_failed(state: PlatformUpdateState, step: str, error: str, now: float) -
     return replace(state, job=replace(state.job, state="failed", step=step, error=error, finished_at=now))
 
 
+def select_display_firmware_result(
+    state: PlatformUpdateState,
+    tool_state: DisplayFirmwareState | None,
+    boot_id: str | None,
+    *,
+    fallback_result: DisplayFirmwareResult | None = None,
+) -> DisplayFirmwareResult | None:
+    """Boot identity orders results on devices whose wall clock can reset."""
+    result = state.display_firmware
+    if state.job.state == "running" or (boot_id and result is not None and result.boot_id == boot_id):
+        return result
+    return tool_state.as_result() if tool_state is not None else fallback_result or result
+
+
 def finalize_after_restart(
     state: PlatformUpdateState,
     now: float,
     *,
     display_firmware: DisplayFirmwareState | None = None,
+    boot_id: str | None = None,
 ) -> PlatformUpdateState:
-    """Boot-tool results supersede interruption; earlier interrupted stages fail the job."""
+    """Finish firmware stages using select_display_firmware_result; fail earlier interrupted stages."""
     if state.job.state != "running":
         return state
     if state.job.step == "display_firmware":
+        terminal = mark_done(state, now)
         return replace(
-            mark_done(state, now),
-            display_firmware=(
-                display_firmware.as_result()
-                if display_firmware is not None
-                else DisplayFirmwareResult(
-                    result="interrupted", reason="Portal restarted during display firmware update"
-                )
+            terminal,
+            display_firmware=select_display_firmware_result(
+                terminal,
+                display_firmware,
+                boot_id,
+                fallback_result=DisplayFirmwareResult(
+                    result="interrupted",
+                    reason="Portal restarted during display firmware update",
+                ),
             ),
         )
     job = state.job

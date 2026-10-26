@@ -611,12 +611,16 @@ class FakePlatformPort(PlatformPort):
     #: What `record` sets `installed.version` to -- a test sets this before triggering the job.
     next_version: int | None = None
 
+    boot_id: str | None = None
     display_firmware_available: bool = False
     display_firmware_result: DisplayFirmwareResult = field(
         default_factory=lambda: DisplayFirmwareResult(result="current")
     )
     display_firmware_state: DisplayFirmwareState | None = None
     display_firmware_calls: int = 0
+
+    def read_boot_id(self) -> str | None:
+        return self.boot_id
 
     def has_display_firmware_tool(self) -> bool:
         return self.display_firmware_available

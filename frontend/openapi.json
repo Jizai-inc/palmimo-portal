@@ -920,6 +920,17 @@
             ],
             "title": "Before"
           },
+          "boot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Boot Id"
+          },
           "reason": {
             "anyOf": [
               {
@@ -3597,7 +3608,7 @@
     },
     "/api/v1/platform/update": {
       "get": {
-        "description": "Report the job, treating an abandoned firmware stage as finished.",
+        "description": "Report the job and current firmware result; abandoned firmware stages are finished.",
         "operationId": "get_update_job_api_v1_platform_update_get",
         "responses": {
           "200": {

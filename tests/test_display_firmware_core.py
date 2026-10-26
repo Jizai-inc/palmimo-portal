@@ -248,3 +248,41 @@ def test_display_firmware_waits_for_transient_app_operation(prepared: tuple[Star
     assert released.is_set()
     assert result.result == "current"
     assert adapters.platform.display_firmware_calls == 1
+
+
+@pytest.mark.parametrize("eventual_state", ["deactivating", "inactive", "failed", "active", "activating"])
+def test_display_firmware_preserves_recovery_until_slow_stop_finishes(
+    prepared: tuple[StartDeps, FakeAdapterBundle],
+    monkeypatch: pytest.MonkeyPatch,
+    eventual_state: str,
+) -> None:
+    from types import SimpleNamespace
+
+    from palmimo_portal.core import display_firmware
+
+    deps, adapters = prepared
+    elapsed = 0.0
+    stopping = False
+
+    def sleep(seconds: float) -> None:
+        nonlocal elapsed
+        elapsed += seconds
+
+    def status(name: str) -> UnitStatus:
+        state = eventual_state if elapsed >= 30 else "deactivating"
+        return UnitStatus(state if stopping else "active", "running", "success", 0)
+
+    def stop(name: str) -> None:
+        nonlocal stopping
+        stopping = True
+
+    monkeypatch.setattr(display_firmware, "time", SimpleNamespace(monotonic=lambda: elapsed, sleep=sleep))
+    monkeypatch.setattr(adapters.app_unit, "status", status)
+    monkeypatch.setattr(adapters.app_unit, "stop", stop)
+    assert run_display_firmware(deps, adapters.platform).result == "busy"
+    assert elapsed < 40.2
+    assert adapters.platform.display_firmware_calls == 0
+    assert adapters.app_unit.start_calls == (["face"] if eventual_state in {"inactive", "failed"} else [])
+    assert adapters.state.read_preempted_app() == (
+        PreemptedApp("face", "display-firmware") if eventual_state == "deactivating" else None
+    )

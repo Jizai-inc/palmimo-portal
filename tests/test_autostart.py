@@ -415,30 +415,49 @@ def test_startup_recovers_preempted_app_before_autostart(tmp_path: Path, connect
         assert state.display_firmware.result == "interrupted"
 
 
-@pytest.mark.parametrize("result", ["updated", "current", None])
+@pytest.mark.parametrize(
+    ("result", "recorded_boot", "current_boot", "expected"),
+    [
+        ("updated", None, None, "updated"),
+        ("current", None, None, "current"),
+        (None, None, None, "interrupted"),
+        ("updated", "boot-a", "boot-a", "busy"),
+        ("updated", "boot-a", "boot-b", "updated"),
+        (None, "boot-a", None, "interrupted"),
+    ],
+)
 def test_startup_prefers_boot_firmware_result_to_interruption(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     result: str | None,
+    recorded_boot: str | None,
+    current_boot: str | None,
+    expected: str,
 ) -> None:
     import json
+    from dataclasses import replace
 
     from palmimo_portal.adapters.platform import SudoPlatformPort
     from palmimo_portal.core.platform_update import IDLE_PLATFORM_STATE, advance, start_update
+    from palmimo_portal.ports import DisplayFirmwareResult
 
     app = create_app(_settings(tmp_path))
     adapters: FakeAdapterBundle = app.state.adapters
+    adapters.platform.boot_id = current_boot
     path = tmp_path / "firmware.json"
     if result is not None:
         path.write_text(json.dumps({"last_result": result, "last_reason": None}))
     port = SudoPlatformPort(installed_path=tmp_path / "installed.json", display_firmware_state_path=path)
     monkeypatch.setattr(adapters.platform, "read_display_firmware_state", port.read_display_firmware_state)
-    adapters.state.write_platform_update_state(advance(start_update(IDLE_PLATFORM_STATE, 2, 1), "display_firmware"))
+    state = advance(start_update(IDLE_PLATFORM_STATE, 2, 1), "display_firmware")
+    if recorded_boot is not None:
+        state = replace(state, display_firmware=DisplayFirmwareResult(result="busy", boot_id=recorded_boot))
+    adapters.state.write_platform_update_state(state)
     with TestClient(app):
         state = adapters.state.read_platform_update_state()
         assert state.job.state == "done"
         assert state.display_firmware is not None
-        assert state.display_firmware.result == (result or "interrupted")
+        assert state.display_firmware.result == expected
 
 
 @pytest.mark.parametrize("preempted", [False, True])

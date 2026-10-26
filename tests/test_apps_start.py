@@ -18,20 +18,20 @@ from palmimo_portal.core.apps_start import (
     ParamsInvalidError,
     ParamsMissingError,
     PlatformNotReadyError,
-    StartDeps,
     RunningApp,
+    StartDeps,
     VenvMissingError,
-    derive_run_status,
     autostart_apps,
     default_app,
+    derive_run_status,
     find_running_app,
     missing_env,
-    with_default_app,
     precheck_report,
     reconcile_run_dirs,
     resolve_running_url,
     start_app,
     stop_app,
+    with_default_app,
 )
 from palmimo_portal.core.manifest import manifest_snapshot, parse_manifest
 from palmimo_portal.ports import (

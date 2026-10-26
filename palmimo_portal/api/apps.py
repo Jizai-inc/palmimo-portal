@@ -80,7 +80,6 @@ from palmimo_portal.core.apps_job_runner import AppsJobRunner
 from palmimo_portal.core.apps_jobs import AppsJobContext
 from palmimo_portal.core.apps_reset import ResetStopError, reset_platform
 from palmimo_portal.core.apps_start import (
-    with_default_app,
     RUNNING_ACTIVE_STATES,
     AppBusyError,
     AppJobInProgressStartError,
@@ -102,6 +101,7 @@ from palmimo_portal.core.apps_start import (
     resolve_running_url,
     start_app,
     stop_app,
+    with_default_app,
 )
 from palmimo_portal.core.apps_zip import UPLOAD_MAX_BYTES
 from palmimo_portal.core.manifest import (
@@ -589,7 +589,9 @@ def _registered_secret_names(secrets: SecretsStore) -> set[str]:
     return {secret.name for secret in secrets.list_secrets()}
 
 
-def _missing_env(record: AppRecord, manifest: Manifest | None, secrets: SecretsStore, registered: set[str]) -> list[str]:
+def _missing_env(
+    record: AppRecord, manifest: Manifest | None, secrets: SecretsStore, registered: set[str]
+) -> list[str]:
     if manifest is None:
         return []
     return missing_env(manifest, secrets.read_bindings(record.id), registered.__contains__)

@@ -697,8 +697,7 @@ class StateStore(Protocol):
         """Whether the owner hid Home's setup checklist; ``False`` when absent or unreadable."""
         ...
 
-    def write_checklist_dismissed(self, dismissed: bool) -> None:
-        ...
+    def write_checklist_dismissed(self, dismissed: bool) -> None: ...
 
     def read_or_create_initial_signing_key(self) -> str:
         """Return the signing key for initial-mode session tokens, creating it on first use.

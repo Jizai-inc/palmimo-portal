@@ -32,4 +32,5 @@ export interface AppSummary {
   status: AppSummaryStatus;
   update_available: boolean;
   url?: string | null;
+  wifi_setup_preempted?: boolean;
 }

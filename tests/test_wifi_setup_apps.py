@@ -199,3 +199,14 @@ def test_display_recovery_bypasses_wifi_setup_start_hook(prepared: tuple[StartDe
     assert restore_preempted_app(replace(deps, before_start=calls.append))
     assert adapters.app_unit.start_calls == ["face"]
     assert calls == []
+
+
+def test_wifi_setup_refuses_user_start_while_firmware_recovery_owns_record(
+    prepared: tuple[StartDeps, FakeAdapterBundle],
+) -> None:
+    deps, adapters = prepared
+    record = PreemptedApp("face", "display-firmware")
+    adapters.state.write_preempted_app(record)
+    with deps.state.lock_run(), pytest.raises(AppBusyError):
+        WifiSetupApps(deps).hold_locked()
+    assert adapters.state.read_preempted_app() == record

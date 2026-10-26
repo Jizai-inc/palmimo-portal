@@ -88,7 +88,7 @@ class WifiSetupApps:
     def hold_locked(self) -> None:
         record = self.deps.state.read_preempted_app()
         if record is not None and record.by != "wifi-setup":
-            raise ValueError("App recovery belongs to another operation")
+            raise AppBusyError
         self.deps.state.write_preempted_app(PreemptedApp(None, "wifi-setup", hold=True))
         logger.info("wifi-setup: hold reason=app_start")
 
@@ -330,9 +330,10 @@ class WifiSetup:
             self._sleep(min(0.1, deadline - self._now()))
 
     def startup(self) -> None:
+        deadline = self._now() + 6
         try:
             self.unit.stop()
-            self._wait_stopped(6)
+            self._wait_stopped(max(0, deadline - self._now()))
         except WifiQrUnitMissingError:
             with self._condition:
                 self._mode = "unavailable"
@@ -340,6 +341,23 @@ class WifiSetup:
             logger.error("wifi-setup: startup reader stop denied")
         except Exception:
             logger.warning("wifi-setup: startup reader stop failed")
+
+    def recover_startup(self) -> bool:
+        record = self.apps.deps.state.read_preempted_app()
+        if record is None or record.by != "wifi-setup":
+            return False
+        try:
+            status = self.network.get_status()
+            if (
+                status.state is ConnectionState.CONNECTED
+                and status.ip_address
+                and self.profiles.device_status().state == 100
+            ):
+                self.apps.clear_hold()
+                self.apps.restore(hold=False)
+        except Exception:
+            logger.warning("wifi-setup: startup app recovery deferred")
+        return True
 
     def stop(self, reason: str, *, fault: bool = False, result: WifiQrUnitStatus | None = None) -> None:
         with self._condition:
@@ -436,6 +454,8 @@ class WifiSetup:
                     self._restore_hold = None
 
     def tick(self) -> None:
+        if self._shutdown.is_set():
+            return
         self._restore()
         now = self._now()
         with self._condition:
@@ -473,6 +493,8 @@ class WifiSetup:
                 self._enter()
             return
         if mode not in {"starting", "active"}:
+            if lan:
+                self.apps.restore(hold=False)
             return
         try:
             result = self.unit.status()

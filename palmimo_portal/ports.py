@@ -1830,3 +1830,6 @@ class WifiQrClientPort(Protocol):
     def send(self, message: dict[str, Any]) -> bool: ...
 
     def close(self) -> None: ...
+
+
+WifiQrClientFactory = Callable[[Callable[[dict[str, Any]], None], Callable[[], None]], WifiQrClientPort]

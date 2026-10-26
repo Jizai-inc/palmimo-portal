@@ -125,3 +125,14 @@ describe("DeviceInfoCard", () => {
     expect(await screen.findByText("Not assigned")).toBeInTheDocument();
   });
 });
+
+it("shows the current QR setup mode from system status", async () => {
+  server.use(
+    getGetStatusApiV1WifiStatusGetMockHandler({ state: "unprovisioned", ssid: null, ip_address: null }),
+    getGetStatusApiV1SystemStatusGetMockHandler({
+      ...BASE_SYSTEM_STATUS, wifi_setup: { mode: "active", screen: "scanning" },
+    }),
+  );
+  renderWithProviders(<DashboardStatusCard />);
+  expect(await screen.findByText("Setting up Wi-Fi with QR")).toBeInTheDocument();
+});

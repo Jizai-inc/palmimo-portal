@@ -44,7 +44,7 @@ export function AppsListPanel() {
     query: {
       refetchInterval: (query) => {
         const apps = query.state.data?.apps ?? [];
-        return apps.some((app) => shouldPollAppStatus(app.status)) ? ACTIVE_POLL_INTERVAL_MS : false;
+        return apps.some((app) => app.wifi_setup_preempted || shouldPollAppStatus(app.status)) ? ACTIVE_POLL_INTERVAL_MS : false;
       },
     },
   });
@@ -273,6 +273,9 @@ function AppRow({
         </div>
         {app.name !== appIdNamePart(app.id) ? <p className="truncate text-xs text-muted-foreground">{app.name}</p> : null}
         <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{formatSourceSummary(app.source)}</p>
+        {app.wifi_setup_preempted ? (
+          <p className="text-sm text-muted-foreground">{t("apps.wifiSetupPreempted")}</p>
+        ) : null}
         <ApiErrorAlert error={rowError} />
       </div>
       <div className="flex shrink-0 flex-wrap gap-2" title={startDisabledTitle}>

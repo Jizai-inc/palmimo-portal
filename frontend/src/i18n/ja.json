@@ -532,7 +532,8 @@
     "jobCompleted": "完了しました",
     "defaultBadge": "デフォルト",
     "missingKeysBadge": "API キーが必要",
-    "emptyStateBody": "公式アプリから始めるか、GitHub リポジトリや zip ファイルから自分のアプリを追加しましょう。"
+    "emptyStateBody": "公式アプリから始めるか、GitHub リポジトリや zip ファイルから自分のアプリを追加しましょう。",
+    "wifiSetupPreempted": "Wi-Fi 設定のため停止中。LAN に戻ると再開します。"
   },
   "appAdd": {
     "continueButton": "次へ",
@@ -688,5 +689,9 @@
   },
   "developer": {
     "pageDescription": "SSH アクセスと、非公開アプリ用の Git 認証情報"
+  },
+  "wifiQr": {
+    "title": "QR で Wi-Fi を設定中",
+    "body": "スマートフォンの Wi-Fi 共有 QR コードを機体のカメラに見せてください。"
   }
 }

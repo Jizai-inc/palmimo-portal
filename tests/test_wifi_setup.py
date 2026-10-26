@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from palmimo_portal.adapters.wifi_qr_socket import WifiQrSocketClient
-from palmimo_portal.core.apps_start import AppBusyError, StartDeps, start_app
+from palmimo_portal.core.apps_start import AppBusyError, AppJobInProgressStartError, StartDeps, start_app
 from palmimo_portal.core.wifi_attempt_manager import AttemptInProgressError
 from palmimo_portal.core.wifi_setup import WifiSetup, WifiSetupApps
 from palmimo_portal.ports import (
@@ -554,3 +554,100 @@ def test_setup_attempts_stop_even_when_exit_status_read_fails(rig: Rig) -> None:
     rig.setup.stop("app")
     assert "stop" in rig.unit.calls
     assert rig.setup.status().mode == "idle"
+
+
+def test_setup_startup_stop_budget_includes_stop_call(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> None:
+    def stop() -> None:
+        rig.clock.monotonic_value += 4
+
+    monkeypatch.setattr(rig.unit, "stop", stop)
+    monkeypatch.setattr(rig.unit, "status", lambda: WifiQrUnitStatus("deactivating"))
+    rig.setup.startup()
+    assert rig.clock.monotonic() == pytest.approx(6)
+    assert rig.setup.status().mode == "idle"
+
+
+@pytest.mark.parametrize(
+    "failure,mode",
+    [
+        (WifiQrUnitMissingError(), "unavailable"),
+        (PolkitDeniedError("palmimo-wifi-qr.service", "start"), "backoff"),
+    ],
+)
+def test_setup_restores_app_when_start_fails_after_preemption(
+    rig: Rig,
+    failure: Exception,
+    mode: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig.adapters.app_unit.simulate_active_state("face", UnitStatus("active", "running", "success", 0))
+
+    def start() -> None:
+        raise failure
+
+    monkeypatch.setattr(rig.unit, "start", start)
+    rig.setup.tick()
+    rig.advance(6)
+    assert rig.setup.status().mode == mode
+    assert rig.adapters.app_unit.stop_calls == ["face"]
+    rig.setup.tick()
+    assert rig.adapters.app_unit.start_calls == ["face"]
+    assert rig.adapters.state.read_preempted_app() == PreemptedApp(None, "wifi-setup", hold=True)
+
+
+@pytest.mark.parametrize("failure", [AppBusyError(), AppJobInProgressStartError()])
+def test_setup_retries_app_recovery_on_next_poll(rig: Rig, failure: Exception) -> None:
+    rig.active()
+    rig.adapters.state.write_preempted_app(PreemptedApp("face", "wifi-setup"))
+    rig.unit.unit_status = WifiQrUnitStatus("failed", "loaded", "exit-code", 1, 75)
+    rig.setup.tick()
+    rig.adapters.app_unit.raise_on_start = failure
+    rig.setup.tick()
+    assert rig.adapters.state.read_preempted_app() == PreemptedApp("face", "wifi-setup")
+    rig.adapters.app_unit.raise_on_start = None
+    rig.setup.tick()
+    assert rig.adapters.app_unit.start_calls == ["face", "face"]
+    assert rig.adapters.state.read_preempted_app() == PreemptedApp(None, "wifi-setup", hold=True)
+
+
+def test_setup_lan_clears_hold_and_later_ap_preempts_again(rig: Rig) -> None:
+    rig.active()
+    start_app(replace(rig.setup.apps.deps, before_start=rig.setup.before_app_start), "face", host="robot")
+    assert rig.adapters.state.read_preempted_app() == PreemptedApp(None, "wifi-setup", hold=True)
+    rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTED, "home", "192.0.2.1")
+    rig.setup.tick()
+    assert rig.adapters.state.read_preempted_app() is None
+    rig.adapters.network.status = WifiStatus(ConnectionState.UNPROVISIONED, None, None)
+    rig.setup.tick()
+    rig.advance(6)
+    assert rig.adapters.app_unit.stop_calls == ["face"]
+    assert rig.setup.status().mode == "starting"
+
+
+def test_setup_stopping_discards_delayed_trial_start(
+    rig: Rig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entered = threading.Event()
+    release = threading.Event()
+
+    def start(*args: Any) -> str:
+        entered.set()
+        assert release.wait(2)
+        return "late-trial"
+
+    monkeypatch.setattr(rig.adapters.wifi_attempts, "start_wifi_attempt", start)
+    rig.active()
+    thread = threading.Thread(target=lambda: rig.setup.on_message({"type": "qr", "text": "WIFI:S:home;P:password;;"}))
+    thread.start()
+    try:
+        assert entered.wait(2)
+        assert rig.setup.status().screen == "connecting"
+        rig.setup.stop("app")
+        release.set()
+    finally:
+        release.set()
+        thread.join(2)
+    assert not thread.is_alive()
+    assert rig.setup.status().mode == "idle"
+    assert rig.setup.status().screen is None

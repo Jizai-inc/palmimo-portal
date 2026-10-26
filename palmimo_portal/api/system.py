@@ -62,6 +62,11 @@ class RunningAppInfo(BaseModel):
     state: Literal["running", "starting", "stopping"]
 
 
+class WifiSetupInfo(BaseModel):
+    mode: str
+    screen: str | None
+
+
 class SystemStatus(BaseModel):
     state: str
     hostname: str
@@ -74,6 +79,7 @@ class SystemStatus(BaseModel):
     ntp_synchronized: bool
     disk_free_bytes: int
     running_app: RunningAppInfo | None = None
+    wifi_setup: WifiSetupInfo | None = None
 
 
 def _running_app_for(request: Request, app_unit: AppUnitPort, state: StateStore) -> RunningAppInfo | None:
@@ -148,6 +154,7 @@ def get_status(
     auth_state = compute_auth_state(state.auth_state(), identity)
     last_attempt = state.read_last_wifi_attempt()
     settings: Settings = request.app.state.settings
+    wifi_setup = request.app.state.wifi_setup.status()
     return SystemStatus(
         state=wifi_status.state.value,
         hostname=socket.gethostname(),
@@ -169,6 +176,7 @@ def get_status(
         ntp_synchronized=clock.ntp_synchronized(),
         disk_free_bytes=disk.free_bytes(settings.state_dir),
         running_app=_running_app_for(request, app_unit, state),
+        wifi_setup=WifiSetupInfo(mode=wifi_setup.mode, screen=wifi_setup.screen),
     )
 
 

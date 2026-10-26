@@ -7,6 +7,7 @@
 import type { RunningAppInfo } from './runningAppInfo';
 import type { VersionInfo } from './versionInfo';
 import type { WifiAttemptInfo } from './wifiAttemptInfo';
+import type { WifiSetupInfo } from './wifiSetupInfo';
 
 export interface SystemStatus {
   adapters: string;
@@ -20,4 +21,5 @@ export interface SystemStatus {
   state: string;
   state_dir: string;
   versions: VersionInfo;
+  wifi_setup?: WifiSetupInfo | null;
 }

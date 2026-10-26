@@ -532,7 +532,8 @@
     "jobCompleted": "Completed",
     "defaultBadge": "Default",
     "missingKeysBadge": "Needs API key",
-    "emptyStateBody": "Start with an official app, or add your own from a GitHub repository or zip file."
+    "emptyStateBody": "Start with an official app, or add your own from a GitHub repository or zip file.",
+    "wifiSetupPreempted": "Stopped for Wi-Fi setup. Restarts when connected to the LAN."
   },
   "appAdd": {
     "continueButton": "Continue",
@@ -688,5 +689,9 @@
   },
   "developer": {
     "pageDescription": "SSH access and Git credentials for private apps"
+  },
+  "wifiQr": {
+    "title": "Setting up Wi-Fi with QR",
+    "body": "Show your phone’s Wi-Fi sharing QR code to the robot’s camera."
   }
 }

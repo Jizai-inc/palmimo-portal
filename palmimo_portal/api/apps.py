@@ -298,6 +298,7 @@ class AppSummary(BaseModel):
     reason: str | None = None
     url: str | None = None
     missing_env: list[str] = Field(default_factory=list)
+    wifi_setup_preempted: bool = False
 
 
 class AppsListResponse(BaseModel):
@@ -612,6 +613,7 @@ def _summary(
 ) -> AppSummary:
     status, exit_code, reason = _run_status(record, state, app_unit, deps.run_dir, deps.state)
     url = resolve_running_url(deps, record, host=host) if status == "running" else None
+    preempted = deps.state.read_preempted_app()
     return AppSummary(
         name=record.name,
         id=record.id,
@@ -628,6 +630,12 @@ def _summary(
         reason=reason,
         url=url,
         missing_env=_missing_env(record, _snapshot_manifest(record), deps.apps_job_ctx.secrets, registered),
+        wifi_setup_preempted=bool(
+            status == "stopped"
+            and preempted is not None
+            and preempted.by == "wifi-setup"
+            and preempted.preempted_app == record.id
+        ),
     )
 
 

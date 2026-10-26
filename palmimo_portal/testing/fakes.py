@@ -1179,6 +1179,8 @@ class FakeAdapterBundle:
     wifi_profiles: FakeWifiProfilePort
     comitup_service: FakeComitupServicePort
     wifi_attempts: WifiAttemptManager
+    wifi_qr_unit: FakeWifiQrUnitPort
+    wifi_qr_client: FakeWifiQrClientFactory
     system: FakeSystemPort
     ssh_keys: FakeSshKeyPort
     state: FakeStateStore
@@ -1313,3 +1315,49 @@ class FakeWifiQrUnitPort:
     def status(self) -> WifiQrUnitStatus:
         self._check("status")
         return self.unit_status
+
+
+@dataclass
+class FakeWifiQrClient:
+    on_message: Callable[[dict[str, Any]], None]
+    on_disconnect: Callable[[], None]
+    messages: list[dict[str, Any]] = field(default_factory=list)
+    connected: bool = False
+    closed: bool = False
+    connect_error: Exception | None = None
+    send_error: Exception | None = None
+
+    def connect(self) -> None:
+        if self.connect_error is not None:
+            raise self.connect_error
+        self.connected = True
+
+    def send(self, message: dict[str, Any]) -> bool:
+        if self.send_error is not None:
+            raise self.send_error
+        if self.closed or not self.connected:
+            raise ConnectionError("Fake reader is disconnected")
+        self.messages.append(message)
+        return True
+
+    def close(self) -> None:
+        self.closed = True
+        self.connected = False
+        self.on_disconnect()
+
+    def emit(self, message: dict[str, Any]) -> None:
+        self.on_message(message)
+
+
+@dataclass
+class FakeWifiQrClientFactory:
+    clients: list[FakeWifiQrClient] = field(default_factory=list)
+
+    def __call__(
+        self,
+        message: Callable[[dict[str, Any]], None],
+        disconnected: Callable[[], None],
+    ) -> FakeWifiQrClient:
+        client = FakeWifiQrClient(message, disconnected)
+        self.clients.append(client)
+        return client

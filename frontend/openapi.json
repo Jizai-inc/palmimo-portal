@@ -575,6 +575,11 @@
               }
             ],
             "title": "Url"
+          },
+          "wifi_setup_preempted": {
+            "default": false,
+            "title": "Wifi Setup Preempted",
+            "type": "boolean"
           }
         },
         "required": [
@@ -2041,6 +2046,16 @@
           },
           "versions": {
             "$ref": "#/components/schemas/VersionInfo"
+          },
+          "wifi_setup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WifiSetupInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2354,6 +2369,31 @@
           "secured"
         ],
         "title": "WifiNetworkResponse",
+        "type": "object"
+      },
+      "WifiSetupInfo": {
+        "properties": {
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "screen": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Screen"
+          }
+        },
+        "required": [
+          "mode",
+          "screen"
+        ],
+        "title": "WifiSetupInfo",
         "type": "object"
       },
       "WifiStatusResponse": {

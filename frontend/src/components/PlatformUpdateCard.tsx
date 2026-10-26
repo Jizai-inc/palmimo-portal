@@ -12,6 +12,18 @@ import { formatUtcTimestamp } from "@/lib/formatTimestamp";
 import { usePlatformUpdate } from "@/lib/usePlatformUpdate";
 import { useRetryCountdown } from "@/lib/useRetryCountdown";
 
+function firmwareResult(value: unknown): { result: string; reason?: string; after?: string } | null {
+  if (!value || typeof value !== "object") return null;
+  const state = value as Record<string, unknown>;
+  const result = typeof state.last_result === "string" ? state.last_result : state.result;
+  if (typeof result !== "string") return null;
+  return {
+    result,
+    reason: typeof state.last_reason === "string" ? state.last_reason : typeof state.reason === "string" ? state.reason : undefined,
+    after: typeof state.after === "string" ? state.after : undefined,
+  };
+}
+
 /**
  * `platform.latest_error`'s two named codes get their own message; anything else (``no_release``,
  * a missing release asset, or any other fetch/parse failure -- see `core/platform.py`'s
@@ -43,7 +55,7 @@ export function PlatformUpdateCard({
   portalUpdateRunning?: boolean;
 }) {
   const { t } = useTranslation();
-  const { platform, platformError, job, startUpdate, starting, startError, checkNow, checking, checkError } =
+  const { platform, platformError, job, displayFirmware, repairFirmware, repairingFirmware, repairError, startUpdate, starting, startError, checkNow, checking, checkError } =
     usePlatformUpdate();
   const checkErrorShown = useRetryCountdown(checkError);
 
@@ -51,6 +63,18 @@ export function PlatformUpdateCard({
     return <ApiErrorAlert error={platformError} />;
   }
 
+  const firmware = firmwareResult(displayFirmware ?? platform.display_firmware);
+  const firmwareWarning = firmware && ["busy", "failed", "interrupted", "skipped"].includes(firmware.result);
+  const firmwareMessages: Record<string, string> = {
+    absent: t("update.displayFirmwareAbsent"),
+    current: t("update.displayFirmwareCurrent"),
+    updated: t("update.displayFirmwareUpdated"),
+    undeclared: t("update.displayFirmwareUndeclared"),
+  };
+  const firmwareMessage = firmwareWarning
+    ? firmware.result === "skipped" ? t("update.displayFirmwarePaused") : t("update.displayFirmwareRetry")
+    : firmware ? firmwareMessages[firmware.result] : null;
+  const firmwareRunning = job?.state === "running" && job.step === "display_firmware";
   const latestKnown = platform.latest !== null;
   const upToDate = latestKnown && platform.installed_version !== null && platform.latest!.version <= platform.installed_version;
   const updateAvailable = latestKnown && !upToDate;
@@ -115,13 +139,33 @@ export function PlatformUpdateCard({
           ) : null}
           {job?.state === "running" ? (
             <div className="flex flex-col gap-2 rounded-lg bg-muted p-3">
-              <ProgressBar label={t("common.inProgress")} />
+              {firmwareRunning ? <p className="text-sm">{t("update.displayFirmwareWriting")}</p> : null}
+              <ProgressBar label={t(firmwareRunning ? "update.displayFirmwareWriting" : "common.inProgress")} />
             </div>
           ) : job?.state === "failed" ? (
             <Alert variant="destructive">
               <AlertDescription>{job.error ?? t("errors.install_failed")}</AlertDescription>
             </Alert>
           ) : null}
+          {!firmwareRunning && firmware ? (
+            <Alert variant={firmwareWarning ? "destructive" : "default"}>
+              <AlertDescription>
+                {firmwareMessage}
+                {firmware.reason ? ` ${firmware.reason}` : null}
+                {firmware.after ? ` (${firmware.after})` : null}
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          <Button
+            variant="outline"
+            className="w-fit"
+            onClick={repairFirmware}
+            disabled={!platform.display_firmware_available || repairingFirmware || starting || job?.state === "running" || portalUpdateRunning}
+          >
+            {t("update.displayFirmwareRepair")}
+          </Button>
+          <ApiErrorAlert error={repairError} />
+
           {legacyLedgerError ? (
             <Alert>
               <AlertDescription>{t("update.platformLegacyLedger")}</AlertDescription>

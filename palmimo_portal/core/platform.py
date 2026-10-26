@@ -10,7 +10,7 @@ Two independent pieces:
   2.8 pipeline: ``fetch -> verify_sha -> extract`` (:class:`~palmimo_portal.ports.PlatformBundleSource`),
   ``preflight`` (this module, reading the freshly-extracted ``manifest.json``),
   ``install -> verify -> record`` (:class:`~palmimo_portal.ports.PlatformPort`),
-  then a best-effort ``restart`` if the manifest asks for one.
+  then best-effort display firmware maintenance and a ``restart`` if requested.
 
 Unlike :mod:`palmimo_portal.core.update_runner`, a platform job's success is
 decided entirely by its own ``record`` step, *before* ``restart_portal`` is
@@ -28,6 +28,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,7 @@ from palmimo_portal.core.platform_update import advance, mark_done, mark_failed,
 from palmimo_portal.core.update import CHECK_RATE_LIMIT_SECONDS
 from palmimo_portal.ports import (
     AdapterUnavailableError,
+    DisplayFirmwareResult,
     PlatformBundleFetchError,
     PlatformBundleSource,
     PlatformCommandError,
@@ -340,6 +342,7 @@ class PlatformUpdateRunner:
         *,
         portal_installed_version: str,
         on_finish: Callable[[], None] | None = None,
+        display_firmware: Callable[[], DisplayFirmwareResult] | None = None,
     ) -> None:
         self._state = state_store
         self._bundle_source = bundle_source
@@ -350,6 +353,7 @@ class PlatformUpdateRunner:
         #: Called once, unconditionally, at the end of `run` -- lets a caller (api/app.py)
         #: refresh its cached readiness snapshot without this module knowing about FastAPI.
         self._on_finish = on_finish
+        self._display_firmware = display_firmware
 
     def run(self, tag: str, target_version: int) -> None:
         """Run the whole pipeline for *tag*/*target_version* synchronously, in the caller's thread.
@@ -465,6 +469,7 @@ class PlatformUpdateRunner:
             shutil.rmtree(staging_parent, ignore_errors=True)
             return False
 
+        self.run_display_firmware(on_step)
         self._state.write_platform_update_state(mark_done(self._state.read_platform_update_state(), time.time()))
         shutil.rmtree(staging_parent, ignore_errors=True)
 
@@ -472,6 +477,33 @@ class PlatformUpdateRunner:
             on_step("restart")
             return True
         return False
+
+    def run_display_firmware(self, on_step: Callable[[str], None]) -> None:
+        try:
+            if not self._platform_port.has_display_firmware_tool():
+                return
+            on_step("display_firmware")
+            if self._display_firmware is not None:
+                result = self._display_firmware()
+            else:
+                with self._state.lock_run():
+                    result = self._platform_port.ensure_display_firmware()
+        except Exception as error:
+            logger.exception("display-firmware: stage failed")
+            result = DisplayFirmwareResult(result="failed", reason=str(error))
+        try:
+            logger.info(
+                "display-firmware: result=%s before=%s after=%s reason=%s",
+                result.result,
+                result.before,
+                result.after,
+                result.reason,
+            )
+            self._state.write_platform_update_state(
+                replace(self._state.read_platform_update_state(), display_firmware=result)
+            )
+        except Exception:
+            logger.exception("display-firmware: could not persist result")
 
 
 class PlatformJobRunner:
@@ -491,7 +523,7 @@ class PlatformJobRunner:
         self._updater = updater
         self._run_in_thread = run_in_thread
 
-    def start(self, tag: str, target_version: int) -> None:
+    def start(self, tag: str | None, target_version: int | None) -> None:
         """Transition the job to ``"running"`` and start the pipeline, or raise if one is already in flight.
 
         Raises:
@@ -510,6 +542,8 @@ class PlatformJobRunner:
         try:
             state = self._state.read_platform_update_state()
             new_state = start_update(state, target_version, time.time())
+            if tag is None:
+                new_state = advance(new_state, "display_firmware")
             self._state.write_platform_update_state(new_state)
         except BaseException:
             lock_cm.__exit__(None, None, None)
@@ -518,7 +552,18 @@ class PlatformJobRunner:
 
         def run() -> None:
             try:
-                self._updater.run(tag, target_version)
+                if tag is None:
+                    self._updater.run_display_firmware(
+                        lambda step: self._state.write_platform_update_state(
+                            advance(self._state.read_platform_update_state(), step)
+                        )
+                    )
+                    self._state.write_platform_update_state(
+                        mark_done(self._state.read_platform_update_state(), time.time())
+                    )
+                else:
+                    assert target_version is not None
+                    self._updater.run(tag, target_version)
             finally:
                 lock_cm.__exit__(None, None, None)
                 apps_lock_cm.__exit__(None, None, None)

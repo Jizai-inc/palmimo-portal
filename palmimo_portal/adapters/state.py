@@ -11,8 +11,8 @@ Schema::
                                    is present (0600)
 
 Directory creation is left to the caller (systemd's ``StateDirectory=`` on
-the real device; a test fixture here); this adapter only writes inside a
-directory it is given, other than :func:`preflight_state_dir`'s startup check.
+the real device; a test fixture here). Runtime preemption uses the separate
+``preempt_path`` supplied to the constructor.
 
 ``last_attempt.json`` is not security-bearing: every read tolerates a
 missing, corrupt, or wrong-shaped file as absent, and a write simply
@@ -68,9 +68,11 @@ from palmimo_portal.ports import (
     CatalogApp,
     CatalogCacheState,
     CatalogEnvSpec,
+    DisplayFirmwareResult,
     PlatformJob,
     PlatformLockTimeoutError,
     PlatformUpdateState,
+    PreemptedApp,
     Release,
     RunLockTimeoutError,
     StateStore,
@@ -201,7 +203,8 @@ class JsonFileStateStore(StateStore):
     never leaves a truncated or briefly world-readable file.
     """
 
-    def __init__(self, state_dir: Path) -> None:
+    def __init__(self, state_dir: Path, *, preempt_path: Path = Path("/run/palmimo/preempt.json")) -> None:
+        self._preempt_path = preempt_path
         self._state_dir = state_dir
         self._apps_state_lock = threading.Lock()
 
@@ -291,6 +294,29 @@ class JsonFileStateStore(StateStore):
         finally:
             os.close(fd)
 
+    def read_preempted_app(self) -> PreemptedApp | None:
+        try:
+            data = json.loads(self._preempt_path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("invalid preempt record")
+            app = data["preempted_app"]
+            if app is not None and not isinstance(app, str):
+                raise ValueError("invalid preempted app")
+            if data["by"] not in {"display-firmware", "wifi-setup"} or not isinstance(data["hold"], bool):
+                raise ValueError("invalid preempt owner or hold")
+            return PreemptedApp(app, data["by"], data["hold"])
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            logger.warning("cannot read preempt record: %s", error)
+            return None
+
+    def write_preempted_app(self, record: PreemptedApp | None) -> None:
+        if record is None:
+            self._preempt_path.unlink(missing_ok=True)
+        else:
+            atomic_write_text(self._preempt_path, json.dumps(asdict(record)))
+
     @staticmethod
     def _parse_platform_update_state(text: str) -> PlatformUpdateState:
         data: Any = json.loads(text)
@@ -309,7 +335,12 @@ class JsonFileStateStore(StateStore):
                 error=job.get("error"),
                 started_at=job.get("started_at"),
                 finished_at=job.get("finished_at"),
-            )
+            ),
+            display_firmware=(
+                DisplayFirmwareResult.from_payload(data["display_firmware"])
+                if data.get("display_firmware") is not None
+                else None
+            ),
         )
 
     def read_platform_update_state(self) -> PlatformUpdateState:
@@ -334,7 +365,8 @@ class JsonFileStateStore(StateStore):
                 "error": state.job.error,
                 "started_at": state.job.started_at,
                 "finished_at": state.job.finished_at,
-            }
+            },
+            "display_firmware": asdict(state.display_firmware) if state.display_firmware is not None else None,
         }
         try:
             atomic_write_text(self._platform_update_state_path, json.dumps(payload))

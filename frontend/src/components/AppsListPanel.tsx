@@ -91,6 +91,9 @@ export function AppsListPanel() {
 
   return (
     <div className="flex flex-col gap-4">
+      {platformJob?.state === "running" && platformJob.step === "display_firmware" ? (
+        <Alert><AlertDescription>{t("update.displayFirmwareWriting")}</AlertDescription></Alert>
+      ) : null}
       {platform && !ready ? (
         <div className="flex flex-col gap-3 rounded-xl border border-warning-border bg-warning-soft p-4 text-sm text-warning-foreground sm:flex-row sm:items-center">
           <Info className="hidden size-4 shrink-0 sm:block" aria-hidden />

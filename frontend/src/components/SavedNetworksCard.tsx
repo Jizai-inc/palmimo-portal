@@ -24,6 +24,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { usePlatformUpdate } from "@/lib/usePlatformUpdate";
 
@@ -104,6 +105,10 @@ export function SavedNetworksCard({
     return (
       <section className="flex flex-col gap-2.5">
         <SectionHeader title={t("wifiSettings.savedTitle")} />
+        {job?.state === "running" && job.step === "display_firmware" ? (
+          <Alert><AlertDescription>{t("update.displayFirmwareWriting")}</AlertDescription></Alert>
+        ) : null}
+
         <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-5 py-4 sm:flex-row sm:items-center sm:gap-3.5">
           <Lock className="hidden size-4 shrink-0 text-muted-foreground sm:block" aria-hidden />
           <div className="flex min-w-0 flex-1 flex-col gap-0.5 text-[13px]">
@@ -131,6 +136,9 @@ export function SavedNetworksCard({
         }
       />
     <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
+      {job?.state === "running" && job.step === "display_firmware" ? (
+          <Alert><AlertDescription>{t("update.displayFirmwareWriting")}</AlertDescription></Alert>
+        ) : null}
       <p className="text-sm text-muted-foreground">{t("wifiSettings.savedBody", { hostname })}</p>
       <ApiErrorAlert error={listError ?? reorder.error ?? remove.error ?? activate.error} />
       {saved && items.length === 0 ? (

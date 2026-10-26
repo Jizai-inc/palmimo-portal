@@ -3,6 +3,7 @@ import { cleanup } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, beforeEach } from "vitest";
 
 import i18n from "@/i18n";
+import { HttpResponse, http } from "msw";
 
 import { server } from "./server";
 import { stubMatchMedia } from "./matchMedia";
@@ -28,6 +29,10 @@ beforeAll(async () => {
 // `onUnhandledRequest: "error"` makes an unstubbed request fail loudly
 // instead of hitting the real network. `resetHandlers` after each test drops
 // per-test `server.use(...)` overrides so tests don't leak handlers.
+beforeEach(() => server.use(http.get("*/api/v1/platform/update", () => HttpResponse.json({
+  job: { state: "idle", step: null, target_version: null, error: null, started_at: null, finished_at: null },
+}))));
+
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());

@@ -37,6 +37,7 @@ from palmimo_portal.adapters.static_asset import (
     verify_checksum,
 )
 from palmimo_portal.ports import (
+    DisplayFirmwareResult,
     PlatformBundleFetchError,
     PlatformCommandError,
     PlatformInstalled,
@@ -78,6 +79,37 @@ class SudoPlatformPort(PlatformPort):
     installed_path: Path
     sudo_bin: str = "sudo"
     runner: object = field(default=subprocess.run)
+
+    display_firmware_tool: Path = Path("/usr/local/libexec/palmimo/palmimo-display-firmware")
+    display_firmware_state_path: Path = Path("/var/lib/palmimo/display-firmware/state.json")
+
+    def has_display_firmware_tool(self) -> bool:
+        return self.display_firmware_tool.is_file()
+
+    def ensure_display_firmware(self) -> DisplayFirmwareResult:
+        output = self._run(
+            "display_firmware",
+            [str(self.display_firmware_tool), "ensure", "--json"],
+            command_timeout=600.0,
+            subprocess_timeout=660.0,
+            success_codes=(0, 75, 1, 78),
+        )
+        try:
+            if len(output.strip().splitlines()) != 1:
+                raise ValueError("expected one JSON line")
+            result = DisplayFirmwareResult.from_payload(json.loads(output))
+            if result.result == "interrupted":
+                raise ValueError("unexpected tool result")
+            return result
+        except (ValueError, TypeError) as error:
+            raise PlatformCommandError("display_firmware", f"invalid tool output: {error}") from error
+
+    def read_display_firmware_state(self) -> dict[str, Any] | None:
+        try:
+            payload: Any = json.loads(self.display_firmware_state_path.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else None
+        except (OSError, ValueError):
+            return None
 
     def read_installed(self) -> PlatformInstalled | None:
         if not self.installed_path.is_file():
@@ -157,6 +189,9 @@ class SudoPlatformPort(PlatformPort):
             raise PlatformCommandError(step, f"timed out after {subprocess_timeout:g}s") from error
         except OSError as error:
             raise PlatformCommandError(step, f"failed to start: {error}") from error
+        if step == "display_firmware":
+            for line in (result.stderr or "").splitlines():
+                logger.info("display-firmware: %s", line)
         if result.returncode not in success_codes:
             tail = (result.stderr or "").strip()
             raise PlatformCommandError(step, tail or f"exited {result.returncode}")

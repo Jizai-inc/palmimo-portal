@@ -95,7 +95,7 @@ describe("PlatformUpdateCard", () => {
         return HttpResponse.json({ job: { state: "running", step: "fetch", error: null, started_at: 1, finished_at: null, target_version: 2 } }, { status: 202 });
       }),
       http.get("*/api/v1/platform/update", () =>
-        HttpResponse.json({ job: { state: "running", step: "fetch", error: null, started_at: 1, finished_at: null, target_version: 2 } }),
+        HttpResponse.json({ job: { state: started ? "running" : "idle", step: started ? "fetch" : null, error: null, started_at: started ? 1 : null, finished_at: null, target_version: started ? 2 : null } }),
       ),
     );
     renderWithProviders(<PlatformUpdateCard installedPortalVersion="0.1.0" />);
@@ -169,4 +169,62 @@ describe("PlatformUpdateCard", () => {
 
     expect(await screen.findByText("You just checked for updates. Try again in 12 seconds.")).toBeInTheDocument();
   });
+});
+
+it("restores display firmware progress when the screen is opened", async () => {
+  server.use(
+    http.get("*/api/v1/platform", () => HttpResponse.json({ ...BASE_PLATFORM, display_firmware_available: true })),
+    http.get("*/api/v1/platform/update", () => HttpResponse.json({
+      job: { state: "running", step: "display_firmware", target_version: 2, error: null, started_at: 1, finished_at: null },
+    })),
+  );
+  renderWithProviders(<PlatformUpdateCard />);
+  expect(await screen.findByText(/Writing face firmware/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Repair face firmware" })).toBeDisabled();
+});
+
+it.each(["busy", "failed", "interrupted"])("shows a retry warning for display firmware %s", async (result) => {
+  server.use(
+    http.get("*/api/v1/platform", () => HttpResponse.json(BASE_PLATFORM)),
+    http.get("*/api/v1/platform/update", () => HttpResponse.json({
+      job: { state: "done", step: "display_firmware", target_version: 2, error: null, started_at: 1, finished_at: 2 },
+      display_firmware: { result, reason: "device unavailable" },
+    })),
+  );
+  renderWithProviders(<PlatformUpdateCard />);
+  expect(await screen.findByText(/Face firmware will be retried/)).toHaveTextContent("device unavailable");
+});
+
+it("shows the tool's absent result after a device restart", async () => {
+  server.use(
+    http.get("*/api/v1/platform", () => HttpResponse.json({ ...BASE_PLATFORM, display_firmware: { last_result: "absent", last_reason: null } })),
+  );
+  renderWithProviders(<PlatformUpdateCard />);
+  expect(await screen.findByText("No face display was found.")).toBeInTheDocument();
+});
+
+it("runs manual face firmware repair without starting a platform install", async () => {
+  let repairs = 0;
+  const user = userEvent.setup();
+  server.use(
+    http.get("*/api/v1/platform", () => HttpResponse.json({ ...BASE_PLATFORM, display_firmware_available: true })),
+    http.post("*/api/v1/platform/display-firmware", () => {
+      repairs += 1;
+      return HttpResponse.json({ job: { state: "running", step: "display_firmware", target_version: null, error: null, started_at: 1, finished_at: null } }, { status: 202 });
+    }),
+  );
+  renderWithProviders(<PlatformUpdateCard />);
+  await user.click(await screen.findByRole("button", { name: "Repair face firmware" }));
+  await waitFor(() => expect(repairs).toBe(1));
+});
+
+it("shows the boot tool's last reason when automatic repair is paused", async () => {
+  server.use(http.get("*/api/v1/platform", () => HttpResponse.json({
+    ...BASE_PLATFORM,
+    display_firmware: { last_result: "skipped", last_reason: "three flash failures" },
+    display_firmware_available: true,
+  })));
+  renderWithProviders(<PlatformUpdateCard />);
+  expect(await screen.findByText(/Automatic face firmware repair is paused/)).toHaveTextContent("three flash failures");
+  expect(screen.getByRole("button", { name: "Repair face firmware" })).toBeEnabled();
 });

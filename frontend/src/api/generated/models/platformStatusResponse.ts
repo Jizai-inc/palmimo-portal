@@ -5,9 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { PlatformLatestInfo } from './platformLatestInfo';
+import type { PlatformStatusResponseDisplayFirmware } from './platformStatusResponseDisplayFirmware';
 import type { PlatformVerifyDiffInfo } from './platformVerifyDiffInfo';
 
 export interface PlatformStatusResponse {
+  display_firmware?: PlatformStatusResponseDisplayFirmware;
+  display_firmware_available?: boolean;
   installed_at: string | null;
   installed_version: number | null;
   latest: PlatformLatestInfo | null;

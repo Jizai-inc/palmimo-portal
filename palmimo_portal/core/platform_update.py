@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from palmimo_portal.ports import PlatformJob, PlatformUpdateState
+from palmimo_portal.ports import DisplayFirmwareResult, PlatformJob, PlatformUpdateState
 
 
 IDLE_PLATFORM_JOB = PlatformJob(
@@ -30,7 +30,7 @@ class PlatformUpdateInProgressError(Exception):
     """Raised by :func:`start_update` when a platform job is already running."""
 
 
-def start_update(state: PlatformUpdateState, target_version: int, now: float) -> PlatformUpdateState:
+def start_update(state: PlatformUpdateState, target_version: int | None, now: float) -> PlatformUpdateState:
     """Begin applying ``target_version``, or raise if a job is already in flight.
 
     Raises:
@@ -47,34 +47,38 @@ def start_update(state: PlatformUpdateState, target_version: int, now: float) ->
 
 def advance(state: PlatformUpdateState, step: str) -> PlatformUpdateState:
     """Record that the running job has reached ``step``."""
-    return PlatformUpdateState(job=replace(state.job, step=step))
+    return replace(state, job=replace(state.job, step=step))
 
 
 def mark_done(state: PlatformUpdateState, now: float) -> PlatformUpdateState:
-    """Record that the running job's ``record`` step succeeded."""
-    return PlatformUpdateState(job=replace(state.job, state="done", error=None, finished_at=now))
+    """Firmware failure does not change platform readiness or job success."""
+    return replace(state, job=replace(state.job, state="done", error=None, finished_at=now))
 
 
 def mark_failed(state: PlatformUpdateState, step: str, error: str, now: float) -> PlatformUpdateState:
     """Record that the running job failed at ``step``."""
-    return PlatformUpdateState(job=replace(state.job, state="failed", step=step, error=error, finished_at=now))
+    return replace(state, job=replace(state.job, state="failed", step=step, error=error, finished_at=now))
 
 
 def finalize_after_restart(state: PlatformUpdateState, now: float) -> PlatformUpdateState:
-    """Fail a ``"running"`` job left over from a process that died before finishing it.
-
-    Called once at Portal startup. A job in ``"idle"``/``"done"``/``"failed"``
-    is returned unchanged.
-    """
+    """An interrupted firmware stage completes the platform job; earlier interrupted stages fail it."""
     if state.job.state != "running":
         return state
+    if state.job.step == "display_firmware":
+        return replace(
+            mark_done(state, now),
+            display_firmware=DisplayFirmwareResult(
+                result="interrupted", reason="Portal restarted during display firmware update"
+            ),
+        )
     job = state.job
-    return PlatformUpdateState(
+    return replace(
+        state,
         job=replace(
             job,
             state="failed",
             step=job.step or "fetch",
             error="interrupted: the Portal restarted before this job finished",
             finished_at=now,
-        )
+        ),
     )

@@ -368,7 +368,16 @@
     "platformDescription": "Palmimo のアプリが動作するシステムソフトウェアです。",
     "platformRequiredTitle": "更新が必要",
     "platformRequiredBody": "アプリ、保存済みネットワーク、SDK にはより新しいバージョンが必要です。",
-    "platformCheckFailedTitle": "更新を確認できませんでした"
+    "platformCheckFailedTitle": "更新を確認できませんでした",
+    "displayFirmwareWriting": "顔のファームを書き込み中（約 3 分）。電源を切らないでください",
+    "displayFirmwareRetry": "顔のファームは次に起動したときに書き直します。",
+    "displayFirmwareAbsent": "顔ディスプレイは見つかりませんでした。",
+    "displayFirmwareUpdated": "顔のファームを更新しました。",
+    "displayFirmwareCurrent": "顔のファームは最新です。",
+    "displayFirmwareUndeclared": "このプラットフォームには顔のファームが含まれていません。",
+    "displayFirmwareRepair": "顔のファームを書き直す",
+    "platformUpdating": "プラットフォームの更新中です。完了してからもう一度お試しください。",
+    "displayFirmwarePaused": "顔のファームの自動修復は停止しています。「顔のファームを書き直す」から再試行してください。"
   },
   "errors": {
     "app_broken": "このアプリのファイルが見つからないか壊れています。再インストールしてください。",

@@ -69,6 +69,7 @@ from palmimo_portal.core.apps_start import (
 )
 from palmimo_portal.core.auth import SESSION_COOKIE_NAME, LoginRateLimiter, ResetRateLimiter, decode_session
 from palmimo_portal.core.catalog import CatalogCache
+from palmimo_portal.core.display_firmware import restore_preempted_app, run_display_firmware
 from palmimo_portal.core.periodic import build_scheduler
 from palmimo_portal.core.platform import (
     PlatformJobRunner,
@@ -518,7 +519,18 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:
         logger.exception("Wi-Fi startup recovery could not start")
 
-    if app.state.settings.autostart_enabled:
+    skip_autostart = False
+    try:
+        skip_autostart = await anyio.to_thread.run_sync(
+            lambda: restore_preempted_app(
+                app.state.start_deps, connected=adapters.network.get_status().state.value == "connected"
+            )
+        )
+    except Exception:
+        skip_autostart = True
+        logger.exception("preempt: startup recovery failed")
+
+    if app.state.settings.autostart_enabled and not skip_autostart:
         try:
             await anyio.to_thread.run_sync(_run_autostart, app)
         except Exception:
@@ -688,6 +700,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.platform_dir,
         portal_installed_version=portal_version(),
         on_finish=lambda: _refresh_platform_readiness(app),
+        display_firmware=lambda: run_display_firmware(app.state.start_deps, adapters.platform),
     )
     app.state.platform_job_runner = PlatformJobRunner(
         adapters.state, app.state.platform_update_runner, run_in_thread=bool(settings.apps_run_in_thread)

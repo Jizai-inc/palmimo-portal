@@ -369,3 +369,126 @@ def test_startup_finalize_marks_an_interrupted_platform_job_as_failed(
     job = response.json()["job"]
     assert job["state"] == "failed"
     assert job["step"] == "install"
+
+
+def test_manual_display_firmware_job_reports_result(
+    client: TestClient,
+    adapters: FakeAdapterBundle,
+) -> None:
+    client = _authenticated_client(client, adapters)
+    adapters.platform.display_firmware_available = True
+    response = client.post("/api/v1/platform/display-firmware", headers=CSRF_HEADERS)
+    assert response.status_code == 202
+    assert response.json()["job"]["state"] == "done"
+    assert response.json()["display_firmware"]["result"] == "current"
+    assert adapters.platform.display_firmware_calls == 1
+    assert adapters.platform.install_calls == []
+    assert client.get("/api/v1/platform/update").json()["display_firmware"]["result"] == "current"
+
+
+@pytest.mark.parametrize("blocker", ["platform", "portal", "apps"])
+def test_manual_display_firmware_refuses_conflicting_job(
+    client: TestClient,
+    adapters: FakeAdapterBundle,
+    blocker: str,
+) -> None:
+    from contextlib import nullcontext
+
+    client = _authenticated_client(client, adapters)
+    if blocker == "platform":
+        adapters.state.write_platform_update_state(
+            PlatformUpdateState(
+                job=PlatformJob("running", 2, "install", None, 1, None),
+            )
+        )
+    if blocker == "portal":
+        adapters.state.write_update_state(
+            UpdateState(
+                latest=None,
+                checked_at=None,
+                previous_tag=None,
+                job=UpdateJob(
+                    state="running", kind="update", target="v2", step="sync", error=None, started_at=1, finished_at=None
+                ),
+            )
+        )
+    with adapters.state.lock_apps() if blocker == "apps" else nullcontext():
+        response = client.post("/api/v1/platform/display-firmware", headers=CSRF_HEADERS)
+    assert response.status_code == 409
+    assert adapters.platform.display_firmware_calls == 0
+
+
+@pytest.mark.parametrize("action", ["reboot", "shutdown"])
+def test_power_action_refuses_during_display_firmware(
+    client: TestClient,
+    adapters: FakeAdapterBundle,
+    action: str,
+) -> None:
+    client = _authenticated_client(client, adapters)
+    adapters.state.write_platform_update_state(
+        PlatformUpdateState(
+            job=PlatformJob("running", None, "display_firmware", None, 1, None),
+        )
+    )
+    assert client.post(f"/api/v1/system/{action}", headers=CSRF_HEADERS).status_code == 409
+    assert adapters.system.reboot_calls == 0
+    assert adapters.system.shutdown_calls == 0
+
+
+def test_platform_status_exposes_tool_state(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+    adapters.platform.display_firmware_state = {"seen": True, "last_result": {"result": "failed", "reason": "missing"}}
+    assert client.get("/api/v1/platform").json()["display_firmware"] == adapters.platform.display_firmware_state
+
+
+def test_display_firmware_job_holds_app_locks_and_blocks_power_and_updates(
+    app: FastAPI,
+    client: TestClient,
+    adapters: FakeAdapterBundle,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+
+    from palmimo_portal.core.platform import PlatformJobRunner
+    from palmimo_portal.ports import DisplayFirmwareResult
+
+    client = _authenticated_client(client, adapters)
+    _install_app(client)
+    app_id = next(iter(adapters.state.read_apps_state().apps))
+    entered = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+
+    def ensure() -> DisplayFirmwareResult:
+        entered.set()
+        assert release.wait(5)
+        return DisplayFirmwareResult(result="updated", before="legacy", after="1.0.0")
+
+    def completed(state: PlatformUpdateState) -> None:
+        original_write(state)
+        if state.job.state == "done":
+            finished.set()
+
+    original_write = adapters.state.write_platform_update_state
+    monkeypatch.setattr(adapters.state, "write_platform_update_state", completed)
+    monkeypatch.setattr(adapters.platform, "ensure_display_firmware", ensure)
+    adapters.platform.display_firmware_available = True
+    app.state.platform_job_runner = PlatformJobRunner(adapters.state, app.state.platform_update_runner)
+    try:
+        response = client.post("/api/v1/platform/display-firmware", headers=CSRF_HEADERS)
+        assert response.status_code == 202
+        assert entered.wait(5)
+        assert client.get("/api/v1/platform/update").json()["job"]["step"] == "display_firmware"
+        for path in ("system/reboot", "system/shutdown", "platform/display-firmware"):
+            assert client.post(f"/api/v1/{path}", headers=CSRF_HEADERS).status_code == 409
+        assert client.post("/api/v1/update/apply", json={"tag": "v2"}, headers=CSRF_HEADERS).status_code == 409
+        for action, code in (("start", "app_job_in_progress"), ("stop", "app_busy")):
+            response = client.post(f"/api/v1/apps/{app_id}/{action}", headers=CSRF_HEADERS)
+            assert response.status_code == 409
+            assert response.json()["error"]["code"] == code
+    finally:
+        release.set()
+        assert finished.wait(5)
+    state = adapters.state.read_platform_update_state()
+    assert state.job.state == "done"
+    assert state.display_firmware == DisplayFirmwareResult(result="updated", before="legacy", after="1.0.0")

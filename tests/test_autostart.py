@@ -375,3 +375,42 @@ def test_startup_blocks_app_jobs_but_still_finalizes_when_an_orphan_sync_unit_ca
     assert adapters.state.read_apps_state().current_job is None
     with pytest.raises(AppsLockTimeoutError), adapters.state.lock_apps():
         pass
+
+
+@pytest.mark.parametrize("connected", [True, False])
+@pytest.mark.parametrize("by", ["display-firmware", "wifi-setup"])
+def test_startup_recovers_preempted_app_before_autostart(tmp_path: Path, connected: bool, by: str) -> None:
+    from palmimo_portal.core.platform_update import IDLE_PLATFORM_STATE, advance, start_update
+    from palmimo_portal.ports import ConnectionState, PreemptedApp, WifiStatus
+
+    settings = _settings(tmp_path)
+    for name in ("selected", "preempted"):
+        _write_app(settings, name)
+        (settings.apps_dir / name / "palmimo.toml").write_text(
+            f'schema = 1\nname = "{name}"\ndescription = "d"\ncommand = ["run"]\n'
+        )
+    app = create_app(settings)
+    adapters: FakeAdapterBundle = app.state.adapters
+    adapters.state.write_apps_state(
+        AppsState(
+            apps={
+                "selected": _record("selected", autostart=True),
+                "preempted": _record("preempted", autostart=False),
+            }
+        )
+    )
+    record = PreemptedApp("preempted", by, False)
+    adapters.state.write_preempted_app(record)
+    adapters.network.status = WifiStatus(
+        state=ConnectionState.CONNECTED if connected else ConnectionState.UNPROVISIONED,
+        ssid="home" if connected else None,
+        ip_address="192.0.2.1" if connected else None,
+    )
+    adapters.state.write_platform_update_state(advance(start_update(IDLE_PLATFORM_STATE, 2, 1), "display_firmware"))
+    with TestClient(app):
+        assert adapters.app_unit.start_calls == (["preempted"] if connected else [])
+        assert adapters.state.read_preempted_app() == (None if connected else record)
+        state = adapters.state.read_platform_update_state()
+        assert state.job.state == "done"
+        assert state.display_firmware is not None
+        assert state.display_firmware.result == "interrupted"

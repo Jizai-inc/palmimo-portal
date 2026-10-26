@@ -244,6 +244,77 @@ export const useCheckPlatformApiV1PlatformCheckPost = <TError = unknown,
       > => {
       return useMutation(getCheckPlatformApiV1PlatformCheckPostMutationOptions(options), queryClient);
     }
+    export const getRewriteDisplayFirmwareApiV1PlatformDisplayFirmwarePostUrl = () => {
+
+
+
+
+  return `/api/v1/platform/display-firmware`
+}
+
+/**
+ * Check and repair display firmware as a platform job, excluding app jobs and Portal updates.
+ * @summary Rewrite Display Firmware
+ */
+export const rewriteDisplayFirmwareApiV1PlatformDisplayFirmwarePost = async ( options?: RequestInit): Promise<PlatformUpdateAcceptedResponse> => {
+
+  return customFetch<PlatformUpdateAcceptedResponse>(getRewriteDisplayFirmwareApiV1PlatformDisplayFirmwarePostUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRewriteDisplayFirmwareApiV1PlatformDisplayFirmwarePostMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rewriteDisplayFirmwareApiV1PlatformDisplayFirmwarePost>>, TError,void, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof rewriteDisplayFirmwareApiV1PlatformDisplayFirmwarePost>>, TError,void, TContext> => {
+
+const mutationKey = ['rewriteDisplayFirmwareApiV1PlatformDisplayFirmwarePost'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof rewriteDisplayFirmwareApiV1PlatformDisplayFirmwarePost>>, void> = () => {
+
+
+          return  rewriteDisplayFirmwareApiV1PlatformDisplayFirmwarePost()
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RewriteDisplayFirmwareApiV1PlatformDisplayFirmwarePostMutationResult = NonNullable<Awaited<ReturnType<typeof rewriteDisplayFirmwareApiV1PlatformDisplayFirmwarePost>>>
+
+    export type RewriteDisplayFirmwareApiV1PlatformDisplayFirmwarePostMutationError = unknown
+
+    /**
+ * @summary Rewrite Display Firmware
+ */
+export const useRewriteDisplayFirmwareApiV1PlatformDisplayFirmwarePost = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof rewriteDisplayFirmwareApiV1PlatformDisplayFirmwarePost>>, TError,void, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof rewriteDisplayFirmwareApiV1PlatformDisplayFirmwarePost>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getRewriteDisplayFirmwareApiV1PlatformDisplayFirmwarePostMutationOptions(options), queryClient);
+    }
     export const getGetUpdateJobApiV1PlatformUpdateGetUrl = () => {
 
 

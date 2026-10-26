@@ -112,3 +112,69 @@ def test_verify_wraps_install_sh_with_sudo_n_and_a_bounded_timeout_command(tmp_p
         "--root",
         "/",
     ]
+
+
+@pytest.mark.parametrize(
+    ("code", "result"),
+    [
+        (0, "updated"),
+        (0, "current"),
+        (0, "absent"),
+        (0, "undeclared"),
+        (0, "skipped"),
+        (75, "busy"),
+        (1, "failed"),
+        (78, "failed"),
+    ],
+)
+def test_display_firmware_parses_tool_results(tmp_path: Path, code: int, result: str) -> None:
+    import json
+
+    runner = _ScriptedRunner(code, stdout=json.dumps({"result": result, "before": "legacy", "after": None}))
+    port = SudoPlatformPort(installed_path=tmp_path / "installed.json", runner=runner)
+    outcome = port.ensure_display_firmware()
+    assert outcome.result == result
+    assert outcome.before == "legacy"
+
+
+@pytest.mark.parametrize(
+    "stdout",
+    [
+        "not json",
+        "[]",
+        '{"result":"current"}\n{}',
+        '{"result":"unknown"}',
+        '{\n"result":"current"\n}',
+        '{"result":"interrupted"}',
+    ],
+)
+def test_display_firmware_rejects_malformed_tool_output(tmp_path: Path, stdout: str) -> None:
+    port = SudoPlatformPort(installed_path=tmp_path / "installed.json", runner=_ScriptedRunner(0, stdout=stdout))
+    with pytest.raises(PlatformCommandError):
+        port.ensure_display_firmware()
+
+
+@pytest.mark.parametrize("failure", [subprocess.TimeoutExpired("tool", 660), OSError("cannot launch")])
+def test_display_firmware_wraps_execution_errors(tmp_path: Path, failure: Exception) -> None:
+    def run(*args: Any, **kwargs: Any) -> None:
+        raise failure
+
+    port = SudoPlatformPort(installed_path=tmp_path / "installed.json", runner=run)
+    with pytest.raises(PlatformCommandError):
+        port.ensure_display_firmware()
+
+
+def test_display_firmware_detects_missing_tool_and_unreadable_state(tmp_path: Path) -> None:
+    port = SudoPlatformPort(
+        installed_path=tmp_path / "installed.json",
+        display_firmware_tool=tmp_path / "tool",
+        display_firmware_state_path=tmp_path / "state.json",
+    )
+    assert not port.has_display_firmware_tool()
+    assert port.read_display_firmware_state() is None
+    (tmp_path / "tool").touch()
+    assert port.has_display_firmware_tool()
+    (tmp_path / "state.json").write_text('{"last_result":{"result":"current"},"seen":true}')
+    assert port.read_display_firmware_state() == {"last_result": {"result": "current"}, "seen": True}
+    (tmp_path / "state.json").write_text("broken")
+    assert port.read_display_firmware_state() is None

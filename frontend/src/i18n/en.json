@@ -368,7 +368,16 @@
     "platformDescription": "System software Palmimo's apps run on.",
     "platformRequiredTitle": "Update required",
     "platformRequiredBody": "Apps, saved networks and the SDK need a newer version.",
-    "platformCheckFailedTitle": "Couldn't check for updates"
+    "platformCheckFailedTitle": "Couldn't check for updates",
+    "displayFirmwareWriting": "Writing face firmware (about 3 minutes). Do not turn off the power.",
+    "displayFirmwareRetry": "Face firmware will be retried the next time the device starts.",
+    "displayFirmwareAbsent": "No face display was found.",
+    "displayFirmwareUpdated": "Face firmware was updated.",
+    "displayFirmwareCurrent": "Face firmware is up to date.",
+    "displayFirmwareUndeclared": "This platform does not provide face firmware.",
+    "displayFirmwareRepair": "Repair face firmware",
+    "platformUpdating": "The device platform is updating. Try again when it finishes.",
+    "displayFirmwarePaused": "Automatic face firmware repair is paused. Use Repair face firmware to try again."
   },
   "errors": {
     "app_broken": "This app's files are missing or damaged. Reinstall it to continue.",

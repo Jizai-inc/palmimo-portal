@@ -1241,8 +1241,9 @@ def put_default_app(body: DefaultAppRequest, state_store: StateStore = Depends(g
     """Choose the one app started at boot (``null`` for none); see :func:`~palmimo_portal.core.apps_start.default_app`.
 
     Raises:
-        PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while
-            an install/update/delete job targets that app.
+        PortalError: 404 ``app_not_found``; 409 ``app_broken`` (boot never
+            starts a broken app); 409 ``app_job_in_progress`` while an
+            install/update/delete job targets that app.
     """
     _ensure_not_corrupt(state_store)
 
@@ -1250,6 +1251,8 @@ def put_default_app(body: DefaultAppRequest, state_store: StateStore = Depends(g
         if body.id is not None:
             if body.id not in current.apps:
                 raise PortalError(404, "app_not_found")
+            if current.apps[body.id].broken_reason is not None:
+                raise PortalError(409, "app_broken")
             _ensure_no_app_job_in_progress(current, body.id)
         return with_default_app(current, body.id)
 
@@ -1272,8 +1275,9 @@ def put_autostart(
     """Deprecated: use ``PUT /apps/default``. Enabling makes ``name`` the default app; disabling turns only its own flag off.
 
     Raises:
-        PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while
-            an install/update/delete job targets this app.
+        PortalError: 404 ``app_not_found``; 409 ``app_broken`` when enabling a
+            broken app; 409 ``app_job_in_progress`` while an
+            install/update/delete job targets this app.
     """
     _ensure_not_corrupt(state_store)
     state = state_store.read_apps_state()
@@ -1288,6 +1292,8 @@ def put_autostart(
             raise PortalError(404, "app_not_found")
         _ensure_no_app_job_in_progress(current, name)
         if body.enabled:
+            if latest.broken_reason is not None:
+                raise PortalError(409, "app_broken")
             return with_default_app(current, name)
         return replace(current, apps={**current.apps, name: replace(latest, autostart=False)})
 

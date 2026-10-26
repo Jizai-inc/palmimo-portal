@@ -177,8 +177,9 @@ export const getPutDefaultAppApiV1AppsDefaultPutUrl = () => {
  * Choose the one app started at boot (``null`` for none); see :func:`~palmimo_portal.core.apps_start.default_app`.
  *
  * Raises:
- *     PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while
- *         an install/update/delete job targets that app.
+ *     PortalError: 404 ``app_not_found``; 409 ``app_broken`` (boot never
+ *         starts a broken app); 409 ``app_job_in_progress`` while an
+ *         install/update/delete job targets that app.
  * @summary Put Default App
  */
 export const putDefaultAppApiV1AppsDefaultPut = async (defaultAppRequest: DefaultAppRequest, options?: RequestInit): Promise<DefaultAppResponse> => {
@@ -779,8 +780,9 @@ export const getPutAutostartApiV1AppsNameAutostartPutUrl = (name: string,) => {
  * Deprecated: use ``PUT /apps/default``. Enabling makes ``name`` the default app; disabling turns only its own flag off.
  *
  * Raises:
- *     PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while
- *         an install/update/delete job targets this app.
+ *     PortalError: 404 ``app_not_found``; 409 ``app_broken`` when enabling a
+ *         broken app; 409 ``app_job_in_progress`` while an
+ *         install/update/delete job targets this app.
  * @summary Put Autostart
  */
 export const putAutostartApiV1AppsNameAutostartPut = async (name: string,

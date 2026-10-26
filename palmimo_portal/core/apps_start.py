@@ -436,12 +436,12 @@ def missing_env(manifest: Manifest, bindings: dict[str, str], has_secret: Callab
 
 
 def autostart_apps(apps_state: AppsState) -> list[str]:
-    """Ids with ``autostart`` on, in boot order; see :func:`default_app` for what more than one means."""
-    return sorted(name for name, record in apps_state.apps.items() if record.autostart)
+    """Ids boot would start -- ``autostart`` on and not broken -- in boot order; see :func:`default_app` for more than one."""
+    return sorted(name for name, record in apps_state.apps.items() if record.autostart and record.broken_reason is None)
 
 
 def default_app(apps_state: AppsState) -> str | None:
-    """The default app is the one app with ``autostart`` on -- several means the owner must choose.
+    """The default app is the one app :func:`autostart_apps` returns -- several means the owner must choose.
 
     Stored as the existing per-app flag rather than a ledger field so an older
     Portal (after a rollback) still boots the same app.

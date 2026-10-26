@@ -2339,7 +2339,7 @@
     },
     "/api/v1/apps/default": {
       "put": {
-        "description": "Choose the one app started at boot (``null`` for none); see :func:`~palmimo_portal.core.apps_start.default_app`.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while\n        an install/update/delete job targets that app.",
+        "description": "Choose the one app started at boot (``null`` for none); see :func:`~palmimo_portal.core.apps_start.default_app`.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``app_broken`` (boot never\n        starts a broken app); 409 ``app_job_in_progress`` while an\n        install/update/delete job targets that app.",
         "operationId": "put_default_app_api_v1_apps_default_put",
         "requestBody": {
           "content": {
@@ -2574,7 +2574,7 @@
     },
     "/api/v1/apps/{name}/autostart": {
       "put": {
-        "description": "Deprecated: use ``PUT /apps/default``. Enabling makes ``name`` the default app; disabling turns only its own flag off.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while\n        an install/update/delete job targets this app.",
+        "description": "Deprecated: use ``PUT /apps/default``. Enabling makes ``name`` the default app; disabling turns only its own flag off.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``app_broken`` when enabling a\n        broken app; 409 ``app_job_in_progress`` while an\n        install/update/delete job targets this app.",
         "operationId": "put_autostart_api_v1_apps__name__autostart_put",
         "parameters": [
           {

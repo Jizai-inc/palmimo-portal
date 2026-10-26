@@ -6,7 +6,6 @@ import { useTranslation } from "react-i18next";
 import { formatLocalTimestamp } from "@/lib/formatTimestamp";
 import type { ActivityItem } from "@/lib/recentActivity";
 
-/** Via explicit `t(...)` calls so the i18n-parity scan sees every key (see `appStatusLabel`). */
 function activityText(t: TFunction, item: ActivityItem): string {
   if (item.kind === "wifi") {
     return item.ok ? t("home.activityWifiConnected", { ssid: item.ssid }) : t("home.activityWifiFailed", { ssid: item.ssid });

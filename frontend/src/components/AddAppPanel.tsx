@@ -107,7 +107,6 @@ export function AddAppPanel({
   );
 }
 
-/** Via explicit `t(...)` calls so the i18n-parity scan sees every key (see `appStatusLabel`). */
 function tabLabel(t: TFunction, tab: AddAppTab): string {
   switch (tab) {
     case "catalog":

@@ -710,6 +710,16 @@ def test_default_app_is_none_when_several_apps_auto_start() -> None:
     assert autostart_apps(state) == ["a", "b"]
 
 
+def test_default_app_ignores_a_broken_app_that_boot_would_skip() -> None:
+    state = _ledger(a=True, b=True)
+    state = dataclasses.replace(
+        state, apps={**state.apps, "a": dataclasses.replace(state.apps["a"], broken_reason="venv_missing")}
+    )
+
+    assert autostart_apps(state) == ["b"]
+    assert default_app(state) == "b"
+
+
 def test_with_default_app_turns_every_other_flag_off() -> None:
     state = with_default_app(_ledger(a=True, b=True, c=False), "c")
 

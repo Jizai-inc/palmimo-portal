@@ -1485,6 +1485,65 @@ def test_put_default_app_is_404_for_an_unknown_app(client: TestClient, adapters:
     assert response.json()["error"]["code"] == "app_not_found"
 
 
+def _mark_broken(adapters: FakeAdapterBundle, app_id: str) -> None:
+    state = adapters.state.read_apps_state()
+    adapters.state.write_apps_state(
+        dataclasses.replace(
+            state,
+            apps={**state.apps, app_id: dataclasses.replace(state.apps[app_id], broken_reason="venv_missing")},
+        )
+    )
+
+
+def test_put_default_app_is_409_for_a_broken_app_and_keeps_the_current_default(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    client = _authenticated_client(client, adapters)
+    _install_zip(client, "app-a")
+    _install_zip(client, "app-b")
+    client.put("/api/v1/apps/default", json={"id": "zip.app-a"}, headers=CSRF_HEADERS)
+    _mark_broken(adapters, "zip.app-b")
+
+    response = client.put("/api/v1/apps/default", json={"id": "zip.app-b"}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "app_broken"
+    apps = adapters.state.read_apps_state().apps
+    assert (apps["zip.app-a"].autostart, apps["zip.app-b"].autostart) == (True, False)
+
+
+def test_deprecated_autostart_enable_is_409_for_a_broken_app(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+    _install_zip(client, "app-a")
+    _mark_broken(adapters, "zip.app-a")
+
+    response = client.put("/api/v1/apps/zip.app-a/autostart", json={"enabled": True}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "app_broken"
+    assert adapters.state.read_apps_state().apps["zip.app-a"].autostart is False
+
+
+def test_list_apps_reports_no_conflict_when_the_other_autostart_app_is_broken(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    client = _authenticated_client(client, adapters)
+    _install_zip(client, "app-a")
+    _install_zip(client, "app-b")
+    state = adapters.state.read_apps_state()
+    adapters.state.write_apps_state(
+        dataclasses.replace(
+            state, apps={name: dataclasses.replace(record, autostart=True) for name, record in state.apps.items()}
+        )
+    )
+    _mark_broken(adapters, "zip.app-a")
+
+    body = client.get("/api/v1/apps").json()
+
+    assert body["default_app"] == "zip.app-b"
+    assert body["autostart_conflict"] == []
+
+
 def test_list_apps_reports_an_autostart_conflict_when_several_apps_auto_start(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:

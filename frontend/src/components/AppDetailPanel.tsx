@@ -471,7 +471,7 @@ function DefaultAppSection({ app, onSaved }: { app: AppDetailResponse; onSaved: 
       <Button
         variant="outline"
         className="w-fit"
-        disabled={putDefault.isPending || appsData === undefined}
+        disabled={putDefault.isPending || appsData === undefined || (!isDefault && app.broken_reason != null)}
         onClick={() => putDefault.mutate({ data: { id: isDefault ? null : app.id } })}
       >
         {isDefault ? t("appDetail.defaultAppRemoveButton") : t("appDetail.defaultAppMakeButton")}

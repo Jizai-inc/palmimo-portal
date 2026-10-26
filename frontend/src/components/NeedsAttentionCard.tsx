@@ -38,7 +38,6 @@ function AttentionLink({ item, children }: { item: AttentionItem; children: Reac
   }
 }
 
-/** Via explicit `t(...)` calls so the i18n-parity scan sees every key (see `appStatusLabel`). */
 function attentionText(t: TFunction, item: AttentionItem): string {
   switch (item.kind) {
     case "appBroken":

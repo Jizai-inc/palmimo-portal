@@ -226,6 +226,17 @@ describe("AppDetailPanel", () => {
     await waitFor(() => expect(putBody).toEqual(expectedBody));
   });
 
+  it("disables Make default for a broken app", async () => {
+    server.use(
+      getGetAppApiV1AppsNameGetMockHandler(detail({ broken_reason: "venv_missing" })),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+      getListAppsApiV1AppsGetMockHandler({ apps: [summary()], default_app: null, autostart_conflict: [] }),
+    );
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Make default" })).toBeDisabled());
+  });
+
   it("warns about a required key the server reports missing even when a binding is saved", async () => {
     server.use(
       getGetAppApiV1AppsNameGetMockHandler(

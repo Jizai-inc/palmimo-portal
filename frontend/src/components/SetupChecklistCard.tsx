@@ -8,7 +8,6 @@ import type { ChecklistItem, ChecklistStep } from "@/lib/setupChecklist";
 import { GETTING_STARTED_URL, TEMPLATE_REPO_URL } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 
-/** Via explicit `t(...)` calls so the i18n-parity scan sees every key (see `appStatusLabel`). */
 function stepText(t: TFunction, step: ChecklistStep): { title: string; body: string } {
   switch (step) {
     case "connectGithub":

@@ -30,7 +30,6 @@ type DialogKind = "restart" | "shutdown" | null;
 const SHUTDOWN_CHECKS = ["onStand", "servoOff"] as const;
 type ShutdownCheck = (typeof SHUTDOWN_CHECKS)[number];
 
-/** Via explicit `t(...)` calls so the i18n-parity scan sees every key (see `navLabels.ts`). */
 function shutdownCheckLabel(t: TFunction, check: ShutdownCheck): string {
   return check === "onStand" ? t("power.checkOnStand") : t("power.checkServoOff");
 }

@@ -63,6 +63,7 @@ from palmimo_portal.core.apps_start import (
     RUNNING_ACTIVE_STATES,
     AppStartError,
     StartDeps,
+    autostart_apps,
     reconcile_run_dirs,
     start_app,
 )
@@ -553,9 +554,7 @@ def _run_autostart(app: FastAPI) -> None:
     """
     adapters: AdapterBundle = app.state.adapters
     apps_state = adapters.state.read_apps_state()
-    candidates = sorted(
-        name for name, record in apps_state.apps.items() if record.autostart and record.broken_reason is None
-    )
+    candidates = autostart_apps(apps_state)
     if not candidates:
         logger.info("autostart: no app selected")
         return

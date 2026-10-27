@@ -689,9 +689,5 @@
   },
   "developer": {
     "pageDescription": "SSH アクセスと、非公開アプリ用の Git 認証情報"
-  },
-  "wifiQr": {
-    "title": "QR で Wi-Fi を設定中",
-    "body": "スマートフォンの Wi-Fi 共有 QR コードを機体のカメラに見せてください。"
   }
 }

@@ -689,9 +689,5 @@
   },
   "developer": {
     "pageDescription": "SSH access and Git credentials for private apps"
-  },
-  "wifiQr": {
-    "title": "Setting up Wi-Fi with QR",
-    "body": "Show your phone’s Wi-Fi sharing QR code to the robot’s camera."
   }
 }

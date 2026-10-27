@@ -21,7 +21,6 @@ from pydantic import BaseModel
 
 from palmimo_portal.api.deps import get_state_store, require_auth, require_full_session, require_provisioned
 from palmimo_portal.api.errors import PortalError
-from palmimo_portal.api.system import WifiSetupInfo
 from palmimo_portal.core import platform as platform_core
 from palmimo_portal.core.platform_update import PlatformUpdateInProgressError
 from palmimo_portal.ports import (
@@ -86,7 +85,6 @@ class PlatformStatusResponse(BaseModel):
     latest_error: str | None
     display_firmware: DisplayFirmwareState | None = None
     display_firmware_available: bool = False
-    wifi_setup: WifiSetupInfo | None = None
 
 
 class PlatformJobInfo(BaseModel):
@@ -131,7 +129,6 @@ def _status_response(request: Request, state_store: StateStore, *, force_verify:
     status = platform_core.compute_status(
         installed, settings.required_platform_version, diffs, latest_manifest, latest_tag, latest_error
     )
-    wifi_setup = request.app.state.wifi_setup.status()
     return PlatformStatusResponse(
         installed_version=status["installed_version"],
         installed_at=status["installed_at"],
@@ -143,7 +140,6 @@ def _status_response(request: Request, state_store: StateStore, *, force_verify:
         latest_error=status["latest_error"],
         display_firmware=adapters.platform.read_display_firmware_state(),
         display_firmware_available=adapters.platform.has_display_firmware_tool(),
-        wifi_setup=WifiSetupInfo(mode=wifi_setup.mode, screen=wifi_setup.screen, reason=wifi_setup.reason),
     )
 
 

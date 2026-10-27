@@ -90,7 +90,7 @@ def test_web_start_explains_pending_display_recovery(
     assert adapters.app_unit.start_calls == []
 
 
-def test_old_firmware_reason_is_reported_by_system_and_platform(
+def test_old_firmware_reason_is_reported_by_system(
     app: FastAPI,
     client: TestClient,
     adapters: FakeAdapterBundle,
@@ -108,12 +108,9 @@ def test_old_firmware_reason_is_reported_by_system_and_platform(
     adapters.wifi_qr_unit.unit_status = WifiQrUnitStatus("failed", "loaded", "exit-code", 1, 76)
     app.state.wifi_setup.tick()
     system = client.get("/api/v1/system/status")
-    platform = client.get("/api/v1/platform")
-    assert system.status_code == platform.status_code == 200
-    for response in (system, platform):
-        assert response.json()["wifi_setup"] == {
-            "mode": "unavailable",
-            "screen": None,
-            "reason": "firmware_too_old",
-        }
-    assert platform.json()["ready"] is True
+    assert system.status_code == 200
+    assert system.json()["wifi_setup"] == {
+        "mode": "unavailable",
+        "screen": None,
+        "reason": "firmware_too_old",
+    }

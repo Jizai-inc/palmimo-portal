@@ -7,7 +7,6 @@ import { useGetPlatformApiV1PlatformGet } from "@/api/generated/platform/platfor
 import { useGetStatusApiV1SystemStatusGet } from "@/api/generated/system/system";
 import { useGetStatusApiV1WifiStatusGet } from "@/api/generated/wifi/wifi";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { WifiQrSetupNotice } from "@/components/WifiQrSetupNotice";
 import { cn } from "@/lib/utils";
 
 /** Below this, `dashboard.diskLowWarning` is shown (design doc 3.4's own 1 GB free-space gate). */
@@ -21,7 +20,7 @@ const LOW_DISK_BYTES = 1_000_000_000;
 export function DashboardStatusCard({ portalBadge, appsLink }: { portalBadge?: React.ReactNode; appsLink?: React.ReactNode } = {}) {
   const { t } = useTranslation();
   const { data: wifiStatus } = useGetStatusApiV1WifiStatusGet();
-  const { data: systemStatus } = useGetStatusApiV1SystemStatusGet({ query: { refetchInterval: 2_000 } });
+  const { data: systemStatus } = useGetStatusApiV1SystemStatusGet();
   const { data: platform } = useGetPlatformApiV1PlatformGet();
   const connected = wifiStatus?.state === "connected";
   const runningApp = systemStatus?.running_app;
@@ -31,7 +30,6 @@ export function DashboardStatusCard({ portalBadge, appsLink }: { portalBadge?: R
 
   return (
     <div className="flex flex-col gap-3">
-      <WifiQrSetupNotice setup={systemStatus?.wifi_setup} />
       {systemStatus && !systemStatus.ntp_synchronized ? (
         <Alert>
           <AlertDescription>{t("dashboard.ntpBanner")}</AlertDescription>

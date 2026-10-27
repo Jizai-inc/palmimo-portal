@@ -19,7 +19,6 @@ import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { AppShell } from "@/components/AppShell";
 import { AuthShell } from "@/components/AuthShell";
 import { Button } from "@/components/ui/button";
-import { WifiQrSetupNotice } from "@/components/WifiQrSetupNotice";
 import { WifiConnectForm } from "@/components/WifiConnectForm";
 import { signalIcon } from "@/lib/wifiSignal";
 
@@ -83,7 +82,7 @@ function WifiScreen() {
   const queryClient = useQueryClient();
   const { reconfigure, add } = Route.useSearch();
   const fromSettings = Boolean(reconfigure || add);
-  const { data: status } = useGetStatusApiV1SystemStatusGet({ query: { refetchInterval: 2_000 } });
+  const { data: status } = useGetStatusApiV1SystemStatusGet();
   const { data: wifiStatus } = useGetStatusApiV1WifiStatusGet();
   const {
     data: networks,
@@ -150,7 +149,6 @@ function WifiScreen() {
   if (selected) {
     return (
       <WifiShell fromSettings={fromSettings} title={t("wifi.connectTitle", { ssid: selected.ssid })} description={t("wifi.connectBody")}>
-        <WifiQrSetupNotice setup={status?.wifi_setup} />
         <WifiConnectForm
           network={selected}
           lastAttempt={lastAttempt}
@@ -170,7 +168,6 @@ function WifiScreen() {
       description={add ? t("wifi.addBody") : t("wifi.scanBody")}
     >
       <div className="flex flex-col gap-4">
-        <WifiQrSetupNotice setup={status?.wifi_setup} />
         {reconfigure && wifiStatus?.ssid ? (
           <p className="text-xs text-muted-foreground">{t("wifi.reconfigureNote", { ssid: wifiStatus.ssid })}</p>
         ) : null}

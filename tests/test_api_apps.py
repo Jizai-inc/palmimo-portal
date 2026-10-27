@@ -230,7 +230,6 @@ def test_list_apps_shows_a_deleting_row_after_the_ledger_entry_is_removed(
             "name": "teleop",
             "id": ZIP_TELEOP_ID,
             "status": "deleting",
-            "wifi_setup_preempted": False,
             "autostart": False,
             "installed_at": None,
             "broken_reason": None,

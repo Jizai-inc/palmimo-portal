@@ -575,11 +575,6 @@
               }
             ],
             "title": "Url"
-          },
-          "wifi_setup_preempted": {
-            "default": false,
-            "title": "Wifi Setup Preempted",
-            "type": "boolean"
           }
         },
         "required": [

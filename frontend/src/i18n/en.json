@@ -470,7 +470,7 @@
     "wifi_saved_active": "Palmimo is connected to that network. Use “Forget this network” to remove it.",
     "wifi_saved_order_mismatch": "The saved networks changed. Reload and try again.",
     "display_firmware_unavailable": "Face firmware repair is unavailable on this platform.",
-    "display_recovery_pending": "Display firmware recovery is pending. Use Repair face firmware in Platform settings, then try starting the app again."
+    "display_recovery_pending": "Face firmware recovery is not complete. Restart Palmimo, then try starting the app again."
   },
   "apps": {
     "tabsLabel": "App sections",
@@ -533,8 +533,7 @@
     "jobCompleted": "Completed",
     "defaultBadge": "Default",
     "missingKeysBadge": "Needs API key",
-    "emptyStateBody": "Start with an official app, or add your own from a GitHub repository or zip file.",
-    "wifiSetupPreempted": "Stopped for Wi-Fi setup. Restarts when connected to the LAN."
+    "emptyStateBody": "Start with an official app, or add your own from a GitHub repository or zip file."
   },
   "appAdd": {
     "continueButton": "Continue",
@@ -693,8 +692,6 @@
   },
   "wifiQr": {
     "title": "Setting up Wi-Fi with QR",
-    "body": "Show your phone’s Wi-Fi sharing QR code to the robot’s camera.",
-    "oldFirmwareTitle": "QR setup is unavailable because the face firmware is too old.",
-    "oldFirmwareBody": "Connect using Wi-Fi settings, then repair the face firmware on the Updates page."
+    "body": "Show your phone’s Wi-Fi sharing QR code to the robot’s camera."
   }
 }

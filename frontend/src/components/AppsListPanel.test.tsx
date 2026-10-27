@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getListAppsApiV1AppsGetMockHandler } from "@/api/generated/apps/apps.msw";
 import { getGetPlatformApiV1PlatformGetMockHandler } from "@/api/generated/platform/platform.msw";
 import type { AppSummary, PlatformStatusResponse } from "@/api/generated/models";
-import i18n from "@/i18n";
 import { AppsListPanel } from "@/components/AppsListPanel";
 import { renderWithRouter } from "@/test/render";
 import { server } from "@/test/server";
@@ -282,46 +281,4 @@ describe("AppsListPanel", () => {
       expect(screen.getByText("Stopped")).toBeInTheDocument();
     });
   });
-});
-
-it.each([
-  ["en", "Stopped for Wi-Fi setup. Restarts when connected to the LAN."],
-  ["ja", "Wi-Fi 設定のため停止中。LAN に戻ると再開します。"],
-])("explains Wi-Fi preemption only on the affected app in %s", async (language, text) => {
-  await i18n.changeLanguage(language);
-  try {
-    server.use(
-      getListAppsApiV1AppsGetMockHandler({ apps: [
-        app({ name: "face", wifi_setup_preempted: true }),
-        app({ name: "audio", wifi_setup_preempted: false }),
-      ] }),
-      getGetPlatformApiV1PlatformGetMockHandler(READY_PLATFORM),
-    );
-    renderWithRouter(<AppsListPanel />);
-    expect(await screen.findByText(text)).toBeInTheDocument();
-    expect(screen.getAllByText(text)).toHaveLength(1);
-  } finally {
-    await i18n.changeLanguage("en");
-  }
-});
-
-it("refreshes a preempted stopped app until it resumes", async () => {
-  vi.useFakeTimers({ shouldAdvanceTime: true });
-  try {
-    let restored = false;
-    server.use(
-      http.get("*/api/v1/apps", () => HttpResponse.json({ apps: [
-        app({ status: restored ? "running" : "stopped", wifi_setup_preempted: !restored }),
-      ] })),
-      getGetPlatformApiV1PlatformGetMockHandler(READY_PLATFORM),
-    );
-    renderWithRouter(<AppsListPanel />);
-    await screen.findByText("Stopped for Wi-Fi setup. Restarts when connected to the LAN.");
-    restored = true;
-    await act(() => vi.advanceTimersByTimeAsync(5_000));
-    expect(await screen.findByRole("button", { name: "Stop" })).toBeInTheDocument();
-    expect(screen.queryByText("Stopped for Wi-Fi setup. Restarts when connected to the LAN.")).not.toBeInTheDocument();
-  } finally {
-    vi.useRealTimers();
-  }
 });

@@ -2,7 +2,7 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-from palmimo_portal.ports import PreemptedApp, UnitStatus
+from palmimo_portal.ports import PreemptedApp
 from palmimo_portal.testing.fakes import FakeAdapterBundle
 from tests.test_wifi_setup_lifespan import install_app
 from tests.test_wifi_setup_lifespan import settings as settings
@@ -26,44 +26,6 @@ def test_system_status_reports_setup_mode_and_screen(
     }
     app.state.wifi_setup.stop("app")
     assert client.get("/api/v1/system/status").json()["wifi_setup"] == {"mode": "idle", "screen": None, "reason": None}
-
-
-@pytest.mark.parametrize(
-    "owner,active,marked",
-    [
-        ("wifi-setup", "inactive", True),
-        ("wifi-setup", "active", False),
-        ("wifi-setup", "failed", False),
-        ("display-firmware", "inactive", False),
-    ],
-)
-def test_app_summary_marks_only_stopped_wifi_preempted_app(
-    app: FastAPI,
-    client: TestClient,
-    adapters: FakeAdapterBundle,
-    owner: str,
-    active: str,
-    marked: bool,
-) -> None:
-    install_app(app, "face", autostart=False)
-    install_app(app, "other", autostart=False, devices='"audio"')
-    assert (
-        client.post(
-            "/api/v1/auth/setup", json={"password": "hunter2"}, headers={"X-Requested-With": "PalmimoPortal"}
-        ).status_code
-        == 200
-    )
-    adapters.saved_networks.save("home", "", first=False)
-    client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers={"X-Requested-With": "PalmimoPortal"})
-    adapters.state.write_preempted_app(PreemptedApp("face", owner))
-    adapters.app_unit.simulate_active_state(
-        "face", UnitStatus(active, "", "exit-code" if active == "failed" else "success", 1)
-    )
-    response = client.get("/api/v1/apps")
-    assert response.status_code == 200
-    apps = {item["id"]: item for item in response.json()["apps"]}
-    assert apps["face"]["wifi_setup_preempted"] is marked
-    assert apps["other"]["wifi_setup_preempted"] is False
 
 
 @pytest.mark.parametrize("devices,stops_reader", [('"camera"', True), ('"audio"', False)])

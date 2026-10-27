@@ -128,7 +128,7 @@ def _run_process(
         argv,
         process.returncode,
         stdout=output["stdout"].decode(encoding).replace("\r\n", "\n").replace("\r", "\n"),
-        stderr=output["stderr"].decode(encoding).replace("\r\n", "\n").replace("\r", "\n"),
+        stderr=output["stderr"].decode(encoding, errors="replace").replace("\r\n", "\n").replace("\r", "\n"),
     )
 
 

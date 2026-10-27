@@ -292,3 +292,20 @@ def test_display_firmware_timeout_stops_and_reaps_tool(
     assert time.monotonic() - started < 5
     with pytest.raises(ProcessLookupError):
         os.kill(int(pid_file.read_text()), 0)
+
+
+def test_display_firmware_preserves_success_when_stderr_contains_invalid_bytes(
+    firmware_process: tuple[SudoPlatformPort, Path],
+) -> None:
+    import sys
+
+    from palmimo_portal.ports import DisplayFirmwareResult
+
+    port, script = firmware_process
+    script.write_text(
+        f"#!{sys.executable}\n"
+        "import sys\n"
+        'sys.stderr.buffer.write(b"flash diagnostic: \\xff\\n")\n'
+        'print(\'{"result":"updated","before":"legacy","after":"current"}\')\n'
+    )
+    assert port.ensure_display_firmware() == DisplayFirmwareResult(result="updated", before="legacy", after="current")

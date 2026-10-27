@@ -29,8 +29,9 @@ Any hello display field is ignored. The Portal accepts close only on the
 connected screen, then stops the reader normally and restores the app.
 It accepts qr only while its screen state is scanning. On decoding
 a QR, the reader immediately stops the live preview and shows checking
-before waiting for the Portal. It suppresses the same text until that text
-has been absent for 30 consecutive frames.
+before waiting for the Portal. It suppresses each sent text until it has
+been absent for 30 consecutive frames, retaining at most 16 texts and
+evicting the oldest sent first.
 
 ## Portal to reader
 

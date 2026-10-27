@@ -1095,8 +1095,7 @@ class Reader:
         self.checking_since = 0.0
         self.last_ping = 0.0
         self.state = "scanning"
-        self.last_text: str | None = None
-        self.absent_frames = 0
+        self.sent_texts: dict[str, int] = {}
         self.frame_failures = 0
         self.incoming = bytearray()
         self.outgoing = bytearray()
@@ -1252,16 +1251,19 @@ class Reader:
             LOG.info("Frame decoding recovered count=%d", self.frame_failures)
             self.frame_failures = 0
         texts = [text for text in texts if len(encode_message({"type": "qr", "text": text})) <= MAX_LINE]
-        if self.last_text is not None:
-            self.absent_frames = 0 if self.last_text in texts else self.absent_frames + 1
-            if self.absent_frames >= 30:
-                self.last_text = None
-        text = next((text for text in texts if text != self.last_text), None)
+        for previous_text in list(self.sent_texts):
+            absent_frames = 0 if previous_text in texts else self.sent_texts[previous_text] + 1
+            if absent_frames >= 30:
+                del self.sent_texts[previous_text]
+            else:
+                self.sent_texts[previous_text] = absent_frames
+        text = next((text for text in texts if text not in self.sent_texts), None)
         if text is not None:
             self._screen("checking", {})
             if self.client is not None:
-                self.last_text = text
-                self.absent_frames = 0
+                if len(self.sent_texts) >= 16:
+                    del self.sent_texts[next(iter(self.sent_texts))]
+                self.sent_texts[text] = 0
                 self._send({"type": "qr", "text": text})
         else:
             self.display.live(getattr(self.decoder, "preview", frame))
@@ -1313,7 +1315,7 @@ class Reader:
                 self.client = None
         self.incoming.clear()
         self.outgoing.clear()
-        self.last_text = None
+        self.sent_texts.clear()
 
     def run(self) -> int:
         try:

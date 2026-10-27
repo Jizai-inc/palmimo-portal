@@ -252,6 +252,53 @@ def test_qr_is_suppressed_until_thirty_consecutive_absent_frames(harness: Harnes
         assert receive(client) == [{"type": "qr", "text": "secret"}]
 
 
+def test_each_visible_qr_is_sent_once_until_it_is_absent_for_thirty_frames(harness: Harness) -> None:
+    with harness.connect() as client:
+        receive(client)
+        for text in ("A", "B"):
+            harness.camera.frames.append(["A", "B"])
+            harness.message(client, state="scanning")
+            assert receive(client) == [{"type": "qr", "text": text}]
+        for _ in range(40):
+            harness.camera.frames.append(["A", "B"])
+            harness.message(client, state="scanning")
+        with pytest.raises(TimeoutError):
+            client.recv(1)
+
+        for absent_frames in (29, 30):
+            for _ in range(absent_frames):
+                harness.camera.frames.append(["B"])
+                harness.message(client, state="scanning")
+            harness.camera.frames.append(["A", "B"])
+            harness.message(client, state="scanning")
+            if absent_frames == 30:
+                assert receive(client) == [{"type": "qr", "text": "A"}]
+            else:
+                with pytest.raises(TimeoutError):
+                    client.recv(1)
+        harness.camera.frames.append(["B", "A"])
+        harness.message(client, state="scanning")
+        with pytest.raises(TimeoutError):
+            client.recv(1)
+
+
+def test_qr_history_evicts_oldest_sent_text_after_sixteen_distinct_texts(harness: Harness) -> None:
+    with harness.connect() as client:
+        receive(client)
+        for index in range(17):
+            text = str(index)
+            harness.camera.frames.append([text])
+            harness.message(client, state="scanning")
+            assert receive(client) == [{"type": "qr", "text": text}]
+        harness.camera.frames.append(["1", "16"])
+        harness.message(client, state="scanning")
+        with pytest.raises(TimeoutError):
+            client.recv(1)
+        harness.camera.frames.append(["0", "1", "16"])
+        harness.message(client, state="scanning")
+        assert receive(client) == [{"type": "qr", "text": "0"}]
+
+
 def test_checking_returns_to_scanning_after_fifteen_seconds_without_screen(harness: Harness) -> None:
     with harness.connect() as client:
         receive(client)

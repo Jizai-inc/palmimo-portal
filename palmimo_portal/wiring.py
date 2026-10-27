@@ -141,12 +141,12 @@ def build_adapters(settings: Settings) -> AdapterBundle:
     if settings.adapters == "fake":
         fake_state = FakeStateStore()
         fake_profiles = FakeWifiProfilePort()
-        fake_service = FakeComitupServicePort()
         fake_network = FakeNetworkPort(
             profiles=fake_profiles,
             known_profiles=lambda: fake_attempts.has_known_networks(),
             display_ssid=lambda ssid: fake_attempts.display_ssid(ssid),
         )
+        fake_service = FakeComitupServicePort(network=fake_network)
         fake_saved = FakeSavedNetworkPort(profiles=fake_profiles)
         fake_attempts = WifiAttemptManager(
             fake_profiles,

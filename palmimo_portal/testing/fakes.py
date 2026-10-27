@@ -1230,11 +1230,25 @@ class FakeWifiProfilePort(WifiProfilePort):
 class FakeComitupServicePort(ComitupServicePort):
     running: bool = True
     raise_on_call: Exception | None = None
+    network: FakeNetworkPort | None = None
 
     def start(self) -> None:
         if self.raise_on_call is not None:
             raise self.raise_on_call
         self.running = True
+        if self.network is not None:
+            profiles = self.network.profiles
+            candidates = profiles.list_profiles()
+            active = next((p for p in candidates if p.uuid == profiles.device.active_uuid), None)
+            target = active or max(candidates, key=lambda p: p.priority, default=None)
+            if target is None:
+                profiles.device = WifiDeviceStatus(30, None)
+                self.network.status = WifiStatus(ConnectionState.UNPROVISIONED, None, None)
+            else:
+                profiles.device = WifiDeviceStatus(100, target.uuid)
+                self.network.status = WifiStatus(
+                    ConnectionState.CONNECTED, target.ssid.decode("utf-8", errors="replace"), "192.0.2.2"
+                )
 
     def stop(self) -> None:
         if self.raise_on_call is not None:

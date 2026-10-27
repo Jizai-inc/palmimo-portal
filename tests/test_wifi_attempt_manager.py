@@ -318,6 +318,49 @@ def test_restart_finishes_adopted_cleanup_even_after_target_disconnects() -> Non
     assert rig.nm.list_profiles()[0].user_data == {}
 
 
+@pytest.mark.parametrize("entry", ["worker", "recovery"])
+@pytest.mark.parametrize("kind", ["credentials", "activate_saved"])
+def test_published_success_survives_crash_and_disconnected_recovery(
+    monkeypatch: pytest.MonkeyPatch, entry: str, kind: Kind
+) -> None:
+    rig = Rig()
+    original = rig.add()
+    rig.add()
+    manager = rig.manager()
+    uid = manager.start_wifi_attempt(
+        kind, b"home", "new-password" if kind == "credentials" else None, original if kind == "activate_saved" else None
+    )
+    target = next(
+        p.uuid for p in rig.nm.list_profiles() if p.user_data.get("palmimo.attempt.role") in {"try", "selected"}
+    )
+    write_attempt = rig.state.write_last_wifi_attempt
+
+    def crash_after_success(attempt: WifiAttempt) -> None:
+        write_attempt(attempt)
+        if attempt.result == "connected":
+            raise SystemExit("power loss after success publication")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(rig.state, "write_last_wifi_attempt", crash_after_success)
+        with pytest.raises(SystemExit):
+            if entry == "worker":
+                rig.tick = lambda: setattr(rig.nm, "device", WifiDeviceStatus(100, target))
+                rig.run()
+            else:
+                rig.nm.device = WifiDeviceStatus(100, target)
+                rig.manager().cleanup_marked()
+
+    rig.nm.device = WifiDeviceStatus(30, None)
+    rig.manager().cleanup_marked()
+
+    assert [(p.uuid, p.ssid) for p in rig.nm.list_profiles()] == [(target, b"home")]
+    assert rig.nm.psks[target] == ("new-password" if kind == "credentials" else "correct")
+    attempt = rig.state.read_last_wifi_attempt()
+    assert attempt is not None and attempt.result == "connected"
+    if entry == "worker":
+        assert manager.outcome(uid) == "connected"
+
+
 @pytest.mark.parametrize("failure", ["delete", "restore"])
 def test_failed_cleanup_blocks_new_attempt_until_recovery_succeeds(failure: str) -> None:
     rig = Rig()

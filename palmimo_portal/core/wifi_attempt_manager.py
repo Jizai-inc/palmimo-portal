@@ -486,13 +486,14 @@ class WifiAttemptManager:
                 observed_uuid,
             )
             try:
-                try:
-                    with self._edit_lock:
-                        self._record(attempt_id, "connected" if success else "failed")
-                except Exception:
-                    logger.exception("Wi-Fi outcome persistence failed for %s", attempt_id)
+                if not success:
+                    try:
+                        with self._edit_lock:
+                            self._record(attempt_id, "failed")
+                    except Exception:
+                        logger.exception("Wi-Fi outcome persistence failed for %s", attempt_id)
                 if not restart_failed:
-                    self._cleanup(attempt_id, success=success, persist=False)
+                    self._cleanup(attempt_id, success=success, persist=success)
             except Exception:
                 logger.exception("Wi-Fi cleanup failed for %s", attempt_id)
             finally:
@@ -548,16 +549,18 @@ class WifiAttemptManager:
                     success = target is not None and status.state == _ACTIVATED and status.active_uuid == target.uuid
                 except Exception:
                     success = False
+            if success:
+                if target is None:
+                    raise CleanupFailedError("adopted target missing")
+                data = {**target.user_data, _MARK + "phase": "adopted"}
+                self._profiles.update_profile(target.uuid, user_data=data)
             if persist:
                 try:
                     self._record(attempt_id, "connected" if success else "failed", only_pending=True)
                 except Exception:
                     logger.exception("Wi-Fi outcome persistence failed for %s", attempt_id)
             if success:
-                if target is None:
-                    raise CleanupFailedError("adopted target missing")
-                data = {**target.user_data, _MARK + "phase": "adopted"}
-                self._profiles.update_profile(target.uuid, user_data=data)
+                assert target is not None
                 for profile in marked:
                     if profile.user_data[_MARK + "role"] == "parked":
                         self._profiles.delete_profile(profile.uuid)

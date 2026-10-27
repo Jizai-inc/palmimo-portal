@@ -321,6 +321,7 @@ def test_decoder_scans_both_grayscale_scales_and_only_enables_qr(module: Any) ->
         def __init__(self, width: int, height: int, format_: str, data: bytes) -> None:
             assert format_ == "Y800"
             assert len(data) == width * height
+            assert data == bytes(range(width * height))
             self.width, self.height = width, height
             super().__init__([SimpleNamespace(data=b"same"), SimpleNamespace(data="quarter" if width == 4 else "half")])
 
@@ -403,6 +404,65 @@ class SlowSerial(Serial):
         return super().read_until(expected, size)
 
 
+def test_live_preview_shows_centered_wifi_prompt_inside_face_without_changing_camera_pixels(module: Any) -> None:
+    serial = SlowSerial(Clock())
+    display = module.Display(port_factory=lambda: serial, clock=serial.clock)
+    frame = b"\x03" * (168 * 168)
+    serial.finished.clear()
+    try:
+        display.live(frame)
+        assert serial.completed.wait(2)
+        display.check()
+        format_, pixels = serial.finished[-1]
+        assert format_ == "GRAY8"
+        assert len(pixels) == len(frame)
+        assert pixels[: 154 * 168] == frame[: 154 * 168]
+        assert frame == b"\x03" * (168 * 168)
+        assert set(pixels[154 * 168 :]) == {0, 255}
+        assert all(
+            30 <= index % 168 < 138 and 156 <= index // 168 < 166
+            for index in range(154 * 168, len(pixels))
+            if pixels[index] == 255
+        )
+        expected_s = (
+            "000000",
+            "000000",
+            "001110",
+            "010000",
+            "001000",
+            "000110",
+            "000010",
+            "001110",
+            "000000",
+            "000000",
+        )
+        expected_r = (
+            "000000",
+            "000000",
+            "011100",
+            "010010",
+            "010010",
+            "011100",
+            "010100",
+            "010010",
+            "000000",
+            "000000",
+        )
+        for left, glyph in ((30, expected_s), (132, expected_r)):
+            for row, bits in enumerate(glyph):
+                assert pixels[(156 + row) * 168 + left : (156 + row) * 168 + left + 6] == bytes(
+                    255 if bit == "1" else 0 for bit in bits
+                )
+        assert pixels[154 * 168 : 156 * 168] == bytes(2 * 168)
+        assert pixels[166 * 168 :] == bytes(2 * 168)
+        for top, bottom, left, right in ((154, 168, 0, 168), (156, 166, 30, 138)):
+            for x in (left, right):
+                for y in (top, bottom):
+                    assert (72 + 2 * x - 240) ** 2 + (72 + 2 * y - 240) ** 2 <= 240**2
+    finally:
+        display.close()
+
+
 @pytest.mark.parametrize("switch_screen", [False, True])
 def test_display_worker_drops_stale_previews_and_prioritizes_screen_without_sharing_port(
     module: Any, switch_screen: bool
@@ -435,7 +495,10 @@ def test_display_worker_drops_stale_previews_and_prioritizes_screen_without_shar
             assert not any(line.startswith(b"FRAME BEGIN 168 168 GRAY8") for line in serial.writes[cut:])
             assert serial.finished[-1][0] == "RGB565"
         else:
-            assert serial.finished == [("GRAY8", b"\x01" * (168 * 168)), ("GRAY8", b"\x03" * (168 * 168))]
+            assert [(format_, pixels[: 154 * 168]) for format_, pixels in serial.finished] == [
+                ("GRAY8", b"\x01" * (154 * 168)),
+                ("GRAY8", b"\x03" * (154 * 168)),
+            ]
         assert b"PING\n" in serial.writes
     finally:
         serial.release.set()

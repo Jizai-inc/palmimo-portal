@@ -786,15 +786,25 @@ ASCII_FONT: dict[str, tuple[int, ...]] = {
 }
 
 
-def draw_ascii(pixels: bytearray, width: int, height: int, text: str, x: int, y: int, *, color: int = 0xFFFF) -> None:
-    ink = color.to_bytes(2, "little")
+def draw_ascii(
+    pixels: bytearray,
+    width: int,
+    height: int,
+    text: str,
+    x: int,
+    y: int,
+    *,
+    color: int = 0xFFFF,
+    bytes_per_pixel: int = 2,
+) -> None:
+    ink = color.to_bytes(bytes_per_pixel, "little")
     for character in text:
         for row, bits in enumerate(ASCII_FONT.get(character, ASCII_FONT.get("?", ()))):
             for column in range(FONT_WIDTH):
                 px, py = x + column, y + row
                 if bits & (0x80 >> column) and 0 <= px < width and 0 <= py < height:
-                    offset = (py * width + px) * 2
-                    pixels[offset : offset + 2] = ink
+                    offset = (py * width + px) * bytes_per_pixel
+                    pixels[offset : offset + bytes_per_pixel] = ink
         x += FONT_WIDTH
 
 
@@ -920,9 +930,13 @@ class Display:
             return
         if len(frame) != 168 * 168:
             raise ValueError("Invalid live preview size")
+        pixels = bytearray(frame)
+        pixels[154 * 168 :] = bytes(14 * 168)
+        text = "Show your Wi-Fi QR"
+        draw_ascii(pixels, 168, 168, text, (168 - len(text) * FONT_WIDTH) // 2, 156, color=255, bytes_per_pixel=1)
         with self.condition:
             if self.state == "scanning":
-                self.pending_live = frame
+                self.pending_live = bytes(pixels)
                 self.condition.notify()
 
     def ping(self) -> None:

@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import { formatSourceSummary } from "@/lib/appSourceSummary";
 
 describe("formatSourceSummary", () => {
-  // the same manifest name apart by where their code actually came from.
   it("summarizes a git source as owner/repo, subdir, and ref", () => {
     expect(
       formatSourceSummary({ type: "git", url: "https://github.com/alice/teleop", subdir: "examples/teleop", ref: "main" }),

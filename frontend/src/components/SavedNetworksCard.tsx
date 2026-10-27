@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, ChevronUp, ListOrdered, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Lock, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -14,6 +14,7 @@ import {
   useReorderSavedApiV1WifiSavedOrderPut,
 } from "@/api/generated/wifi/wifi";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
+import { SectionHeader } from "@/components/PageHeader";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -23,7 +24,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { usePlatformUpdate } from "@/lib/usePlatformUpdate";
 
@@ -102,50 +102,50 @@ export function SavedNetworksCard({
 
   if (needsPlatform) {
     return (
-      <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
-        <div className="flex items-center gap-2">
-          <ListOrdered className="size-4 text-muted-foreground" aria-hidden />
-          <p className="font-semibold">{t("wifiSettings.savedTitle")}</p>
+      <section className="flex flex-col gap-2.5">
+        <SectionHeader title={t("wifiSettings.savedTitle")} />
+        <div className="flex flex-col gap-3 rounded-xl border border-border bg-card px-5 py-4 sm:flex-row sm:items-center sm:gap-3.5">
+          <Lock className="hidden size-4 shrink-0 text-muted-foreground sm:block" aria-hidden />
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5 text-[13px]">
+            <p className="font-medium">{t("wifiSettings.savedNeedsPlatformTitle")}</p>
+            <p className="text-muted-foreground">{t("wifiSettings.savedNeedsPlatformBody")}</p>
+          </div>
+          <Button size="sm" variant="outline" className="w-fit" onClick={startUpdate} disabled={starting || job?.state === "running"}>
+            {t("apps.platformUpdateButton")}
+          </Button>
         </div>
-        <Alert>
-          <AlertTitle>{t("wifiSettings.savedNeedsPlatformTitle")}</AlertTitle>
-          <AlertDescription className="flex flex-col gap-2">
-            {t("wifiSettings.savedNeedsPlatformBody")}
-            <Button className="w-fit" onClick={startUpdate} disabled={starting || job?.state === "running"}>
-              {t("apps.platformUpdateButton")}
-            </Button>
-          </AlertDescription>
-        </Alert>
         <ApiErrorAlert error={startError} />
-      </div>
+      </section>
     );
   }
 
   return (
+    <section className="flex flex-col gap-2.5">
+      <SectionHeader
+        title={t("wifiSettings.savedTitle")}
+        actions={
+          <Button variant="outline" size="sm" onClick={onAdd}>
+            <Plus className="size-4" aria-hidden />
+            {t("wifiSettings.savedAdd")}
+          </Button>
+        }
+      />
     <div className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
-      <div className="flex items-center gap-2">
-        <ListOrdered className="size-4 text-muted-foreground" aria-hidden />
-        <p className="font-semibold">{t("wifiSettings.savedTitle")}</p>
-        <Button variant="outline" size="sm" className="ml-auto" onClick={onAdd}>
-          <Plus className="size-4" aria-hidden />
-          {t("wifiSettings.savedAdd")}
-        </Button>
-      </div>
       <p className="text-sm text-muted-foreground">{t("wifiSettings.savedBody", { hostname })}</p>
       <ApiErrorAlert error={listError ?? reorder.error ?? remove.error ?? activate.error} />
       {saved && items.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t("wifiSettings.savedEmpty")}</p>
       ) : (
-        <ol className="flex flex-col rounded-md border border-input">
+        <ol className="flex flex-col rounded-lg border border-border">
           {items.map((item, index) => (
             <li
               key={item.ssid}
-              className={`flex items-center gap-2 px-3 py-2 ${index === 0 ? "" : "border-t border-input"}`}
+              className={`flex items-center gap-2 px-3 py-2 ${index === 0 ? "" : "border-t border-border"}`}
             >
               <span className="w-5 shrink-0 text-xs text-muted-foreground">{index + 1}</span>
               <span className="min-w-0 flex-1 truncate text-sm font-medium">{item.ssid}</span>
               {item.active ? (
-                <span className="shrink-0 rounded-md bg-green-500/15 px-2 py-0.5 text-xs text-green-700 dark:text-green-400">
+                <span className="shrink-0 rounded-md bg-success-soft px-2 py-0.5 text-xs font-medium text-success">
                   {t("wifiSettings.savedActive")}
                 </span>
               ) : (
@@ -225,5 +225,6 @@ export function SavedNetworksCard({
         </AlertDialogContent>
       </AlertDialog>
     </div>
+    </section>
   );
 }

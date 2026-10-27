@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { getGetStatusApiV1SystemStatusGetMockHandler } from "@/api/generated/system/system.msw";
 import { getGetStatusApiV1WifiStatusGetMockHandler } from "@/api/generated/wifi/wifi.msw";
 import type { SystemStatus } from "@/api/generated/models";
-import { DashboardStatusCard } from "@/components/DashboardStatusCard";
+import { DashboardStatusCard, DeviceInfoCard } from "@/components/DashboardStatusCard";
 import { renderWithProviders } from "@/test/render";
 import { server } from "@/test/server";
 
@@ -22,7 +22,7 @@ const BASE_SYSTEM_STATUS: SystemStatus = {
 };
 
 describe("DashboardStatusCard", () => {
-  it("renders the ssid, ip address, and hostname from GET /wifi/status and /system/status", async () => {
+  it("renders the ssid, ip address, and versions from GET /wifi/status and /system/status", async () => {
     server.use(
       getGetStatusApiV1WifiStatusGetMockHandler({ state: "connected", ssid: "Home Wi-Fi", ip_address: "10.0.0.42" }),
       getGetStatusApiV1SystemStatusGetMockHandler(BASE_SYSTEM_STATUS),
@@ -30,11 +30,10 @@ describe("DashboardStatusCard", () => {
 
     renderWithProviders(<DashboardStatusCard />);
 
-    expect(await screen.findByText("Connected")).toBeInTheDocument();
-    expect(screen.getAllByText("Home Wi-Fi").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("10.0.0.42").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("palmimo-405").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("405").length).toBeGreaterThan(0);
+    expect(await screen.findByText("Home Wi-Fi")).toBeInTheDocument();
+    expect(screen.getByText("10.0.0.42")).toBeInTheDocument();
+    expect(screen.getByText("0.2.0")).toBeInTheDocument();
+    expect(screen.getByText("SDK 0.5.1")).toBeInTheDocument();
   });
 
   it("shows a grey dot and 'Not connected' when wifi is not connected", async () => {
@@ -56,7 +55,7 @@ describe("DashboardStatusCard", () => {
 
     renderWithProviders(<DashboardStatusCard />);
 
-    await screen.findByText("Connected");
+    await screen.findByText("Home Wi-Fi");
     expect(screen.queryByText("update badge")).not.toBeInTheDocument();
   });
 
@@ -94,5 +93,35 @@ describe("DashboardStatusCard", () => {
     renderWithProviders(<DashboardStatusCard />);
 
     expect(await screen.findByText("This device is low on disk space (0.5 GB free).")).toBeInTheDocument();
+  });
+
+  it("shows SDK not installed when the SDK version is unknown", async () => {
+    server.use(
+      getGetStatusApiV1WifiStatusGetMockHandler({ state: "connected", ssid: "Home Wi-Fi", ip_address: "10.0.0.42" }),
+      getGetStatusApiV1SystemStatusGetMockHandler({ ...BASE_SYSTEM_STATUS, versions: { portal: "0.2.0", sdk: null } }),
+    );
+
+    renderWithProviders(<DashboardStatusCard />);
+
+    expect(await screen.findByText("SDK not installed")).toBeInTheDocument();
+  });
+});
+
+describe("DeviceInfoCard", () => {
+  it("renders the hostname and device ID", async () => {
+    server.use(getGetStatusApiV1SystemStatusGetMockHandler(BASE_SYSTEM_STATUS));
+
+    renderWithProviders(<DeviceInfoCard />);
+
+    expect(await screen.findByText("palmimo-405")).toBeInTheDocument();
+    expect(screen.getByText("405")).toBeInTheDocument();
+  });
+
+  it("says Not assigned when there is no device ID", async () => {
+    server.use(getGetStatusApiV1SystemStatusGetMockHandler({ ...BASE_SYSTEM_STATUS, device_id: null }));
+
+    renderWithProviders(<DeviceInfoCard />);
+
+    expect(await screen.findByText("Not assigned")).toBeInTheDocument();
   });
 });

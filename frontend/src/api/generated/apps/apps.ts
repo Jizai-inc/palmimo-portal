@@ -30,6 +30,8 @@ import type {
   AppsListResponse,
   AutostartRequest,
   BindingsRequest,
+  DefaultAppRequest,
+  DefaultAppResponse,
   GetLogsApiV1AppsNameLogsGetParams,
   HTTPValidationError,
   LogsResponse,
@@ -163,7 +165,83 @@ export function useListAppsApiV1AppsGet<TData = Awaited<ReturnType<typeof listAp
 
 
 
-export const getInstallApiV1AppsInstallPostUrl = () => {
+export const getPutDefaultAppApiV1AppsDefaultPutUrl = () => {
+
+
+
+
+  return `/api/v1/apps/default`
+}
+
+/**
+ * Choose the one app started at boot (``null`` for none); see :func:`~palmimo_portal.core.apps_start.default_app`.
+ *
+ * Raises:
+ *     PortalError: 404 ``app_not_found``; 409 ``app_broken`` (boot never
+ *         starts a broken app); 409 ``app_job_in_progress`` while an
+ *         install/update/delete job targets that app.
+ * @summary Put Default App
+ */
+export const putDefaultAppApiV1AppsDefaultPut = async (defaultAppRequest: DefaultAppRequest, options?: RequestInit): Promise<DefaultAppResponse> => {
+
+  return customFetch<DefaultAppResponse>(getPutDefaultAppApiV1AppsDefaultPutUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(defaultAppRequest)
+  }
+);}
+
+
+
+
+
+export const getPutDefaultAppApiV1AppsDefaultPutMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putDefaultAppApiV1AppsDefaultPut>>, TError,{data: DefaultAppRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof putDefaultAppApiV1AppsDefaultPut>>, TError,{data: DefaultAppRequest}, TContext> => {
+
+const mutationKey = ['putDefaultAppApiV1AppsDefaultPut'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof putDefaultAppApiV1AppsDefaultPut>>, {data: DefaultAppRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  putDefaultAppApiV1AppsDefaultPut(data,)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PutDefaultAppApiV1AppsDefaultPutMutationResult = NonNullable<Awaited<ReturnType<typeof putDefaultAppApiV1AppsDefaultPut>>>
+    export type PutDefaultAppApiV1AppsDefaultPutMutationBody = DefaultAppRequest
+    export type PutDefaultAppApiV1AppsDefaultPutMutationError = HTTPValidationError
+
+    /**
+ * @summary Put Default App
+ */
+export const usePutDefaultAppApiV1AppsDefaultPut = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putDefaultAppApiV1AppsDefaultPut>>, TError,{data: DefaultAppRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof putDefaultAppApiV1AppsDefaultPut>>,
+        TError,
+        {data: DefaultAppRequest},
+        TContext
+      > => {
+      return useMutation(getPutDefaultAppApiV1AppsDefaultPutMutationOptions(options), queryClient);
+    }
+    export const getInstallApiV1AppsInstallPostUrl = () => {
 
 
 
@@ -699,11 +777,12 @@ export const getPutAutostartApiV1AppsNameAutostartPutUrl = (name: string,) => {
 }
 
 /**
- * Persist whether ``name`` should be started automatically at Portal boot (design doc 2.5/3.2).
+ * Deprecated: use ``PUT /apps/default``. Enabling makes ``name`` the default app; disabling turns only its own flag off.
  *
  * Raises:
- *     PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while
- *         an install/update/delete job targets this app.
+ *     PortalError: 404 ``app_not_found``; 409 ``app_broken`` when enabling a
+ *         broken app; 409 ``app_job_in_progress`` while an
+ *         install/update/delete job targets this app.
  * @summary Put Autostart
  */
 export const putAutostartApiV1AppsNameAutostartPut = async (name: string,

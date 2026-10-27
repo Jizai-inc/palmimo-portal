@@ -15,7 +15,7 @@ export function LanguageToggle() {
   const current = i18n.resolvedLanguage ?? "en";
 
   return (
-    <div className="flex items-center gap-0.5 rounded-md bg-muted p-0.5" aria-label={t("app.languageToggle")}>
+    <div className="flex shrink-0 items-center rounded-[7px] bg-accent p-0.5" aria-label={t("app.languageToggle")}>
       {LANGUAGES.map((lang) => (
         <button
           key={lang}
@@ -23,8 +23,8 @@ export function LanguageToggle() {
           onClick={() => void i18n.changeLanguage(lang)}
           aria-pressed={current === lang}
           className={cn(
-            "rounded-sm px-2 py-1 text-xs transition-colors",
-            current === lang ? "bg-background font-semibold text-foreground" : "text-muted-foreground",
+            "rounded-[5px] px-1.5 py-0.5 text-[11px] font-semibold transition-colors",
+            current === lang ? "bg-background text-foreground" : "text-muted-foreground hover:text-foreground",
           )}
         >
           {lang.toUpperCase()}

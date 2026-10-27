@@ -13,6 +13,7 @@ import pytest
 
 from palmimo_portal.adapters.state import (
     AUTH_FILENAME,
+    HOME_FILENAME,
     LAST_ATTEMPT_FILENAME,
     UPDATE_STATE_FILENAME,
     JsonFileStateStore,
@@ -1257,3 +1258,21 @@ def test_read_update_state_salvages_latest_for_an_unrecognized_job_kind_too(tmp_
         tag="v2.0.0", name="v2.0.0", published_at="2026-01-01T00:00:00Z", html_url="https://example.test"
     )
     assert result.job == IDLE_UPDATE_JOB
+
+
+def test_checklist_dismissed_is_false_before_first_write(tmp_path: Path) -> None:
+    assert JsonFileStateStore(tmp_path).read_checklist_dismissed() is False
+
+
+def test_checklist_dismissed_round_trips(tmp_path: Path) -> None:
+    store = JsonFileStateStore(tmp_path)
+
+    store.write_checklist_dismissed(True)
+
+    assert store.read_checklist_dismissed() is True
+
+
+def test_checklist_dismissed_treats_a_corrupt_file_as_not_dismissed(tmp_path: Path) -> None:
+    (tmp_path / HOME_FILENAME).write_text("{not json", encoding="utf-8")
+
+    assert JsonFileStateStore(tmp_path).read_checklist_dismissed() is False

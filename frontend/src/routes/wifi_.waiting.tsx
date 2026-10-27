@@ -58,7 +58,7 @@ function WifiWaitingScreen() {
       ssid={ssid}
       previousAttemptTimestamp={since}
       connectError={connectError}
-      onConnected={() => void navigate({ to: "/dashboard" })}
+      onConnected={() => void navigate({ to: "/home" })}
       onFailed={() => void navigate({ to: "/wifi" })}
     />
   );

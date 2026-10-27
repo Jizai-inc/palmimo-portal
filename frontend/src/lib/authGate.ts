@@ -28,7 +28,7 @@ export const GATE_PATHS: Record<AuthGate["screen"], string> = {
   login: "/login",
   "change-password": "/change-password",
   wifi: "/wifi",
-  dashboard: "/dashboard",
+  dashboard: "/home",
 };
 
 /**
@@ -54,8 +54,7 @@ export function isPathAllowedForGate(gate: AuthGate, pathname: string): boolean 
   if (pathname === GATE_PATHS[gate.screen]) {
     return true;
   }
-  // Exact match for a flat family entry (e.g. `/ssh-keys`), or a nested route under one
-  // (e.g. `/apps/add`, `/apps/palmimo-teleop`) -- `/apps` itself has sub-routes the others don't.
+  // The trailing "/" keeps `/settingsfoo` from matching `/settings`.
   if (
     gate.screen === "dashboard" &&
     (DASHBOARD_FAMILY_PATHS as string[]).some((path) => pathname === path || pathname.startsWith(`${path}/`))
@@ -186,7 +185,7 @@ export async function resolveAuthGateSafely(): Promise<AuthGate> {
  * {@link GATE_PROBE_TIMEOUT_MS}. Safe to skip: every gate reachable during AP teardown already
  * carves out `/wifi/waiting` (`isPathAllowedForGate`); the route's own `beforeLoad`
  * (`wifiWaitingGate.ts`'s `shouldRedirectToWifiScan`) bounces malformed/stale entries back to
- * `/wifi`, which re-gates; and its outcome handlers navigate to `/dashboard` or `/wifi`, both
+ * `/wifi`, which re-gates; and its outcome handlers navigate to `/home` or `/wifi`, both
  * re-gated on arrival. The residual exposure -- a deep link can render this screen in a state
  * the gate would otherwise have redirected out of -- is UX-only and self-resolving the moment
  * one of those outcome handlers fires; the server remains the actual access boundary.

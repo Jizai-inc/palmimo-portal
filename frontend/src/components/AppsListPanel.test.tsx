@@ -70,16 +70,26 @@ describe("AppsListPanel", () => {
     expect(openLink).toHaveAttribute("href", "http://palmimo.local:8765");
   });
 
-  it("shows the autostart and update-available badges", async () => {
+  it("shows the Default and update-available badges", async () => {
     server.use(
-      getListAppsApiV1AppsGetMockHandler({ apps: [app({ autostart: true, update_available: true })] }),
+      getListAppsApiV1AppsGetMockHandler({ apps: [app({ update_available: true })], default_app: "zip.palmimo-teleop", autostart_conflict: [] }),
       getGetPlatformApiV1PlatformGetMockHandler(READY_PLATFORM),
     );
     renderWithRouter(<AppsListPanel />);
 
     await screen.findByText("palmimo-teleop");
-    expect(screen.getByText("Autostart")).toBeInTheDocument();
+    expect(screen.getByText("Default")).toBeInTheDocument();
     expect(screen.getByText("Update available")).toBeInTheDocument();
+  });
+
+  it("links a Needs API key badge to the app page when a required key is missing", async () => {
+    server.use(
+      getListAppsApiV1AppsGetMockHandler({ apps: [app({ missing_env: ["API_KEY"] })], default_app: null, autostart_conflict: [] }),
+      getGetPlatformApiV1PlatformGetMockHandler(READY_PLATFORM),
+    );
+    renderWithRouter(<AppsListPanel />);
+
+    expect(await screen.findByRole("link", { name: "Needs API key" })).toHaveAttribute("href", "/apps/zip.palmimo-teleop");
   });
 
   // credential was rejected (e.g. revoked token) and needs re-registering before it can update.

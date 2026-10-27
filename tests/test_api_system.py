@@ -12,7 +12,17 @@ from fastapi import FastAPI
 from starlette.testclient import TestClient
 
 from palmimo_portal.adapters.identity import FileIdentityStore
-from palmimo_portal.ports import AdapterUnavailableError, UpdateJob, UpdateState
+from palmimo_portal.core.manifest import manifest_snapshot, parse_manifest
+from palmimo_portal.ports import (
+    AdapterUnavailableError,
+    AppRecord,
+    AppSource,
+    AppsState,
+    Identity,
+    UnitStatus,
+    UpdateJob,
+    UpdateState,
+)
 from palmimo_portal.testing.fakes import FakeAdapterBundle
 from palmimo_portal.wiring import AdapterBundle
 
@@ -73,8 +83,6 @@ def test_status_reports_auth_state_corrupt(client: TestClient, adapters: FakeAda
 def test_status_reports_auth_state_initial_when_identity_present_and_no_password_set(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
-    from palmimo_portal.ports import Identity
-
     adapters.identity.identity = Identity(device_id="palmimo-042", initial_password="sticker")
 
     response = client.get("/api/v1/system/status")
@@ -85,8 +93,6 @@ def test_status_reports_auth_state_initial_when_identity_present_and_no_password
 def test_status_reports_auth_state_set_when_identity_present_and_password_already_set(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
-    from palmimo_portal.ports import Identity
-
     adapters.identity.identity = Identity(device_id="palmimo-042", initial_password="sticker")
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
 
@@ -107,8 +113,6 @@ def test_status_device_id_is_null_without_an_identity_file(client: TestClient) -
 def test_status_reports_the_device_id_when_an_identity_file_is_present(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
-    from palmimo_portal.ports import Identity
-
     adapters.identity.identity = Identity(device_id="palmimo-042", initial_password="sticker")
 
     response = client.get("/api/v1/system/status")
@@ -322,3 +326,109 @@ def test_shutdown_maps_adapter_unavailable_to_a_503_envelope(client: TestClient,
 
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "system_backend_unavailable"
+
+
+_ACTIVE_UNIT = UnitStatus(active_state="active", sub_state="running", result="success", exec_main_status=0)
+_MANIFEST = """
+schema = 1
+name = "robot"
+description = "d"
+command = ["python", "main.py"]
+"""
+
+
+def _install_running_app(adapters: FakeAdapterBundle) -> None:
+    record = AppRecord(
+        name="Hello Robot",
+        source=AppSource(type="zip"),
+        installed_at=0.0,
+        params={},
+        autostart=False,
+        last_job=None,
+        manifest=manifest_snapshot(parse_manifest(_MANIFEST)),
+        requires_python=">=3.12",
+        id="robot",
+    )
+    adapters.state.write_apps_state(AppsState(apps={"robot": record}))
+    adapters.app_unit.simulate_active_state("robot", _ACTIVE_UNIT)
+
+
+def _full_login(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
+    adapters.network.known_networks.add("home")
+    client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
+
+
+def test_status_running_app_is_null_without_a_session(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    _install_running_app(adapters)
+
+    response = client.get("/api/v1/system/status")
+
+    assert response.json()["running_app"] is None
+
+
+def test_status_running_app_is_null_for_an_initial_mode_session(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    adapters.identity.identity = Identity(device_id="palmimo-042", initial_password="sticker")
+    adapters.network.known_networks.add("home")
+    login = client.post("/api/v1/auth/login", json={"password": "sticker"}, headers=CSRF_HEADERS)
+    assert login.json()["mode"] == "initial"
+    _install_running_app(adapters)
+
+    response = client.get("/api/v1/system/status")
+
+    assert response.json()["running_app"] is None
+
+
+def test_status_reports_the_running_app_to_a_full_session(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    _full_login(client, adapters)
+    _install_running_app(adapters)
+
+    response = client.get("/api/v1/system/status")
+
+    assert response.json()["running_app"] == {"id": "robot", "name": "Hello Robot", "state": "running"}
+
+
+def test_status_running_app_is_null_when_no_app_runs(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    _full_login(client, adapters)
+
+    response = client.get("/api/v1/system/status")
+
+    assert response.json()["running_app"] is None
+
+
+def test_status_running_app_is_null_when_the_app_unit_backend_is_unavailable(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    _full_login(client, adapters)
+    _install_running_app(adapters)
+    adapters.app_unit.raise_on_list_active = AdapterUnavailableError("systemd_unavailable", "dbus down")
+
+    response = client.get("/api/v1/system/status")
+
+    assert response.status_code == 200
+    assert response.json()["running_app"] is None
+
+
+def test_checklist_is_401_without_a_session(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    adapters.network.known_networks.add("home")
+
+    response = client.get("/api/v1/system/checklist")
+
+    assert response.status_code == 401
+
+
+def test_checklist_starts_not_dismissed(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    _full_login(client, adapters)
+
+    assert client.get("/api/v1/system/checklist").json() == {"dismissed": False}
+
+
+def test_checklist_dismissal_persists(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    _full_login(client, adapters)
+
+    response = client.put("/api/v1/system/checklist", json={"dismissed": True}, headers=CSRF_HEADERS)
+
+    assert response.json() == {"dismissed": True}
+    assert adapters.state.read_checklist_dismissed() is True

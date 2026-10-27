@@ -11,7 +11,7 @@ import {
   useDeleteAppApiV1AppsNameDelete,
   useGetAppApiV1AppsNameGet,
   useListAppsApiV1AppsGet,
-  usePutAutostartApiV1AppsNameAutostartPut,
+  usePutDefaultAppApiV1AppsDefaultPut,
   usePutBindingsApiV1AppsNameBindingsPut,
   usePutParamsApiV1AppsNameParamsPut,
   usePutSourceApiV1AppsNameSourcePut,
@@ -21,6 +21,7 @@ import {
   useUpdateCheckApiV1AppsNameUpdateCheckPost,
 } from "@/api/generated/apps/apps";
 import { useListSecretsApiV1SecretsGet } from "@/api/generated/secrets/secrets";
+import { getGetStatusApiV1SystemStatusGetQueryKey } from "@/api/generated/system/system";
 import type { AppDetailResponse, ParamSpecInfo, SourceUpdateRequestRefKind } from "@/api/generated/models";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { AppIdLabel, appIdNamePart } from "@/components/AppIdLabel";
@@ -91,8 +92,12 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deletedAfterClose, redirectedAfterDelete]);
 
-  const startApp = useStartAppEndpointApiV1AppsNameStartPost({ mutation: { onSuccess: invalidate } });
-  const stopApp = useStopAppEndpointApiV1AppsNameStopPost({ mutation: { onSuccess: invalidate } });
+  const invalidateWithStatus = () => {
+    invalidate();
+    void queryClient.invalidateQueries({ queryKey: getGetStatusApiV1SystemStatusGetQueryKey() });
+  };
+  const startApp = useStartAppEndpointApiV1AppsNameStartPost({ mutation: { onSuccess: invalidateWithStatus } });
+  const stopApp = useStopAppEndpointApiV1AppsNameStopPost({ mutation: { onSuccess: invalidateWithStatus } });
   const updateApp = useUpdateAppApiV1AppsNameUpdatePost({
     mutation: { onSuccess: (data) => setJob({ id: data.job.id, kind: "update" }) },
   });
@@ -136,7 +141,7 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
             {appStatusLabel(t, app.status, app.exit_code)}
           </Badge>
           {app.source.official ? <Badge>{t("appAdd.catalogOfficialBadge")}</Badge> : null}
-          {app.autostart ? <Badge variant="outline">{t("apps.autostartBadge")}</Badge> : null}
+          {appsData?.default_app === app.id ? <Badge variant="outline">{t("apps.defaultBadge")}</Badge> : null}
           <div className="ml-auto flex gap-2">
             {app.status === "running" && app.url ? (
               <Button variant="outline" asChild>
@@ -183,7 +188,7 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
         </Section>
       ) : null}
 
-      <AutostartSection app={app} onSaved={invalidate} />
+      <DefaultAppSection app={app} onSaved={invalidate} />
       <SourceSection app={app} onUpdate={() => updateApp.mutate({ name: id })} updatePending={updateApp.isPending} updateCompleted={updateCompleted} appRunning={appRunning} />
 
       <Section title={t("appDetail.dangerZoneTitle")}>
@@ -277,7 +282,8 @@ function BindingsSection({ app, onSaved }: { app: AppDetailResponse; onSaved: ()
     <Section title={t("appDetail.bindingsTitle")}>
       <div className="flex flex-col gap-2">
         {app.env.map((envVar) => {
-          const unbound = envVar.required && !bindings[envVar.name];
+          const savedMissing = bindings[envVar.name] === app.bindings[envVar.name] && (app.missing_env ?? []).includes(envVar.name);
+          const unbound = envVar.required && (!bindings[envVar.name] || savedMissing);
           return (
             <div key={envVar.name} className={`flex flex-wrap items-center gap-2 rounded-md p-2 ${unbound ? "bg-destructive/10" : ""}`}>
               <div className="flex min-w-0 flex-1 flex-col">
@@ -445,24 +451,31 @@ function LogsSection({ id, status }: { id: string; status: string }) {
   );
 }
 
-function AutostartSection({ app, onSaved }: { app: AppDetailResponse; onSaved: () => void }) {
+function DefaultAppSection({ app, onSaved }: { app: AppDetailResponse; onSaved: () => void }) {
   const { t } = useTranslation();
-  const putAutostart = usePutAutostartApiV1AppsNameAutostartPut({ mutation: { onSuccess: onSaved } });
+  const queryClient = useQueryClient();
+  const { data: appsData } = useListAppsApiV1AppsGet();
+  const isDefault = appsData?.default_app === app.id;
+  const putDefault = usePutDefaultAppApiV1AppsDefaultPut({
+    mutation: {
+      onSuccess: () => {
+        onSaved();
+        void queryClient.invalidateQueries({ queryKey: getListAppsApiV1AppsGetQueryKey() });
+      },
+    },
+  });
   return (
-    <Section title={t("appDetail.autostartTitle")}>
-      <p className="text-sm text-muted-foreground">{t("appDetail.autostartBody")}</p>
-      <ApiErrorAlert error={putAutostart.error} />
-      <label className="flex w-fit items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          role="switch"
-          aria-checked={app.autostart}
-          checked={app.autostart}
-          disabled={putAutostart.isPending}
-          onChange={(event) => putAutostart.mutate({ name: app.id, data: { enabled: event.target.checked } })}
-        />
-        {t("appDetail.autostartTitle")}
-      </label>
+    <Section title={t("appDetail.defaultAppTitle")}>
+      <p className="text-sm text-muted-foreground">{isDefault ? t("appDetail.defaultAppIsDefault") : t("appDetail.defaultAppBody")}</p>
+      <ApiErrorAlert error={putDefault.error} />
+      <Button
+        variant="outline"
+        className="w-fit"
+        disabled={putDefault.isPending || appsData === undefined || (!isDefault && app.broken_reason != null)}
+        onClick={() => putDefault.mutate({ data: { id: isDefault ? null : app.id } })}
+      >
+        {isDefault ? t("appDetail.defaultAppRemoveButton") : t("appDetail.defaultAppMakeButton")}
+      </Button>
     </Section>
   );
 }

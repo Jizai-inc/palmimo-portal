@@ -24,6 +24,8 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  ChecklistState,
+  HTTPValidationError,
   StatusResponse,
   SystemStatus
 } from '../models';
@@ -48,7 +50,179 @@ const withQueryKey = <T extends object, K>(query: T, queryKey: K): T & { queryKe
   return result;
 };
 
-export const getRebootApiV1SystemRebootPostUrl = () => {
+export const getGetChecklistApiV1SystemChecklistGetUrl = () => {
+
+
+
+
+  return `/api/v1/system/checklist`
+}
+
+/**
+ * Whether Home's setup checklist is hidden. Its items are derived client-side from existing endpoints.
+ * @summary Get Checklist
+ */
+export const getChecklistApiV1SystemChecklistGet = async ( options?: RequestInit): Promise<ChecklistState> => {
+
+  return customFetch<ChecklistState>(getGetChecklistApiV1SystemChecklistGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetChecklistApiV1SystemChecklistGetQueryKey = () => {
+    return [
+    `/api/v1/system/checklist`
+    ] as const;
+    }
+
+
+export const getGetChecklistApiV1SystemChecklistGetQueryOptions = <TData = Awaited<ReturnType<typeof getChecklistApiV1SystemChecklistGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getChecklistApiV1SystemChecklistGet>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetChecklistApiV1SystemChecklistGetQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getChecklistApiV1SystemChecklistGet>>> = ({ signal }) => getChecklistApiV1SystemChecklistGet({ signal });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getChecklistApiV1SystemChecklistGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetChecklistApiV1SystemChecklistGetQueryResult = NonNullable<Awaited<ReturnType<typeof getChecklistApiV1SystemChecklistGet>>>
+export type GetChecklistApiV1SystemChecklistGetQueryError = unknown
+
+
+export function useGetChecklistApiV1SystemChecklistGet<TData = Awaited<ReturnType<typeof getChecklistApiV1SystemChecklistGet>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getChecklistApiV1SystemChecklistGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getChecklistApiV1SystemChecklistGet>>,
+          TError,
+          Awaited<ReturnType<typeof getChecklistApiV1SystemChecklistGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetChecklistApiV1SystemChecklistGet<TData = Awaited<ReturnType<typeof getChecklistApiV1SystemChecklistGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getChecklistApiV1SystemChecklistGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getChecklistApiV1SystemChecklistGet>>,
+          TError,
+          Awaited<ReturnType<typeof getChecklistApiV1SystemChecklistGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetChecklistApiV1SystemChecklistGet<TData = Awaited<ReturnType<typeof getChecklistApiV1SystemChecklistGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getChecklistApiV1SystemChecklistGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Checklist
+ */
+
+export function useGetChecklistApiV1SystemChecklistGet<TData = Awaited<ReturnType<typeof getChecklistApiV1SystemChecklistGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getChecklistApiV1SystemChecklistGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetChecklistApiV1SystemChecklistGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export const getPutChecklistApiV1SystemChecklistPutUrl = () => {
+
+
+
+
+  return `/api/v1/system/checklist`
+}
+
+/**
+ * Hide or restore Home's setup checklist.
+ * @summary Put Checklist
+ */
+export const putChecklistApiV1SystemChecklistPut = async (checklistState: ChecklistState, options?: RequestInit): Promise<ChecklistState> => {
+
+  return customFetch<ChecklistState>(getPutChecklistApiV1SystemChecklistPutUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(checklistState)
+  }
+);}
+
+
+
+
+
+export const getPutChecklistApiV1SystemChecklistPutMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putChecklistApiV1SystemChecklistPut>>, TError,{data: ChecklistState}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof putChecklistApiV1SystemChecklistPut>>, TError,{data: ChecklistState}, TContext> => {
+
+const mutationKey = ['putChecklistApiV1SystemChecklistPut'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof putChecklistApiV1SystemChecklistPut>>, {data: ChecklistState}> = (props) => {
+          const {data} = props ?? {};
+
+          return  putChecklistApiV1SystemChecklistPut(data,)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PutChecklistApiV1SystemChecklistPutMutationResult = NonNullable<Awaited<ReturnType<typeof putChecklistApiV1SystemChecklistPut>>>
+    export type PutChecklistApiV1SystemChecklistPutMutationBody = ChecklistState
+    export type PutChecklistApiV1SystemChecklistPutMutationError = HTTPValidationError
+
+    /**
+ * @summary Put Checklist
+ */
+export const usePutChecklistApiV1SystemChecklistPut = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putChecklistApiV1SystemChecklistPut>>, TError,{data: ChecklistState}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof putChecklistApiV1SystemChecklistPut>>,
+        TError,
+        {data: ChecklistState},
+        TContext
+      > => {
+      return useMutation(getPutChecklistApiV1SystemChecklistPutMutationOptions(options), queryClient);
+    }
+    export const getRebootApiV1SystemRebootPostUrl = () => {
 
 
 
@@ -239,6 +413,11 @@ export const useShutdownApiV1SystemShutdownPost = <TError = unknown,
  *
  * ``ntp_synchronized`` and ``disk_free_bytes`` back the "clock not synced
  * yet" / "disk almost full" UI warnings (design doc 3.6).
+ *
+ * ``running_app`` is ``None`` unless the caller holds a full session, so
+ * app names never reach an unauthenticated client, and it is ``None``
+ * rather than an error when systemd or the app ledger cannot be read --
+ * this endpoint must keep answering for every screen to render.
  * @summary Get Status
  */
 export const getStatusApiV1SystemStatusGet = async ( options?: RequestInit): Promise<SystemStatus> => {

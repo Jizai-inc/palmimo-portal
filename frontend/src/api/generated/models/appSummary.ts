@@ -25,6 +25,7 @@ export interface AppSummary {
   installed_at: number | null;
   last_job: AppJobInfo | null;
   latest_commit: string | null;
+  missing_env?: string[];
   name: string;
   reason?: string | null;
   source: AppSourceInfo;

@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, cast
 
 from palmimo_portal.core.apps_jobs import AppsJobContext, read_manifest_for_app
@@ -232,11 +232,7 @@ def _run_prechecks(deps: StartDeps, name: str, *, host: str) -> _StartPlan:
         store_name = bindings.get(request_name)
         return secrets.get_secret_value(store_name) if store_name is not None else None
 
-    unbound = sorted(
-        request_name
-        for request_name, spec in manifest.env.items()
-        if spec.required and _bound_value(request_name) is None
-    )
+    unbound = missing_env(manifest, bindings, lambda store_name: secrets.get_secret_value(store_name) is not None)
     if unbound:
         raise EnvUnboundError(unbound)
 
@@ -428,6 +424,57 @@ def derive_run_status(unit_status: UnitStatus) -> AppRunStatus:
             return AppRunStatus("failed", reason=unit_status.result)
         return AppRunStatus("failed", reason=unit_status.result)
     return AppRunStatus("stopped")
+
+
+def missing_env(manifest: Manifest, bindings: dict[str, str], has_secret: Callable[[str], bool]) -> list[str]:
+    """Required ``[env.*]`` names with no binding, or bound to a secret that no longer exists -- what start refuses as ``env_unbound``."""
+    return sorted(
+        name
+        for name, spec in manifest.env.items()
+        if spec.required and (bindings.get(name) is None or not has_secret(bindings[name]))
+    )
+
+
+def autostart_apps(apps_state: AppsState) -> list[str]:
+    """Ids boot would start -- ``autostart`` on and not broken -- in boot order; see :func:`default_app` for more than one."""
+    return sorted(name for name, record in apps_state.apps.items() if record.autostart and record.broken_reason is None)
+
+
+def default_app(apps_state: AppsState) -> str | None:
+    """The default app is the one app :func:`autostart_apps` returns -- several means the owner must choose.
+
+    Stored as the existing per-app flag rather than a ledger field so an older
+    Portal (after a rollback) still boots the same app.
+    """
+    candidates = autostart_apps(apps_state)
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def with_default_app(apps_state: AppsState, app_id: str | None) -> AppsState:
+    """Turn ``autostart`` on for ``app_id`` only (or off everywhere for ``None``)."""
+    return replace(
+        apps_state,
+        apps={name: replace(record, autostart=name == app_id) for name, record in apps_state.apps.items()},
+    )
+
+
+@dataclass(frozen=True)
+class RunningApp:
+    id: str
+    name: str
+    state: str
+
+
+def find_running_app(app_unit: AppUnitPort, apps_state: AppsState) -> RunningApp | None:
+    """Return the ledgered app occupying the one-app-at-a-time slot, or ``None``; unledgered units are ignored."""
+    for app_id in app_unit.list_active_app_units():
+        record = apps_state.apps.get(app_id)
+        if record is None:
+            continue
+        run_status = derive_run_status(app_unit.status(app_id))
+        if run_status.status in ("running", "starting", "stopping"):
+            return RunningApp(id=app_id, name=record.name, state=run_status.status)
+    return None
 
 
 def resolve_running_url(deps: StartDeps, record: AppRecord, *, host: str) -> str | None:

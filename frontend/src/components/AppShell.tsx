@@ -1,59 +1,59 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { X } from "lucide-react";
 import type * as React from "react";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { useListAppsApiV1AppsGet } from "@/api/generated/apps/apps";
 import { useGetStatusApiV1WifiStatusGet } from "@/api/generated/wifi/wifi";
+import { useGetPlatformApiV1PlatformGet } from "@/api/generated/platform/platform";
 import { useGetStatusApiV1SystemStatusGet } from "@/api/generated/system/system";
 import { useGetStatusApiV1UpdateStatusGet } from "@/api/generated/update/update";
-import { useLogoutApiV1AuthLogoutPost } from "@/api/generated/auth/auth";
 import { AppHeader } from "@/components/AppHeader";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
-import { UpdateDot } from "@/components/UpdateDot";
+import { DeviceMenu } from "@/components/HeaderMenus";
+import { PageHeader } from "@/components/PageHeader";
+import { PlatformUpdatePill } from "@/components/PlatformUpdatePill";
+import { RunningAppControl } from "@/components/RunningAppControl";
+import { SidebarFooter, SidebarNav } from "@/components/SidebarNav";
 import { Button } from "@/components/ui/button";
-import { isActive, NAV_ITEMS, type NavItem } from "@/lib/navigation";
-import { navLabel } from "@/lib/navLabels";
 import { useMediaQuery } from "@/lib/useMediaQuery";
 import { cn } from "@/lib/utils";
 
 /** How often to re-poll `update/status` for the nav badge -- cheap, auth-gated, no need for tighter than window-focus + a slow floor. */
 const UPDATE_BADGE_REFETCH_INTERVAL_MS = 5 * 60 * 1000;
 
+/** Fast while the running app is starting or stopping so the header settles; slow otherwise, to notice an app that exits on its own. */
+const RUNNING_APP_SETTLING_POLL_MS = 2_000;
+const RUNNING_APP_IDLE_POLL_MS = 15_000;
+
 /** Tailwind's `md` breakpoint -- the same width at which the desktop sidebar replaces the mobile drawer in the markup below. */
 const DESKTOP_QUERY = "(min-width: 768px)";
 
 /**
- * Chrome for the dashboard family (`/dashboard`, `/ssh-keys`, `/power`, Wi-Fi settings, update).
- * `src/lib/navigation.ts`'s `NAV_ITEMS` is the single source of truth for the nav, rendered
- * identically as a desktop sidebar and (via the same {@link SidebarLink} entries) a mobile
- * slide-in drawer opened from the header toggle -- one nav model on both form factors, so it
- * scales with the list's length rather than needing a tab-count budget. Owns logout itself
- * rather than each page calling it directly.
+ * Chrome for the dashboard family (Home, Apps, Settings). {@link SidebarNav} renders the nav as
+ * a desktop sidebar (collapsible to an icon rail) and as a mobile slide-in drawer opened from
+ * the header toggle. The header carries the language switch, the update pills, the running app
+ * and the device menu; the account menu sits in the sidebar footer.
  */
 export function AppShell({
   title,
-  subtitle,
+  description,
+  actions,
   breadcrumbs,
-  mobileHeaderAction,
   fitViewport = false,
   children,
 }: {
-  title: string;
-  subtitle?: string;
+  title?: string;
+  description?: React.ReactNode;
+  /** The page's primary action, right-aligned in the page header. */
+  actions?: React.ReactNode;
   breadcrumbs?: React.ReactNode[];
-  /** Rendered beside the title, mobile only -- the dashboard's own "log out" button (see routes/dashboard.tsx). */
-  mobileHeaderAction?: React.ReactNode;
   fitViewport?: boolean;
   children: React.ReactNode;
 }) {
   const { t } = useTranslation();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const queryClient = useQueryClient();
   const isDesktop = useMediaQuery(DESKTOP_QUERY);
-  // Desktop-only: collapses the static sidebar. Never touched by the mobile drawer path.
+  // Desktop-only: shrinks the static sidebar to an icon rail. Never touched by the mobile drawer path.
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   // Mobile-only: opens the slide-in drawer. Never touched by the desktop sidebar path, and
   // forced closed the moment the viewport crosses into desktop width (see the effect below) --
@@ -63,7 +63,16 @@ export function AppShell({
   const drawerRef = useRef<HTMLDivElement>(null);
   const focusBeforeDrawerRef = useRef<HTMLElement | null>(null);
   const { data: wifiStatus } = useGetStatusApiV1WifiStatusGet();
-  const { data: systemStatus } = useGetStatusApiV1SystemStatusGet();
+  const { data: appsData } = useListAppsApiV1AppsGet();
+  const defaultApp = appsData?.apps.find((app) => app.id === appsData.default_app) ?? null;
+  const { data: systemStatus } = useGetStatusApiV1SystemStatusGet({
+    query: {
+      refetchInterval: (query) => {
+        const state = query.state.data?.running_app?.state;
+        return state && state !== "running" ? RUNNING_APP_SETTLING_POLL_MS : RUNNING_APP_IDLE_POLL_MS;
+      },
+    },
+  });
   const { data: updateStatus } = useGetStatusApiV1UpdateStatusGet({
     query: {
       staleTime: UPDATE_BADGE_REFETCH_INTERVAL_MS,
@@ -71,11 +80,12 @@ export function AppShell({
       refetchOnWindowFocus: true,
     },
   });
-  const logout = useLogoutApiV1AuthLogoutPost();
 
   // `update/status` is a plain read; the badge never fires `update/check` itself, so it never
   // touches that endpoint's own rate limit (see UpdatePanel's "Check now" button).
   const updateAvailable = updateStatus?.update_available ?? false;
+  const { data: platform } = useGetPlatformApiV1PlatformGet();
+  const updateAttention = updateAvailable || platform?.ready === false;
 
   function handleToggleClick() {
     if (isDesktop) {
@@ -160,69 +170,49 @@ export function AppShell({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawerOpen, isDesktop]);
 
-  const logoutButton = (
-    <Button
-      variant="ghost"
-      onClick={() =>
-        logout.mutate(undefined, {
-          onSuccess: () => {
-            // No screen after this point may keep rendering pre-logout auth state from cache.
-            queryClient.clear();
-            void navigate({ to: "/login" });
-          },
-        })
-      }
-      disabled={logout.isPending}
-    >
-      {t("common.logout")}
-    </Button>
+  const headerActions = (
+    <>
+      <PlatformUpdatePill />
+      <span aria-hidden className="hidden h-5 w-px bg-border sm:block" />
+      <RunningAppControl runningApp={systemStatus?.running_app} defaultApp={defaultApp} />
+      <DeviceMenu
+        hostname={systemStatus?.hostname ?? ""}
+        network={[wifiStatus?.ssid, wifiStatus?.ip_address].filter(Boolean).join(" · ")}
+        connected={systemStatus?.state === "connected"}
+      />
+    </>
   );
 
   return (
     <div className={cn("flex flex-col bg-background", fitViewport ? "h-dvh overflow-hidden [&>header]:shrink-0" : "min-h-screen")}>
       <AppHeader
         onToggleSidebar={handleToggleClick}
-        logoutSlot={logoutButton}
-        showToggleBadge={updateAvailable}
+        actions={headerActions}
+        showToggleBadge={updateAttention}
+        updateAvailable={updateAvailable && platform?.ready !== false}
         wordmarkLinksHome
       />
       <div className={cn("flex flex-1 md:flex-row", fitViewport && "min-h-0")}>
-        {sidebarCollapsed ? null : (
-          <aside className="hidden w-60 shrink-0 flex-col gap-4 border-r border-border bg-muted/40 p-4 md:flex">
-            <p className="px-2 text-xs font-medium text-muted-foreground">{t("nav.deviceSection")}</p>
-            <nav className="flex flex-col gap-1" aria-label={t("nav.primaryNavigation")}>
-              {NAV_ITEMS.map((item) => (
-                <SidebarLink
-                  key={item.to}
-                  item={item}
-                  active={isActive(location.pathname, item.to)}
-                  showBadge={item.to === "/update" && updateAvailable}
-                />
-              ))}
-            </nav>
-            <div className="mt-auto flex flex-col gap-1 rounded-lg bg-accent/60 p-3 text-xs">
-              <div className="flex items-center gap-2">
-                <span className="size-2.5 rounded-full bg-green-500" aria-hidden />
-                <span className="font-medium">{systemStatus?.hostname ?? ""}</span>
-              </div>
-              <p className="text-muted-foreground">
-                {[wifiStatus?.ssid, wifiStatus?.ip_address].filter(Boolean).join(" · ")}
-              </p>
-            </div>
-          </aside>
-        )}
+        <aside
+          data-rail={sidebarCollapsed || undefined}
+          className={cn(
+            "hidden shrink-0 flex-col gap-4 border-r border-border bg-sidebar md:flex",
+            sidebarCollapsed ? "w-14 px-2 py-3.5" : "w-58 px-2.5 py-3.5",
+          )}
+        >
+          <SidebarNav rail={sidebarCollapsed} updateAvailable={updateAttention} idPrefix="sidebar" />
+          <SidebarFooter rail={sidebarCollapsed} />
+        </aside>
         {/* min-w-0: as a flex item, <main> otherwise refuses to be narrower than its widest
             unbreakable line (`truncate` does not shrink that), widening every page past a phone's viewport. */}
-        <main className={cn("min-w-0 flex-1 p-5 md:p-8 lg:p-10", fitViewport && "flex min-h-0 flex-col overflow-y-auto")}>
-          <div className={cn("mx-auto flex max-w-[960px] flex-col gap-6", fitViewport && "min-h-0 w-full flex-1")}>
-            <div className={cn("flex items-center justify-between gap-2", fitViewport && "shrink-0")}>
-              <div className="flex flex-col gap-1">
+        <main className={cn("min-w-0 flex-1 px-5 py-6 md:px-12 md:py-10", fitViewport && "flex min-h-0 flex-col overflow-y-auto")}>
+          <div className={cn("mx-auto flex w-full max-w-[1040px] flex-col gap-7", fitViewport && "min-h-0 flex-1")}>
+            {title || breadcrumbs ? (
+              <div className={cn("flex flex-col gap-2", fitViewport && "shrink-0")}>
                 {breadcrumbs ? <Breadcrumbs items={breadcrumbs} label={t("common.breadcrumb")} /> : null}
-                <h1 className="text-2xl font-semibold [overflow-wrap:anywhere]">{title}</h1>
-                {subtitle ? <p className="text-sm text-muted-foreground">{subtitle}</p> : null}
+                {title ? <PageHeader title={title} description={description} actions={actions} /> : null}
               </div>
-              {mobileHeaderAction ? <div className="md:hidden">{mobileHeaderAction}</div> : null}
-            </div>
+            ) : null}
             {children}
           </div>
         </main>
@@ -236,63 +226,18 @@ export function AppShell({
             role="dialog"
             aria-modal="true"
             aria-label={t("nav.primaryNavigation")}
-            className="fixed inset-y-0 left-0 flex w-[280px] max-w-[80vw] flex-col gap-4 overscroll-contain border-r border-border bg-background p-4 shadow-lg"
+            className="fixed inset-y-0 left-0 flex w-[280px] max-w-[80vw] flex-col gap-4 overscroll-contain border-r border-border bg-sidebar p-4 shadow-lg"
           >
-            <div className="flex items-center justify-between px-2">
-              <p className="text-xs font-medium text-muted-foreground">{t("nav.deviceSection")}</p>
+            <div className="flex items-center justify-end px-2">
               <Button type="button" variant="ghost" size="icon" aria-label={t("nav.closeMenu")} onClick={closeDrawer}>
                 <X className="size-4" />
               </Button>
             </div>
-            <nav className="flex flex-col gap-1" aria-label={t("nav.primaryNavigation")}>
-              {NAV_ITEMS.map((item) => (
-                <SidebarLink
-                  key={item.to}
-                  item={item}
-                  active={isActive(location.pathname, item.to)}
-                  showBadge={item.to === "/update" && updateAvailable}
-                  onNavigate={() => setDrawerOpen(false)}
-                />
-              ))}
-            </nav>
+            <SidebarNav updateAvailable={updateAttention} onNavigate={() => setDrawerOpen(false)} idPrefix="drawer" />
+            <SidebarFooter />
           </div>
         </div>
       ) : null}
     </div>
-  );
-}
-
-/** One nav entry -- icon, label, and an optional update-available dot. Shared by the desktop sidebar and the mobile drawer, both rendered from `NAV_ITEMS`. */
-function SidebarLink({
-  item,
-  active,
-  showBadge,
-  onNavigate,
-}: {
-  item: NavItem;
-  active: boolean;
-  showBadge: boolean;
-  /** Closes the mobile drawer after navigating; unset for the desktop sidebar, which has no drawer to close. */
-  onNavigate?: () => void;
-}) {
-  const { t } = useTranslation();
-  const Icon = item.icon;
-  return (
-    <Link
-      to={item.to}
-      aria-current={active ? "page" : undefined}
-      onClick={onNavigate}
-      className={cn(
-        "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm",
-        active ? "bg-accent font-semibold text-accent-foreground" : "text-muted-foreground hover:bg-accent/50",
-      )}
-    >
-      <span className="relative flex items-center">
-        <Icon className="size-4" />
-        {showBadge ? <UpdateDot className="-right-1 -top-1 size-1.5" /> : null}
-      </span>
-      {navLabel(t, item.labelKey)}
-      {showBadge ? <span className="sr-only"> {t("nav.updateAvailable")}</span> : null}
-    </Link>
   );
 }

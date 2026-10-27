@@ -3,14 +3,14 @@ import { RouterProvider, createMemoryHistory, createRootRoute, createRoute, crea
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UpdateStatusResponse } from "@/api/generated/models";
-import { getGetStatusApiV1SystemStatusGetMockHandler } from "@/api/generated/system/system.msw";
+import { getGetStatusApiV1SystemStatusGetMockHandler, getGetStatusApiV1SystemStatusGetResponseMock } from "@/api/generated/system/system.msw";
 import { getGetStatusApiV1UpdateStatusGetMockHandler } from "@/api/generated/update/update.msw";
 import { getGetStatusApiV1WifiStatusGetMockHandler } from "@/api/generated/wifi/wifi.msw";
 import { AppShell } from "@/components/AppShell";
-import { NAV_ITEMS } from "@/lib/navigation";
+import { NAV_ITEMS, SETTINGS_ITEMS } from "@/lib/navigation";
 import { stubMatchMedia } from "@/test/matchMedia";
 import { server } from "@/test/server";
 
@@ -39,7 +39,7 @@ const BASE_UPDATE_STATUS: UpdateStatusResponse = {
 function stubStatuses({ update }: { update?: UpdateStatusResponse } = {}) {
   server.use(
     getGetStatusApiV1WifiStatusGetMockHandler(),
-    getGetStatusApiV1SystemStatusGetMockHandler(),
+    getGetStatusApiV1SystemStatusGetMockHandler(getGetStatusApiV1SystemStatusGetResponseMock({ running_app: null })),
     getGetStatusApiV1UpdateStatusGetMockHandler(update ?? BASE_UPDATE_STATUS),
   );
 }
@@ -48,32 +48,32 @@ function stubStatuses({ update }: { update?: UpdateStatusResponse } = {}) {
 function stubUpdateStatusError() {
   server.use(
     getGetStatusApiV1WifiStatusGetMockHandler(),
-    getGetStatusApiV1SystemStatusGetMockHandler(),
+    getGetStatusApiV1SystemStatusGetMockHandler(getGetStatusApiV1SystemStatusGetResponseMock({ running_app: null })),
     http.get("*/api/v1/update/status", () => HttpResponse.json({ error: { code: "internal_error", params: {} } }, { status: 500 })),
   );
 }
 
 /**
- * A synthetic route tree that mounts `AppShell` at `/dashboard` with every other `NAV_ITEMS`
- * path present as a no-op leaf, so `<Link>` targets resolve without pulling in the app's real
+ * A synthetic route tree that mounts `AppShell` at `/home` with every other `NAV_ITEMS` and
+ * `SETTINGS_ITEMS` path present as a no-op leaf, so `<Link>` targets resolve without pulling in the app's real
  * screens (loaders, auth guard, network calls) that a route-tree-based render would trigger.
  */
 function renderAppShell() {
   const rootRoute = createRootRoute();
   const shellRoute = createRoute({
     getParentRoute: () => rootRoute,
-    path: "/dashboard",
+    path: "/home",
     component: () => (
       <AppShell title="Test">
         <p>content</p>
       </AppShell>
     ),
   });
-  const otherRoutes = NAV_ITEMS.filter((item) => item.to !== "/dashboard").map((item) =>
+  const otherRoutes = [...NAV_ITEMS, ...SETTINGS_ITEMS].filter((item) => item.to !== "/home").map((item) =>
     createRoute({ getParentRoute: () => rootRoute, path: item.to, component: () => null }),
   );
   const routeTree = rootRoute.addChildren([shellRoute, ...otherRoutes]);
-  const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ["/dashboard"] }) });
+  const router = createRouter({ routeTree, history: createMemoryHistory({ initialEntries: ["/home"] }) });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
   return render(
@@ -82,6 +82,9 @@ function renderAppShell() {
     </QueryClientProvider>,
   );
 }
+
+// SidebarNav remembers the Settings group's expand choice in localStorage.
+beforeEach(() => localStorage.clear());
 
 /** The header's nav toggle -- collapses the sidebar on desktop, opens the drawer on mobile (see AppShell.tsx). */
 function toggleButton() {
@@ -106,7 +109,7 @@ describe("AppShell mobile drawer", () => {
     await user.click(toggleButton());
 
     const dialog = await screen.findByRole("dialog", { name: "Primary navigation" });
-    for (const label of ["Home", "Wi-Fi", "SSH keys", "Power", "Update"]) {
+    for (const label of ["Home", "Apps", "Settings", "Docs"]) {
       expect(within(dialog).getByText(label)).toBeInTheDocument();
     }
   });
@@ -119,7 +122,7 @@ describe("AppShell mobile drawer", () => {
 
     await user.click(toggleButton());
     const dialog = await screen.findByRole("dialog", { name: "Primary navigation" });
-    await user.click(within(dialog).getByText("Power"));
+    await user.click(within(dialog).getByText("Apps"));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
@@ -183,7 +186,7 @@ describe("AppShell mobile drawer", () => {
     expect(document.body.style.overflow).not.toBe("hidden");
   });
 
-  it("traps Tab within the drawer, wrapping from the last link to the close button", async () => {
+  it("traps Tab within the drawer, wrapping from the last control to the close button", async () => {
     const user = userEvent.setup();
     stubStatuses();
     renderAppShell();
@@ -192,8 +195,8 @@ describe("AppShell mobile drawer", () => {
     await user.click(toggleButton());
     const dialog = await screen.findByRole("dialog", { name: "Primary navigation" });
     const closeButton = within(dialog).getByRole("button", { name: "Close menu" });
-    const links = within(dialog).getAllByRole("link");
-    links[links.length - 1].focus();
+    const controls = dialog.querySelectorAll<HTMLElement>("a[href], button:not([disabled])");
+    controls[controls.length - 1].focus();
 
     await user.tab();
 
@@ -217,17 +220,17 @@ describe("AppShell mobile drawer", () => {
 });
 
 describe("AppShell desktop sidebar", () => {
-  it("collapses the sidebar from the header toggle without opening the drawer", async () => {
+  it("shrinks the sidebar to an icon rail from the header toggle without opening the drawer", async () => {
     const user = userEvent.setup();
     stubStatuses();
     stubMatchMedia(true);
     const { container } = renderAppShell();
     await screen.findAllByText("Home");
-    expect(container.querySelector("aside")).not.toBeNull();
+    expect(container.querySelector("aside")).not.toHaveAttribute("data-rail");
 
     await user.click(toggleButton());
 
-    expect(container.querySelector("aside")).toBeNull();
+    expect(container.querySelector("aside")).toHaveAttribute("data-rail");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
 
@@ -246,6 +249,34 @@ describe("AppShell desktop sidebar", () => {
   });
 });
 
+describe("AppShell header", () => {
+  it("shows the device name in the device menu trigger", async () => {
+    server.use(
+      getGetStatusApiV1WifiStatusGetMockHandler(),
+      getGetStatusApiV1SystemStatusGetMockHandler(getGetStatusApiV1SystemStatusGetResponseMock({ hostname: "palmimo-1234", running_app: null })),
+      getGetStatusApiV1UpdateStatusGetMockHandler(BASE_UPDATE_STATUS),
+    );
+    renderAppShell();
+
+    expect(await screen.findByRole("button", { name: /palmimo-1234/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Account" })).toBeInTheDocument();
+  });
+
+  it("shows the running app from system status", async () => {
+    server.use(
+      getGetStatusApiV1WifiStatusGetMockHandler(),
+      getGetStatusApiV1SystemStatusGetMockHandler(
+        getGetStatusApiV1SystemStatusGetResponseMock({ running_app: { id: "robot", name: "Hello Robot", state: "running" } }),
+      ),
+      getGetStatusApiV1UpdateStatusGetMockHandler(BASE_UPDATE_STATUS),
+    );
+    renderAppShell();
+
+    expect(await screen.findByRole("link", { name: "Running app: Hello Robot" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
+  });
+});
+
 describe("AppShell update badge", () => {
   it("renders an accessible update-available announcement when the update is available", async () => {
     stubStatuses({ update: { ...BASE_UPDATE_STATUS, update_available: true } });
@@ -253,6 +284,17 @@ describe("AppShell update badge", () => {
 
     await screen.findAllByText("Home");
     expect(await screen.findAllByText("Update available")).not.toHaveLength(0);
+  });
+
+  it("links the header badge to Settings → Software update and marks the Software update entry", async () => {
+    stubStatuses({ update: { ...BASE_UPDATE_STATUS, update_available: true } });
+    stubMatchMedia(true);
+    const { container } = renderAppShell();
+
+    const badge = await screen.findByRole("link", { name: "Update available" });
+    expect(badge).toHaveAttribute("href", "/settings/update");
+    const updateEntry = within(container.querySelector("aside") as HTMLElement).getByRole("link", { name: /^Software update/ });
+    expect(within(updateEntry).getByText("Update available")).toBeInTheDocument();
   });
 
   it("renders no update-available announcement when already up to date", async () => {

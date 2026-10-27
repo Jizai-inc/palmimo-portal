@@ -8,4 +8,6 @@ import type { AppSummary } from './appSummary';
 
 export interface AppsListResponse {
   apps: AppSummary[];
+  autostart_conflict?: string[];
+  default_app?: string | null;
 }

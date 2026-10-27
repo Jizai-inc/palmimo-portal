@@ -17,17 +17,46 @@ import type {
 } from 'msw';
 
 import type {
+  ChecklistState,
   StatusResponse,
   SystemStatus
 } from '../models';
 
 
+export const getGetChecklistApiV1SystemChecklistGetResponseMock = (overrideResponse: Partial<Extract<ChecklistState, object>> = {}): ChecklistState => ({dismissed: faker.datatype.boolean(), ...overrideResponse})
+
+export const getPutChecklistApiV1SystemChecklistPutResponseMock = (overrideResponse: Partial<Extract<ChecklistState, object>> = {}): ChecklistState => ({dismissed: faker.datatype.boolean(), ...overrideResponse})
+
 export const getRebootApiV1SystemRebootPostResponseMock = (overrideResponse: Partial<Extract<StatusResponse, object>> = {}): StatusResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
 export const getShutdownApiV1SystemShutdownPostResponseMock = (overrideResponse: Partial<Extract<StatusResponse, object>> = {}): StatusResponse => ({status: faker.string.alpha({length: {min: 10, max: 20}}), ...overrideResponse})
 
-export const getGetStatusApiV1SystemStatusGetResponseMock = (overrideResponse: Partial<Extract<SystemStatus, object>> = {}): SystemStatus => ({adapters: faker.string.alpha({length: {min: 10, max: 20}}), auth_state: faker.string.alpha({length: {min: 10, max: 20}}), device_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), disk_free_bytes: faker.number.int(), hostname: faker.string.alpha({length: {min: 10, max: 20}}), last_wifi_attempt: faker.helpers.arrayElement([{observed_connection_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), result: faker.string.alpha({length: {min: 10, max: 20}}), ssid: faker.string.alpha({length: {min: 10, max: 20}}), timestamp: faker.number.float({fractionDigits: 2})},null,]), ntp_synchronized: faker.datatype.boolean(), state: faker.string.alpha({length: {min: 10, max: 20}}), state_dir: faker.string.alpha({length: {min: 10, max: 20}}), versions: {portal: faker.string.alpha({length: {min: 10, max: 20}}), sdk: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,])}, ...overrideResponse})
+export const getGetStatusApiV1SystemStatusGetResponseMock = (overrideResponse: Partial<Extract<SystemStatus, object>> = {}): SystemStatus => ({adapters: faker.string.alpha({length: {min: 10, max: 20}}), auth_state: faker.string.alpha({length: {min: 10, max: 20}}), device_id: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), disk_free_bytes: faker.number.int(), hostname: faker.string.alpha({length: {min: 10, max: 20}}), last_wifi_attempt: faker.helpers.arrayElement([{observed_connection_name: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), result: faker.string.alpha({length: {min: 10, max: 20}}), ssid: faker.string.alpha({length: {min: 10, max: 20}}), timestamp: faker.number.float({fractionDigits: 2})},null,]), ntp_synchronized: faker.datatype.boolean(), running_app: faker.helpers.arrayElement([faker.helpers.arrayElement([{id: faker.string.alpha({length: {min: 10, max: 20}}), name: faker.string.alpha({length: {min: 10, max: 20}}), state: faker.helpers.arrayElement(['running','starting','stopping'] as const)},null,]), undefined]), state: faker.string.alpha({length: {min: 10, max: 20}}), state_dir: faker.string.alpha({length: {min: 10, max: 20}}), versions: {portal: faker.string.alpha({length: {min: 10, max: 20}}), sdk: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,])}, ...overrideResponse})
 
+
+export const getGetChecklistApiV1SystemChecklistGetMockHandler = (overrideResponse?: ChecklistState | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ChecklistState> | ChecklistState), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/system/checklist', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getGetChecklistApiV1SystemChecklistGetResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
+
+export const getPutChecklistApiV1SystemChecklistPutMockHandler = (overrideResponse?: ChecklistState | ((info: Parameters<Parameters<typeof http.put>[1]>[0]) => Promise<ChecklistState> | ChecklistState), options?: RequestHandlerOptions) => {
+  return http.put('*/api/v1/system/checklist', async (info: Parameters<Parameters<typeof http.put>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getPutChecklistApiV1SystemChecklistPutResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
 
 export const getRebootApiV1SystemRebootPostMockHandler = (overrideResponse?: StatusResponse | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<StatusResponse> | StatusResponse), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/system/reboot', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
@@ -65,6 +94,8 @@ export const getGetStatusApiV1SystemStatusGetMockHandler = (overrideResponse?: S
   }, options)
 }
 export const getSystemMock = () => [
+  getGetChecklistApiV1SystemChecklistGetMockHandler(),
+  getPutChecklistApiV1SystemChecklistPutMockHandler(),
   getRebootApiV1SystemRebootPostMockHandler(),
   getShutdownApiV1SystemShutdownPostMockHandler(),
   getGetStatusApiV1SystemStatusGetMockHandler()

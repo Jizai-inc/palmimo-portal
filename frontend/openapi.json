@@ -113,6 +113,13 @@
               }
             ]
           },
+          "missing_env": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Env",
+            "type": "array"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -513,6 +520,13 @@
             ],
             "title": "Latest Commit"
           },
+          "missing_env": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing Env",
+            "type": "array"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -600,6 +614,24 @@
             },
             "title": "Apps",
             "type": "array"
+          },
+          "autostart_conflict": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Autostart Conflict",
+            "type": "array"
+          },
+          "default_app": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default App"
           }
         },
         "required": [
@@ -782,6 +814,19 @@
         "title": "ChangePasswordResponse",
         "type": "object"
       },
+      "ChecklistState": {
+        "properties": {
+          "dismissed": {
+            "title": "Dismissed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "dismissed"
+        ],
+        "title": "ChecklistState",
+        "type": "object"
+      },
       "ConnectRequest": {
         "properties": {
           "psk": {
@@ -809,6 +854,46 @@
           }
         },
         "title": "ConnectResponse",
+        "type": "object"
+      },
+      "DefaultAppRequest": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "title": "DefaultAppRequest",
+        "type": "object"
+      },
+      "DefaultAppResponse": {
+        "properties": {
+          "default_app": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default App"
+          }
+        },
+        "required": [
+          "default_app"
+        ],
+        "title": "DefaultAppResponse",
         "type": "object"
       },
       "EnvSpecInfo": {
@@ -1551,6 +1636,34 @@
         "title": "ReleaseInfo",
         "type": "object"
       },
+      "RunningAppInfo": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "running",
+              "starting",
+              "stopping"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "state"
+        ],
+        "title": "RunningAppInfo",
+        "type": "object"
+      },
       "SaveRequest": {
         "properties": {
           "psk": {
@@ -1781,6 +1894,16 @@
           "ntp_synchronized": {
             "title": "Ntp Synchronized",
             "type": "boolean"
+          },
+          "running_app": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunningAppInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "state": {
             "title": "State",
@@ -2214,6 +2337,48 @@
         ]
       }
     },
+    "/api/v1/apps/default": {
+      "put": {
+        "description": "Choose the one app started at boot (``null`` for none); see :func:`~palmimo_portal.core.apps_start.default_app`.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``app_broken`` (boot never\n        starts a broken app); 409 ``app_job_in_progress`` while an\n        install/update/delete job targets that app.",
+        "operationId": "put_default_app_api_v1_apps_default_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefaultAppRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefaultAppResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Default App",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
     "/api/v1/apps/install": {
       "post": {
         "description": "Start installing an app from a zip upload (multipart, field ``file``) or a git source (JSON body).\n\n``uv sync`` runs in the background; only the fast fetch+validate half\nruns before this returns. Once accepted, a sync/swap failure surfaces on\n``GET /apps/jobs/{id}`` or the app's own ``last_job``, not here.\n\nRaises:\n    PortalError: 422 ``manifest_invalid`` / 422 ``install_failed`` /\n        422 ``zip_too_large`` / 507 ``disk_full`` for the synchronous\n        fetch+validate half; 422 ``git_credential_missing`` /\n        ``git_credential_rejected`` / ``git_not_found`` /\n        ``git_network_unreachable`` / ``git_unknown`` for a git source's\n        clone failure; 409 ``app_exists`` if the manifest's name\n        is already installed; 409 ``update_in_progress`` / 409\n        ``app_job_in_progress`` / 409 ``platform_not_ready`` for the\n        mutual-exclusion and platform-readiness refusals; 503\n        ``platform_not_ready`` if ``apps_dir`` itself is unavailable.",
@@ -2409,7 +2574,7 @@
     },
     "/api/v1/apps/{name}/autostart": {
       "put": {
-        "description": "Persist whether ``name`` should be started automatically at Portal boot (design doc 2.5/3.2).\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``app_job_in_progress`` while\n        an install/update/delete job targets this app.",
+        "description": "Deprecated: use ``PUT /apps/default``. Enabling makes ``name`` the default app; disabling turns only its own flag off.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``app_broken`` when enabling a\n        broken app; 409 ``app_job_in_progress`` while an\n        install/update/delete job targets this app.",
         "operationId": "put_autostart_api_v1_apps__name__autostart_put",
         "parameters": [
           {
@@ -3574,6 +3739,68 @@
         ]
       }
     },
+    "/api/v1/system/checklist": {
+      "get": {
+        "description": "Whether Home's setup checklist is hidden. Its items are derived client-side from existing endpoints.",
+        "operationId": "get_checklist_api_v1_system_checklist_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChecklistState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Checklist",
+        "tags": [
+          "system"
+        ]
+      },
+      "put": {
+        "description": "Hide or restore Home's setup checklist.",
+        "operationId": "put_checklist_api_v1_system_checklist_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChecklistState"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChecklistState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Checklist",
+        "tags": [
+          "system"
+        ]
+      }
+    },
     "/api/v1/system/reboot": {
       "post": {
         "description": "Reboot the machine.\n\nRaises:\n    PortalError: 503 ``system_backend_unavailable`` if the real\n        adapter's D-Bus call to logind times out or fails. Translated\n        from :class:`~palmimo_portal.ports.AdapterUnavailableError` by\n        the app-wide exception handler in :mod:`palmimo_portal.api.app`.\n        409 ``update_in_progress`` while an update/rollback job is\n        ``\"running\"`` -- see :func:`_refuse_while_updating`.",
@@ -3620,7 +3847,7 @@
     },
     "/api/v1/system/status": {
       "get": {
-        "description": "Report provisioning state, hostname, auth state, device id, versions, and the last Wi-Fi attempt.\n\nAlways unauthenticated and always served, even while unprovisioned \u2014\nthis is the one endpoint every client (including the setup flow itself)\npolls to decide what to show.\n\n``auth_state`` is one of ``\"open_setup\"`` (DIY, no identity file --\nlegacy open ``/auth/setup`` available), ``\"initial\"`` (identity file\npresent, no owner yet -- login with the sticker password), ``\"set\"``\n(normal operation), ``\"corrupt\"`` (``auth.json`` exists but cannot be\nread -- login and setup both refuse until an operator deletes it over\nSSH), or ``\"unavailable\"`` (identity file could not be read at all --\na transient error, not clean absence -- so ``/auth/setup`` and\n``/auth/login`` refuse with 503 until it clears) -- see\n:func:`~palmimo_portal.core.identity.compute_auth_state`.\n\n``device_id`` is the number printed on the device's sticker (also its\nhostname suffix) -- public, reported whenever the identity file was\nsuccessfully read, independent of ``auth_state``. ``None`` both when\nthere is no identity file and when the read is currently unavailable.\n\n``adapters`` and ``state_dir`` expose what this process is actually\nrunning as, so a device on fake adapters or the wrong state directory\nis diagnosable from a client request.\n\n``ntp_synchronized`` and ``disk_free_bytes`` back the \"clock not synced\nyet\" / \"disk almost full\" UI warnings (design doc 3.6).",
+        "description": "Report provisioning state, hostname, auth state, device id, versions, and the last Wi-Fi attempt.\n\nAlways unauthenticated and always served, even while unprovisioned \u2014\nthis is the one endpoint every client (including the setup flow itself)\npolls to decide what to show.\n\n``auth_state`` is one of ``\"open_setup\"`` (DIY, no identity file --\nlegacy open ``/auth/setup`` available), ``\"initial\"`` (identity file\npresent, no owner yet -- login with the sticker password), ``\"set\"``\n(normal operation), ``\"corrupt\"`` (``auth.json`` exists but cannot be\nread -- login and setup both refuse until an operator deletes it over\nSSH), or ``\"unavailable\"`` (identity file could not be read at all --\na transient error, not clean absence -- so ``/auth/setup`` and\n``/auth/login`` refuse with 503 until it clears) -- see\n:func:`~palmimo_portal.core.identity.compute_auth_state`.\n\n``device_id`` is the number printed on the device's sticker (also its\nhostname suffix) -- public, reported whenever the identity file was\nsuccessfully read, independent of ``auth_state``. ``None`` both when\nthere is no identity file and when the read is currently unavailable.\n\n``adapters`` and ``state_dir`` expose what this process is actually\nrunning as, so a device on fake adapters or the wrong state directory\nis diagnosable from a client request.\n\n``ntp_synchronized`` and ``disk_free_bytes`` back the \"clock not synced\nyet\" / \"disk almost full\" UI warnings (design doc 3.6).\n\n``running_app`` is ``None`` unless the caller holds a full session, so\napp names never reach an unauthenticated client, and it is ``None``\nrather than an error when systemd or the app ledger cannot be read --\nthis endpoint must keep answering for every screen to render.",
         "operationId": "get_status_api_v1_system_status_get",
         "responses": {
           "200": {

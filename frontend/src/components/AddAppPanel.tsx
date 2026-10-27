@@ -30,20 +30,46 @@ import { appText } from "@/lib/appText";
 import { parseCatalogSource } from "@/lib/catalogSource";
 import { deviceLabel } from "@/lib/deviceLabel";
 import { isHttpUrl } from "@/lib/isHttpUrl";
+import { tabClassName } from "@/lib/tabClassName";
 
-type Tab = "catalog" | "github" | "zip";
+export type AddAppTab = "catalog" | "github" | "zip";
+
+const ALL_TABS: AddAppTab[] = ["catalog", "github", "zip"];
+
+interface FlowProps {
+  onInstalled: (jobId: string, displayName: string) => void;
+  appRunning: boolean;
+  inlineConfirm: boolean;
+  onConfirmingChange: (confirming: boolean) => void;
+}
 
 /**
- * The add-app screen's logic (see routes/apps.add.tsx, which wraps this in `AppShell`). Free of
+ * The add-app form and confirmation, hosted by `AddAppDialog` and `DiscoverPanel`. Free of
  * router hooks -- `onInstalled` is the only reach-out to routing, mirroring
  * `UpdatePanel`'s `onRestarted` -- so it's unit-testable directly. `onInstalled` receives the
  * finished job's `app_id` (the namespaced app id, known only once install completes) so the
  * caller can route straight to the new app's detail page.
  */
-export function AddAppPanel({ onInstalled = () => undefined }: { onInstalled?: (appId: string | null) => void }) {
+export function AddAppPanel({
+  onInstalled = () => undefined,
+  tabs = ALL_TABS,
+  initialTab,
+  inlineConfirm = false,
+  onInstallStarted,
+}: {
+  onInstalled?: (appId: string | null) => void;
+  /** Install sources offered, in order; the tab bar is hidden when there is only one. */
+  tabs?: AddAppTab[];
+  initialTab?: AddAppTab;
+  /** Shows the install confirmation in place of the form instead of in its own dialog -- for hosts that are already a dialog. */
+  inlineConfirm?: boolean;
+  /** Takes over the install job (and its progress dialog) from this panel, for hosts that close before the job finishes. */
+  onInstallStarted?: (jobId: string, displayName: string) => void;
+}) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState<Tab>("catalog");
+  const [tab, setTab] = useState<AddAppTab>(initialTab && tabs.includes(initialTab) ? initialTab : tabs[0]);
+  const [confirming, setConfirming] = useState(false);
   const [installJob, setInstallJob] = useState<{ jobId: string; name: string } | null>(null);
   const { data: appsData } = useListAppsApiV1AppsGet();
   const appRunning = (appsData?.apps ?? []).some((app) => ["running", "starting", "stopping"].includes(app.status));
@@ -54,29 +80,22 @@ export function AddAppPanel({ onInstalled = () => undefined }: { onInstalled?: (
     onInstalled(job.app_id);
   }
 
-  const startInstallJob = (jobId: string, displayName: string) => setInstallJob({ jobId, name: displayName });
+  const startInstallJob = onInstallStarted ?? ((jobId: string, displayName: string) => setInstallJob({ jobId, name: displayName }));
+  const flow: FlowProps = { onInstalled: startInstallJob, appRunning, inlineConfirm, onConfirmingChange: setConfirming };
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex gap-2 border-b border-border">
-        <TabButton active={tab === "catalog"} onClick={() => setTab("catalog")}>
-          {t("appAdd.tabCatalog")}
-        </TabButton>
-        <TabButton active={tab === "github"} onClick={() => setTab("github")}>
-          {t("appAdd.tabGithub")}
-        </TabButton>
-        <TabButton active={tab === "zip"} onClick={() => setTab("zip")}>
-          {t("appAdd.tabZip")}
-        </TabButton>
-      </div>
+      {tabs.length > 1 && !confirming ? (
+        <div className="flex gap-6 border-b border-border">
+          {tabs.map((option) => (
+            <TabButton key={option} active={tab === option} onClick={() => setTab(option)}>
+              {tabLabel(t, option)}
+            </TabButton>
+          ))}
+        </div>
+      ) : null}
 
-      {tab === "catalog" ? (
-        <CatalogTab onInstalled={startInstallJob} appRunning={appRunning} />
-      ) : tab === "github" ? (
-        <GithubTab onInstalled={startInstallJob} appRunning={appRunning} />
-      ) : (
-        <ZipTab onInstalled={startInstallJob} appRunning={appRunning} />
-      )}
+      {tab === "catalog" ? <CatalogTab {...flow} /> : tab === "github" ? <GithubTab {...flow} /> : <ZipTab {...flow} />}
 
       <AppJobDialog
         jobId={installJob?.jobId ?? null}
@@ -88,14 +107,20 @@ export function AddAppPanel({ onInstalled = () => undefined }: { onInstalled?: (
   );
 }
 
+function tabLabel(t: TFunction, tab: AddAppTab): string {
+  switch (tab) {
+    case "catalog":
+      return t("appAdd.tabCatalog");
+    case "github":
+      return t("appAdd.tabGithub");
+    case "zip":
+      return t("appAdd.tabZip");
+  }
+}
+
 function TabButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-current={active ? "page" : undefined}
-      className={`border-b-2 px-3 py-2 text-sm font-medium ${active ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}
-    >
+    <button type="button" onClick={onClick} aria-current={active ? "page" : undefined} className={tabClassName(active)}>
       {children}
     </button>
   );
@@ -147,7 +172,9 @@ function catalogStaleReasonText(t: TFunction, reason: string | null): string {
 }
 
 /**
- * Fetches an install preview in its confirmation dialog, shared by all three add-app tabs.
+ * Fetches an install preview and confirms the install, shared by all three add-app tabs. The
+ * confirmation opens in its own dialog, or with `inlineConfirm` replaces `children` (the
+ * source form) in place, so a host dialog never stacks a second one.
  *
  * A 409 `app_exists` on install (the suggested/typed name part was taken between preview and
  * install) re-runs preview automatically instead of leaving the operator stuck on a name that
@@ -159,12 +186,18 @@ function InstallFlow({
   canPreview,
   appRunning,
   onInstalled,
+  inlineConfirm = false,
+  onConfirmingChange,
+  children,
 }: {
   getSource: () => InstallSource;
   sourceKey: unknown;
   canPreview: boolean;
   appRunning: boolean;
   onInstalled: (jobId: string, displayName: string) => void;
+  inlineConfirm?: boolean;
+  onConfirmingChange?: (confirming: boolean) => void;
+  children?: React.ReactNode;
 }) {
   const { t } = useTranslation();
   const [preview, setPreview] = useState<ManifestPreviewResponse | null>(null);
@@ -204,10 +237,46 @@ function InstallFlow({
     setDialogOpen(false);
   }, [sourceKey]);
 
+  useEffect(() => {
+    onConfirmingChange?.(inlineConfirm && dialogOpen);
+  }, [inlineConfirm, dialogOpen, onConfirmingChange]);
+
   const namePartValid = isValidAppNamePart(namePart);
+
+  const confirmBody = (
+    <>
+      {previewMutation.isPending ? <p className="text-sm text-muted-foreground">{t("common.loading")}</p> : null}
+      <ApiErrorAlert error={previewMutation.error} />
+      {preview ? (
+        <PreviewCard preview={preview} namePart={namePart} namePartValid={namePartValid} onNamePartChange={setNamePart} />
+      ) : null}
+      <ApiErrorAlert error={install.error} />
+    </>
+  );
+  const installButton = (
+    <Button disabled={!preview || install.isPending || !namePartValid} onClick={() => install.mutate()}>
+      {t("appAdd.installButton")}
+    </Button>
+  );
+
+  if (inlineConfirm && dialogOpen) {
+    return (
+      <div className="flex flex-col gap-3">
+        <p className="font-semibold">{t("appAdd.confirmInstallTitle")}</p>
+        {confirmBody}
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button variant="outline" onClick={() => setDialogOpen(false)}>
+            {t("common.back")}
+          </Button>
+          {installButton}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-3">
+      {children}
       <Button
         disabled={!canPreview || appRunning}
         title={appRunning ? t("appAdd.installDisabledAppRunning") : undefined}
@@ -218,35 +287,30 @@ function InstallFlow({
           previewMutation.mutate();
         }}
       >
-        {t("appAdd.installButton")}
+        {inlineConfirm ? t("appAdd.continueButton") : t("appAdd.installButton")}
       </Button>
       {appRunning ? <p className="text-sm text-muted-foreground">{t("appAdd.installDisabledAppRunning")}</p> : null}
-      <AlertDialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("appAdd.confirmInstallTitle")}</AlertDialogTitle>
-          </AlertDialogHeader>
-          {previewMutation.isPending ? <p className="text-sm text-muted-foreground">{t("common.loading")}</p> : null}
-          <ApiErrorAlert error={previewMutation.error} />
-          {preview ? (
-            <PreviewCard preview={preview} namePart={namePart} namePartValid={namePartValid} onNamePartChange={setNamePart} />
-          ) : null}
-          <ApiErrorAlert error={install.error} />
-          <AlertDialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              {t("common.cancel")}
-            </Button>
-            <Button disabled={!preview || install.isPending || !namePartValid} onClick={() => install.mutate()}>
-              {t("appAdd.installButton")}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {inlineConfirm ? null : (
+        <AlertDialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("appAdd.confirmInstallTitle")}</AlertDialogTitle>
+            </AlertDialogHeader>
+            {confirmBody}
+            <AlertDialogFooter>
+              <Button variant="outline" onClick={() => setDialogOpen(false)}>
+                {t("common.cancel")}
+              </Button>
+              {installButton}
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 }
 
-function CatalogTab({ onInstalled, appRunning }: { onInstalled: (jobId: string, displayName: string) => void; appRunning: boolean }) {
+function CatalogTab({ onInstalled, appRunning }: FlowProps) {
   const { t } = useTranslation();
   const { data, isLoading } = useGetCatalogApiV1CatalogGet();
 
@@ -323,7 +387,7 @@ function CatalogCard({
   );
 }
 
-function GithubTab({ onInstalled, appRunning }: { onInstalled: (jobId: string, displayName: string) => void; appRunning: boolean }) {
+function GithubTab({ onInstalled, appRunning, inlineConfirm, onConfirmingChange }: FlowProps) {
   const { t } = useTranslation();
   const [url, setUrl] = useState("");
   const [refKind, setRefKind] = useState<"branch" | "tag">("branch");
@@ -343,7 +407,15 @@ function GithubTab({ onInstalled, appRunning }: { onInstalled: (jobId: string, d
   const sourceKey = `${url}\u0000${refKind}\u0000${ref}\u0000${subdir}\u0000${manifest}`;
 
   return (
-    <div className="flex flex-col gap-3">
+    <InstallFlow
+      getSource={() => source}
+      sourceKey={sourceKey}
+      canPreview={canPreview}
+      appRunning={appRunning}
+      onInstalled={onInstalled}
+      inlineConfirm={inlineConfirm}
+      onConfirmingChange={onConfirmingChange}
+    >
       <div className="flex flex-col gap-1">
         <Label htmlFor="github-url">{t("appAdd.githubUrlLabel")}</Label>
         <Input id="github-url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://github.com/org/repo" />
@@ -377,12 +449,11 @@ function GithubTab({ onInstalled, appRunning }: { onInstalled: (jobId: string, d
           placeholder="palmimo.toml"
         />
       </div>
-      <InstallFlow getSource={() => source} sourceKey={sourceKey} canPreview={canPreview} appRunning={appRunning} onInstalled={onInstalled} />
-    </div>
+    </InstallFlow>
   );
 }
 
-function ZipTab({ onInstalled, appRunning }: { onInstalled: (jobId: string, displayName: string) => void; appRunning: boolean }) {
+function ZipTab({ onInstalled, appRunning, inlineConfirm, onConfirmingChange }: FlowProps) {
   const { t } = useTranslation();
   const [file, setFile] = useState<File | null>(null);
   const [manifest, setManifest] = useState("");
@@ -395,7 +466,15 @@ function ZipTab({ onInstalled, appRunning }: { onInstalled: (jobId: string, disp
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <InstallFlow
+      getSource={() => ({ type: "zip", file: file as File, ...(manifest ? { manifest } : {}) })}
+      sourceKey={sourceKey}
+      canPreview={file !== null}
+      appRunning={appRunning}
+      onInstalled={onInstalled}
+      inlineConfirm={inlineConfirm}
+      onConfirmingChange={onConfirmingChange}
+    >
       <div
         className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-input p-6 text-center"
         onDragOver={(event) => event.preventDefault()}
@@ -428,14 +507,7 @@ function ZipTab({ onInstalled, appRunning }: { onInstalled: (jobId: string, disp
           placeholder="palmimo.toml"
         />
       </div>
-      <InstallFlow
-        getSource={() => ({ type: "zip", file: file as File, ...(manifest ? { manifest } : {}) })}
-        sourceKey={sourceKey}
-        canPreview={file !== null}
-        appRunning={appRunning}
-        onInstalled={onInstalled}
-      />
-    </div>
+    </InstallFlow>
   );
 }
 

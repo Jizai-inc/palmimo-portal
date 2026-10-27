@@ -344,6 +344,7 @@ class FakeStateStore(StateStore):
 
     _auth: AuthState | None = None
     _last_attempt: WifiAttempt | None = None
+    _checklist_dismissed: bool = False
     auth_corrupt: bool = False
     #: Exercises POST /auth/reset's failure path (the reset rate-limit budget must not be
     #: spent when the delete itself fails).
@@ -402,6 +403,12 @@ class FakeStateStore(StateStore):
 
     def write_last_wifi_attempt(self, attempt: WifiAttempt) -> None:
         self._last_attempt = attempt
+
+    def read_checklist_dismissed(self) -> bool:
+        return self._checklist_dismissed
+
+    def write_checklist_dismissed(self, dismissed: bool) -> None:
+        self._checklist_dismissed = dismissed
 
     def read_or_create_initial_signing_key(self) -> str:
         if self._initial_signing_key is None:
@@ -1014,6 +1021,7 @@ class FakeAppUnitPort(AppUnitPort):
     raise_on_set_device_allow: Exception | None = None
     raise_on_start: Exception | None = None
     raise_on_stop: Exception | None = None
+    raise_on_list_active: Exception | None = None
     #: App names `start` was called for and not yet `stop`-ped -- backs `list_active_app_units`.
     _active: set[str] = field(default_factory=set, init=False, repr=False)
 
@@ -1044,6 +1052,8 @@ class FakeAppUnitPort(AppUnitPort):
         return self.statuses.get(name, self.default_status)
 
     def list_active_app_units(self) -> list[str]:
+        if self.raise_on_list_active is not None:
+            raise self.raise_on_list_active
         return sorted(
             name
             for name in self._active

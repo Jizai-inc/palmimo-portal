@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ProgressBar";
+import { UpdateCardFrame, UpdateFact } from "@/components/UpdateCardFrame";
 import { isVersionAtLeast } from "@/lib/compareVersions";
 import { formatUtcTimestamp } from "@/lib/formatTimestamp";
 import { usePlatformUpdate } from "@/lib/usePlatformUpdate";
@@ -61,94 +62,94 @@ export function PlatformUpdateCard({
     (startError instanceof PortalApiError && startError.code === "ledger_legacy") ||
     (checkError instanceof PortalApiError && checkError.code === "ledger_legacy");
 
+  const required = !platform.ready;
+  const title = required
+    ? t("update.platformRequiredTitle")
+    : updateAvailable
+      ? t("update.platformNewVersionAvailable")
+      : upToDate
+        ? t("update.platformUpToDate")
+        : t("update.platformCheckFailedTitle");
+
   return (
-    <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-4">
-      <div className="flex items-center gap-2">
-        <p className="font-semibold">{t("update.platformTitle")}</p>
-        {updateAvailable ? <Badge variant="outline" className="ml-auto">{platform.latest?.tag}</Badge> : null}
-      </div>
-      {updateAvailable ? <p className="text-sm text-muted-foreground">{t("update.platformNewVersionAvailable")}</p> : null}
-      <div className="border-t border-border" />
-      <dl className="flex flex-col gap-2 text-sm">
-        <div className="flex items-center justify-between gap-2">
-          <dt className="text-muted-foreground">{t("update.platformInstalledVersionLabel")}</dt>
-          <dd className="font-medium">{platform.installed_version ?? "—"}</dd>
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <dt className="text-muted-foreground">{t("update.platformLatestVersionLabel")}</dt>
-          <dd className="flex items-center gap-2 font-medium">
-            <span>{platform.latest ? `${platform.latest.version} (${platform.latest.tag})` : "—"}</span>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={checkNow}
-              disabled={checking || starting || job?.state === "running" || portalUpdateRunning}
-            >
-              {t("update.platformCheckNowButton")}
-            </Button>
-          </dd>
-        </div>
-        {platform.latest?.summary ? (
-          <div className="flex flex-col gap-1">
-            <dt className="text-muted-foreground">{t("update.platformSummaryLabel")}</dt>
-            <dd>{platform.latest.summary}</dd>
-          </div>
-        ) : null}
-        {platform.installed_at ? (
-          <div className="flex items-center justify-between gap-2">
-            <dt className="text-muted-foreground">{t("appDetail.sourceInstalledAtLabel")}</dt>
-            <dd className="font-medium">{formatUtcTimestamp(Date.parse(platform.installed_at) / 1000)}</dd>
-          </div>
-        ) : null}
-      </dl>
-
-      {platform.verify_diffs.length > 0 ? (
-        <Alert variant="destructive">
-          <AlertDescription>{t("update.platformVerifyDiffBanner")}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      {job?.state === "running" ? (
-        <div className="flex flex-col gap-2 rounded-lg bg-muted p-3">
-          <ProgressBar label={t("common.inProgress")} />
-        </div>
-      ) : job?.state === "failed" ? (
-        <Alert variant="destructive">
-          <AlertDescription>{job.error ?? t("errors.install_failed")}</AlertDescription>
-        </Alert>
-      ) : null}
-
-      {legacyLedgerError ? (
-        <Alert>
-          <AlertDescription>{t("update.platformLegacyLedger")}</AlertDescription>
-        </Alert>
-      ) : null}
-      <ApiErrorAlert error={startError instanceof PortalApiError && startError.code === "ledger_legacy" ? undefined : startError} />
-      <ApiErrorAlert
-        error={checkError instanceof PortalApiError && checkError.code === "ledger_legacy" ? undefined : checkErrorShown}
-      />
-
-      {platform.latest?.reflash_required ? (
-        <Alert>
-          <AlertDescription>{t("update.platformReflashRequired")}</AlertDescription>
-        </Alert>
-      ) : portalTooOld ? (
-        <Alert>
-          <AlertDescription>{t("update.platformPortalTooOld")}</AlertDescription>
-        </Alert>
-      ) : !latestKnown ? (
-        <PlatformLatestErrorMessage error={platform.latest_error} />
-      ) : upToDate ? (
-        <p className="text-sm text-muted-foreground">{t("update.platformUpToDate")}</p>
-      ) : (
-        <Button
-          className="w-fit"
-          onClick={startUpdate}
-          disabled={starting || job?.state === "running"}
-        >
-          {t("update.platformUpdateButton")}
-        </Button>
-      )}
-    </div>
+    <UpdateCardFrame
+      warning={required}
+      eyebrow={t("update.platformTitle")}
+      title={title}
+      description={required ? t("update.platformRequiredBody") : t("update.platformDescription")}
+      badge={updateAvailable ? <Badge variant="outline">{platform.latest?.tag}</Badge> : null}
+      facts={
+        <>
+          <UpdateFact label={t("update.platformInstalledVersionLabel")}>
+            {platform.installed_version ?? "—"}
+            {platform.installed_at ? ` · ${formatUtcTimestamp(Date.parse(platform.installed_at) / 1000)}` : ""}
+          </UpdateFact>
+          <UpdateFact label={t("update.platformLatestVersionLabel")}>
+            <span className="flex flex-wrap items-center justify-end gap-x-2">
+              {platform.latest ? `${platform.latest.version} (${platform.latest.tag})` : "—"}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="-mr-2 h-7 px-2"
+                onClick={checkNow}
+                disabled={checking || starting || job?.state === "running" || portalUpdateRunning}
+              >
+                {t("update.platformCheckNowButton")}
+              </Button>
+            </span>
+          </UpdateFact>
+          {platform.latest?.summary ? (
+            <div className="flex flex-col gap-1">
+              <dt className="text-muted-foreground">{t("update.platformSummaryLabel")}</dt>
+              <dd>{platform.latest.summary}</dd>
+            </div>
+          ) : null}
+        </>
+      }
+      status={
+        <>
+          {platform.verify_diffs.length > 0 ? (
+            <Alert variant="destructive">
+              <AlertDescription>{t("update.platformVerifyDiffBanner")}</AlertDescription>
+            </Alert>
+          ) : null}
+          {job?.state === "running" ? (
+            <div className="flex flex-col gap-2 rounded-lg bg-muted p-3">
+              <ProgressBar label={t("common.inProgress")} />
+            </div>
+          ) : job?.state === "failed" ? (
+            <Alert variant="destructive">
+              <AlertDescription>{job.error ?? t("errors.install_failed")}</AlertDescription>
+            </Alert>
+          ) : null}
+          {legacyLedgerError ? (
+            <Alert>
+              <AlertDescription>{t("update.platformLegacyLedger")}</AlertDescription>
+            </Alert>
+          ) : null}
+          <ApiErrorAlert error={startError instanceof PortalApiError && startError.code === "ledger_legacy" ? undefined : startError} />
+          <ApiErrorAlert
+            error={checkError instanceof PortalApiError && checkError.code === "ledger_legacy" ? undefined : checkErrorShown}
+          />
+        </>
+      }
+      footer={
+        platform.latest?.reflash_required ? (
+          <Alert>
+            <AlertDescription>{t("update.platformReflashRequired")}</AlertDescription>
+          </Alert>
+        ) : portalTooOld ? (
+          <Alert>
+            <AlertDescription>{t("update.platformPortalTooOld")}</AlertDescription>
+          </Alert>
+        ) : !latestKnown ? (
+          <PlatformLatestErrorMessage error={platform.latest_error} />
+        ) : upToDate ? null : (
+          <Button className="w-fit" onClick={startUpdate} disabled={starting || job?.state === "running"}>
+            {t("update.platformUpdateButton")}
+          </Button>
+        )
+      }
+    />
   );
 }

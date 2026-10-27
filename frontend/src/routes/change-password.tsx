@@ -45,7 +45,7 @@ function ChangePasswordScreen() {
           // No screen reachable after this point may keep rendering the
           // pre-change auth state (auth_state === "initial") from cache.
           queryClient.clear();
-          void navigate({ to: status?.state === "connected" ? "/dashboard" : "/wifi" });
+          void navigate({ to: status?.state === "connected" ? "/home" : "/wifi" });
         },
       },
     );

@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import socket
 import time
+from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 
 from palmimo_portal.api.deps import (
+    get_app_unit_port,
     get_clock_port,
     get_disk_port,
     get_identity_store,
@@ -21,8 +23,20 @@ from palmimo_portal.api.deps import (
 )
 from palmimo_portal.api.errors import PortalError
 from palmimo_portal.core import update as update_core
+from palmimo_portal.core.apps_start import find_running_app
 from palmimo_portal.core.identity import compute_auth_state
-from palmimo_portal.ports import ClockPort, DiskPort, Identity, IdentityStore, NetworkPort, StateStore, SystemPort
+from palmimo_portal.ports import (
+    AdapterUnavailableError,
+    AppsStateFileState,
+    AppUnitPort,
+    ClockPort,
+    DiskPort,
+    Identity,
+    IdentityStore,
+    NetworkPort,
+    StateStore,
+    SystemPort,
+)
 from palmimo_portal.settings import Settings
 from palmimo_portal.version import package_version, portal_version
 
@@ -42,6 +56,12 @@ class WifiAttemptInfo(BaseModel):
     observed_connection_name: str | None = None
 
 
+class RunningAppInfo(BaseModel):
+    id: str
+    name: str
+    state: Literal["running", "starting", "stopping"]
+
+
 class SystemStatus(BaseModel):
     state: str
     hostname: str
@@ -53,6 +73,25 @@ class SystemStatus(BaseModel):
     state_dir: str
     ntp_synchronized: bool
     disk_free_bytes: int
+    running_app: RunningAppInfo | None = None
+
+
+def _running_app_for(request: Request, app_unit: AppUnitPort, state: StateStore) -> RunningAppInfo | None:
+    if not getattr(request.state, "authenticated", False) or getattr(request.state, "session_mode", None) != "full":
+        return None
+    if state.apps_state_file_state() not in (AppsStateFileState.ABSENT, AppsStateFileState.PRESENT):
+        return None
+    try:
+        running = find_running_app(app_unit, state.read_apps_state())
+    except AdapterUnavailableError:
+        return None
+    if running is None:
+        return None
+    return RunningAppInfo(
+        id=running.id,
+        name=running.name,
+        state=cast(Literal["running", "starting", "stopping"], running.state),
+    )
 
 
 class StatusResponse(BaseModel):
@@ -67,6 +106,7 @@ def get_status(
     identity_store: IdentityStore = Depends(get_identity_store),
     clock: ClockPort = Depends(get_clock_port),
     disk: DiskPort = Depends(get_disk_port),
+    app_unit: AppUnitPort = Depends(get_app_unit_port),
 ) -> SystemStatus:
     """Report provisioning state, hostname, auth state, device id, versions, and the last Wi-Fi attempt.
 
@@ -95,6 +135,11 @@ def get_status(
 
     ``ntp_synchronized`` and ``disk_free_bytes`` back the "clock not synced
     yet" / "disk almost full" UI warnings (design doc 3.6).
+
+    ``running_app`` is ``None`` unless the caller holds a full session, so
+    app names never reach an unauthenticated client, and it is ``None``
+    rather than an error when systemd or the app ledger cannot be read --
+    this endpoint must keep answering for every screen to render.
     """
     wifi_status = network.get_status()
     # Uncached: an operator watches this endpoint while diagnosing a device;
@@ -123,7 +168,31 @@ def get_status(
         state_dir=str(settings.state_dir),
         ntp_synchronized=clock.ntp_synchronized(),
         disk_free_bytes=disk.free_bytes(settings.state_dir),
+        running_app=_running_app_for(request, app_unit, state),
     )
+
+
+class ChecklistState(BaseModel):
+    dismissed: bool
+
+
+@router.get(
+    "/checklist",
+    dependencies=[Depends(require_provisioned), Depends(require_auth), Depends(require_full_session)],
+)
+def get_checklist(state: StateStore = Depends(get_state_store)) -> ChecklistState:
+    """Whether Home's setup checklist is hidden. Its items are derived client-side from existing endpoints."""
+    return ChecklistState(dismissed=state.read_checklist_dismissed())
+
+
+@router.put(
+    "/checklist",
+    dependencies=[Depends(require_provisioned), Depends(require_auth), Depends(require_full_session)],
+)
+def put_checklist(body: ChecklistState, state: StateStore = Depends(get_state_store)) -> ChecklistState:
+    """Hide or restore Home's setup checklist."""
+    state.write_checklist_dismissed(body.dismissed)
+    return ChecklistState(dismissed=body.dismissed)
 
 
 def _refuse_while_updating(state: StateStore, runner_alive: bool) -> None:

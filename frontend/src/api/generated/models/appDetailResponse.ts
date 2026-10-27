@@ -25,6 +25,7 @@ export interface AppDetailResponse {
   installed_at: number | null;
   last_job: AppJobInfo | null;
   manifest: AppManifestInfo | null;
+  missing_env?: string[];
   name: string;
   params: AppDetailResponseParams;
   reason?: string | null;

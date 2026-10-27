@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from pathlib import Path
 from typing import cast
@@ -17,14 +18,20 @@ from palmimo_portal.core.apps_start import (
     ParamsInvalidError,
     ParamsMissingError,
     PlatformNotReadyError,
+    RunningApp,
     StartDeps,
     VenvMissingError,
+    autostart_apps,
+    default_app,
     derive_run_status,
+    find_running_app,
+    missing_env,
     precheck_report,
     reconcile_run_dirs,
     resolve_running_url,
     start_app,
     stop_app,
+    with_default_app,
 )
 from palmimo_portal.core.manifest import manifest_snapshot, parse_manifest
 from palmimo_portal.ports import (
@@ -632,3 +639,88 @@ def test_precheck_report_does_not_start_the_app_or_write_a_run_dir(deps: StartDe
 
     assert _app_unit(deps).start_calls == []
     assert _run_dir(deps).written == {}
+
+
+_ACTIVE = UnitStatus(active_state="active", sub_state="running", result="success", exec_main_status=0)
+_ACTIVATING = UnitStatus(active_state="activating", sub_state="start", result="success", exec_main_status=0)
+
+
+def test_find_running_app_is_none_when_no_unit_is_active() -> None:
+    state = AppsState(apps={"robot": _record("robot")})
+
+    assert find_running_app(FakeAppUnitPort(), state) is None
+
+
+def test_find_running_app_reports_the_active_ledgered_app() -> None:
+    record = dataclasses.replace(_record("robot"), name="Hello Robot")
+    app_unit = FakeAppUnitPort()
+    app_unit.simulate_active_state("robot", _ACTIVE)
+
+    result = find_running_app(app_unit, AppsState(apps={"robot": record}))
+
+    assert result == RunningApp(id="robot", name="Hello Robot", state="running")
+
+
+def test_find_running_app_maps_activating_to_starting() -> None:
+    app_unit = FakeAppUnitPort()
+    app_unit.simulate_active_state("robot", _ACTIVATING)
+
+    result = find_running_app(app_unit, AppsState(apps={"robot": _record("robot")}))
+
+    assert result is not None and result.state == "starting"
+
+
+def test_find_running_app_skips_units_missing_from_the_ledger() -> None:
+    app_unit = FakeAppUnitPort()
+    app_unit.simulate_active_state("ghost", _ACTIVE)
+
+    assert find_running_app(app_unit, AppsState(apps={"robot": _record("robot")})) is None
+
+
+_KEYED_MANIFEST = parse_manifest(
+    'schema = 1\nname = "k"\ndescription = "d"\ncommand = ["run"]\n'
+    '[env.API_KEY]\ndescription = "key"\n[env.LOG_LEVEL]\ndescription = "level"\nrequired = false\n'
+)
+
+
+def test_missing_env_lists_an_unbound_required_key_but_not_an_optional_one() -> None:
+    assert missing_env(_KEYED_MANIFEST, {}, lambda _: True) == ["API_KEY"]
+
+
+def test_missing_env_lists_a_key_bound_to_a_secret_that_no_longer_exists() -> None:
+    assert missing_env(_KEYED_MANIFEST, {"API_KEY": "GONE"}, lambda name: name != "GONE") == ["API_KEY"]
+
+
+def test_missing_env_is_empty_once_the_required_key_is_bound() -> None:
+    assert missing_env(_KEYED_MANIFEST, {"API_KEY": "MY_KEY"}, lambda _: True) == []
+
+
+def _ledger(**autostart: bool) -> AppsState:
+    return AppsState(apps={name: dataclasses.replace(_record(name), autostart=on) for name, on in autostart.items()})
+
+
+def test_default_app_is_the_single_autostart_app() -> None:
+    assert default_app(_ledger(a=False, b=True)) == "b"
+
+
+def test_default_app_is_none_when_several_apps_auto_start() -> None:
+    state = _ledger(a=True, b=True)
+
+    assert default_app(state) is None
+    assert autostart_apps(state) == ["a", "b"]
+
+
+def test_default_app_ignores_a_broken_app_that_boot_would_skip() -> None:
+    state = _ledger(a=True, b=True)
+    state = dataclasses.replace(
+        state, apps={**state.apps, "a": dataclasses.replace(state.apps["a"], broken_reason="venv_missing")}
+    )
+
+    assert autostart_apps(state) == ["b"]
+    assert default_app(state) == "b"
+
+
+def test_with_default_app_turns_every_other_flag_off() -> None:
+    state = with_default_app(_ledger(a=True, b=True, c=False), "c")
+
+    assert {name: record.autostart for name, record in state.apps.items()} == {"a": False, "b": False, "c": True}

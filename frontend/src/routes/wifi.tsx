@@ -1,6 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { ChevronRight, Lock } from "lucide-react";
+import type * as React from "react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -15,15 +16,16 @@ import {
 import { getGetStatusApiV1SystemStatusGetQueryKey, useGetStatusApiV1SystemStatusGet } from "@/api/generated/system/system";
 import type { WifiNetworkResponse } from "@/api/generated/models";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
+import { AppShell } from "@/components/AppShell";
 import { AuthShell } from "@/components/AuthShell";
 import { Button } from "@/components/ui/button";
 import { WifiConnectForm } from "@/components/WifiConnectForm";
 import { signalIcon } from "@/lib/wifiSignal";
 
 interface WifiSearch {
-  /** `?reconfigure=1`: entered from `/wifi-settings`'s "connect to another network" action, not the unprovisioned setup flow. Changes the copy shown and where "back" navigates. */
+  /** `?reconfigure=1`: entered from Settings → Network's "connect to another network" action, not the unprovisioned setup flow. Changes the copy shown and where "back" navigates. */
   reconfigure?: boolean;
-  /** `?add=1`: entered from `/wifi-settings`'s "add" action -- picking a network saves it without switching. */
+  /** `?add=1`: entered from Settings → Network's "add" action -- picking a network saves it without switching. */
   add?: boolean;
 }
 
@@ -39,6 +41,40 @@ export const Route = createFileRoute("/wifi")({
   }),
   component: WifiScreen,
 });
+
+/** Signed-in entries from Settings keep the dashboard chrome; the setup flow keeps the auth card. */
+function WifiShell({
+  fromSettings,
+  title,
+  description,
+  children,
+}: {
+  fromSettings: boolean;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  const { t } = useTranslation();
+  if (!fromSettings) {
+    return (
+      <AuthShell title={title} description={description}>
+        {children}
+      </AuthShell>
+    );
+  }
+  return (
+    <AppShell
+      title={title}
+      description={description}
+      breadcrumbs={[
+        <Link key="settings" to="/settings">{t("nav.settings")}</Link>,
+        <Link key="network" to="/settings/network">{t("nav.network")}</Link>,
+      ]}
+    >
+      <div className="flex w-full max-w-[440px] flex-col gap-4">{children}</div>
+    </AppShell>
+  );
+}
 
 function WifiScreen() {
   const { t } = useTranslation();
@@ -60,12 +96,12 @@ function WifiScreen() {
   const connect = useConnectApiV1WifiConnectPost();
   const { data: saved } = useListSavedApiV1WifiSavedGet({ query: { enabled: fromSettings } });
   const save = useSaveNetworkApiV1WifiSavedPost({
-    mutation: { onSuccess: () => void navigate({ to: "/wifi-settings" }) },
+    mutation: { onSuccess: () => void navigate({ to: "/settings/network" }) },
   });
   const savedState = (ssid: string) => saved?.find((item) => item.ssid === ssid);
 
   const lastAttempt = status?.last_wifi_attempt;
-  const goToWifiSettings = () => void navigate({ to: "/wifi-settings" });
+  const goToWifiSettings = () => void navigate({ to: "/settings/network" });
 
   function handleConnectSubmit(psk: string) {
     if (!selected) return;
@@ -91,7 +127,8 @@ function WifiScreen() {
   if (selected && add) {
     const already = Boolean(savedState(selected.ssid));
     return (
-      <AuthShell
+      <WifiShell
+        fromSettings={fromSettings}
         title={already ? t("wifi.updateTitle", { ssid: selected.ssid }) : t("wifi.saveTitle", { ssid: selected.ssid })}
         description={already ? t("wifi.updateBody") : t("wifi.saveBody")}
       >
@@ -105,13 +142,13 @@ function WifiScreen() {
           submitLabel={t("wifi.save")}
           submittingLabel={t("wifi.saving")}
         />
-      </AuthShell>
+      </WifiShell>
     );
   }
 
   if (selected) {
     return (
-      <AuthShell title={t("wifi.connectTitle", { ssid: selected.ssid })} description={t("wifi.connectBody")}>
+      <WifiShell fromSettings={fromSettings} title={t("wifi.connectTitle", { ssid: selected.ssid })} description={t("wifi.connectBody")}>
         <WifiConnectForm
           network={selected}
           lastAttempt={lastAttempt}
@@ -120,12 +157,13 @@ function WifiScreen() {
           onSubmit={handleConnectSubmit}
           onBack={() => (reconfigure ? goToWifiSettings() : setSelected(null))}
         />
-      </AuthShell>
+      </WifiShell>
     );
   }
 
   return (
-    <AuthShell
+    <WifiShell
+        fromSettings={fromSettings}
       title={add ? t("wifi.addTitle") : t("wifi.scanTitle")}
       description={add ? t("wifi.addBody") : t("wifi.scanBody")}
     >
@@ -188,6 +226,6 @@ function WifiScreen() {
           </Button>
         ) : null}
       </div>
-    </AuthShell>
+    </WifiShell>
   );
 }

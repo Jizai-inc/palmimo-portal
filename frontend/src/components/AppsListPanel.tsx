@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Loader2, Package, Plus } from "lucide-react";
+import { Info, Loader2, Package } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -13,6 +13,7 @@ import {
   useUpdateAppApiV1AppsNameUpdatePost,
 } from "@/api/generated/apps/apps";
 import type { AppSummary, PalmimoPortalApiAppsResetResponse } from "@/api/generated/models";
+import { getGetStatusApiV1SystemStatusGetQueryKey } from "@/api/generated/system/system";
 import { PortalApiError } from "@/api/client";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { AppIdLabel, appIdNamePart } from "@/components/AppIdLabel";
@@ -53,9 +54,13 @@ export function AppsListPanel() {
   const [resetLeftovers, setResetLeftovers] = useState<string[]>([]);
 
   const invalidateList = () => void queryClient.invalidateQueries({ queryKey: getListAppsApiV1AppsGetQueryKey() });
+  const invalidateListAndStatus = () => {
+    invalidateList();
+    void queryClient.invalidateQueries({ queryKey: getGetStatusApiV1SystemStatusGetQueryKey() });
+  };
 
-  const startApp = useStartAppEndpointApiV1AppsNameStartPost({ mutation: { onSuccess: invalidateList } });
-  const stopApp = useStopAppEndpointApiV1AppsNameStopPost({ mutation: { onSuccess: invalidateList } });
+  const startApp = useStartAppEndpointApiV1AppsNameStartPost({ mutation: { onSuccess: invalidateListAndStatus } });
+  const stopApp = useStopAppEndpointApiV1AppsNameStopPost({ mutation: { onSuccess: invalidateListAndStatus } });
   const repairApp = useUpdateAppApiV1AppsNameUpdatePost();
   const resetApps = useResetAppsApiV1AppsResetPost({
     mutation: {
@@ -87,31 +92,22 @@ export function AppsListPanel() {
   return (
     <div className="flex flex-col gap-4">
       {platform && !ready ? (
-        <Alert>
-          <AlertTitle>{t("apps.platformBannerTitle")}</AlertTitle>
-          <AlertDescription className="flex flex-col gap-3">
-            <span>
+        <div className="flex flex-col gap-3 rounded-xl border border-warning-border bg-warning-soft p-4 text-sm text-warning-foreground sm:flex-row sm:items-center">
+          <Info className="hidden size-4 shrink-0 sm:block" aria-hidden />
+          <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <p className="font-semibold">{t("apps.platformBannerTitle")}</p>
+            <p className="text-[13px]">
               {platform.latest?.summary
                 ? t("apps.platformBannerBodyWithSummary", { summary: platform.latest.summary })
                 : t("apps.platformBannerBody")}
-            </span>
+            </p>
             <ApiErrorAlert error={startError} />
-            <Button className="w-fit" onClick={startUpdate} disabled={starting || platformJob?.state === "running"}>
-              {t("apps.platformUpdateButton")}
-            </Button>
-          </AlertDescription>
-        </Alert>
+          </div>
+          <Button size="sm" className="w-fit shrink-0" onClick={startUpdate} disabled={starting || platformJob?.state === "running"}>
+            {t("apps.platformUpdateButton")}
+          </Button>
+        </div>
       ) : null}
-
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">{t("apps.title")}</p>
-        <Button asChild>
-          <Link to="/apps/add">
-            <Plus className="size-4" />
-            {t("apps.addAppButton")}
-          </Link>
-        </Button>
-      </div>
 
       {ledgerRecovery ? null : <ApiErrorAlert error={error} />}
 
@@ -130,13 +126,25 @@ export function AppsListPanel() {
       {error ? null : isLoading ? (
         <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
       ) : apps.length === 0 ? (
-        <p className="text-sm text-muted-foreground">{t("apps.emptyState")}</p>
+        <div className="flex flex-col items-center gap-3.5 rounded-[14px] border border-dashed border-border-strong px-6 py-16 text-center">
+          <span className="flex size-12 items-center justify-center rounded-xl bg-secondary" aria-hidden>
+            <Package className="size-[22px] text-muted-foreground" />
+          </span>
+          <p className="text-[17px] font-semibold">{t("apps.emptyState")}</p>
+          <p className="max-w-[420px] text-sm leading-normal text-muted-foreground">{t("apps.emptyStateBody")}</p>
+          <Button asChild className="mt-1.5">
+            <Link to="/apps" search={{ tab: "discover" }}>
+              {t("apps.browseOfficialApps")}
+            </Link>
+          </Button>
+        </div>
       ) : (
         <ul className="flex flex-col gap-2">
           {apps.map((app) => (
             <AppRow
               key={app.id}
               app={app}
+              isDefault={data?.default_app === app.id}
               disabledForPlatform={!ready}
               disabledForJob={jobInProgress}
               onStart={() => startApp.mutate({ name: app.id })}
@@ -202,6 +210,7 @@ export function AppsListPanel() {
 
 function AppRow({
   app,
+  isDefault,
   disabledForPlatform,
   disabledForJob,
   onStart,
@@ -212,6 +221,7 @@ function AppRow({
   rowError,
 }: {
   app: AppSummary;
+  isDefault: boolean;
   disabledForPlatform: boolean;
   disabledForJob: boolean;
   onStart: () => void;
@@ -249,7 +259,12 @@ function AppRow({
             {appStatusLabel(t, app.status, app.exit_code)}
           </Badge>
           {app.source.official ? <Badge>{t("appAdd.catalogOfficialBadge")}</Badge> : null}
-          {app.autostart ? <Badge variant="outline">{t("apps.autostartBadge")}</Badge> : null}
+          {isDefault ? <Badge variant="outline">{t("apps.defaultBadge")}</Badge> : null}
+          {app.missing_env && app.missing_env.length > 0 ? (
+            <Link to="/apps/$id" params={{ id: app.id }}>
+              <Badge variant="destructive">{t("apps.missingKeysBadge")}</Badge>
+            </Link>
+          ) : null}
           {app.update_available ? <Badge variant="outline">{t("apps.updateAvailableChip")}</Badge> : null}
           {app.credential_rejected ? <Badge variant="destructive">{t("apps.credentialRejectedBadge")}</Badge> : null}
         </div>

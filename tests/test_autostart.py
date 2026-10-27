@@ -113,6 +113,25 @@ def test_autostart_never_selects_an_app_that_is_not_flagged(tmp_path: Path, capl
     assert _messages(caplog, "autostart: no app selected")
 
 
+def test_autostart_skips_a_broken_app_and_starts_the_next_flagged_one(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    settings = _settings(tmp_path)
+    _write_app(settings, "app-b")
+    app = create_app(settings)
+    adapters: FakeAdapterBundle = app.state.adapters
+    adapters.state.write_apps_state(
+        AppsState(apps={"app-a": _record("app-a", autostart=True), "app-b": _record("app-b", autostart=True)})
+    )
+    caplog.set_level(logging.INFO, logger="palmimo_portal")
+
+    with TestClient(app):
+        pass
+
+    assert _messages(caplog, "autostart: selected name=app-b") == ["autostart: selected name=app-b"]
+    assert not _messages(caplog, "autostart: skipped")
+
+
 def test_startup_stops_an_orphan_sync_unit_before_cleaning_staging_and_trash(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

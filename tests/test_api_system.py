@@ -355,7 +355,7 @@ def _install_running_app(adapters: FakeAdapterBundle) -> None:
 
 def _full_login(client: TestClient, adapters: FakeAdapterBundle) -> None:
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
 
 
@@ -371,7 +371,7 @@ def test_status_running_app_is_null_for_an_initial_mode_session(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
     adapters.identity.identity = Identity(device_id="palmimo-042", initial_password="sticker")
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     login = client.post("/api/v1/auth/login", json={"password": "sticker"}, headers=CSRF_HEADERS)
     assert login.json()["mode"] == "initial"
     _install_running_app(adapters)
@@ -412,7 +412,7 @@ def test_status_running_app_is_null_when_the_app_unit_backend_is_unavailable(
 
 
 def test_checklist_is_401_without_a_session(client: TestClient, adapters: FakeAdapterBundle) -> None:
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
 
     response = client.get("/api/v1/system/checklist")
 

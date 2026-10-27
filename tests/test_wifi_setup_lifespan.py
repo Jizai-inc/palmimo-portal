@@ -73,6 +73,9 @@ def test_startup_recovery_owner_controls_restore_and_suppresses_autostart(
     adapters.state.write_preempted_app(record)
     adapters.network.status = WifiStatus(network, "home", "192.0.2.1" if network is ConnectionState.CONNECTED else None)
     adapters.wifi_profiles.device = WifiDeviceStatus(100, None)
+    if network is ConnectionState.CONNECTED:
+        adapters.saved_networks.save("home", "password", first=True)
+        adapters.saved_networks.active = "home"
     restored = by == "display-firmware" or network is ConnectionState.CONNECTED
     with TestClient(app):
         assert adapters.app_unit.start_calls == (["face"] if restored else [])
@@ -175,7 +178,8 @@ def test_startup_does_not_restart_recorded_live_unit(
     adapters.state.write_preempted_app(PreemptedApp("face", "wifi-setup"))
     adapters.app_unit.simulate_active_state("face", UnitStatus(active, "", "success", 0))
     adapters.network.status = WifiStatus(ConnectionState.CONNECTED, "home", "192.0.2.1")
-    adapters.wifi_profiles.device = WifiDeviceStatus(100, None)
+    adapters.saved_networks.save("home", "password", first=True)
+    adapters.saved_networks.active = "home"
     with TestClient(app):
         assert adapters.app_unit.start_calls == []
         assert adapters.app_unit.device_allow_calls == []

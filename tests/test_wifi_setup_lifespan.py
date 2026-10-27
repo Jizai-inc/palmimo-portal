@@ -32,6 +32,12 @@ def settings(settings: Settings, tmp_path: Path) -> Settings:
     return replace(settings, apps_dir=tmp_path / "apps")
 
 
+@pytest.fixture
+def enabled_setup_recovery(app: FastAPI, monkeypatch: pytest.MonkeyPatch) -> None:
+    app.state.settings = replace(app.state.settings, wifi_setup_enabled=True)
+    monkeypatch.setattr(app.state.wifi_setup, "run_forever", lambda: None)
+
+
 def install_app(app: FastAPI, name: str, *, autostart: bool, devices: str = '"camera"') -> None:
     path: Path = app.state.apps_job_context.app_dir(name)
     (path / ".venv" / "bin").mkdir(parents=True)
@@ -54,6 +60,7 @@ def install_app(app: FastAPI, name: str, *, autostart: bool, devices: str = '"ca
 
 @pytest.mark.parametrize("by", ["wifi-setup", "display-firmware"])
 @pytest.mark.parametrize("network", list(ConnectionState))
+@pytest.mark.usefixtures("enabled_setup_recovery")
 def test_startup_recovery_owner_controls_restore_and_suppresses_autostart(
     app: FastAPI,
     adapters: FakeAdapterBundle,
@@ -72,6 +79,7 @@ def test_startup_recovery_owner_controls_restore_and_suppresses_autostart(
         assert adapters.state.read_preempted_app() == (None if restored else record)
 
 
+@pytest.mark.usefixtures("enabled_setup_recovery")
 def test_startup_retains_wifi_record_until_nm_is_activated(app: FastAPI, adapters: FakeAdapterBundle) -> None:
     install_app(app, "auto", autostart=True)
     install_app(app, "face", autostart=False)
@@ -157,6 +165,7 @@ def test_autostart_remains_preemptible_in_ap_mode(app: FastAPI, adapters: FakeAd
 
 
 @pytest.mark.parametrize("active", ["active", "activating", "deactivating"])
+@pytest.mark.usefixtures("enabled_setup_recovery")
 def test_startup_does_not_restart_recorded_live_unit(
     app: FastAPI,
     adapters: FakeAdapterBundle,
@@ -180,6 +189,7 @@ def test_startup_does_not_restart_recorded_live_unit(
             assert adapters.state.read_preempted_app() is None
 
 
+@pytest.mark.usefixtures("enabled_setup_recovery")
 def test_startup_defers_recovery_when_network_observation_fails(
     app: FastAPI,
     adapters: FakeAdapterBundle,
@@ -230,6 +240,7 @@ async def test_lifespan_finishes_other_cleanup_if_setup_shutdown_is_cancelled(
     assert cleanup == ["recovery"]
 
 
+@pytest.mark.usefixtures("enabled_setup_recovery")
 def test_startup_ap_recorded_live_app_is_preempted_after_entry_delay(
     app: FastAPI,
     adapters: FakeAdapterBundle,
@@ -255,6 +266,7 @@ def test_startup_ap_recorded_live_app_is_preempted_after_entry_delay(
     assert adapters.app_unit.start_calls == []
 
 
+@pytest.mark.usefixtures("enabled_setup_recovery")
 def test_unavailable_reader_does_not_prevent_later_lan_app_recovery(
     app: FastAPI,
     adapters: FakeAdapterBundle,
@@ -332,3 +344,22 @@ def test_display_firmware_refuses_reader_without_app_record(
         result = run_display_firmware(app.state.start_deps, adapters.platform)
         assert result.result == "busy"
         assert adapters.platform.display_firmware_calls == 0
+
+
+@pytest.mark.parametrize("network", list(ConnectionState))
+def test_disabled_setup_restores_recorded_app_without_waiting_for_lan(
+    app: FastAPI,
+    adapters: FakeAdapterBundle,
+    network: ConnectionState,
+) -> None:
+    app.state.settings = replace(app.state.settings, wifi_setup_enabled=False)
+    install_app(app, "auto", autostart=True)
+    install_app(app, "face", autostart=False)
+    adapters.state.write_preempted_app(PreemptedApp("face", "wifi-setup", hold=True))
+    adapters.network.status = WifiStatus(network, "home", None)
+    adapters.wifi_profiles.device = WifiDeviceStatus(70, None)
+    with TestClient(app):
+        assert adapters.app_unit.start_calls == ["face"]
+        assert adapters.state.read_preempted_app() is None
+        assert "start" not in adapters.wifi_qr_unit.calls
+        assert not any(thread.name == "palmimo-wifi-setup" for thread in threading.enumerate())

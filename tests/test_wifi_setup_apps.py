@@ -89,6 +89,7 @@ def test_wifi_setup_records_app_before_stopping(
     def stop(name: str) -> None:
         assert adapters.state.read_preempted_app() == PreemptedApp("face", "wifi-setup")
         stopped.append(name)
+        adapters.app_unit.simulate_active_state(name, UnitStatus("inactive", "dead", "success", 0))
 
     monkeypatch.setattr(adapters.app_unit, "stop", stop)
     with deps.state.lock_run():

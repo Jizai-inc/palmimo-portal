@@ -470,16 +470,13 @@ def test_setup_completes_qr_flow_over_unix_socket(
     assert "WIFI:" not in caplog.text
 
 
-@pytest.mark.parametrize("stop_fails", [False, True])
-def test_setup_reader_failure_restores_preempted_app_and_holds(rig: Rig, stop_fails: bool) -> None:
+def test_setup_reader_failure_restores_preempted_app_and_holds(rig: Rig) -> None:
     rig.adapters.app_unit.simulate_active_state("face", UnitStatus("active", "running", "success", 0))
-    if stop_fails:
-        rig.adapters.app_unit.raise_on_stop = RuntimeError("unavailable")
     rig.active()
     rig.unit.unit_status = WifiQrUnitStatus("failed", "loaded", "exit-code", 1, 75)
     rig.setup.tick()
     rig.setup.tick()
-    assert rig.adapters.app_unit.start_calls == ([] if stop_fails else ["face"])
+    assert rig.adapters.app_unit.start_calls == ["face"]
     assert rig.adapters.state.read_preempted_app() == PreemptedApp(None, "wifi-setup", hold=True)
     rig.adapters.app_unit.simulate_active_state("face", UnitStatus("active", "running", "success", 0))
     rig.advance(30)
@@ -949,3 +946,61 @@ def test_setup_old_firmware_disables_reader_until_portal_restart(rig: Rig) -> No
     rig.advance(7200)
     assert rig.setup.status().mode == "unavailable"
     assert rig.unit.calls.count("start") == starts
+
+
+@pytest.mark.parametrize("stop_delay,stop_fails", [(19.9, False), (20.1, False), (20.1, True)])
+def test_setup_waits_for_app_release_and_retries_after_stop_timeout(
+    rig: Rig,
+    monkeypatch: pytest.MonkeyPatch,
+    stop_delay: float,
+    stop_fails: bool,
+) -> None:
+    from types import SimpleNamespace
+
+    from palmimo_portal.core import wifi_setup
+
+    waited = 0.0
+    released_at_start: list[bool] = []
+    rig.adapters.app_unit.simulate_active_state("face", UnitStatus("active", "running", "success", 0))
+
+    def sleep(seconds: float) -> None:
+        nonlocal waited
+        waited += seconds
+        rig.clock.monotonic_value += seconds
+
+    def stop(name: str) -> None:
+        rig.adapters.app_unit.stop_calls.append(name)
+        if stop_fails:
+            raise RuntimeError("unavailable")
+        rig.adapters.app_unit.simulate_active_state(name, UnitStatus("deactivating", "", "success", 0))
+
+    original_status = rig.adapters.app_unit.status
+
+    def status(name: str) -> UnitStatus:
+        if waited >= stop_delay:
+            rig.adapters.app_unit.simulate_active_state(name, UnitStatus("inactive", "dead", "success", 0))
+        return original_status(name)
+
+    original_start = rig.unit.start
+
+    def start() -> None:
+        released_at_start.append(status("face").active_state == "inactive")
+        original_start()
+
+    monkeypatch.setattr(wifi_setup, "time", SimpleNamespace(monotonic=lambda: waited, sleep=sleep))
+    monkeypatch.setattr(rig.adapters.app_unit, "stop", stop)
+    monkeypatch.setattr(rig.adapters.app_unit, "status", status)
+    monkeypatch.setattr(rig.unit, "start", start)
+    rig.setup.tick()
+    rig.advance(6)
+    assert rig.adapters.state.read_preempted_app() == PreemptedApp("face", "wifi-setup")
+    assert rig.adapters.app_unit.start_calls == []
+    if stop_delay > 20:
+        assert released_at_start == []
+        assert 20 <= waited < stop_delay
+        assert rig.setup.status().mode == "idle"
+        waited = stop_delay
+        rig.advance(2)
+    assert released_at_start == [True]
+    rig.advance(12)
+    assert rig.setup.status().mode == "starting"

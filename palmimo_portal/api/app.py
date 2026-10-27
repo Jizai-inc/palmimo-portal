@@ -521,6 +521,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:
         logger.exception("Wi-Fi startup recovery could not start")
 
+    settings: Settings = app.state.settings
+    setup_enabled = settings.wifi_setup_enabled
+    if setup_enabled is None:
+        setup_enabled = settings.adapters == "real"
+
     skip_autostart = False
     try:
         record = adapters.state.read_preempted_app()
@@ -529,7 +534,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             skip_autostart = await anyio.to_thread.run_sync(restore_preempted_app, app.state.start_deps)
         elif record is not None and record.by == "wifi-setup":
             skip_autostart = record.preempted_app is not None
-            await anyio.to_thread.run_sync(app.state.wifi_setup.recover_startup)
+            await anyio.to_thread.run_sync(lambda: app.state.wifi_setup.recover_startup(enabled=setup_enabled))
     except Exception:
         logger.exception("preempt: startup recovery failed")
 
@@ -547,10 +552,6 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         periodic_thread.start()
 
     wifi_setup_thread: threading.Thread | None = None
-    settings: Settings = app.state.settings
-    setup_enabled = settings.wifi_setup_enabled
-    if setup_enabled is None:
-        setup_enabled = settings.adapters == "real"
     if setup_enabled:
         wifi_setup_thread = threading.Thread(
             target=app.state.wifi_setup.run_forever, daemon=True, name="palmimo-wifi-setup"

@@ -101,6 +101,12 @@ class WifiSetupApps:
                     _stop_app_locked(self.deps, name)
                 except Exception:
                     logger.warning("wifi-setup: app stop failed app=%s", name)
+                deadline = time.monotonic() + 20
+                while self.deps.app_unit.status(name).active_state in RUNNING_ACTIVE_STATES:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        return self._refuse("app_stop_timeout")
+                    time.sleep(min(0.1, remaining))
                 logger.info("wifi-setup: preempted app=%s", name)
         except Exception as error:
             return self._refuse("app_observation_failed", error=error)
@@ -357,7 +363,6 @@ class WifiSetup:
                     self._generation += 1
                     generation = self._generation
                     self._mode = "starting"
-                    self._started_at = self._now()
                     self._disconnected = False
                     self._conflict_warning = False
                 if not self.apps.prepare_locked():
@@ -369,6 +374,7 @@ class WifiSetup:
                 with self._condition:
                     if self._generation != generation:
                         return
+                    self._started_at = self._now()
                 logger.info("wifi-setup: entering reason=%s", "known_network_lost" if known else "unprovisioned")
                 self.unit.start()
                 with self._condition:
@@ -404,7 +410,7 @@ class WifiSetup:
         except Exception:
             logger.warning("wifi-setup: startup reader stop failed")
 
-    def recover_startup(self) -> bool:
+    def recover_startup(self, *, enabled: bool = True) -> bool:
         record = self.apps.deps.state.read_preempted_app()
         if record is None or record.by != "wifi-setup":
             return False
@@ -414,6 +420,9 @@ class WifiSetup:
                 if current is not None and current.by == "wifi-setup" and current.preempted_app is None:
                     self.apps.deps.state.write_preempted_app(None)
             return False
+        if not enabled:
+            self.apps.restore(hold=False)
+            return True
         try:
             status = self.network.get_status()
             if (

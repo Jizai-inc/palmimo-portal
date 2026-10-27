@@ -147,14 +147,16 @@ export function PlatformUpdateCard({
               </AlertDescription>
             </Alert>
           ) : null}
-          <Button
-            variant="outline"
-            className="w-fit"
-            onClick={repairFirmware}
-            disabled={!platform.display_firmware_available || repairingFirmware || starting || job?.state === "running" || portalUpdateRunning}
-          >
-            {t("update.displayFirmwareRepair")}
-          </Button>
+          {!firmwareRunning && firmwareWarning ? (
+            <Button
+              variant="outline"
+              className="w-fit"
+              onClick={repairFirmware}
+              disabled={!platform.display_firmware_available || repairingFirmware || starting || job?.state === "running" || portalUpdateRunning}
+            >
+              {t("update.displayFirmwareRepair")}
+            </Button>
+          ) : null}
           <ApiErrorAlert error={repairError} />
 
           {legacyLedgerError ? (

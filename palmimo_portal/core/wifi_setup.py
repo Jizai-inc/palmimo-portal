@@ -216,6 +216,8 @@ class WifiSetup:
         self._now = monotonic
         self._hostname = hostname
         self._condition = threading.Condition()
+        self._stop_lock = threading.Lock()
+        self._stop_request: tuple[str, bool, WifiQrUnitStatus | None] | None = None
         self._mode = "idle"
         self._screen: str | None = None
         self._screen_at = 0.0
@@ -436,14 +438,20 @@ class WifiSetup:
             logger.warning("wifi-setup: startup app recovery deferred")
         return True
 
-    def stop(self, reason: str, *, fault: bool = False, result: WifiQrUnitStatus | None = None) -> None:
+    def stop(self, reason: str, *, fault: bool = False, result: WifiQrUnitStatus | None = None) -> bool:
+        if not self._stop_lock.acquire(timeout=10):
+            return False
+        try:
+            return self._stop_locked(reason, fault=fault, result=result)
+        finally:
+            self._stop_lock.release()
+
+    def _stop_locked(self, reason: str, *, fault: bool, result: WifiQrUnitStatus | None) -> bool:
         with self._condition:
-            if self._mode == "stopping":
-                if not self._condition.wait_for(lambda: self._mode != "stopping", timeout=10):
-                    raise AppBusyError
-                return
-            if self._mode in {"idle", "backoff", "unavailable"} and reason != "reader":
-                return
+            if self._stop_request is not None:
+                reason, fault, result = self._stop_request
+            elif self._mode in {"idle", "backoff", "unavailable"} and reason != "reader":
+                return True
             self._mode = "stopping"
             self._generation += 1
             client, self._client = self._client, None
@@ -459,11 +467,17 @@ class WifiSetup:
                 result = self.unit.status()
             except Exception:
                 logger.warning("wifi-setup: reader exit status unavailable")
+        with self._condition:
+            self._stop_request = (reason, fault, result)
         try:
             self.unit.stop_and_wait(timeout_s=self.READER_STOP_TIMEOUT)
+        except WifiQrUnitMissingError:
+            pass
         except Exception:
             logger.warning("wifi-setup: reader stop failed")
+            return False
         with self._condition:
+            self._stop_request = None
             self._screen = None
             self._mode = "idle"
             self._retry_at = None
@@ -509,6 +523,7 @@ class WifiSetup:
                 max(0, self._retry_at - self._now()) if self._retry_at is not None else None,
             )
             self._condition.notify_all()
+        return True
 
     def before_app_start(self, devices: list[str]) -> None:
         if not SETUP_DEVICES.intersection(devices):
@@ -521,7 +536,8 @@ class WifiSetup:
 
             def stop() -> None:
                 try:
-                    self.stop("app")
+                    if not self.stop("app"):
+                        failed.set()
                 except Exception:
                     failed.set()
                 finally:
@@ -534,6 +550,8 @@ class WifiSetup:
 
     def _restore(self) -> None:
         with self._condition:
+            if self._mode == "stopping":
+                return
             hold = self._restore_hold
         if hold is not None and self.apps.restore(hold=hold):
             with self._condition:
@@ -543,11 +561,19 @@ class WifiSetup:
     def tick(self) -> None:
         if self._shutdown.is_set():
             return
+        with self._condition:
+            stopping = self._mode == "stopping"
+        if stopping:
+            self.stop("retry")
+            self._restore()
+            return
         self._restore()
         now = self._now()
         with self._condition:
             elapsed = min(2.0, max(0.0, now - self._last_poll)) if self._last_poll is not None else 0.0
             self._last_poll = now
+        lan = ap = known = False
+        observed = False
         try:
             network = self.network.get_status()
             known = self.network.has_known_networks()
@@ -556,19 +582,21 @@ class WifiSetup:
                 and bool(network.ip_address)
                 and self.profiles.device_status().state == 100
             )
+            ap = network.state is ConnectionState.UNPROVISIONED
+            observed = True
         except AdapterUnavailableError:
             if not self._poll_warning:
                 logger.warning("wifi-setup: network observation unavailable")
                 self._poll_warning = True
-            return
-        self._poll_warning = False
+        else:
+            self._poll_warning = False
         if lan:
             with suppress(RunLockTimeoutError):
                 self.apps.clear_hold()
         with self._condition:
-            ap = network.state is ConnectionState.UNPROVISIONED
-            self._ap_elapsed = self._ap_elapsed + elapsed if ap and self._was_ap else 0
-            self._was_ap = ap
+            if observed:
+                self._ap_elapsed = self._ap_elapsed + elapsed if ap and self._was_ap else 0
+                self._was_ap = ap
             if self._mode in {"backoff", "unavailable"} and self._retry_at is not None and now >= self._retry_at:
                 self._mode = "idle"
             mode = self._mode
@@ -656,8 +684,8 @@ class WifiSetup:
                     with self._condition:
                         if self._mode != "active":
                             return
-                    self.stop("app")
-                    self.apps.hold_locked()
+                    if self.stop("app"):
+                        self.apps.hold_locked()
             except RunLockTimeoutError:
                 return
 

@@ -244,14 +244,6 @@ def test_setup_times_out_socket_or_hello(rig: Rig, connect_error: bool, deadline
     assert rig.reader.closed
 
 
-def test_setup_stop_failure_still_leaves_active_mode(rig: Rig) -> None:
-    rig.active()
-    rig.unit.error = RuntimeError("D-Bus unavailable")
-    rig.setup.stop("app")
-    assert rig.reader.closed
-    assert rig.setup.status().mode == "idle"
-
-
 def test_setup_shutdown_preserves_preempted_record(rig: Rig) -> None:
     rig.active()
     record = PreemptedApp("face", "wifi-setup")
@@ -297,6 +289,7 @@ def test_setup_web_start_timeout_keeps_record(rig: Rig, monkeypatch: pytest.Monk
     def stop() -> None:
         stopped.set()
         assert release.wait(2)
+        rig.unit.unit_status = WifiQrUnitStatus("inactive")
 
     monkeypatch.setattr(rig.unit, "stop", stop)
     monkeypatch.setattr(rig.setup, "APP_STOP_TIMEOUT", 0.05)
@@ -313,7 +306,7 @@ def test_setup_web_start_timeout_keeps_record(rig: Rig, monkeypatch: pytest.Monk
     "error,expected",
     [
         (WifiQrUnitMissingError(), "unavailable"),
-        (PolkitDeniedError("palmimo-wifi-qr.service", "start"), "backoff"),
+        (PolkitDeniedError("palmimo-wifi-qr.service", "start"), "stopping"),
     ],
 )
 def test_setup_unit_failure_does_not_preempt_app(rig: Rig, error: Exception, expected: str) -> None:
@@ -547,9 +540,19 @@ def test_setup_unavailable_does_not_retry_until_restart(rig: Rig) -> None:
     assert "start" not in rig.unit.calls
 
 
-def test_setup_attempts_stop_even_when_exit_status_read_fails(rig: Rig) -> None:
+def test_setup_attempts_stop_even_when_exit_status_read_fails(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> None:
     rig.active()
-    rig.unit.error = RuntimeError("status unavailable")
+    status = rig.unit.status
+    failed = False
+
+    def read_status() -> WifiQrUnitStatus:
+        nonlocal failed
+        if not failed:
+            failed = True
+            raise RuntimeError("status unavailable")
+        return status()
+
+    monkeypatch.setattr(rig.unit, "status", read_status)
     rig.setup.stop("app")
     assert "stop" in rig.unit.calls
     assert rig.setup.status().mode == "idle"
@@ -1004,3 +1007,91 @@ def test_setup_waits_for_app_release_and_retries_after_stop_timeout(
     assert released_at_start == [True]
     rig.advance(12)
     assert rig.setup.status().mode == "starting"
+
+
+@pytest.mark.parametrize("failure", [TimeoutError("still stopping"), RuntimeError("D-Bus unavailable")])
+def test_setup_blocks_app_until_reader_stop_is_confirmed(
+    rig: Rig,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: Exception,
+) -> None:
+    rig.adapters.app_unit.simulate_active_state("face", UnitStatus("active", "running", "success", 0))
+    rig.active()
+    record = PreemptedApp("face", "wifi-setup")
+    stop = rig.unit.stop_and_wait
+
+    def fail(*, timeout_s: float) -> None:
+        raise failure
+
+    monkeypatch.setattr(rig.unit, "stop_and_wait", fail)
+    deps = replace(rig.setup.apps.deps, before_start=rig.setup.before_app_start)
+    with pytest.raises(AppBusyError):
+        start_app(deps, "face", host="robot")
+    assert rig.setup.status().mode == "stopping"
+    assert rig.adapters.state.read_preempted_app() == record
+    assert rig.adapters.app_unit.start_calls == []
+    assert rig.unit.status().active_state == "active"
+    assert rig.reader.closed
+    rig.setup.tick()
+    assert rig.setup.status().mode == "stopping"
+    assert rig.adapters.state.read_preempted_app() == record
+    monkeypatch.setattr(rig.unit, "stop_and_wait", stop)
+    rig.setup.tick()
+    assert rig.setup.status().mode == "idle"
+    assert rig.unit.status().active_state == "inactive"
+    start_app(deps, "face", host="robot")
+    assert rig.adapters.app_unit.start_calls == ["face"]
+    assert rig.adapters.state.read_preempted_app() == PreemptedApp(None, "wifi-setup", hold=True)
+
+
+@pytest.mark.parametrize("event", ["connecting", "connected", "reader_exit", "hello"])
+def test_setup_monitors_reader_and_deadlines_during_network_outage(
+    rig: Rig, event: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig.adapters.app_unit.simulate_active_state("face", UnitStatus("active", "running", "success", 0))
+    if event == "hello":
+        rig.setup.tick()
+        rig.advance(6)
+    else:
+        rig.active()
+    if event in {"connecting", "connected"}:
+        rig.setup.on_message({"type": "qr", "text": "WIFI:S:home;P:password;;"})
+    if event == "connected":
+        rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTED, "home", "192.0.2.1")
+        rig.setup.tick()
+    rig.adapters.network.raise_on_get_status = AdapterUnavailableError("offline", "comitup unavailable")
+    if event in {"connected", "reader_exit"}:
+        stop = rig.unit.stop_and_wait
+        failed = False
+
+        def stop_after_retry(*, timeout_s: float) -> None:
+            nonlocal failed
+            if not failed:
+                failed = True
+                raise TimeoutError("still stopping")
+            stop(timeout_s=timeout_s)
+
+        monkeypatch.setattr(rig.unit, "stop_and_wait", stop_after_retry)
+    if event == "connecting":
+        rig.advance(120)
+        assert rig.setup.status().screen == "failed"
+        rig.advance(8)
+        assert rig.setup.status().screen == "scanning"
+        rig.unit.unit_status = WifiQrUnitStatus("failed", "loaded", "exit-code", 1, 75)
+        rig.setup.tick()
+    elif event == "reader_exit":
+        rig.unit.unit_status = WifiQrUnitStatus("failed", "loaded", "exit-code", 1, 76)
+        rig.setup.tick()
+    else:
+        rig.advance(300 if event == "connected" else 30)
+    if event in {"connected", "reader_exit"}:
+        assert rig.setup.status().mode == "stopping"
+        assert rig.adapters.state.read_preempted_app() == PreemptedApp("face", "wifi-setup")
+    rig.setup.tick()
+    if event == "reader_exit":
+        assert rig.setup.status().reason == "firmware_too_old"
+    assert rig.reader.closed
+    assert rig.adapters.app_unit.start_calls == ["face"]
+    assert rig.adapters.state.read_preempted_app() == (
+        None if event == "connected" else PreemptedApp(None, "wifi-setup", hold=True)
+    )

@@ -91,6 +91,45 @@ def test_reader_stops_after_one_hundred_consecutive_decode_failures(harness: Har
     assert decoder.calls == 100
 
 
+@pytest.mark.parametrize(
+    "payloads,expected",
+    [
+        ([b"\xff"], []),
+        ([b"\xff", b"WIFI:S:home;P:test-password;;"], ["WIFI:S:home;P:test-password;;"]),
+        ([b"WIFI:S:home;P:test-password;;", b"\xff"], ["WIFI:S:home;P:test-password;;"]),
+    ],
+)
+def test_non_utf8_symbols_preserve_scanning_and_valid_qr_results(
+    module: Any, harness: Harness, payloads: list[bytes], expected: list[str]
+) -> None:
+    decoder = module.Decoder(
+        jpeg=SimpleNamespace(decode=lambda frame, denominator: (b"\x40", 1, 1), close=lambda: None),
+        zbar_module=SimpleNamespace(
+            ImageScanner=Mock,
+            Image=lambda width, height, format_, pixels: [SimpleNamespace(data=payload) for payload in payloads],
+        ),
+    )
+    harness.reader.decoder = decoder
+    try:
+        with harness.connect() as client:
+            receive(client)
+            for index in range(101):
+                harness.camera.frames.append([])
+                harness.message(client, state="scanning")
+                assert harness.reader.step()
+                if index == 0 and expected:
+                    assert receive(client) == [{"type": "qr", "text": text} for text in expected]
+            assert harness.display.screens[-1][0] == "scanning"
+            with pytest.raises(TimeoutError):
+                client.recv(1)
+            payloads[:] = [b"WIFI:S:next;P:another-password;;"]
+            harness.camera.frames.append([])
+            harness.reader.step()
+            assert receive(client) == [{"type": "qr", "text": "WIFI:S:next;P:another-password;;"}]
+    finally:
+        decoder.close()
+
+
 @pytest.mark.parametrize("defect", ["flag", "size", "index"])
 def test_invalid_camera_buffer_is_discarded_and_next_frame_remains_readable(
     module: Any, tmp_path: Path, defect: str

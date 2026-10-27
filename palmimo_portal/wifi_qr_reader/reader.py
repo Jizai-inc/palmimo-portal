@@ -485,7 +485,10 @@ class Decoder:
             self.scanner.scan(image)
             for symbol in image:
                 raw = symbol.data
-                text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+                try:
+                    text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
+                except UnicodeDecodeError:
+                    continue
                 if isinstance(text, str) and text not in texts:
                     texts.append(text)
         return texts

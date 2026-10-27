@@ -12,9 +12,57 @@ from palmimo_portal.ports import (
     PolkitDeniedError,
     SavedNetworkNotFoundError,
     WifiDeviceStatus,
+    WifiProfile,
     WifiStatus,
 )
 from tests.test_wifi_attempt_manager import Rig
+
+
+@pytest.mark.parametrize("persistent", [False, True])
+def test_successful_attempt_retries_cleanup_after_a_profile_read_failure(
+    monkeypatch: pytest.MonkeyPatch, persistent: bool
+) -> None:
+    rig = Rig()
+    rig.add()
+    manager = rig.manager(spawn_recovery=rig.pending.append)
+    uid = manager.start_wifi_attempt("credentials", b"home", "new-password", None)
+    target = next(p.uuid for p in rig.nm.list_profiles() if p.name.startswith("palmimo-try-"))
+    rig.tick = lambda: setattr(rig.nm, "device", WifiDeviceStatus(100, target))
+    list_profiles = rig.nm.list_profiles
+    reads = 0
+
+    def read_profiles() -> list[WifiProfile]:
+        nonlocal reads
+        if rig.nm.device.active_uuid == target:
+            reads += 1
+            # The worker reads targets once before cleanup reads its marked profiles.
+            if reads >= 2 and (persistent or reads == 2):
+                raise OSError("profile read failed")
+        return list_profiles()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(rig.nm, "list_profiles", read_profiles)
+        rig.run()
+        assert manager.outcome(uid) == "attempting"
+        assert manager.in_progress
+        completed_at = rig.now
+        rig.run()
+        assert rig.now > completed_at
+        assert not manager.in_progress
+        assert not rig.pending
+        if persistent:
+            assert manager.outcome(uid) == "attempting"
+            assert any("palmimo.attempt.id" in p.user_data for p in list_profiles())
+
+    if persistent:
+        with manager.saved_network_edit():
+            pass
+
+    assert manager.outcome(uid) == "connected"
+    attempt = rig.state.read_last_wifi_attempt()
+    assert attempt is not None and attempt.result == "connected"
+    assert [(p.uuid, p.ssid) for p in rig.nm.list_profiles()] == [(target, b"home")]
+    assert rig.nm.psks[target] == "new-password"
 
 
 def test_transient_platform_failure_is_reprobed_before_next_attempt() -> None:

@@ -144,7 +144,7 @@ class WifiAttemptManager:
             if self._platform_error is not None:
                 raise KickUnavailableError from self._platform_error
 
-    def start_recovery(self) -> None:
+    def start_recovery(self, *, delay: float = 0) -> None:
         """The 90-second window starts at this call and includes the platform probe."""
         with self._edit_lock:
             if self._recovering or self._active is not None:
@@ -156,6 +156,8 @@ class WifiAttemptManager:
         def recover() -> None:
             try:
                 with self._operation_lock:
+                    if delay:
+                        self._sleep(delay)
                     self.check_platform()
                     while not self._recovery_stop.is_set():
                         try:
@@ -451,6 +453,7 @@ class WifiAttemptManager:
     def _run(self, attempt_id: str, candidates: int) -> None:
         success = False
         restart_failed = False
+        retry_cleanup = False
         observed_uuid = None
         try:
             started = self._kick(attempt_id)
@@ -496,9 +499,15 @@ class WifiAttemptManager:
                     self._cleanup(attempt_id, success=success, persist=success)
             except Exception:
                 logger.exception("Wi-Fi cleanup failed for %s", attempt_id)
+                retry_cleanup = success and self.outcome(attempt_id) == "attempting"
             finally:
                 with self._edit_lock:
                     self._active = None
+                    if retry_cleanup:
+                        try:
+                            self.start_recovery(delay=3)
+                        except Exception:
+                            logger.exception("Wi-Fi cleanup recovery launch failed for %s", attempt_id)
 
     def _record(self, attempt_id: str, result: Outcome, *, only_pending: bool = False) -> None:
         self._last_id, self._result = attempt_id, result

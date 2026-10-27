@@ -39,8 +39,8 @@ def test_connected_qr_renders_modules_and_four_module_quiet_zone(module: Any) ->
 @pytest.mark.parametrize("length,truncated", [(28, False), (29, True), (80, True)])
 def test_connected_url_uses_six_pixel_cells_and_ellipsis(module: Any, length: int, truncated: bool) -> None:
     pixels = module.state_screen("connected", {"url": "a" * length, "qr": QR})
-    expected_a = ("000000", "000000", "000000", "011100", "100100", "101100", "010100", "000000", "000000", "000000")
-    expected_ellipsis = ("000000",) * 6 + ("101010",) + ("000000",) * 3
+    expected_a = ("000000", "000000", "000000", "011100", "000010", "011110", "100010", "011110", "000000", "000000")
+    expected_ellipsis = ("000000",) * 7 + ("101010",) + ("000000",) * 2
     for left, glyph in ((156, expected_a), (162, expected_ellipsis if truncated else expected_a)):
         for row, bits in enumerate(glyph):
             assert [pixel(pixels, left + column, 26 + row) == 0xFFFF for column in range(6)] == [

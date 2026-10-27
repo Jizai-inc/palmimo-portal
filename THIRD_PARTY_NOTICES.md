@@ -97,7 +97,7 @@ project's Apache-2.0 license.
 ## Setup screen font
 
 The embedded bitmap font in `palmimo_portal/wifi_qr_reader/reader.py` uses
-X.Org misc-fixed `5x7.bdf` from
+X.Org misc-fixed `6x10.bdf` from
 [font-misc-misc 1.1.3](https://www.x.org/releases/individual/font/font-misc-misc-1.1.3.tar.xz).
 The font's COPYRIGHT property and the distribution's COPYING file declare
 it public domain, with no attribution requirement.

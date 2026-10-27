@@ -96,11 +96,15 @@ project's Apache-2.0 license.
 
 ## Setup screen font
 
-The embedded ASCII bitmap font in `palmimo_portal/wifi_qr_reader/reader.py`
-and the adjacent RGB565 screen images are rasterized from Noto Sans CJK JP
+The embedded bitmap font in `palmimo_portal/wifi_qr_reader/reader.py` uses
+X.Org misc-fixed `5x7.bdf` from
+[font-misc-misc 1.1.3](https://www.x.org/releases/individual/font/font-misc-misc-1.1.3.tar.xz).
+The font's COPYRIGHT property and the distribution's COPYING file declare
+it public domain, with no attribution requirement.
+
+The adjacent RGB565 screen images are rasterized from Noto Sans CJK JP
 Regular, copyright 2014-2021 Adobe (http://www.adobe.com/).
 The font is licensed under [SIL OFL 1.1](licenses/NotoSansCJK-OFL.md).
 Source: [Noto CJK](https://github.com/notofonts/noto-cjk/tree/f8d157532fbfaeda587e826d4cd5b21a49186f7c).
 The original font is not bundled. To rebuild, download `Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf`
-from that revision, then run `uv run --with pillow==13.0.0 python tools/render_wifi_qr_screens.py FONT.otf`
-and `uv run ruff format palmimo_portal/wifi_qr_reader/reader.py`.
+from that revision, then run `uv run --with pillow==13.0.0 python tools/render_wifi_qr_screens.py FONT.otf`.

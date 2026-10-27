@@ -62,26 +62,6 @@ def render(font_path: Path) -> None:
             red, green, blue = rgb[offset : offset + 3]
             pixels.extend(struct.pack("<H", (red >> 3) << 11 | (green >> 2) << 5 | blue >> 3))
         (DESTINATION / f"{name}.bin").write_bytes(pixels)
-    width, height = namespace["FONT_WIDTH"], namespace["FONT_HEIGHT"]
-    font = ImageFont.truetype(str(font_path), 8)
-    glyphs = {}
-    for codepoint in range(32, 127):
-        image = Image.new("1", (width, height))
-        draw = ImageDraw.Draw(image)
-        draw.text((width / 2, height - 2), chr(codepoint), font=font, fill=1, anchor="ms")
-        glyphs[chr(codepoint)] = tuple(
-            sum(0x80 >> x for x in range(width) if image.getpixel((x, y))) for y in range(height)
-        )
-    glyphs["…"] = (0,) * 7 + (0xA8, 0, 0)
-    source = DESTINATION / "reader.py"
-    text = source.read_text()
-    start = text.index("ASCII_FONT:")
-    end = text.index("\n\n\ndef draw_ascii", start)
-    table = "ASCII_FONT: dict[str, tuple[int, ...]] = {\n"
-    for character, rows in glyphs.items():
-        table += f"    {character!r}: {rows!r},\n"
-    table += "}"
-    source.write_text(text[:start] + table + text[end:])
 
 
 if __name__ == "__main__":

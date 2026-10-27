@@ -37,16 +37,15 @@ def test_connected_qr_renders_modules_and_four_module_quiet_zone(module: Any) ->
 
 
 @pytest.mark.parametrize("length,truncated", [(28, False), (29, True), (80, True)])
-def test_connected_url_uses_six_pixel_cells_and_ellipsis(
-    module: Any, monkeypatch: pytest.MonkeyPatch, length: int, truncated: bool
-) -> None:
-    monkeypatch.setattr(module, "ASCII_FONT", {"a": (0x80,) + (0,) * 9, "…": (0,) * 7 + (0xA8, 0, 0)})
+def test_connected_url_uses_six_pixel_cells_and_ellipsis(module: Any, length: int, truncated: bool) -> None:
     pixels = module.state_screen("connected", {"url": "a" * length, "qr": QR})
-    assert pixel(pixels, 156, 26) == 0xFFFF
-    assert (pixel(pixels, 162, 26) != 0xFFFF) is truncated
-    assert (pixel(pixels, 162, 33) == 0xFFFF) is truncated
-    if truncated:
-        assert pixel(pixels, 164, 33) == pixel(pixels, 166, 33) == 0xFFFF
+    expected_a = ("000000", "000000", "000000", "011100", "100100", "101100", "010100", "000000", "000000", "000000")
+    expected_ellipsis = ("000000",) * 6 + ("101010",) + ("000000",) * 3
+    for left, glyph in ((156, expected_a), (162, expected_ellipsis if truncated else expected_a)):
+        for row, bits in enumerate(glyph):
+            assert [pixel(pixels, left + column, 26 + row) == 0xFFFF for column in range(6)] == [
+                bit == "1" for bit in bits
+            ]
 
 
 @pytest.mark.parametrize(

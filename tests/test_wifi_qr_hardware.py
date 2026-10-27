@@ -193,6 +193,28 @@ def test_frame_transfer_cancellation_aborts_before_more_pixels(module: Any) -> N
     assert sum(line.startswith(b"FRAME DATA ") for line in serial.writes) == 1
 
 
+@pytest.mark.parametrize(
+    "character,rows",
+    [
+        ("W", ("10010", "10010", "10010", "11110", "11110", "10010", "00000")),
+        ("w", ("00000", "00000", "10010", "10010", "11110", "11110", "00000")),
+        ("Q", ("01100", "10010", "10010", "10010", "11010", "01100", "00010")),
+        (".", ("00000", "00000", "00000", "00000", "01100", "01100", "00000")),
+        ("/", ("00000", "00010", "00100", "01000", "10000", "00000", "00000")),
+        ("-", ("00000", "00000", "00000", "11110", "00000", "00000", "00000")),
+    ],
+)
+@pytest.mark.parametrize("bytes_per_pixel", [1, 2])
+def test_ascii_glyphs_render_x11_fixed_patterns_with_cell_padding(
+    module: Any, character: str, rows: tuple[str, ...], bytes_per_pixel: int
+) -> None:
+    canvas = bytearray(6 * 10 * bytes_per_pixel)
+    color = 255 if bytes_per_pixel == 1 else 0xFFFF
+    module.draw_ascii(canvas, 6, 10, character, 0, 0, color=color, bytes_per_pixel=bytes_per_pixel)
+    expected = "000000" + "".join(row + "0" for row in rows) + "000000" * 2
+    assert canvas == bytes(255 if bit == "1" else 0 for bit in expected for _ in range(bytes_per_pixel))
+
+
 def test_ascii_font_draws_expected_pixels_and_clips(module: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(module, "ASCII_FONT", {"A": (0x40, 0xA0, 0xE0)})
     canvas = bytearray(4 * 3 * 2)
@@ -426,25 +448,25 @@ def test_live_preview_shows_centered_wifi_prompt_inside_face_without_changing_ca
         )
         expected_s = (
             "000000",
-            "000000",
-            "001110",
+            "011000",
+            "100100",
             "010000",
             "001000",
-            "000110",
-            "000010",
-            "001110",
+            "100100",
+            "011000",
+            "000000",
             "000000",
             "000000",
         )
         expected_r = (
             "000000",
+            "111000",
+            "100100",
+            "100100",
+            "111000",
+            "101000",
+            "100100",
             "000000",
-            "011100",
-            "010010",
-            "010010",
-            "011100",
-            "010100",
-            "010010",
             "000000",
             "000000",
         )

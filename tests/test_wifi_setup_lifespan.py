@@ -363,3 +363,27 @@ def test_disabled_setup_restores_recorded_app_without_waiting_for_lan(
         assert adapters.state.read_preempted_app() is None
         assert "start" not in adapters.wifi_qr_unit.calls
         assert not any(thread.name == "palmimo-wifi-setup" for thread in threading.enumerate())
+
+
+@pytest.mark.parametrize("network_unavailable", [False, True])
+@pytest.mark.usefixtures("enabled_setup_recovery")
+def test_startup_missing_reader_restores_preempted_app_while_offline(
+    app: FastAPI,
+    adapters: FakeAdapterBundle,
+    network_unavailable: bool,
+) -> None:
+    install_app(app, "auto", autostart=True)
+    install_app(app, "face", autostart=False)
+    adapters.state.write_preempted_app(PreemptedApp("face", "wifi-setup"))
+    adapters.wifi_qr_unit.error = WifiQrUnitMissingError()
+    if network_unavailable:
+        adapters.network.raise_on_get_status = AdapterUnavailableError("offline", "comitup unavailable")
+    with TestClient(app):
+        app.state.wifi_setup.tick()
+        assert app.state.wifi_setup.status().mode == "unavailable"
+        assert app.state.wifi_setup.status().reason == "unit_missing"
+        assert adapters.app_unit.start_calls == ["face"]
+        assert adapters.state.read_preempted_app() == PreemptedApp(None, "wifi-setup", hold=True)
+        app.state.wifi_setup.tick()
+        assert adapters.app_unit.start_calls == ["face"]
+        assert "start" not in adapters.wifi_qr_unit.calls

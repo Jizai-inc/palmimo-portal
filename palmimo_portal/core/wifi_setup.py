@@ -407,6 +407,7 @@ class WifiSetup:
         except WifiQrUnitMissingError:
             with self._condition:
                 self._unavailable_locked("unit_missing")
+                self._restore_hold = True
         except PolkitDeniedError:
             logger.error("wifi-setup: startup reader stop denied")
         except Exception:

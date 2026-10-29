@@ -86,7 +86,7 @@ def test_on_setup_ap_captive_probe_head_redirects(client: TestClient) -> None:
 def test_captive_probe_redirects_when_a_provisioned_device_fell_back_to_the_setup_ap(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
 
     response = client.get("/hotspot-detect.html", headers={"Host": "captive.apple.com"}, follow_redirects=False)
 
@@ -98,7 +98,7 @@ def test_captive_probe_redirects_when_a_provisioned_device_fell_back_to_the_setu
 def test_captive_probe_host_is_rejected_with_421_when_off_the_setup_ap(
     client: TestClient, adapters: FakeAdapterBundle, state: ConnectionState
 ) -> None:
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     adapters.network.status = WifiStatus(state=state, ssid="home", ip_address=None)
 
     response = client.get("/hotspot-detect.html", headers={"Host": "captive.apple.com"})
@@ -139,7 +139,10 @@ def test_network_port_raising_fails_closed_to_421(client: TestClient, adapters: 
 
 
 def test_captive_probe_redirect_stops_once_ttl_observes_leaving_the_setup_ap() -> None:
-    network = FakeNetworkPort()
+    network = FakeNetworkPort(
+        known_profiles=lambda: False,
+        display_ssid=lambda ssid: ssid,
+    )
     clock = {"t": 0.0}
     middleware = HostGuardMiddleware(
         app=FastAPI(),
@@ -189,7 +192,7 @@ def test_concurrent_probe_burst_calls_the_network_port_once() -> None:
             time_module.sleep(0.05)
             return super().get_status()
 
-    network = SlowNetworkPort()
+    network = SlowNetworkPort(known_profiles=lambda: False, display_ssid=lambda ssid: ssid)
     app = FastAPI()
 
     @app.get("/hotspot-detect.html")

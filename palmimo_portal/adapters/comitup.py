@@ -12,15 +12,6 @@ call here is polled -- and keeps no journal of its own transitions, so this
 adapter logs every one it observes (:meth:`_log_transition`), or a fallback
 to the hotspot would be invisible in ``journalctl``.
 
-**Known-networks tracking.** comitup has no "list saved connections" call,
-so :meth:`has_known_networks` keeps its own record: marks "known" on
-``CONNECTING``/``CONNECTED`` or a successful :meth:`connect` (mirroring
-:class:`~palmimo_portal.testing.fakes.FakeNetworkPort`), persisted as a
-marker file so it survives a restart -- otherwise "rebooted out of range of
-its home network" would misread as never-provisioned by
-:func:`~palmimo_portal.core.provisioning.is_provisioned`. A factory reset
-clears it alongside ``auth.json``.
-
 **Why forget precedes connect.** comitup's ``connecting_start`` short-circuits
 back to the *currently active* SSID if it is itself a candidate for the new
 ``connect()`` call, so a plain ``connect("Cafe", ...)`` while ``CONNECTED``
@@ -49,8 +40,7 @@ import logging
 import socket
 import struct
 import threading
-import time
-from pathlib import Path
+from collections.abc import Callable
 from typing import Any
 
 from dbus_fast import BusType
@@ -58,14 +48,11 @@ from dbus_fast.aio import MessageBus
 from dbus_fast.aio.proxy_object import ProxyInterface
 
 from palmimo_portal.adapters.dbus_support import SharedEventLoopThread, get_shared_loop_thread
-from palmimo_portal.core.wifi_attempt import resolve_attempt
 from palmimo_portal.ports import (
     AdapterUnavailableError,
     ConnectionState,
     NetworkPort,
     NotConnectedError,
-    StateStore,
-    WifiAttempt,
     WifiNetwork,
     WifiStatus,
 )
@@ -178,8 +165,8 @@ class ComitupNetworkPort(NetworkPort):
     """Talks to comitup over D-Bus. See the module docstring for the full contract.
 
     ``_call`` does one attempt; ``_call_resilient`` wraps it with a
-    reconnect-and-retry-once policy (the seam tests stub). Every public
-    method funnels through :meth:`_call_sync`, bridging onto
+    reconnect-and-retry-once policy (the seam tests stub). RPC calls
+    funnel through :meth:`_call_sync`, bridging onto
     :mod:`dbus_fast`'s asyncio API via the shared background event loop
     (:mod:`palmimo_portal.adapters.dbus_support`).
 
@@ -198,18 +185,17 @@ class ComitupNetworkPort(NetworkPort):
     def __init__(
         self,
         *,
-        known_network_marker: Path | None = None,
+        known_profiles: Callable[[], bool],
+        display_ssid: Callable[[str | None], str | None],
         wlan_interface: str = "wlan0",
         loop_thread: SharedEventLoopThread | None = None,
-        state_store: StateStore | None = None,
     ) -> None:
-        self._known_network_marker = known_network_marker
+        self.known_profiles = known_profiles
+        self.display_ssid = display_ssid
         self._wlan_interface = wlan_interface
         self._loop_thread = loop_thread if loop_thread is not None else get_shared_loop_thread()
-        self._state_store = state_store
         self._bus: MessageBus | None = None
         self._interface: ProxyInterface | None = None
-        self._known_in_memory = False
         self._last_logged: tuple[str, str] | None = None
         self._state_lock = threading.Lock()
         # asyncio.Lock does not bind to a loop at construction time (Python
@@ -315,26 +301,18 @@ class ComitupNetworkPort(NetworkPort):
 
     def get_status(self) -> WifiStatus:
         state_str, name = self._call_sync("state", timeout=STATUS_CALL_TIMEOUT_SECONDS)
-        is_first_observation = self._log_transition(state_str, name)
-        self._resolve_pending_attempt(state_str, name, is_first_observation=is_first_observation)
+        self._log_transition(state_str, name)
         mapped = map_comitup_state(state_str)
-        if mapped is not ConnectionState.UNPROVISIONED:
-            self._mark_known()
         ip_address = _read_wlan_ipv4(self._wlan_interface) if mapped is ConnectionState.CONNECTED else None
         ssid = name if mapped is not ConnectionState.UNPROVISIONED else None
-        return WifiStatus(state=mapped, ssid=ssid, ip_address=ip_address)
+        return WifiStatus(state=mapped, ssid=self.display_ssid(ssid), ip_address=ip_address)
 
     def list_networks(self) -> list[WifiNetwork]:
         records: list[dict[str, str]] = self._call_sync("access_points", timeout=SCAN_CALL_TIMEOUT_SECONDS)
         return parse_access_points(records)
 
     def has_known_networks(self) -> bool:
-        if self._known_in_memory:
-            return True
-        if self._known_network_marker is not None and self._known_network_marker.is_file():
-            self._known_in_memory = True
-            return True
-        return False
+        return self.known_profiles()
 
     def connect(self, ssid: str, psk: str) -> None:
         state_str, name = self._observe_fresh_state()
@@ -348,9 +326,7 @@ class ComitupNetworkPort(NetworkPort):
             # makes) rather than calling forget_current() itself, which
             # would poll state() again for no reason.
             self._call_sync("delete_connection", timeout=STATUS_CALL_TIMEOUT_SECONDS)
-            self._clear_known()
         self._call_sync("connect", ssid, psk, timeout=STATUS_CALL_TIMEOUT_SECONDS)
-        self._mark_known()
 
     def forget_current(self) -> None:
         state_str, name = self._observe_fresh_state()
@@ -358,7 +334,6 @@ class ComitupNetworkPort(NetworkPort):
             raise NotConnectedError(f"comitup is not CONNECTED (observed {state_str!r}); nothing to forget")
         logger.info("comitup: forgetting current network %r", name)
         self._call_sync("delete_connection", timeout=STATUS_CALL_TIMEOUT_SECONDS)
-        self._clear_known()
 
     def _observe_fresh_state(self) -> tuple[str, str]:
         """Poll comitup's ``state()`` fresh and log any transition -- never a cached value. See module docstring."""
@@ -367,13 +342,7 @@ class ComitupNetworkPort(NetworkPort):
         return state_str, name
 
     def _log_transition(self, state: str, name: str) -> bool:
-        """Log every state comitup is observed in: the first poll, and every change after it.
-
-        comitup keeps no journal of its own state, so this is the only record of it.
-        Returns ``True`` for the first observation this instance has ever made (else
-        ``False``), passed to :meth:`_resolve_pending_attempt` -- see
-        :mod:`palmimo_portal.core.wifi_attempt` for why.
-        """
+        """comitup keeps no journal of its state, so every observed transition is logged here."""
         with self._state_lock:
             current = (state, name)
             previous = self._last_logged
@@ -384,76 +353,3 @@ class ComitupNetworkPort(NetworkPort):
         if previous != current:
             logger.info("network state: %s -> %s (%s)", previous[0], state, name)
         return False
-
-    def _resolve_pending_attempt(self, state: str, name: str, *, is_first_observation: bool) -> None:
-        """Resolve a pending ``last_wifi_attempt`` record once its outcome is observable.
-
-        ``POST /wifi/connect`` records an attempt as ``"attempting"`` and returns
-        immediately -- comitup's own attempt happens asynchronously, so without this a
-        client reconnecting to the setup AP after a failure would see ``"attempting"``
-        forever. Called on every observation, not only a detected change; delegates to
-        :func:`~palmimo_portal.core.wifi_attempt.resolve_attempt` (see that module's
-        docstring for why unconditional calling matters). No-op with no
-        :attr:`_state_store` or nothing to resolve. A write failure is caught and
-        logged at ERROR -- must never turn a successful status read into a failed one.
-        """
-        if self._state_store is None:
-            return
-        attempt = self._state_store.read_last_wifi_attempt()
-        resolution = resolve_attempt(
-            attempt=attempt,
-            observed_state=map_comitup_state(state),
-            is_first_observation=is_first_observation,
-            observed_connection_name=name or None,
-            now=time.time(),
-        )
-        if resolution is None:
-            return
-        assert attempt is not None  # resolve_attempt only returns non-None when attempt is not None
-        logger.info(
-            "resolving last_wifi_attempt %r -> %s (%s, observed connection %r)",
-            attempt.ssid,
-            resolution.result,
-            resolution.reason,
-            resolution.observed_connection_name,
-        )
-        try:
-            self._state_store.write_last_wifi_attempt(
-                WifiAttempt(
-                    ssid=attempt.ssid,
-                    result=resolution.result,
-                    timestamp=time.time(),
-                    observed_connection_name=resolution.observed_connection_name,
-                )
-            )
-        except OSError as error:
-            logger.error("failed to persist resolved last_wifi_attempt: %s", error)
-
-    def _mark_known(self) -> None:
-        with self._state_lock:
-            if self._known_in_memory:
-                return
-            self._known_in_memory = True
-        if self._known_network_marker is not None:
-            try:
-                self._known_network_marker.parent.mkdir(parents=True, exist_ok=True)
-                self._known_network_marker.touch(exist_ok=True)
-            except OSError as error:
-                logger.error("failed to persist known-network marker %s: %s", self._known_network_marker, error)
-
-    def _clear_known(self) -> None:
-        """Clear the known-network marker after :meth:`forget_current` (or forget-before-connect) succeeds.
-
-        The device is back in the out-of-box state, so
-        :func:`~palmimo_portal.core.provisioning.is_provisioned` must report
-        unprovisioned. If comitup reconnects to another known profile on its own, the
-        next ``CONNECTED`` observation re-creates the marker via :meth:`_mark_known` --
-        this can under-report "known" for at most one poll interval, never over-report.
-        """
-        with self._state_lock:
-            self._known_in_memory = False
-        if self._known_network_marker is not None:
-            try:
-                self._known_network_marker.unlink(missing_ok=True)
-            except OSError as error:
-                logger.warning("failed to remove known-network marker %s: %s", self._known_network_marker, error)

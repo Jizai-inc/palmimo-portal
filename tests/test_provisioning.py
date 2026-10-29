@@ -15,19 +15,30 @@ from palmimo_portal.testing.fakes import FakeNetworkPort
 
 
 def test_is_provisioned_false_when_no_connection_and_no_known_networks() -> None:
-    network = FakeNetworkPort()
+    network = FakeNetworkPort(
+        known_profiles=lambda: bool(network.profiles.list_profiles()),
+        display_ssid=lambda ssid: ssid,
+    )
 
     assert is_provisioned(network) is False
 
 
 def test_is_provisioned_true_when_connected() -> None:
-    network = FakeNetworkPort(status=WifiStatus(state=ConnectionState.CONNECTED, ssid="home", ip_address="10.0.0.5"))
+    network = FakeNetworkPort(
+        known_profiles=lambda: bool(network.profiles.list_profiles()),
+        display_ssid=lambda ssid: ssid,
+        status=WifiStatus(state=ConnectionState.CONNECTED, ssid="home", ip_address="10.0.0.5"),
+    )
 
     assert is_provisioned(network) is True
 
 
 def test_is_provisioned_true_when_connecting() -> None:
-    network = FakeNetworkPort(status=WifiStatus(state=ConnectionState.CONNECTING, ssid="home", ip_address=None))
+    network = FakeNetworkPort(
+        known_profiles=lambda: bool(network.profiles.list_profiles()),
+        display_ssid=lambda ssid: ssid,
+        status=WifiStatus(state=ConnectionState.CONNECTING, ssid="home", ip_address=None),
+    )
 
     assert is_provisioned(network) is True
 
@@ -35,32 +46,51 @@ def test_is_provisioned_true_when_connecting() -> None:
 def test_is_provisioned_true_when_disconnected_but_a_network_is_known() -> None:
     # E.g. rebooted out of range of the home network: unprovisioned would
     # wrongly send this device back into the setup flow.
-    network = FakeNetworkPort(known_networks={"home"})
+    network = FakeNetworkPort(
+        known_profiles=lambda: bool(network.profiles.list_profiles()),
+        display_ssid=lambda ssid: ssid,
+    )
+    network.profiles.add_profile(b"home", "", name="home", priority=0, user_data={})
 
     assert is_provisioned(network) is True
 
 
 def test_is_serving_setup_ap_true_when_a_provisioned_device_fell_back_to_the_ap() -> None:
-    network = FakeNetworkPort(known_networks={"home"})
+    network = FakeNetworkPort(
+        known_profiles=lambda: bool(network.profiles.list_profiles()),
+        display_ssid=lambda ssid: ssid,
+    )
+    network.profiles.add_profile(b"home", "", name="home", priority=0, user_data={})
 
     assert is_serving_setup_ap(network) is True
 
 
 @pytest.mark.parametrize("state", [ConnectionState.CONNECTED, ConnectionState.CONNECTING])
 def test_is_serving_setup_ap_false_when_off_the_ap(state: ConnectionState) -> None:
-    network = FakeNetworkPort(status=WifiStatus(state=state, ssid="home", ip_address=None))
+    network = FakeNetworkPort(
+        known_profiles=lambda: bool(network.profiles.list_profiles()),
+        display_ssid=lambda ssid: ssid,
+        status=WifiStatus(state=state, ssid="home", ip_address=None),
+    )
 
     assert is_serving_setup_ap(network) is False
 
 
 def test_require_provisioned_raises_when_unprovisioned() -> None:
-    network = FakeNetworkPort()
+    network = FakeNetworkPort(
+        known_profiles=lambda: bool(network.profiles.list_profiles()),
+        display_ssid=lambda ssid: ssid,
+    )
 
     with pytest.raises(NotProvisionedError):
         require_provisioned(network)
 
 
 def test_require_provisioned_is_silent_when_provisioned() -> None:
-    network = FakeNetworkPort(known_networks={"home"})
+    network = FakeNetworkPort(
+        known_profiles=lambda: bool(network.profiles.list_profiles()),
+        display_ssid=lambda ssid: ssid,
+    )
+    network.profiles.add_profile(b"home", "", name="home", priority=0, user_data={})
 
     require_provisioned(network)  # must not raise

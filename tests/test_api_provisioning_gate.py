@@ -76,7 +76,7 @@ def test_system_status_passes_while_unprovisioned(client: TestClient) -> None:
 
 
 def test_ssh_keys_gate_lifts_once_provisioned(client: TestClient, adapters: FakeAdapterBundle) -> None:
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
 
     response = client.get("/api/v1/ssh-keys")
 

@@ -66,32 +66,11 @@ export const getConnectApiV1WifiConnectPostUrl = () => {
 }
 
 /**
- * Start a connect attempt and return immediately.
- *
- * The AP-disconnection asymmetry (connecting to the home network tears
- * down the setup AP the client is talking through) means the result can
- * never come back on this response -- it is recorded via
- * :class:`~palmimo_portal.ports.StateStore` and read back later through
- * ``GET /api/v1/system/status``.
- *
- * The attempt is recorded *before* :meth:`~palmimo_portal.ports.NetworkPort.connect`
- * is called, so a process death right after the call would not lose the
- * record; if ``connect`` raises, the attempt is corrected to a durable
- * "failed" result rather than left claiming "attempting" forever. Does
- * *not* transition "attempting" to "success" asynchronously -- that
- * belongs to the real network adapter, which observes the outcome.
- *
- * If the device is currently ``CONNECTED``, the new network is saved at
- * the top of the order and switched to through
- * :class:`~palmimo_portal.ports.SavedNetworkPort`, so the current one stays
- * saved as a fallback. Otherwise (the setup flow) comitup connects.
+ * Start an attempt; its result is available from system status.
  *
  * Raises:
- *     PortalError: 400 ``wifi_invalid_ssid`` / ``wifi_invalid_psk`` if
- *         ``body`` fails :func:`_validate_ssid` / :func:`_validate_psk` --
- *         checked first, before anything below touches state or the
- *         network adapter. 502 ``wifi_connect_failed`` if
- *         ``network.connect`` itself raises (e.g. the radio is busy).
+ *     PortalError: 400 for invalid credentials, 409 wifi_attempt_in_progress,
+ *         502 wifi_connect_failed, or 503 wifi_kick_unavailable / wifi_cleanup_failed.
  * @summary Connect
  */
 export const connectApiV1WifiConnectPost = async (connectRequest: ConnectRequest, options?: RequestInit): Promise<ConnectResponse> => {
@@ -532,12 +511,11 @@ export const useSaveNetworkApiV1WifiSavedPost = <TError = HTTPValidationError,
 }
 
 /**
- * Switch to a saved network now; the current one stays saved. Returns immediately.
- *
- * Recorded as a connect attempt, read back like ``POST /wifi/connect``'s.
+ * Attempt a saved network while retaining its original priority.
  *
  * Raises:
- *     PortalError: 404 ``wifi_saved_not_found``.
+ *     PortalError: 404 wifi_saved_not_found, 409 wifi_attempt_in_progress,
+ *         502 wifi_connect_failed, or 503 wifi_kick_unavailable / wifi_cleanup_failed.
  * @summary Activate Saved
  */
 export const activateSavedApiV1WifiSavedActivatePost = async (ssidRequest: SsidRequest, options?: RequestInit): Promise<ActivateResponse> => {

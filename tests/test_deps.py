@@ -25,7 +25,10 @@ from palmimo_portal.testing.fakes import FakeNetworkPort
 def test_require_provisioned_delegates_to_the_core_rule(monkeypatch: pytest.MonkeyPatch) -> None:
     import palmimo_portal.api.deps as deps_module
 
-    network = FakeNetworkPort()
+    network = FakeNetworkPort(
+        known_profiles=lambda: False,
+        display_ssid=lambda ssid: ssid,
+    )
     calls: list[Any] = []
 
     def fake_core_require_provisioned(passed_network: Any) -> None:
@@ -54,7 +57,13 @@ def test_require_provisioned_translates_not_provisioned_to_a_409_portal_error(
     monkeypatch.setattr(deps_module, "_core_require_provisioned", fake_core_require_provisioned)
 
     with pytest.raises(PortalError) as excinfo:
-        require_provisioned(request=cast(Request, None), network=FakeNetworkPort())
+        require_provisioned(
+            request=cast(Request, None),
+            network=FakeNetworkPort(
+                known_profiles=lambda: False,
+                display_ssid=lambda ssid: ssid,
+            ),
+        )
 
     assert excinfo.value.status_code == 409
     detail = excinfo.value.detail

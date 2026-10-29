@@ -32,7 +32,7 @@ type PollOutcome = { kind: "waiting" } | { kind: "connected"; status: SystemStat
  * 1. **Same-origin polling** of `system/status`, swallowing failures since the AP being down
  *    is expected mid-wait. Resolves "failed" on `last_wifi_attempt.result === "failed"`, and
  *    "connected" on `state === "connected"` AND `last_wifi_attempt` absent or itself
- *    `"connected"` -- the attempt check guards the reconfigure race (core/wifi_attempt.py),
+ *    `"connected"` -- the attempt check guards the reconfigure race,
  *    where the backend can briefly still observe `CONNECTED` to the *old* network.
  * 2. **The portal probe** (src/lib/portalProbe.ts): an opaque `no-cors` fetch to
  *    `http://<hostname>.local/` every few seconds, for a visitor device that rejoined its

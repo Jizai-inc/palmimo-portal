@@ -4,7 +4,7 @@
       "ActivateResponse": {
         "properties": {
           "status": {
-            "default": "switching",
+            "default": "attempting",
             "title": "Status",
             "type": "string"
           }
@@ -3977,7 +3977,7 @@
     },
     "/api/v1/wifi/connect": {
       "post": {
-        "description": "Start a connect attempt and return immediately.\n\nThe AP-disconnection asymmetry (connecting to the home network tears\ndown the setup AP the client is talking through) means the result can\nnever come back on this response -- it is recorded via\n:class:`~palmimo_portal.ports.StateStore` and read back later through\n``GET /api/v1/system/status``.\n\nThe attempt is recorded *before* :meth:`~palmimo_portal.ports.NetworkPort.connect`\nis called, so a process death right after the call would not lose the\nrecord; if ``connect`` raises, the attempt is corrected to a durable\n\"failed\" result rather than left claiming \"attempting\" forever. Does\n*not* transition \"attempting\" to \"success\" asynchronously -- that\nbelongs to the real network adapter, which observes the outcome.\n\nIf the device is currently ``CONNECTED``, the new network is saved at\nthe top of the order and switched to through\n:class:`~palmimo_portal.ports.SavedNetworkPort`, so the current one stays\nsaved as a fallback. Otherwise (the setup flow) comitup connects.\n\nRaises:\n    PortalError: 400 ``wifi_invalid_ssid`` / ``wifi_invalid_psk`` if\n        ``body`` fails :func:`_validate_ssid` / :func:`_validate_psk` --\n        checked first, before anything below touches state or the\n        network adapter. 502 ``wifi_connect_failed`` if\n        ``network.connect`` itself raises (e.g. the radio is busy).",
+        "description": "Start an attempt; its result is available from system status.\n\nRaises:\n    PortalError: 400 for invalid credentials, 409 wifi_attempt_in_progress,\n        502 wifi_connect_failed, or 503 wifi_kick_unavailable / wifi_cleanup_failed.",
         "operationId": "connect_api_v1_wifi_connect_post",
         "requestBody": {
           "content": {
@@ -4137,7 +4137,7 @@
     },
     "/api/v1/wifi/saved/activate": {
       "post": {
-        "description": "Switch to a saved network now; the current one stays saved. Returns immediately.\n\nRecorded as a connect attempt, read back like ``POST /wifi/connect``'s.\n\nRaises:\n    PortalError: 404 ``wifi_saved_not_found``.",
+        "description": "Attempt a saved network while retaining its original priority.\n\nRaises:\n    PortalError: 404 wifi_saved_not_found, 409 wifi_attempt_in_progress,\n        502 wifi_connect_failed, or 503 wifi_kick_unavailable / wifi_cleanup_failed.",
         "operationId": "activate_saved_api_v1_wifi_saved_activate_post",
         "requestBody": {
           "content": {

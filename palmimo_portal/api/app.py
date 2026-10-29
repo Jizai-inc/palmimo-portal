@@ -81,6 +81,12 @@ from palmimo_portal.core.platform_update import finalize_after_restart as finali
 from palmimo_portal.core.provisioning import is_serving_setup_ap
 from palmimo_portal.core.update import finalize_after_restart
 from palmimo_portal.core.update_runner import UpdateRunner
+from palmimo_portal.core.wifi_attempt_manager import (
+    AttemptInProgressError,
+    CleanupFailedError,
+    KickUnavailableError,
+    WifiConnectFailed,
+)
 from palmimo_portal.ports import (
     AdapterUnavailableError,
     AppNotFoundError,
@@ -389,8 +395,19 @@ async def _handle_adapter_unavailable(request: Request, exc: Exception) -> JSONR
     gated endpoint's own body ever runs, so one handler covers every site.
     """
     assert isinstance(exc, AdapterUnavailableError)
-    logger.error("adapter unavailable: %s", exc)
+    logger.error("adapter unavailable: %s", exc, exc_info=exc)
     return _error_envelope(503, exc.code, {})
+
+
+async def _handle_wifi_attempt_error(request: Request, exc: Exception) -> JSONResponse:
+    if isinstance(exc, AttemptInProgressError):
+        return _error_envelope(409, "wifi_attempt_in_progress", {})
+    logger.error("Wi-Fi request failed", exc_info=exc)
+    if isinstance(exc, CleanupFailedError):
+        return _error_envelope(503, "wifi_cleanup_failed", {})
+    if isinstance(exc, KickUnavailableError):
+        return _error_envelope(503, "wifi_kick_unavailable", {})
+    return _error_envelope(502, "wifi_connect_failed", {})
 
 
 def _stop_orphan_sync_units(adapters: AdapterBundle, ctx: AppsJobContext) -> bool:
@@ -496,6 +513,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         # crash here must never keep the app from serving every other route.
         logger.exception("app-platform: startup verify failed")
 
+    try:
+        adapters.wifi_attempts.start_recovery()
+    except Exception:
+        logger.exception("Wi-Fi startup recovery could not start")
+
     if app.state.settings.autostart_enabled:
         try:
             await anyio.to_thread.run_sync(_run_autostart, app)
@@ -511,6 +533,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
 
+    adapters.wifi_attempts.stop_recovery()
     if periodic_thread is not None:
         app.state.periodic_scheduler.stop()
         periodic_thread.join(timeout=5.0)
@@ -705,6 +728,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_exception_handler(HTTPException, _handle_http_exception)
     app.add_exception_handler(RequestValidationError, _handle_validation_error)
     app.add_exception_handler(AdapterUnavailableError, _handle_adapter_unavailable)
+    for error_type in (AttemptInProgressError, CleanupFailedError, KickUnavailableError, WifiConnectFailed):
+        app.add_exception_handler(error_type, _handle_wifi_attempt_error)
     app.add_exception_handler(Exception, _handle_unexpected_error)
 
     app.include_router(system_api.router)

@@ -43,7 +43,7 @@ def client(app: FastAPI) -> Iterator[TestClient]:
 
 def _authenticated_client(client: TestClient, adapters: FakeAdapterBundle) -> TestClient:
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
     return client
 

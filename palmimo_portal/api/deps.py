@@ -21,6 +21,7 @@ from palmimo_portal.core.identity import PortalAuthState, compute_auth_state
 from palmimo_portal.core.provisioning import NotProvisionedError, is_provisioned
 from palmimo_portal.core.provisioning import require_provisioned as _core_require_provisioned
 from palmimo_portal.core.wifi_access import WifiAccessDecision, decide_wifi_access
+from palmimo_portal.core.wifi_attempt_manager import WifiAttemptManager
 from palmimo_portal.ports import (
     AppUnitPort,
     AuthFileState,
@@ -45,6 +46,10 @@ def get_network_port(request: Request) -> NetworkPort:
     adapters: Any = request.app.state.adapters
     network: NetworkPort = adapters.network
     return network
+
+
+def get_wifi_attempts(request: Request) -> WifiAttemptManager:
+    return request.app.state.adapters.wifi_attempts
 
 
 def get_saved_network_port(request: Request) -> SavedNetworkPort:

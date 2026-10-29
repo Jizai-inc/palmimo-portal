@@ -124,7 +124,7 @@ def app(settings: Settings) -> FastAPI:
 
 def _authenticated_client(client: TestClient, adapters: FakeAdapterBundle) -> TestClient:
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
     return client
 
@@ -423,7 +423,7 @@ def test_git_source_endpoint_does_not_block_other_requests_while_cloning(
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as ac:
                 await ac.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-                adapters.network.known_networks.add("home")
+                adapters.saved_networks.save("home", "", first=False)
                 await ac.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
 
                 slow_task = asyncio.ensure_future(

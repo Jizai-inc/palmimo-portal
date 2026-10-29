@@ -14,7 +14,7 @@ CSRF_HEADERS = {"X-Requested-With": "PalmimoPortal"}
 def _provisioned_and_logged_in(client: TestClient, adapters: FakeAdapterBundle, *saved: str) -> None:
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
     adapters.network.status = WifiStatus(state=ConnectionState.CONNECTED, ssid=saved[0], ip_address="198.51.100.7")
-    adapters.network.known_networks.add(saved[0])
+    adapters.saved_networks.save(saved[0], "", first=False)
     adapters.saved_networks.saved = list(saved)
     adapters.saved_networks.active = saved[0]
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)
@@ -33,7 +33,7 @@ def test_list_saved_returns_the_networks_in_order_marking_the_active_one(
 
 def test_list_saved_requires_authentication(client: TestClient, adapters: FakeAdapterBundle) -> None:
     adapters.network.status = WifiStatus(state=ConnectionState.CONNECTED, ssid="home", ip_address="198.51.100.7")
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
 
     response = client.get("/api/v1/wifi/saved")
 
@@ -117,14 +117,18 @@ def test_activate_saved_switches_and_records_the_attempt(client: TestClient, ada
     response = client.post("/api/v1/wifi/saved/activate", json={"ssid": "cafe"}, headers=CSRF_HEADERS)
 
     assert response.status_code == 200
-    assert response.json() == {"status": "switching"}
-    assert adapters.saved_networks.activate_calls == ["cafe"]
+    assert response.json() == {"status": "attempting"}
+    assert adapters.saved_networks.activate_calls == []
+    assert (
+        next(p for p in adapters.wifi_profiles.list_profiles() if p.ssid == b"cafe").user_data["palmimo.attempt.role"]
+        == "selected"
+    )
     attempt = adapters.state.read_last_wifi_attempt()
     assert attempt is not None
     assert (attempt.ssid, attempt.result) == ("cafe", "attempting")
 
 
-def test_activate_saved_returns_404_and_records_a_failure_for_an_unknown_network(
+def test_activate_saved_returns_404_without_starting_an_unknown_network(
     client: TestClient, adapters: FakeAdapterBundle
 ) -> None:
     _provisioned_and_logged_in(client, adapters, "home")
@@ -133,8 +137,7 @@ def test_activate_saved_returns_404_and_records_a_failure_for_an_unknown_network
 
     assert response.status_code == 404
     attempt = adapters.state.read_last_wifi_attempt()
-    assert attempt is not None
-    assert attempt.result == "failed"
+    assert attempt is None
 
 
 def test_list_saved_maps_adapter_unavailable_to_a_503(client: TestClient, adapters: FakeAdapterBundle) -> None:
@@ -152,10 +155,10 @@ def test_delete_and_activate_take_an_ssid_with_a_slash_and_spaces(
 ) -> None:
     _provisioned_and_logged_in(client, adapters, "home", "Home/5G #2", "Cafe?", "A%42")
 
-    switched = client.post("/api/v1/wifi/saved/activate", json={"ssid": "Home/5G #2"}, headers=CSRF_HEADERS)
     deleted = client.post("/api/v1/wifi/saved/delete", json={"ssid": "Cafe?"}, headers=CSRF_HEADERS)
+    switched = client.post("/api/v1/wifi/saved/activate", json={"ssid": "Home/5G #2"}, headers=CSRF_HEADERS)
 
     assert switched.status_code == 200
-    assert adapters.saved_networks.activate_calls == ["Home/5G #2"]
+    assert adapters.state.read_last_wifi_attempt().ssid == "Home/5G #2"  # type: ignore[union-attr]
     assert deleted.status_code == 200
     assert "Cafe?" not in adapters.saved_networks.saved

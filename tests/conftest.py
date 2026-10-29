@@ -75,7 +75,11 @@ def settings(tmp_path: Path) -> Settings:
 
 @pytest.fixture
 def app(settings: Settings) -> FastAPI:
-    return create_app(settings)
+    app = create_app(settings)
+    app.state.wifi_pending = []
+    app.state.adapters.wifi_attempts._spawn = app.state.wifi_pending.append
+    app.state.adapters.wifi_attempts._spawn_recovery = lambda work: work()
+    return app
 
 
 @pytest.fixture
@@ -83,7 +87,7 @@ def adapters(app: FastAPI) -> FakeAdapterBundle:
     # `settings` (above) never overrides `adapters`, so this is always the
     # "fake" default (see Settings.adapters) -- the cast makes that true
     # for the type checker too, so tests can reach fake-only attributes
-    # (adapters.network.known_networks, adapters.updater.fail_at_step, ...)
+    # (adapters.network.status, adapters.updater.fail_at_step, ...)
     # without every one of them re-asserting isinstance(). See
     # FakeAdapterBundle's own docstring for why AdapterBundle itself can't
     # be typed this narrowly.

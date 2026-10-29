@@ -19,7 +19,7 @@ CSRF_HEADERS = {"X-Requested-With": "PalmimoPortal"}
 
 
 def _provision(adapters: FakeAdapterBundle) -> None:
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
 
 
 def _post_json_with_lone_surrogate(client: TestClient, url: str, payload: dict[str, str]) -> httpx.Response:
@@ -146,7 +146,7 @@ def test_login_is_409_when_auth_state_is_corrupt(client: TestClient, adapters: F
     # must not accept a guess either, both of which read().is None would
     # otherwise make indistinguishable from the legitimate unset case.
     client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=CSRF_HEADERS)
-    adapters.network.known_networks.add("home")
+    adapters.saved_networks.save("home", "", first=False)
     adapters.state.auth_corrupt = True
 
     response = client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=CSRF_HEADERS)

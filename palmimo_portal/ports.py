@@ -58,10 +58,7 @@ class WifiAttempt:
     result: str
     timestamp: float
     observed_connection_name: str | None = None
-    """The connection/AP name comitup was actually observed on when this attempt resolved.
-    ``None`` while still ``"attempting"``, or when the real adapter reported no name. Distinct
-    from ``ssid`` (what the client *asked* to connect to) because comitup can settle onto a
-    different network than the one just attempted."""
+    """The other infrastructure SSID observed on failure, or None for an AP or unknown connection."""
 
 
 class NetworkPort(Protocol):
@@ -76,7 +73,7 @@ class NetworkPort(Protocol):
         ...
 
     def has_known_networks(self) -> bool:
-        """Report whether any network has ever been configured.
+        """Report whether an infrastructure Wi-Fi profile exists outside temporary trials.
 
         Used with :meth:`get_status`: a device currently disconnected but with a known
         network on file is provisioned, not out-of-box.
@@ -114,6 +111,61 @@ class SavedNetwork:
     ssid: str
     priority: int
     active: bool
+
+
+@dataclass(frozen=True)
+class WifiProfile:
+    uuid: str
+    name: str
+    ssid: bytes
+    priority: int
+    autoconnect: bool
+    user_data: dict[str, str]
+
+
+@dataclass(frozen=True)
+class WifiDeviceStatus:
+    state: int
+    active_uuid: str | None
+
+
+class WifiProfilePort(Protocol):
+    """Persistent infrastructure Wi-Fi profiles, addressed by UUID without SSID deduplication."""
+
+    def list_profiles(self) -> list[WifiProfile]: ...
+
+    def add_profile(self, ssid: bytes, psk: str, *, name: str, priority: int, user_data: dict[str, str]) -> str: ...
+
+    def update_profile(
+        self,
+        uuid: str,
+        *,
+        ssid: bytes | None = None,
+        autoconnect: bool | None = None,
+        priority: int | None = None,
+        name: str | None = None,
+        user_data: dict[str, str] | None = None,
+    ) -> None:
+        """Persist only supplied fields, preserving secrets; user_data replaces the whole map."""
+        ...
+
+    def delete_profile(self, uuid: str) -> None:
+        """Delete even an active profile; missing UUIDs raise SavedNetworkNotFoundError."""
+        ...
+
+    def device_status(self) -> WifiDeviceStatus:
+        """Read the configured Wi-Fi device's NM State and active profile UUID, including AP profiles."""
+        ...
+
+    def disconnect_device(self) -> None: ...
+
+
+class ComitupServicePort(Protocol):
+    """Wait for comitup.service jobs; permission refusal raises PolkitDeniedError."""
+
+    def stop(self) -> None: ...
+
+    def start(self) -> None: ...
 
 
 class SavedNetworkPort(Protocol):
@@ -163,7 +215,7 @@ class SavedNetworkPort(Protocol):
 
 
 class SavedNetworkNotFoundError(Exception):
-    """No saved network has the requested SSID."""
+    """No infrastructure Wi-Fi profile matches the requested SSID or UUID."""
 
 
 class SavedNetworkActiveError(Exception):

@@ -14,8 +14,9 @@ import secrets
 import shutil
 import threading
 import time
+import uuid as uuid_module
 from collections.abc import Callable, Iterator, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +25,7 @@ from palmimo_portal.core.platform_update import IDLE_PLATFORM_STATE
 from palmimo_portal.core.secrets import normalize_host_owner, validate_secret_name, validate_secret_value
 from palmimo_portal.core.sshkey import fingerprint_key, parse_authorized_key
 from palmimo_portal.core.update import IDLE_UPDATE_STATE
-from palmimo_portal.core.wifi_attempt import resolve_attempt
+from palmimo_portal.core.wifi_attempt_manager import WifiAttemptManager
 from palmimo_portal.ports import (
     IDENTITY_UNAVAILABLE,
     AppRefKind,
@@ -43,6 +44,7 @@ from palmimo_portal.ports import (
     CatalogSource,
     CatalogSourceError,
     ClockPort,
+    ComitupServicePort,
     ConnectionState,
     DiskPort,
     DuplicateKeyError,
@@ -96,27 +98,26 @@ from palmimo_portal.ports import (
     UpdateStepError,
     UvPort,
     WifiAttempt,
+    WifiDeviceStatus,
     WifiNetwork,
+    WifiProfile,
+    WifiProfilePort,
     WifiStatus,
 )
 from palmimo_portal.settings import DEFAULT_REQUIRED_PLATFORM_VERSION
 
 
-@dataclass
+@dataclass(kw_only=True)
 class FakeNetworkPort(NetworkPort):
-    """Scriptable :class:`NetworkPort`. Unprovisioned by default.
+    """Scriptable comitup state with a shared infrastructure-profile store."""
 
-    Tests drive the state machine by setting ``status`` and
-    ``known_networks`` directly, or by calling :meth:`connect`, which
-    records the attempt in ``connect_calls`` and applies whatever
-    ``next_connect_result`` says (default: succeed and connect).
-    """
-
+    profiles: FakeWifiProfilePort = field(default_factory=lambda: FakeWifiProfilePort())
+    known_profiles: Callable[[], bool]
+    display_ssid: Callable[[str | None], str | None]
     status: WifiStatus = field(
         default_factory=lambda: WifiStatus(state=ConnectionState.UNPROVISIONED, ssid=None, ip_address=None)
     )
     scanned_networks: list[WifiNetwork] = field(default_factory=list)
-    known_networks: set[str] = field(default_factory=set)
     connect_calls: list[tuple[str, str]] = field(default_factory=list)
     #: SSIDs `forget_current` was asked to forget, including one recorded automatically by
     #: `connect` when already CONNECTED (mirrors ComitupNetworkPort's connect-while-connected rule).
@@ -126,21 +127,11 @@ class FakeNetworkPort(NetworkPort):
     raise_on_forget: Exception | None = None  #: makes `forget_current` raise instead of succeeding
     raise_on_get_status: Exception | None = None  #: makes `get_status` raise instead of returning `status`
     raise_on_list_networks: Exception | None = None  #: like raise_on_get_status, for GET /wifi/networks
-    #: When set, every `get_status` call resolves a pending `last_wifi_attempt` against this
-    #: store, mirroring ComitupNetworkPort's real behavior.
-    state_store: StateStore | None = None
-    clock: Callable[[], float] = field(default=time.time)  #: injectable clock for resolve_attempt
-    #: Tracks whether `get_status` has ever been called -- mirrors ComitupNetworkPort's
-    #: `_last_logged is None` check, so the *first* call resolves a pending attempt too.
-    _observed_before: bool = field(default=False, init=False, repr=False)
 
     def get_status(self) -> WifiStatus:
         if self.raise_on_get_status is not None:
             raise self.raise_on_get_status
-        is_first_observation = not self._observed_before
-        self._observed_before = True
-        self._resolve_pending_attempt(is_first_observation=is_first_observation)
-        return self.status
+        return replace(self.status, ssid=self.display_ssid(self.status.ssid))
 
     def list_networks(self) -> list[WifiNetwork]:
         if self.raise_on_list_networks is not None:
@@ -148,7 +139,7 @@ class FakeNetworkPort(NetworkPort):
         return list(self.scanned_networks)
 
     def has_known_networks(self) -> bool:
-        return bool(self.known_networks)
+        return self.known_profiles()
 
     def connect(self, ssid: str, psk: str) -> None:
         if self.status.state is ConnectionState.CONNECTED:
@@ -158,7 +149,7 @@ class FakeNetworkPort(NetworkPort):
         self.connect_calls.append((ssid, psk))
         if self.raise_on_connect is not None:
             raise self.raise_on_connect
-        self.known_networks.add(ssid)
+        FakeSavedNetworkPort(profiles=self.profiles).save(ssid, psk, first=True)
         if self.next_connect_result is not None:
             self.status = self.next_connect_result
         else:
@@ -175,104 +166,114 @@ class FakeNetworkPort(NetworkPort):
         if self.raise_on_forget is not None:
             raise self.raise_on_forget
         if current_ssid is not None:
-            self.known_networks.discard(current_ssid)
-        next_state = ConnectionState.UNPROVISIONED if not self.known_networks else ConnectionState.CONNECTING
+            for profile in self.profiles.list_profiles():
+                if profile.ssid.decode("utf-8", errors="replace") == current_ssid:
+                    self.profiles.delete_profile(profile.uuid)
+        next_state = ConnectionState.CONNECTING if self.profiles.list_profiles() else ConnectionState.UNPROVISIONED
         self.status = WifiStatus(state=next_state, ssid=None, ip_address=None)
-
-    def simulate_transition(
-        self, state: ConnectionState, ssid: str | None = None, ip_address: str | None = None
-    ) -> None:
-        """Test-only hook: simulate the adapter observing a new connection state.
-
-        Only updates :attr:`status`, as a real comitup transition would. The *next*
-        `get_status` call resolves any pending `last_wifi_attempt`.
-        """
-        self.status = WifiStatus(state=state, ssid=ssid, ip_address=ip_address)
-
-    def _resolve_pending_attempt(self, *, is_first_observation: bool) -> None:
-        if self.state_store is None:
-            return
-        attempt = self.state_store.read_last_wifi_attempt()
-        resolution = resolve_attempt(
-            attempt=attempt,
-            observed_state=self.status.state,
-            is_first_observation=is_first_observation,
-            observed_connection_name=self.status.ssid,
-            now=self.clock(),
-        )
-        if resolution is None:
-            return
-        assert attempt is not None  # resolve_attempt only returns non-None when attempt is not None
-        self.state_store.write_last_wifi_attempt(
-            WifiAttempt(
-                ssid=attempt.ssid,
-                result=resolution.result,
-                timestamp=self.clock(),
-                observed_connection_name=resolution.observed_connection_name,
-            )
-        )
 
 
 @dataclass
 class FakeSavedNetworkPort(SavedNetworkPort):
-    """In-memory :class:`SavedNetworkPort`: ``saved`` is the list, highest priority first.
-
-    ``active`` names the network the device is on; :meth:`activate` sets it.
-    ``psks`` records the passphrase each :meth:`save` stored.
-    """
-
-    saved: list[str] = field(default_factory=list)
-    active: str | None = None
-    psks: dict[str, str] = field(default_factory=dict)
+    profiles: FakeWifiProfilePort = field(default_factory=lambda: FakeWifiProfilePort())
     activate_calls: list[str] = field(default_factory=list)
-    raise_on_call: Exception | None = None  #: makes every call raise instead of succeeding
+    raise_on_call: Exception | None = None
 
     def _check(self) -> None:
         if self.raise_on_call is not None:
             raise self.raise_on_call
 
+    @property
+    def saved(self) -> list[str]:
+        return [p.ssid for p in self.list_saved()]
+
+    @saved.setter
+    def saved(self, ssids: list[str]) -> None:
+        self.profiles.profiles.clear()
+        self.profiles.psks.clear()
+        for ssid in ssids:
+            self.save(ssid, "", first=False)
+
+    @property
+    def psks(self) -> dict[str, str]:
+        return {
+            p.ssid.decode("utf-8", errors="replace"): self.profiles.psks[p.uuid] for p in self.profiles.list_profiles()
+        }
+
+    @property
+    def active(self) -> str | None:
+        return next(
+            (
+                p.ssid.decode("utf-8", errors="replace")
+                for p in self.profiles.list_profiles()
+                if p.uuid == self.profiles.device.active_uuid
+            ),
+            None,
+        )
+
+    @active.setter
+    def active(self, ssid: str) -> None:
+        self.profiles.device = WifiDeviceStatus(100, self._find(ssid).uuid)
+
+    def _find(self, ssid: str) -> WifiProfile:
+        for profile in sorted(self.profiles.list_profiles(), key=lambda p: -p.priority):
+            if profile.ssid.decode("utf-8", errors="replace") == ssid:
+                return profile
+        raise SavedNetworkNotFoundError(ssid)
+
     def list_saved(self) -> list[SavedNetwork]:
         self._check()
-        count = len(self.saved)
-        return [
-            SavedNetwork(ssid=ssid, priority=count - index, active=ssid == self.active)
-            for index, ssid in enumerate(self.saved)
-        ]
+        listed: dict[str, SavedNetwork] = {}
+        for profile in sorted(self.profiles.list_profiles(), key=lambda p: -p.priority):
+            ssid = profile.ssid.decode("utf-8", errors="replace")
+            listed.setdefault(
+                ssid, SavedNetwork(ssid, profile.priority, profile.uuid == self.profiles.device.active_uuid)
+            )
+        return list(listed.values())
 
     def save(self, ssid: str, psk: str, *, first: bool) -> None:
         self._check()
-        self.psks[ssid] = psk
-        if ssid in self.saved:
-            if first:
-                self.saved.remove(ssid)
-                self.saved.insert(0, ssid)
-            return
-        if first:
-            self.saved.insert(0, ssid)
+        profiles = self.profiles.list_profiles()
+        try:
+            profile = self._find(ssid)
+        except SavedNetworkNotFoundError:
+            priority = (
+                min(max((p.priority for p in profiles), default=0) + 1, 999)
+                if first
+                else max(min((p.priority for p in profiles), default=1) - 1, -999)
+            )
+            self.profiles.add_profile(ssid.encode(), psk, name=ssid, priority=priority, user_data={})
         else:
-            self.saved.append(ssid)
+            self.profiles.psks[profile.uuid] = psk
+            if first:
+                self.profiles.update_profile(
+                    profile.uuid,
+                    priority=min(max((p.priority for p in profiles if p.uuid != profile.uuid), default=0) + 1, 999),
+                )
 
     def delete(self, ssid: str) -> None:
         self._check()
-        if ssid not in self.saved:
+        profiles = [p for p in self.profiles.list_profiles() if p.ssid.decode("utf-8", errors="replace") == ssid]
+        if not profiles:
             raise SavedNetworkNotFoundError(ssid)
-        if ssid == self.active:
+        if any(p.uuid == self.profiles.device.active_uuid for p in profiles):
             raise SavedNetworkActiveError(ssid)
-        self.saved.remove(ssid)
-        self.psks.pop(ssid, None)
+        for profile in profiles:
+            self.profiles.delete_profile(profile.uuid)
 
     def reorder(self, ssids: list[str]) -> None:
         self._check()
         if len(ssids) != len(set(ssids)) or set(ssids) != set(self.saved):
-            raise SavedNetworkOrderError(f"expected exactly {self.saved}, got {ssids}")
-        self.saved = list(ssids)
+            raise SavedNetworkOrderError
+        for profile in self.profiles.list_profiles():
+            self.profiles.update_profile(
+                profile.uuid, priority=len(ssids) - ssids.index(profile.ssid.decode("utf-8", errors="replace"))
+            )
 
     def activate(self, ssid: str) -> None:
         self._check()
-        if ssid not in self.saved:
-            raise SavedNetworkNotFoundError(ssid)
+        self.profiles.device = WifiDeviceStatus(100, self._find(ssid).uuid)
         self.activate_calls.append(ssid)
-        self.active = ssid
 
 
 @dataclass
@@ -1133,13 +1134,16 @@ class FakeAdapterBundle:
     """The same ports as :class:`~palmimo_portal.wiring.AdapterBundle`, typed to the concrete fakes.
 
     `AdapterBundle`'s own fields are typed to the port *protocols*, correct for production code
-    but too narrow for a test that pokes fake-only attributes (`adapters.network.known_networks`,
+    but too narrow for a test that pokes fake-only attributes (`adapters.network.status`,
     `adapters.updater.fail_at_step`). Tests build a Portal with `settings.adapters == "fake"`
     (the suite's default), so this type lets the test suite say the concrete fakes are there.
     """
 
     network: FakeNetworkPort
     saved_networks: FakeSavedNetworkPort
+    wifi_profiles: FakeWifiProfilePort
+    comitup_service: FakeComitupServicePort
+    wifi_attempts: WifiAttemptManager
     system: FakeSystemPort
     ssh_keys: FakeSshKeyPort
     state: FakeStateStore
@@ -1159,3 +1163,94 @@ class FakeAdapterBundle:
     platform_releases: FakeReleaseSource
     clock: FakeClockPort
     catalog: FakeCatalogSource
+
+
+@dataclass
+class FakeWifiProfilePort(WifiProfilePort):
+    profiles: dict[str, WifiProfile] = field(default_factory=dict)
+    psks: dict[str, str] = field(default_factory=dict)
+    device: WifiDeviceStatus = field(default_factory=lambda: WifiDeviceStatus(30, None))
+    raise_on_call: Exception | None = None
+
+    def _check(self) -> None:
+        if self.raise_on_call is not None:
+            raise self.raise_on_call
+
+    def list_profiles(self) -> list[WifiProfile]:
+        self._check()
+        return [replace(profile, user_data=dict(profile.user_data)) for profile in self.profiles.values()]
+
+    def add_profile(self, ssid: bytes, psk: str, *, name: str, priority: int, user_data: dict[str, str]) -> str:
+        self._check()
+        uid = str(uuid_module.uuid4())
+        self.profiles[uid] = WifiProfile(uid, name, ssid, priority, True, dict(user_data))
+        self.psks[uid] = psk
+        return uid
+
+    def update_profile(
+        self,
+        uuid: str,
+        *,
+        ssid: bytes | None = None,
+        autoconnect: bool | None = None,
+        priority: int | None = None,
+        name: str | None = None,
+        user_data: dict[str, str] | None = None,
+    ) -> None:
+        self._check()
+        if uuid not in self.profiles:
+            raise SavedNetworkNotFoundError(uuid)
+        profile = self.profiles[uuid]
+        self.profiles[uuid] = WifiProfile(
+            uuid,
+            name if name is not None else profile.name,
+            ssid if ssid is not None else profile.ssid,
+            priority if priority is not None else profile.priority,
+            autoconnect if autoconnect is not None else profile.autoconnect,
+            dict(user_data if user_data is not None else profile.user_data),
+        )
+
+    def delete_profile(self, uuid: str) -> None:
+        self._check()
+        if uuid not in self.profiles:
+            raise SavedNetworkNotFoundError(uuid)
+        del self.profiles[uuid]
+        self.psks.pop(uuid, None)
+
+    def device_status(self) -> WifiDeviceStatus:
+        self._check()
+        return self.device
+
+    def disconnect_device(self) -> None:
+        self._check()
+        self.device = WifiDeviceStatus(30, None)
+
+
+@dataclass
+class FakeComitupServicePort(ComitupServicePort):
+    running: bool = True
+    raise_on_call: Exception | None = None
+    network: FakeNetworkPort | None = None
+
+    def start(self) -> None:
+        if self.raise_on_call is not None:
+            raise self.raise_on_call
+        self.running = True
+        if self.network is not None:
+            profiles = self.network.profiles
+            candidates = profiles.list_profiles()
+            active = next((p for p in candidates if p.uuid == profiles.device.active_uuid), None)
+            target = active or max(candidates, key=lambda p: p.priority, default=None)
+            if target is None:
+                profiles.device = WifiDeviceStatus(30, None)
+                self.network.status = WifiStatus(ConnectionState.UNPROVISIONED, None, None)
+            else:
+                profiles.device = WifiDeviceStatus(100, target.uuid)
+                self.network.status = WifiStatus(
+                    ConnectionState.CONNECTED, target.ssid.decode("utf-8", errors="replace"), "192.0.2.2"
+                )
+
+    def stop(self) -> None:
+        if self.raise_on_call is not None:
+            raise self.raise_on_call
+        self.running = False

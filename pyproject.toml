@@ -1,6 +1,6 @@
 [project]
 name = "palmimo-portal"
-version = "0.2.4"
+version = "0.2.5"
 description = "Palmimo Portal — the device-hosted setup and dashboard web app"
 license = "Apache-2.0 AND OFL-1.1"
 license-files = ["LICENSE", "NOTICE", "licenses/*.md"]

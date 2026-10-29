@@ -29,8 +29,9 @@ Any hello display field is ignored. The Portal accepts close only on the
 connected screen, then stops the reader normally and restores the app.
 It accepts qr only while its screen state is scanning. On decoding
 a QR, the reader immediately stops the live preview and shows checking
-before waiting for the Portal. It suppresses the same text until that text
-has been absent for 30 consecutive frames.
+before waiting for the Portal. It suppresses each sent text until it has
+been absent for 30 consecutive frames, retaining at most 16 texts and
+evicting the oldest sent first.
 
 ## Portal to reader
 
@@ -64,7 +65,7 @@ seconds; this does not cancel the independent network trial.
 The reader exits normally if no authorized client arrives within 30 seconds
 of startup. While checking, 15 seconds without a Portal command returns it
 to scanning. While displaying frames, it sends a display PING every 2
-seconds. SIGTERM restores the sleeping face and releases devices.
+seconds. SIGTERM restores the face to its power state from startup (`IDLE` if it was on, `EXPR SLEEPING` if it was off) and releases devices.
 
 | Exit code | Meaning | Portal response |
 | --- | --- | --- |
@@ -72,7 +73,7 @@ seconds. SIGTERM restores the sleeping face and releases devices.
 | 69 | Required decoding dependencies unavailable | Disable until the Portal restarts |
 | 75 | Camera or display reservation unavailable | Retry after 30 seconds |
 | 76 | Face firmware does not support FRAME | Disable until the Portal restarts; expose firmware_too_old in setup status |
-| 78 | Camera or face display missing | Retry after one hour |
+| 78 | Camera or face display unavailable: missing, not answering, or the reservation directory is missing or unsafe | Retry after one hour |
 | Other | Abnormal termination | Retry after 30 seconds, doubling to at most 10 minutes |
 
 A hello resets the abnormal retry interval to 30 seconds. A unit missing

@@ -129,6 +129,8 @@ class Settings:
     #: environment -- default True so a real device always runs it; tests set it False and
     #: drive `PeriodicScheduler.tick()` directly instead of racing a real thread.
     periodic_enabled: bool = True
+    #: None starts on real adapters; fake sessions can opt in or drive tick() directly.
+    wifi_setup_enabled: bool | None = None
 
 
 _TRUTHY_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
@@ -192,6 +194,7 @@ def get_settings() -> Settings:
         allowed_hosts=allowed_hosts,
         adapters=adapters,
         enable_docs=enable_docs,
+        wifi_setup_enabled=_env_flag("PALMIMO_WIFI_QR_SETUP") if "PALMIMO_WIFI_QR_SETUP" in os.environ else None,
         portal_dir=portal_dir,
         update_repo=update_repo,
         update_channel=update_channel,

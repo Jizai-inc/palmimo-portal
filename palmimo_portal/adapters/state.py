@@ -304,7 +304,10 @@ class JsonFileStateStore(StateStore):
                 raise ValueError("invalid preempted app")
             if not isinstance(data["by"], str):
                 raise ValueError("invalid preempt owner")
-            return PreemptedApp(app, data["by"])
+            hold = data.get("hold", False)
+            if not isinstance(hold, bool):
+                raise ValueError("invalid preempt hold")
+            return PreemptedApp(app, data["by"], hold=hold)
         except FileNotFoundError:
             return None
         except (OSError, ValueError, KeyError, TypeError) as error:

@@ -35,8 +35,10 @@ from palmimo_portal.adapters.systemd import (
     SystemdComitupServicePort,
     SystemdSyncUnitPort,
     SystemdSystemPort,
+    SystemdWifiQrUnitPort,
 )
 from palmimo_portal.adapters.uv_port import SubprocessUvPort
+from palmimo_portal.adapters.wifi_qr_socket import WifiQrSocketClient
 from palmimo_portal.core.wifi_attempt_manager import WifiAttemptManager, connect_legacy
 from palmimo_portal.ports import (
     AppUnitPort,
@@ -61,6 +63,8 @@ from palmimo_portal.ports import (
     Updater,
     UvPort,
     WifiProfilePort,
+    WifiQrClientFactory,
+    WifiQrUnitPort,
 )
 from palmimo_portal.settings import Settings
 from palmimo_portal.testing.fakes import (
@@ -86,6 +90,8 @@ from palmimo_portal.testing.fakes import (
     FakeUpdater,
     FakeUvPort,
     FakeWifiProfilePort,
+    FakeWifiQrClientFactory,
+    FakeWifiQrUnitPort,
 )
 
 
@@ -102,6 +108,8 @@ class AdapterBundle:
     wifi_profiles: WifiProfilePort
     comitup_service: ComitupServicePort
     wifi_attempts: WifiAttemptManager
+    wifi_qr_unit: WifiQrUnitPort
+    wifi_qr_client: WifiQrClientFactory
     system: SystemPort
     ssh_keys: SshKeyPort
     state: StateStore
@@ -162,6 +170,8 @@ def build_adapters(settings: Settings) -> AdapterBundle:
             wifi_profiles=fake_profiles,
             comitup_service=fake_service,
             wifi_attempts=fake_attempts,
+            wifi_qr_unit=FakeWifiQrUnitPort(),
+            wifi_qr_client=FakeWifiQrClientFactory(),
             system=FakeSystemPort(),
             ssh_keys=FakeSshKeyPort(),
             state=fake_state,
@@ -205,6 +215,8 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         wifi_profiles=saved_networks,
         comitup_service=comitup_service,
         wifi_attempts=attempts,
+        wifi_qr_unit=SystemdWifiQrUnitPort(),
+        wifi_qr_client=lambda message, disconnected: WifiQrSocketClient(message, on_disconnect=disconnected),
         system=SystemdSystemPort(unit=settings.portal_unit),
         ssh_keys=AuthorizedKeysSshKeyPort(),
         state=real_state,

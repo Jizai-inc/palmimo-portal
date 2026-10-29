@@ -591,3 +591,47 @@ def test_unavailable_profile_reads_cannot_leave_outcome_attempting_after_worker_
     rig.nm.raise_on_call = None
     rig.manager().cleanup_marked()
     assert rig.nm.list_profiles() == []
+
+
+def test_completed_outcome_remains_available_after_later_web_trials() -> None:
+    rig = Rig()
+    manager = rig.manager()
+    first = manager.start_wifi_attempt("credentials", b"first", "password")
+    rig.run()
+    assert manager.outcome(first) == "failed"
+    second = manager.start_wifi_attempt("credentials", b"second", "password")
+    assert manager.outcome(first) == "failed"
+    rig.run()
+    manager.start_wifi_attempt("credentials", b"third", "password")
+    assert manager.outcome(first) == "failed"
+    assert manager.outcome(second) == "failed"
+    rig.run()
+
+
+@pytest.mark.parametrize("stage", ["prepare", "rollback", "worker"])
+def test_credential_failures_do_not_log_passwords(
+    stage: str,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rig = Rig()
+    manager = rig.manager()
+    password = "secret-password"
+
+    def fault(operation: str) -> None:
+        if operation == "add" or stage == "rollback":
+            raise OSError(password)
+
+    if stage in {"prepare", "rollback"}:
+        rig.nm.fault = fault
+        with pytest.raises(WifiConnectFailed):
+            manager.start_wifi_attempt("credentials", b"home", password)
+    else:
+
+        def stop() -> None:
+            raise OSError(password)
+
+        monkeypatch.setattr(rig.service, "stop", stop)
+        manager.start_wifi_attempt("credentials", b"home", password)
+        rig.run()
+    assert password not in caplog.text

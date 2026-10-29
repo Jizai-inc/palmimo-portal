@@ -32,6 +32,7 @@ import threading
 import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -87,6 +88,7 @@ from palmimo_portal.core.wifi_attempt_manager import (
     KickUnavailableError,
     WifiConnectFailed,
 )
+from palmimo_portal.core.wifi_setup import WifiSetup, WifiSetupApps
 from palmimo_portal.ports import (
     AdapterUnavailableError,
     AppNotFoundError,
@@ -457,6 +459,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     done/failed decision. A no-op, safe unconditionally, on every other boot.
     """
     adapters: AdapterBundle = app.state.adapters
+    await anyio.to_thread.run_sync(app.state.wifi_setup.startup)
     try:
         state = adapters.state.read_update_state()
         finalized = finalize_after_restart(state, adapters.updater.installed(), time.time())
@@ -518,12 +521,20 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:
         logger.exception("Wi-Fi startup recovery could not start")
 
+    settings: Settings = app.state.settings
+    setup_enabled = settings.wifi_setup_enabled
+    if setup_enabled is None:
+        setup_enabled = settings.adapters == "real"
+
     skip_autostart = False
     try:
         record = adapters.state.read_preempted_app()
         skip_autostart = record is not None and record.by == "display-firmware"
         if skip_autostart:
             skip_autostart = await anyio.to_thread.run_sync(restore_preempted_app, app.state.start_deps)
+        elif record is not None and record.by == "wifi-setup":
+            skip_autostart = record.preempted_app is not None
+            await anyio.to_thread.run_sync(lambda: app.state.wifi_setup.recover_startup(enabled=setup_enabled))
     except Exception:
         logger.exception("preempt: startup recovery failed")
 
@@ -540,12 +551,29 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         periodic_thread.start()
 
-    yield
-
-    adapters.wifi_attempts.stop_recovery()
-    if periodic_thread is not None:
-        app.state.periodic_scheduler.stop()
-        periodic_thread.join(timeout=5.0)
+    wifi_setup_thread: threading.Thread | None = None
+    if setup_enabled:
+        wifi_setup_thread = threading.Thread(
+            target=app.state.wifi_setup.run_forever, daemon=True, name="palmimo-wifi-setup"
+        )
+        wifi_setup_thread.start()
+    try:
+        yield
+    finally:
+        try:
+            try:
+                await anyio.to_thread.run_sync(app.state.wifi_setup.shutdown)
+            except Exception:
+                logger.warning("wifi-setup: shutdown could not finish")
+        finally:
+            if wifi_setup_thread is not None:
+                wifi_setup_thread.join(timeout=10)
+                if wifi_setup_thread.is_alive():
+                    logger.warning("wifi-setup: monitor is still finishing shutdown")
+            adapters.wifi_attempts.stop_recovery()
+            if periodic_thread is not None:
+                app.state.periodic_scheduler.stop()
+                periodic_thread.join(timeout=5.0)
 
 
 def _refresh_platform_readiness(app: FastAPI) -> None:
@@ -605,7 +633,7 @@ def _run_autostart(app: FastAPI) -> None:
 
     logger.info("autostart: selected name=%s", selected)
     try:
-        start_app(deps, selected, host=socket.gethostname())
+        start_app(replace(deps, before_start=lambda devices: None), selected, host=socket.gethostname())
     except AppNotFoundError as error:
         logger.warning("autostart: failed reason=%s", error)
     except (AppStartError, PolkitDeniedError) as error:
@@ -724,6 +752,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app_unit=adapters.app_unit,
         run_dir=adapters.run_dir,
         platform_ready=_platform_ready,
+    )
+    hostname = socket.gethostname()
+    app.state.wifi_setup = WifiSetup(
+        network=adapters.network,
+        profiles=adapters.wifi_profiles,
+        attempts=adapters.wifi_attempts,
+        unit=adapters.wifi_qr_unit,
+        apps=WifiSetupApps(app.state.start_deps, hostname=hostname),
+        client_factory=adapters.wifi_qr_client,
+        monotonic=adapters.clock.monotonic,
+        hostname=hostname,
+    )
+    app.state.start_deps = replace(
+        app.state.start_deps,
+        before_start=app.state.wifi_setup.before_app_start,
+        wifi_setup_active=lambda: app.state.wifi_setup.status().mode in {"starting", "active", "stopping"},
     )
 
     # Order matters: the last middleware added is the outermost, so adding

@@ -88,4 +88,5 @@ export * from './validationErrorCtx';
 export * from './versionInfo';
 export * from './wifiAttemptInfo';
 export * from './wifiNetworkResponse';
+export * from './wifiSetupInfo';
 export * from './wifiStatusResponse';

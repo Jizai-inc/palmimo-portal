@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Callable, Coroutine
 from typing import Any
 
 from dbus_fast import BusType, Variant
@@ -30,6 +31,8 @@ from palmimo_portal.ports import (
     SyncUnitPort,
     SystemPort,
     UnitStatus,
+    WifiQrUnitMissingError,
+    WifiQrUnitStatus,
 )
 
 
@@ -561,3 +564,108 @@ class SystemdComitupServicePort(ComitupServicePort):
 
     def stop(self) -> None:
         self._run("stop")
+
+
+class SystemdWifiQrUnitPort:
+    UNIT = "palmimo-wifi-qr.service"
+
+    def __init__(
+        self,
+        *,
+        loop_thread: SharedEventLoopThread | None = None,
+        request_timeout_s: float = CALL_TIMEOUT_SECONDS,
+    ) -> None:
+        self._unit_port = SystemdAppUnitPort(loop_thread=loop_thread)
+        self._request_timeout = request_timeout_s
+
+    def _call(self, member: str, *args: Any, verb: str) -> Any:
+        try:
+            return self._unit_port._call_sync(
+                member,
+                self.UNIT,
+                *args,
+                unit=self.UNIT,
+                verb=verb,
+                reraise_dbus_errors=_UNIT_NOT_LOADED_DBUS_ERRORS,
+            )
+        except DBusError as error:
+            if error.type in _UNIT_NOT_LOADED_DBUS_ERRORS:
+                raise WifiQrUnitMissingError("Wi-Fi QR unit is not installed") from None
+            raise
+
+    def _run(
+        self,
+        operation: Callable[[], Coroutine[Any, Any, Any]],
+        *,
+        timeout_s: float,
+        verb: str,
+    ) -> Any:
+        if timeout_s <= 0:
+            raise TimeoutError("Wi-Fi QR unit deadline expired")
+        deadline = time.monotonic() + timeout_s
+
+        async def bounded() -> Any:
+            return await asyncio.wait_for(operation(), max(0, deadline - time.monotonic()))
+
+        try:
+            return self._unit_port._loop_thread.run(bounded(), timeout=timeout_s)
+        except DBusError as error:
+            if error.type in _UNIT_NOT_LOADED_DBUS_ERRORS:
+                raise WifiQrUnitMissingError("Wi-Fi QR unit is not installed") from None
+            if error.type in _POLKIT_DENIED_DBUS_ERRORS:
+                raise PolkitDeniedError(self.UNIT, verb) from None
+            raise AdapterUnavailableError(_ADAPTER_ERROR_CODE, "Wi-Fi QR unit operation failed") from None
+        except (TimeoutError, AdapterUnavailableError, WifiQrUnitMissingError, PolkitDeniedError):
+            raise
+        except Exception:
+            raise AdapterUnavailableError(_ADAPTER_ERROR_CODE, "Wi-Fi QR unit operation failed") from None
+
+    def start(self) -> None:
+        self._call("start_unit", "replace", verb="start")
+
+    def stop(self) -> None:
+        self._call("stop_unit", "replace", verb="stop")
+
+    def status(self) -> WifiQrUnitStatus:
+        return self._run(self._status, timeout_s=self._request_timeout, verb="status")
+
+    async def _status(self) -> WifiQrUnitStatus:
+        path = await self._unit_port._call(
+            "load_unit",
+            (self.UNIT,),
+            unit=self.UNIT,
+            verb="status",
+            reraise_dbus_errors=_UNIT_NOT_LOADED_DBUS_ERRORS,
+        )
+        _, bus = await self._unit_port._connect()
+        introspection = await bus.introspect(SYSTEMD_BUS_NAME, path)
+        proxy = bus.get_proxy_object(SYSTEMD_BUS_NAME, path, introspection)
+        properties = proxy.get_interface("org.freedesktop.DBus.Properties")
+        get_all = properties.call_get_all  # type: ignore[attr-defined]
+        unit_props = await get_all(_APP_UNIT_PROPERTIES_INTERFACE)
+        load_state = unit_props.get("LoadState", Variant("s", "unknown")).value
+        if load_state == "not-found":
+            raise WifiQrUnitMissingError("Wi-Fi QR unit is not installed")
+        service_props = await get_all(_APP_UNIT_SERVICE_PROPERTIES_INTERFACE)
+        props = {key: value.value for key, value in {**unit_props, **service_props}.items()}
+        return WifiQrUnitStatus(
+            active_state=str(props.get("ActiveState", "unknown")),
+            load_state=str(load_state),
+            result=str(props.get("Result", "success")),
+            exec_main_code=int(props.get("ExecMainCode", 0)),
+            exec_main_status=int(props.get("ExecMainStatus", 0)),
+        )
+
+    def stop_and_wait(self, *, timeout_s: float) -> None:
+        self._run(self._stop_and_wait, timeout_s=timeout_s, verb="stop")
+
+    async def _stop_and_wait(self) -> None:
+        await self._unit_port._call(
+            "stop_unit",
+            (self.UNIT, "replace"),
+            unit=self.UNIT,
+            verb="stop",
+            reraise_dbus_errors=_UNIT_NOT_LOADED_DBUS_ERRORS,
+        )
+        while (await self._status()).active_state not in {"inactive", "failed"}:
+            await asyncio.sleep(0.1)

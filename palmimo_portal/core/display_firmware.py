@@ -38,7 +38,11 @@ def _restore_locked(deps: StartDeps) -> Literal["restored", "pending", "discarde
                 time.sleep(0.1)
                 active_state = deps.app_unit.status(name).active_state
         if active_state in {"inactive", "failed"}:
-            _start_app_locked(replace(deps, platform_ready=lambda: True), name, host=socket.gethostname())
+            _start_app_locked(
+                replace(deps, platform_ready=lambda: True, before_start=lambda devices: None),
+                name,
+                host=socket.gethostname(),
+            )
         elif active_state not in {"active", "activating"}:
             logger.warning("preempt: app=%s state=%s cannot be restored; retaining record", name, active_state)
             return "pending"
@@ -63,12 +67,22 @@ def restore_preempted_app(deps: StartDeps) -> bool:
 def run_display_firmware(deps: StartDeps, platform: PlatformPort) -> DisplayFirmwareResult:
     try:
         with deps.state.lock_run(timeout_s=3):
+            if deps.wifi_setup_active():
+                return DisplayFirmwareResult(result="busy", reason="Wi-Fi setup is using the display")
             preempted = False
+            hold_record = None
             try:
                 preemption = deps.state.read_preempted_app()
-                if preemption is not None:
+                if preemption is not None and preemption.by == "wifi-setup" and preemption.preempted_app is None:
+                    hold_record = preemption
+                elif preemption is not None:
                     if preemption.by != "display-firmware":
-                        return DisplayFirmwareResult(result="busy", reason="app recovery pending")
+                        reason = (
+                            "An app is stopped for Wi-Fi setup"
+                            if preemption.by == "wifi-setup" and preemption.preempted_app is not None
+                            else "Wi-Fi setup recovery is pending"
+                        )
+                        return DisplayFirmwareResult(result="busy", reason=reason)
                     if _restore_locked(deps) == "pending":
                         return DisplayFirmwareResult(result="busy", reason="app recovery pending")
                 for name, record in deps.state.read_apps_state().apps.items():
@@ -95,6 +109,8 @@ def run_display_firmware(deps: StartDeps, platform: PlatformPort) -> DisplayFirm
                 try:
                     if preempted:
                         _restore_locked(deps)
+                    if hold_record is not None and deps.state.read_preempted_app() is None:
+                        deps.state.write_preempted_app(hold_record)
                 except Exception:
                     logger.exception("display-firmware: could not restore app; retaining record")
     except RunLockTimeoutError:

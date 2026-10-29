@@ -105,6 +105,8 @@ from palmimo_portal.ports import (
     WifiNetwork,
     WifiProfile,
     WifiProfilePort,
+    WifiQrUnitMissingError,
+    WifiQrUnitStatus,
     WifiStatus,
 )
 from palmimo_portal.settings import DEFAULT_REQUIRED_PLATFORM_VERSION
@@ -1178,6 +1180,8 @@ class FakeAdapterBundle:
     wifi_profiles: FakeWifiProfilePort
     comitup_service: FakeComitupServicePort
     wifi_attempts: WifiAttemptManager
+    wifi_qr_unit: FakeWifiQrUnitPort
+    wifi_qr_client: FakeWifiQrClientFactory
     system: FakeSystemPort
     ssh_keys: FakeSshKeyPort
     state: FakeStateStore
@@ -1288,3 +1292,90 @@ class FakeComitupServicePort(ComitupServicePort):
         if self.raise_on_call is not None:
             raise self.raise_on_call
         self.running = False
+
+
+@dataclass
+class FakeWifiQrUnitPort:
+    unit_status: WifiQrUnitStatus = field(default_factory=WifiQrUnitStatus)
+    error: Exception | None = None
+    calls: list[str] = field(default_factory=list)
+    monotonic: Callable[[], float] = time.monotonic
+    sleep: Callable[[float], None] = time.sleep
+
+    def _check(self, verb: str) -> None:
+        self.calls.append(verb)
+        if self.error is not None:
+            raise self.error
+
+    def start(self) -> None:
+        self._check("start")
+        self.unit_status = replace(self.unit_status, active_state="active")
+
+    def stop(self) -> None:
+        self._check("stop")
+        self.unit_status = replace(self.unit_status, active_state="inactive")
+
+    def status(self) -> WifiQrUnitStatus:
+        self._check("status")
+        return self.unit_status
+
+    def stop_and_wait(self, *, timeout_s: float) -> None:
+        deadline = self.monotonic() + timeout_s
+        self.stop()
+        while True:
+            status = self.status()
+            if status.load_state == "not-found":
+                raise WifiQrUnitMissingError("Wi-Fi QR unit is not installed")
+            if status.active_state in {"inactive", "failed"}:
+                return
+            if self.monotonic() >= deadline:
+                raise TimeoutError("Wi-Fi QR unit did not stop")
+            self.sleep(min(0.1, deadline - self.monotonic()))
+
+
+@dataclass
+class FakeWifiQrClient:
+    on_message: Callable[[dict[str, Any]], None]
+    on_disconnect: Callable[[], None]
+    messages: list[dict[str, Any]] = field(default_factory=list)
+    connected: bool = False
+    closed: bool = False
+    connect_error: Exception | None = None
+    send_error: Exception | None = None
+
+    def connect(self) -> None:
+        if self.connect_error is not None:
+            raise self.connect_error
+        self.connected = True
+
+    def send(self, message: dict[str, Any]) -> bool:
+        if self.send_error is not None:
+            raise self.send_error
+        if self.closed or not self.connected:
+            raise ConnectionError("Fake reader is disconnected")
+        self.messages.append(message)
+        return True
+
+    def close(self) -> None:
+        connected = self.connected
+        self.closed = True
+        self.connected = False
+        if connected:
+            self.on_disconnect()
+
+    def emit(self, message: dict[str, Any]) -> None:
+        self.on_message(message)
+
+
+@dataclass
+class FakeWifiQrClientFactory:
+    clients: list[FakeWifiQrClient] = field(default_factory=list)
+
+    def __call__(
+        self,
+        message: Callable[[dict[str, Any]], None],
+        disconnected: Callable[[], None],
+    ) -> FakeWifiQrClient:
+        client = FakeWifiQrClient(message, disconnected)
+        self.clients.append(client)
+        return client

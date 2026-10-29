@@ -469,7 +469,8 @@
     "wifi_saved_not_found": "そのネットワークはもう保存されていません。",
     "wifi_saved_active": "Palmimo はいまそのネットワークに接続しています。削除するには「このネットワークを忘れる」を使ってください。",
     "wifi_saved_order_mismatch": "保存済みのネットワークが変わりました。再読み込みしてやり直してください。",
-    "display_firmware_unavailable": "このプラットフォームでは顔のファームを書き直せません。"
+    "display_firmware_unavailable": "このプラットフォームでは顔のファームを書き直せません。",
+    "display_recovery_pending": "顔ファームの復旧が終わっていません。Palmimo を再起動してから、もう一度アプリを起動してください。"
   },
   "apps": {
     "tabsLabel": "アプリのセクション",

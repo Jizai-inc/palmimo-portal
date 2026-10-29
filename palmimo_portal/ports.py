@@ -683,6 +683,7 @@ class UpdateState:
 class PreemptedApp:
     preempted_app: str | None
     by: str
+    hold: bool = False
 
 
 class StateStore(Protocol):
@@ -1798,3 +1799,43 @@ class PlatformLockTimeoutError(Exception):
     role for their own axes -- ``api/platform.py`` translates this into 409
     ``platform_update_in_progress``.
     """
+
+
+@dataclass(frozen=True)
+class WifiQrUnitStatus:
+    active_state: str = "inactive"
+    load_state: str = "loaded"
+    result: str = "success"
+    exec_main_code: int = 0
+    exec_main_status: int = 0
+
+
+class WifiQrUnitMissingError(Exception):
+    pass
+
+
+class WifiQrUnitPort(Protocol):
+    """Controls only palmimo-wifi-qr.service; missing units and polkit denial are distinct errors."""
+
+    def start(self) -> None: ...
+
+    def stop(self) -> None: ...
+
+    def stop_and_wait(self, *, timeout_s: float) -> None:
+        """Include the stop request and all status reads in one cancellable deadline, in seconds."""
+        ...
+
+    def status(self) -> WifiQrUnitStatus: ...
+
+
+class WifiQrClientPort(Protocol):
+    """Reader framing and messages are specified in doc/wifi-qr-reader.md."""
+
+    def connect(self) -> None: ...
+
+    def send(self, message: dict[str, Any]) -> bool: ...
+
+    def close(self) -> None: ...
+
+
+WifiQrClientFactory = Callable[[Callable[[dict[str, Any]], None], Callable[[], None]], WifiQrClientPort]

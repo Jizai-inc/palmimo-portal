@@ -58,6 +58,13 @@ Applies to every install of `palmimo-portal`.
 - Async D-Bus client used by the real `NetworkPort` (comitup) and
   `SystemPort` (systemd-logind) adapters to talk to the system bus.
 
+### segno
+
+- License: BSD-3-Clause
+- Source: https://github.com/heuer/segno
+- Pure Python URL QR encoding. Its installed wheel includes the license in
+  segno-*.dist-info/licenses/LICENSE, collected by the image's Python attribution step.
+
 ## Frontend (`frontend/`, bundled into `static/`)
 
 Built with npm/Vite; the compiled bundle (not the npm packages themselves) is

@@ -2041,6 +2041,16 @@
           },
           "versions": {
             "$ref": "#/components/schemas/VersionInfo"
+          },
+          "wifi_setup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WifiSetupInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -2354,6 +2364,42 @@
           "secured"
         ],
         "title": "WifiNetworkResponse",
+        "type": "object"
+      },
+      "WifiSetupInfo": {
+        "properties": {
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "screen": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Screen"
+          }
+        },
+        "required": [
+          "mode",
+          "screen"
+        ],
+        "title": "WifiSetupInfo",
         "type": "object"
       },
       "WifiStatusResponse": {
@@ -3042,7 +3088,7 @@
     },
     "/api/v1/apps/{name}/start": {
       "post": {
-        "description": "Run the design doc 3.5 prechecks and start ``name``, changing nothing on any failure.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 for every precheck refusal\n        (``app_busy``, ``app_running``, ``manifest_invalid``,\n        ``env_unbound``, ``params_missing``, ``params_invalid``,\n        ``venv_missing``, ``platform_not_ready``); 503 ``polkit_denied``\n        if systemd itself refuses the ``set-property``/``start`` verb;\n        500 ``start_failed`` (with a ``journal_tail``) for any other\n        error the unit start itself raises.",
+        "description": "Run the design doc 3.5 prechecks and start ``name``, changing nothing on any failure.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 for every precheck refusal\n        (``app_busy``, ``display_recovery_pending``, ``app_running``, ``manifest_invalid``,\n        ``env_unbound``, ``params_missing``, ``params_invalid``,\n        ``venv_missing``, ``platform_not_ready``); 503 ``polkit_denied``\n        if systemd itself refuses the ``set-property``/``start`` verb;\n        500 ``start_failed`` (with a ``journal_tail``) for any other\n        error the unit start itself raises.",
         "operationId": "start_app_endpoint_api_v1_apps__name__start_post",
         "parameters": [
           {

@@ -77,6 +77,11 @@ class AppBusyError(AppStartError):
         super().__init__("app_busy")
 
 
+class DisplayRecoveryPendingError(AppStartError):
+    def __init__(self) -> None:
+        super().__init__("display_recovery_pending")
+
+
 class AppJobInProgressStartError(AppStartError):
     """Raised when any install/update/delete job is in flight, against any app.
 
@@ -144,6 +149,8 @@ class StartDeps:
     #: True except where a platform-bundle feature wires a real check in.
     platform_ready: Callable[[], bool] = lambda: True
     now: Callable[[], float] = time.time
+    before_start: Callable[[list[str]], None] = lambda devices: None
+    wifi_setup_active: Callable[[], bool] = lambda: False
 
 
 def _layout_for(ctx: AppsJobContext, record: AppRecord) -> LayoutPaths:
@@ -318,6 +325,7 @@ def precheck_report(deps: StartDeps, name: str, *, host: str) -> PrecheckResult:
 
 def _start_app_locked(deps: StartDeps, name: str, *, host: str) -> None:
     plan = _run_prechecks(deps, name, host=host)
+    deps.before_start(plan.devices)
     device_specs = [spec for device in plan.devices for spec in DEVICE_ALLOW_SPECS[device]]
 
     deps.run_dir.write(
@@ -362,25 +370,28 @@ def stop_app(deps: StartDeps, name: str) -> None:
     except RunLockTimeoutError:
         raise AppBusyError() from None
     try:
-        apps_state = deps.state.read_apps_state()
-        if name not in apps_state.apps:
-            raise AppNotFoundError(name)
-        logger.info("app stop requested name=%s", name)
-        started = deps.now()
-        try:
-            deps.app_unit.stop(name)
-        finally:
-            deps.run_dir.remove(name)
-        status = deps.app_unit.status(name)
-        logger.info(
-            "app stopped name=%s result=%s exec_main_status=%s stop_duration_s=%.3f",
-            name,
-            status.result,
-            status.exec_main_status,
-            deps.now() - started,
-        )
+        _stop_app_locked(deps, name)
     finally:
         lock_cm.__exit__(None, None, None)
+
+
+def _stop_app_locked(deps: StartDeps, name: str) -> None:
+    if name not in deps.state.read_apps_state().apps:
+        raise AppNotFoundError(name)
+    logger.info("app stop requested name=%s", name)
+    started = deps.now()
+    try:
+        deps.app_unit.stop(name)
+    finally:
+        deps.run_dir.remove(name)
+    status = deps.app_unit.status(name)
+    logger.info(
+        "app stopped name=%s result=%s exec_main_status=%s stop_duration_s=%.3f",
+        name,
+        status.result,
+        status.exec_main_status,
+        deps.now() - started,
+    )
 
 
 def reconcile_run_dirs(app_unit: AppUnitPort, run_dir: RunDirPort, state: AppsState) -> None:

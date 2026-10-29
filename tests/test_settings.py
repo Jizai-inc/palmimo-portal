@@ -142,3 +142,17 @@ def test_get_settings_falls_back_to_stable_and_warns_on_an_invalid_update_channe
 
     assert settings.update_channel == "stable"
     assert "nightly" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [(None, None), ("0", False), ("false", False), ("off", False), ("1", True), ("true", True), ("on", True)],
+)
+def test_get_settings_controls_wifi_qr_setup(
+    monkeypatch: pytest.MonkeyPatch, value: str | None, expected: bool | None
+) -> None:
+    if value is None:
+        monkeypatch.delenv("PALMIMO_WIFI_QR_SETUP", raising=False)
+    else:
+        monkeypatch.setenv("PALMIMO_WIFI_QR_SETUP", value)
+    assert get_settings().wifi_setup_enabled is expected

@@ -286,3 +286,29 @@ def test_display_firmware_preserves_recovery_until_slow_stop_finishes(
     assert adapters.state.read_preempted_app() == (
         PreemptedApp("face", "display-firmware") if eventual_state == "deactivating" else None
     )
+
+
+def test_display_firmware_explains_wifi_app_recovery_pending(
+    prepared: tuple[StartDeps, FakeAdapterBundle],
+) -> None:
+    deps, adapters = prepared
+    record = PreemptedApp("face", "wifi-setup")
+    adapters.state.write_preempted_app(record)
+    result = run_display_firmware(deps, adapters.platform)
+    assert result == DisplayFirmwareResult(result="busy", reason="An app is stopped for Wi-Fi setup")
+    assert adapters.state.read_preempted_app() == record
+    assert adapters.platform.display_firmware_calls == 0
+
+
+def test_display_firmware_repairs_while_preserving_wifi_hold_only_record(
+    prepared: tuple[StartDeps, FakeAdapterBundle],
+) -> None:
+    deps, adapters = prepared
+    record = PreemptedApp(None, "wifi-setup", hold=True)
+    adapters.state.write_preempted_app(record)
+    result = run_display_firmware(deps, adapters.platform)
+    assert result.result == "current"
+    assert adapters.platform.display_firmware_calls == 1
+    assert adapters.state.read_preempted_app() == record
+    assert adapters.app_unit.stop_calls == ["face"]
+    assert adapters.app_unit.start_calls == ["face"]

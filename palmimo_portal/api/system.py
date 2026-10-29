@@ -195,19 +195,11 @@ def put_checklist(body: ChecklistState, state: StateStore = Depends(get_state_st
     return ChecklistState(dismissed=body.dismissed)
 
 
-def _refuse_while_updating(state: StateStore, runner_alive: bool) -> None:
-    """Raise 409 ``update_in_progress`` while an update/rollback job is ``"running"``.
-
-    Goes through :func:`~palmimo_portal.core.update.current_update_state`
-    (the same self-healing sequence ``GET /update/status`` runs), not a raw
-    read -- a ``"running"`` job left over from a dead runner (see
-    :func:`~palmimo_portal.core.update.expire_stale_running`) must not block
-    reboot/shutdown forever. Not gated behind the update job lock, so a
-    reboot/shutdown mid-``uv sync`` cannot turn a half-synced venv into a
-    crash loop. Narrower than "any job in flight": ``"checking"`` is a
-    synchronous sub-10s call with nothing left running by the time this
-    executes, and ``"restarting"`` means the update already fully applied.
-    """
+def _refuse_while_updating(state: StateStore, runner_alive: bool, platform_runner_alive: bool) -> None:
+    """Use self-healing Portal state so an abandoned runner cannot block power operations forever."""
+    platform_job = state.read_platform_update_state().job
+    if platform_runner_alive and platform_job.state == "running" and platform_job.step == "display_firmware":
+        raise PortalError(409, "platform_update_in_progress")
     if update_core.current_update_state(state, now=time.time(), runner_alive=runner_alive).job.state == "running":
         raise PortalError(409, "update_in_progress")
 
@@ -227,9 +219,12 @@ def reboot(
             from :class:`~palmimo_portal.ports.AdapterUnavailableError` by
             the app-wide exception handler in :mod:`palmimo_portal.api.app`.
             409 ``update_in_progress`` while an update/rollback job is
-            ``"running"`` -- see :func:`_refuse_while_updating`.
+            ``"running"``; 409 ``platform_update_in_progress`` during a
+            live display firmware job.
     """
-    _refuse_while_updating(state, request.app.state.update_runner_alive.is_set())
+    _refuse_while_updating(
+        state, request.app.state.update_runner_alive.is_set(), request.app.state.platform_job_runner.is_alive()
+    )
     system.reboot()
     return StatusResponse()
 
@@ -245,9 +240,11 @@ def shutdown(
 
     Raises:
         PortalError: 503 ``system_backend_unavailable`` -- see
-            :func:`reboot`. 409 ``update_in_progress`` -- see
-            :func:`_refuse_while_updating`.
+            :func:`reboot`. 409 ``update_in_progress`` or
+            ``platform_update_in_progress`` -- see :func:`reboot`.
     """
-    _refuse_while_updating(state, request.app.state.update_runner_alive.is_set())
+    _refuse_while_updating(
+        state, request.app.state.update_runner_alive.is_set(), request.app.state.platform_job_runner.is_alive()
+    )
     system.shutdown()
     return StatusResponse()

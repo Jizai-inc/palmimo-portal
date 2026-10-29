@@ -35,3 +35,37 @@ def test_sudo_is_referenced_only_in_settings_and_the_platform_adapter() -> None:
         if _SUDO_PATTERN.search(text):
             offenders.append(relative)
     assert offenders == [], f"sudo_bin/'sudo' referenced outside the allowed files: {offenders}"
+
+
+def test_display_firmware_runs_with_bounded_noninteractive_privilege(tmp_path: Path) -> None:
+    import subprocess
+    from typing import Any
+
+    from palmimo_portal.adapters.platform import SudoPlatformPort
+
+    calls: list[tuple[list[str], dict[str, Any]]] = []
+
+    def run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        calls.append((argv, kwargs))
+        return subprocess.CompletedProcess(argv, 0, stdout='{"result":"current"}', stderr="")
+
+    port = SudoPlatformPort(installed_path=tmp_path / "installed.json", runner=run)
+    port.ensure_display_firmware()
+    assert len(calls) == 1
+    argv, options = calls[0]
+    assert argv == [
+        "sudo",
+        "-n",
+        "timeout",
+        "-k",
+        "5",
+        "600",
+        "/usr/local/libexec/palmimo/palmimo-display-firmware",
+        "ensure",
+        "--json",
+    ]
+    assert {key: options[key] for key in ("capture_output", "text", "timeout")} == {
+        "capture_output": True,
+        "text": True,
+        "timeout": 660.0,
+    }

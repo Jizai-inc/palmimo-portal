@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from palmimo_portal.adapters.platform import GitHubPlatformBundleSource, SudoPlatformPort
-from palmimo_portal.ports import PlatformCommandError, PlatformVerifyDiff
+from palmimo_portal.ports import DisplayFirmwareState, PlatformCommandError, PlatformVerifyDiff
 
 
 class _FakeResponse:
@@ -112,3 +112,200 @@ def test_verify_wraps_install_sh_with_sudo_n_and_a_bounded_timeout_command(tmp_p
         "--root",
         "/",
     ]
+
+
+@pytest.mark.parametrize(
+    ("code", "result"),
+    [
+        (0, "updated"),
+        (0, "current"),
+        (0, "absent"),
+        (0, "undeclared"),
+        (0, "skipped"),
+        (75, "busy"),
+        (1, "failed"),
+        (78, "failed"),
+    ],
+)
+def test_display_firmware_parses_tool_results(tmp_path: Path, code: int, result: str) -> None:
+    import json
+
+    runner = _ScriptedRunner(code, stdout=json.dumps({"result": result, "before": "legacy", "after": None}))
+    port = SudoPlatformPort(installed_path=tmp_path / "installed.json", runner=runner)
+    outcome = port.ensure_display_firmware()
+    assert outcome.result == result
+    assert outcome.before == "legacy"
+
+
+@pytest.mark.parametrize(
+    "stdout",
+    [
+        "not json",
+        "[]",
+        '{"result":"current"}\n{}',
+        '{"result":"unknown"}',
+        '{\n"result":"current"\n}',
+        '{"result":"interrupted"}',
+    ],
+)
+def test_display_firmware_rejects_malformed_tool_output(tmp_path: Path, stdout: str) -> None:
+    port = SudoPlatformPort(installed_path=tmp_path / "installed.json", runner=_ScriptedRunner(0, stdout=stdout))
+    with pytest.raises(PlatformCommandError):
+        port.ensure_display_firmware()
+
+
+@pytest.mark.parametrize("failure", [subprocess.TimeoutExpired("tool", 660), OSError("cannot launch")])
+def test_display_firmware_wraps_execution_errors(tmp_path: Path, failure: Exception) -> None:
+    def run(*args: Any, **kwargs: Any) -> None:
+        raise failure
+
+    port = SudoPlatformPort(installed_path=tmp_path / "installed.json", runner=run)
+    with pytest.raises(PlatformCommandError):
+        port.ensure_display_firmware()
+
+
+def test_display_firmware_detects_missing_tool_and_unreadable_state(tmp_path: Path) -> None:
+    port = SudoPlatformPort(
+        installed_path=tmp_path / "installed.json",
+        display_firmware_tool=tmp_path / "tool",
+        display_firmware_state_path=tmp_path / "state.json",
+    )
+    assert not port.has_display_firmware_tool()
+    assert port.read_display_firmware_state() is None
+    (tmp_path / "tool").touch()
+    assert port.has_display_firmware_tool()
+    (tmp_path / "state.json").write_text('{"last_result":"current","last_reason":null,"seen":true}')
+    assert port.read_display_firmware_state() == DisplayFirmwareState(last_result="current")
+    (tmp_path / "state.json").write_text("broken")
+    assert port.read_display_firmware_state() is None
+
+
+def test_display_firmware_invalid_json_keeps_stderr_reason(firmware_process: tuple[SudoPlatformPort, Path]) -> None:
+    import sys
+
+    port, script = firmware_process
+    script.write_text(
+        f"#!{sys.executable}\n"
+        "import sys\n"
+        'print("Traceback:", file=sys.stderr, flush=True)\n'
+        'print("OSError: firmware archive is unreadable", file=sys.stderr, flush=True)\n'
+        "sys.exit(1)\n"
+    )
+    with pytest.raises(PlatformCommandError, match="OSError: firmware archive is unreadable"):
+        port.ensure_display_firmware()
+
+
+@pytest.mark.parametrize("content", [None, b"", b"boot-a\n", b"\xff"])
+def test_boot_identity_is_optional_when_kernel_file_is_unavailable(tmp_path: Path, content: bytes | None) -> None:
+    path = tmp_path / "boot_id"
+    if content is not None:
+        path.write_bytes(content)
+    port = SudoPlatformPort(installed_path=tmp_path / "installed.json", boot_id_path=path)
+    assert port.read_boot_id() == ("boot-a" if content == b"boot-a\n" else None)
+
+
+@pytest.fixture
+def firmware_process(tmp_path: Path) -> tuple[SudoPlatformPort, Path]:
+    wrapper = tmp_path / "privilege-wrapper"
+    wrapper.write_text('#!/bin/sh\nshift 5\nexec "$@"\n')
+    wrapper.chmod(0o755)
+    script = tmp_path / "firmware-tool"
+    script.touch()
+    script.chmod(0o755)
+    return SudoPlatformPort(
+        installed_path=tmp_path / "installed.json",
+        sudo_bin=str(wrapper),
+        display_firmware_tool=script,
+    ), script
+
+
+def test_display_firmware_logs_progress_before_tool_finishes(
+    firmware_process: tuple[SudoPlatformPort, Path],
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    import logging
+    import sys
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from palmimo_portal.ports import DisplayFirmwareResult
+
+    port, script = firmware_process
+    release = tmp_path / "release"
+    script.write_text(
+        f"#!{sys.executable}\n"
+        "import pathlib, sys, time\n"
+        'print("flash in progress", file=sys.stderr, flush=True)\n'
+        f"while not pathlib.Path({str(release)!r}).exists():\n"
+        "    time.sleep(0.01)\n"
+        'print(\'{"result":"current"}\', flush=True)\n'
+    )
+    logged = threading.Event()
+
+    class ProgressHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            if "flash in progress" in record.getMessage():
+                logged.set()
+
+    handler = ProgressHandler()
+    logger = logging.getLogger("palmimo_portal")
+    caplog.set_level(logging.INFO, logger="palmimo_portal")
+    logger.addHandler(handler)
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(port.ensure_display_firmware)
+            try:
+                assert logged.wait(3)
+                assert not future.done()
+            finally:
+                release.touch()
+            assert future.result(timeout=3) == DisplayFirmwareResult(result="current")
+    finally:
+        logger.removeHandler(handler)
+
+
+def test_display_firmware_timeout_stops_and_reaps_tool(
+    firmware_process: tuple[SudoPlatformPort, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+    import sys
+    import time
+
+    from palmimo_portal.adapters import platform
+
+    port, script = firmware_process
+    pid_file = tmp_path / "pid"
+    script.write_text(
+        f"#!{sys.executable}\n"
+        "import os, pathlib, sys, time\n"
+        f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
+        'print("waiting for flash", file=sys.stderr, flush=True)\n'
+        "time.sleep(30)\n"
+    )
+    monkeypatch.setattr(platform, "DISPLAY_FIRMWARE_SUBPROCESS_TIMEOUT_SECONDS", 1.0)
+    started = time.monotonic()
+    with pytest.raises(PlatformCommandError, match="timed out"):
+        port.ensure_display_firmware()
+    assert time.monotonic() - started < 5
+    with pytest.raises(ProcessLookupError):
+        os.kill(int(pid_file.read_text()), 0)
+
+
+def test_display_firmware_preserves_success_when_stderr_contains_invalid_bytes(
+    firmware_process: tuple[SudoPlatformPort, Path],
+) -> None:
+    import sys
+
+    from palmimo_portal.ports import DisplayFirmwareResult
+
+    port, script = firmware_process
+    script.write_text(
+        f"#!{sys.executable}\n"
+        "import sys\n"
+        'sys.stderr.buffer.write(b"flash diagnostic: \\xff\\n")\n'
+        'print(\'{"result":"updated","before":"legacy","after":"current"}\')\n'
+    )
+    assert port.ensure_display_firmware() == DisplayFirmwareResult(result="updated", before="legacy", after="current")

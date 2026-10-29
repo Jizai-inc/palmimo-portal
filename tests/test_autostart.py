@@ -375,3 +375,223 @@ def test_startup_blocks_app_jobs_but_still_finalizes_when_an_orphan_sync_unit_ca
     assert adapters.state.read_apps_state().current_job is None
     with pytest.raises(AppsLockTimeoutError), adapters.state.lock_apps():
         pass
+
+
+@pytest.mark.parametrize("connected", [True, False])
+def test_startup_recovers_preempted_app_before_autostart(tmp_path: Path, connected: bool) -> None:
+    from palmimo_portal.core.platform_update import IDLE_PLATFORM_STATE, advance, start_update
+    from palmimo_portal.ports import ConnectionState, PreemptedApp, WifiStatus
+
+    settings = _settings(tmp_path)
+    for name in ("selected", "preempted"):
+        _write_app(settings, name)
+        (settings.apps_dir / name / "palmimo.toml").write_text(
+            f'schema = 1\nname = "{name}"\ndescription = "d"\ncommand = ["run"]\n'
+        )
+    app = create_app(settings)
+    adapters: FakeAdapterBundle = app.state.adapters
+    adapters.state.write_apps_state(
+        AppsState(
+            apps={
+                "selected": _record("selected", autostart=True),
+                "preempted": _record("preempted", autostart=False),
+            }
+        )
+    )
+    record = PreemptedApp("preempted", "display-firmware")
+    adapters.state.write_preempted_app(record)
+    adapters.network.status = WifiStatus(
+        state=ConnectionState.CONNECTED if connected else ConnectionState.UNPROVISIONED,
+        ssid="home" if connected else None,
+        ip_address="192.0.2.1" if connected else None,
+    )
+    adapters.state.write_platform_update_state(advance(start_update(IDLE_PLATFORM_STATE, 2, 1), "display_firmware"))
+    with TestClient(app):
+        assert adapters.app_unit.start_calls == ["preempted"]
+        assert adapters.state.read_preempted_app() is None
+        state = adapters.state.read_platform_update_state()
+        assert state.job.state == "done"
+        assert state.display_firmware is not None
+        assert state.display_firmware.result == "interrupted"
+
+
+@pytest.mark.parametrize(
+    ("result", "recorded_boot", "current_boot", "expected"),
+    [
+        ("updated", None, None, "updated"),
+        ("current", None, None, "current"),
+        (None, None, None, "interrupted"),
+        ("updated", "boot-a", "boot-a", "busy"),
+        ("updated", "boot-a", "boot-b", "updated"),
+        (None, "boot-a", None, "interrupted"),
+    ],
+)
+def test_startup_prefers_boot_firmware_result_to_interruption(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    result: str | None,
+    recorded_boot: str | None,
+    current_boot: str | None,
+    expected: str,
+) -> None:
+    import json
+    from dataclasses import replace
+
+    from palmimo_portal.adapters.platform import SudoPlatformPort
+    from palmimo_portal.core.platform_update import IDLE_PLATFORM_STATE, advance, start_update
+    from palmimo_portal.ports import DisplayFirmwareResult
+
+    app = create_app(_settings(tmp_path))
+    adapters: FakeAdapterBundle = app.state.adapters
+    adapters.platform.boot_id = current_boot
+    path = tmp_path / "firmware.json"
+    if result is not None:
+        path.write_text(json.dumps({"last_result": result, "last_reason": None}))
+    port = SudoPlatformPort(installed_path=tmp_path / "installed.json", display_firmware_state_path=path)
+    monkeypatch.setattr(adapters.platform, "read_display_firmware_state", port.read_display_firmware_state)
+    state = advance(start_update(IDLE_PLATFORM_STATE, 2, 1), "display_firmware")
+    if recorded_boot is not None:
+        state = replace(state, display_firmware=DisplayFirmwareResult(result="busy", boot_id=recorded_boot))
+    adapters.state.write_platform_update_state(state)
+    with TestClient(app):
+        state = adapters.state.read_platform_update_state()
+        assert state.job.state == "done"
+        assert state.display_firmware is not None
+        assert state.display_firmware.result == expected
+
+
+@pytest.mark.parametrize("preempted", [False, True])
+def test_startup_starts_app_without_network_backend(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    preempted: bool,
+) -> None:
+    from palmimo_portal.ports import PreemptedApp
+
+    settings = _settings(tmp_path)
+    _write_app(settings, "app-a")
+    (settings.apps_dir / "app-a" / "palmimo.toml").write_text(
+        'schema = 1\nname = "app-a"\ndescription = "d"\ncommand = ["run"]\n'
+    )
+    app = create_app(settings)
+    adapters: FakeAdapterBundle = app.state.adapters
+    adapters.state.write_apps_state(AppsState(apps={"app-a": _record("app-a", autostart=True)}))
+    if preempted:
+        adapters.state.write_preempted_app(PreemptedApp("app-a", "display-firmware"))
+
+    def unavailable() -> None:
+        raise RuntimeError("comitup unavailable")
+
+    monkeypatch.setattr(adapters.network, "get_status", unavailable)
+    with TestClient(app):
+        assert adapters.app_unit.start_calls == ["app-a"]
+        assert adapters.state.read_preempted_app() is None
+
+
+@pytest.mark.parametrize(
+    ("failure", "preempted"),
+    [
+        ("none", True),
+        ("wifi-start", True),
+        ("wifi-cleanup", True),
+        ("app-restore", True),
+        ("wifi-start", False),
+        ("wifi-cleanup", False),
+    ],
+)
+def test_startup_recovers_wifi_marks_and_preempted_apps_independently(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+    preempted: bool,
+) -> None:
+    import threading
+    from collections.abc import Callable
+    from dataclasses import replace
+
+    from palmimo_portal.core.wifi_attempt_manager import WifiAttemptManager
+    from palmimo_portal.ports import PreemptedApp, WifiAttempt, WifiDeviceStatus
+
+    settings = _settings(tmp_path)
+    for name in ("selected", "preempted"):
+        _write_app(settings, name)
+        (settings.apps_dir / name / "palmimo.toml").write_text(
+            f'schema = 1\nname = "{name}"\ndescription = "d"\ncommand = ["run"]\n'
+        )
+    app = create_app(settings)
+    adapters: FakeAdapterBundle = app.state.adapters
+    adapters.state.write_apps_state(
+        AppsState(
+            apps={
+                "selected": _record("selected", autostart=True),
+                "preempted": _record("preempted", autostart=False),
+            }
+        )
+    )
+    record = PreemptedApp("preempted", "display-firmware") if preempted else None
+    adapters.state.write_preempted_app(record)
+    uid = adapters.wifi_profiles.add_profile(
+        b"home",
+        "test-password",
+        name="palmimo-try-abandoned",
+        priority=10,
+        user_data={
+            "palmimo.attempt.id": "abandoned",
+            "palmimo.attempt.phase": "pending",
+            "palmimo.attempt.role": "try",
+        },
+    )
+    adapters.wifi_profiles.device = WifiDeviceStatus(100, uid)
+    adapters.state.write_last_wifi_attempt(WifiAttempt("home", "attempting", 1.0))
+    pending: list[Callable[[], None]] = []
+    events: list[str] = []
+
+    def spawn(work: Callable[[], None]) -> None:
+        events.append("wifi")
+        if failure == "wifi-start":
+            raise RuntimeError("recovery thread unavailable")
+        pending.append(work)
+
+    manager = WifiAttemptManager(
+        adapters.wifi_profiles,
+        adapters.comitup_service,
+        adapters.state,
+        edit_lock=threading.RLock(),
+        legacy_connect=lambda *args: None,
+        legacy_status=adapters.network.get_status,
+        spawn_recovery=spawn,
+    )
+    app.state.adapters = replace(adapters, wifi_attempts=manager)
+    original_start = adapters.app_unit.start
+
+    def start(name: str) -> None:
+        events.append("app")
+        original_start(name)
+
+    monkeypatch.setattr(adapters.app_unit, "start", start)
+    if failure == "app-restore":
+        adapters.app_unit.raise_on_start = RuntimeError("app unit unavailable")
+    if failure == "wifi-cleanup":
+        adapters.wifi_profiles.raise_on_call = RuntimeError("profile backend unavailable")
+
+    with TestClient(app):
+        assert events == ["wifi", "app"]
+        assert adapters.app_unit.start_calls == (["preempted"] if preempted else ["selected"])
+        assert adapters.state.read_preempted_app() == (record if failure == "app-restore" else None)
+        assert len(pending) == (0 if failure == "wifi-start" else 1)
+        for work in pending:
+            work()
+        adapters.wifi_profiles.raise_on_call = None
+        cleaned = failure not in {"wifi-start", "wifi-cleanup"}
+        assert adapters.wifi_profiles.list_profiles()[0].user_data == (
+            {}
+            if cleaned
+            else {
+                "palmimo.attempt.id": "abandoned",
+                "palmimo.attempt.phase": "pending",
+                "palmimo.attempt.role": "try",
+            }
+        )
+        attempt = adapters.state.read_last_wifi_attempt()
+        assert attempt is not None
+        assert attempt.result == ("connected" if cleaned else "attempting")

@@ -47,6 +47,8 @@ from palmimo_portal.ports import (
     ComitupServicePort,
     ConnectionState,
     DiskPort,
+    DisplayFirmwareResult,
+    DisplayFirmwareState,
     DuplicateKeyError,
     GitCommandError,
     GitCredentialRecord,
@@ -72,6 +74,7 @@ from palmimo_portal.ports import (
     PlatformPort,
     PlatformUpdateState,
     PlatformVerifyDiff,
+    PreemptedApp,
     Release,
     ReleaseSource,
     ReleaseSourceError,
@@ -486,6 +489,14 @@ class FakeStateStore(StateStore):
         finally:
             self._run_lock.release()
 
+    _preempted_app: PreemptedApp | None = None
+
+    def read_preempted_app(self) -> PreemptedApp | None:
+        return self._preempted_app
+
+    def write_preempted_app(self, record: PreemptedApp | None) -> None:
+        self._preempted_app = record
+
     def read_platform_update_state(self) -> PlatformUpdateState:
         return self._platform_update_state
 
@@ -599,6 +610,29 @@ class FakePlatformPort(PlatformPort):
     record_calls: list[tuple[Path, str]] = field(default_factory=list)
     #: What `record` sets `installed.version` to -- a test sets this before triggering the job.
     next_version: int | None = None
+
+    boot_id: str | None = None
+    display_firmware_available: bool = False
+    display_firmware_result: DisplayFirmwareResult = field(
+        default_factory=lambda: DisplayFirmwareResult(result="current")
+    )
+    display_firmware_state: DisplayFirmwareState | None = None
+    display_firmware_calls: int = 0
+
+    def read_boot_id(self) -> str | None:
+        return self.boot_id
+
+    def has_display_firmware_tool(self) -> bool:
+        return self.display_firmware_available
+
+    def ensure_display_firmware(self) -> DisplayFirmwareResult:
+        self.display_firmware_calls += 1
+        if self.fail_on == "display_firmware":
+            raise PlatformCommandError("display_firmware", self.fail_message)
+        return self.display_firmware_result
+
+    def read_display_firmware_state(self) -> DisplayFirmwareState | None:
+        return self.display_firmware_state
 
     def read_installed(self) -> PlatformInstalled | None:
         return self.installed

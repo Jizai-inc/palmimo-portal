@@ -239,7 +239,8 @@ export const usePutChecklistApiV1SystemChecklistPut = <TError = HTTPValidationEr
  *         from :class:`~palmimo_portal.ports.AdapterUnavailableError` by
  *         the app-wide exception handler in :mod:`palmimo_portal.api.app`.
  *         409 ``update_in_progress`` while an update/rollback job is
- *         ``"running"`` -- see :func:`_refuse_while_updating`.
+ *         ``"running"``; 409 ``platform_update_in_progress`` during a
+ *         live display firmware job.
  * @summary Reboot
  */
 export const rebootApiV1SystemRebootPost = async ( options?: RequestInit): Promise<StatusResponse> => {
@@ -314,8 +315,8 @@ export const useRebootApiV1SystemRebootPost = <TError = unknown,
  *
  * Raises:
  *     PortalError: 503 ``system_backend_unavailable`` -- see
- *         :func:`reboot`. 409 ``update_in_progress`` -- see
- *         :func:`_refuse_while_updating`.
+ *         :func:`reboot`. 409 ``update_in_progress`` or
+ *         ``platform_update_in_progress`` -- see :func:`reboot`.
  * @summary Shutdown
  */
 export const shutdownApiV1SystemShutdownPost = async ( options?: RequestInit): Promise<StatusResponse> => {

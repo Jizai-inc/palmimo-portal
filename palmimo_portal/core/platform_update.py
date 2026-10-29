@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from palmimo_portal.ports import PlatformJob, PlatformUpdateState
+from palmimo_portal.ports import DisplayFirmwareResult, DisplayFirmwareState, PlatformJob, PlatformUpdateState
 
 
 IDLE_PLATFORM_JOB = PlatformJob(
@@ -30,7 +30,7 @@ class PlatformUpdateInProgressError(Exception):
     """Raised by :func:`start_update` when a platform job is already running."""
 
 
-def start_update(state: PlatformUpdateState, target_version: int, now: float) -> PlatformUpdateState:
+def start_update(state: PlatformUpdateState, target_version: int | None, now: float) -> PlatformUpdateState:
     """Begin applying ``target_version``, or raise if a job is already in flight.
 
     Raises:
@@ -47,34 +47,65 @@ def start_update(state: PlatformUpdateState, target_version: int, now: float) ->
 
 def advance(state: PlatformUpdateState, step: str) -> PlatformUpdateState:
     """Record that the running job has reached ``step``."""
-    return PlatformUpdateState(job=replace(state.job, step=step))
+    return replace(state, job=replace(state.job, step=step))
 
 
 def mark_done(state: PlatformUpdateState, now: float) -> PlatformUpdateState:
-    """Record that the running job's ``record`` step succeeded."""
-    return PlatformUpdateState(job=replace(state.job, state="done", error=None, finished_at=now))
+    """Firmware failure does not change platform readiness or job success."""
+    return replace(state, job=replace(state.job, state="done", error=None, finished_at=now))
 
 
 def mark_failed(state: PlatformUpdateState, step: str, error: str, now: float) -> PlatformUpdateState:
     """Record that the running job failed at ``step``."""
-    return PlatformUpdateState(job=replace(state.job, state="failed", step=step, error=error, finished_at=now))
+    return replace(state, job=replace(state.job, state="failed", step=step, error=error, finished_at=now))
 
 
-def finalize_after_restart(state: PlatformUpdateState, now: float) -> PlatformUpdateState:
-    """Fail a ``"running"`` job left over from a process that died before finishing it.
+def select_display_firmware_result(
+    state: PlatformUpdateState,
+    tool_state: DisplayFirmwareState | None,
+    boot_id: str | None,
+    *,
+    fallback_result: DisplayFirmwareResult | None = None,
+) -> DisplayFirmwareResult | None:
+    """Boot identity orders results on devices whose wall clock can reset."""
+    result = state.display_firmware
+    if state.job.state == "running" or (boot_id and result is not None and result.boot_id == boot_id):
+        return result
+    return tool_state.as_result() if tool_state is not None else fallback_result or result
 
-    Called once at Portal startup. A job in ``"idle"``/``"done"``/``"failed"``
-    is returned unchanged.
-    """
+
+def finalize_after_restart(
+    state: PlatformUpdateState,
+    now: float,
+    *,
+    display_firmware: DisplayFirmwareState | None = None,
+    boot_id: str | None = None,
+) -> PlatformUpdateState:
+    """Finish firmware stages using select_display_firmware_result; fail earlier interrupted stages."""
     if state.job.state != "running":
         return state
+    if state.job.step == "display_firmware":
+        terminal = mark_done(state, now)
+        return replace(
+            terminal,
+            display_firmware=select_display_firmware_result(
+                terminal,
+                display_firmware,
+                boot_id,
+                fallback_result=DisplayFirmwareResult(
+                    result="interrupted",
+                    reason="Portal restarted during display firmware update",
+                ),
+            ),
+        )
     job = state.job
-    return PlatformUpdateState(
+    return replace(
+        state,
         job=replace(
             job,
             state="failed",
             step=job.step or "fetch",
             error="interrupted: the Portal restarted before this job finished",
             finished_at=now,
-        )
+        ),
     )

@@ -896,6 +896,107 @@
         "title": "DefaultAppResponse",
         "type": "object"
       },
+      "DisplayFirmwareResult": {
+        "properties": {
+          "after": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "boot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Boot Id"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "result": {
+            "enum": [
+              "updated",
+              "current",
+              "absent",
+              "undeclared",
+              "skipped",
+              "busy",
+              "failed",
+              "interrupted"
+            ],
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "DisplayFirmwareResult",
+        "type": "object"
+      },
+      "DisplayFirmwareState": {
+        "properties": {
+          "last_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Reason"
+          },
+          "last_result": {
+            "enum": [
+              "updated",
+              "current",
+              "absent",
+              "undeclared",
+              "skipped",
+              "busy",
+              "failed",
+              "interrupted"
+            ],
+            "title": "Last Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "last_result"
+        ],
+        "title": "DisplayFirmwareState",
+        "type": "object"
+      },
       "EnvSpecInfo": {
         "properties": {
           "description": {
@@ -1471,6 +1572,21 @@
       },
       "PlatformStatusResponse": {
         "properties": {
+          "display_firmware": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DisplayFirmwareState"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "display_firmware_available": {
+            "default": false,
+            "title": "Display Firmware Available",
+            "type": "boolean"
+          },
           "installed_at": {
             "anyOf": [
               {
@@ -1556,6 +1672,16 @@
       },
       "PlatformUpdateAcceptedResponse": {
         "properties": {
+          "display_firmware": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DisplayFirmwareResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "job": {
             "$ref": "#/components/schemas/PlatformJobInfo"
           }
@@ -3458,9 +3584,31 @@
         ]
       }
     },
+    "/api/v1/platform/display-firmware": {
+      "post": {
+        "description": "Exclude app jobs and Portal updates; return 409 display_firmware_unavailable without the tool.",
+        "operationId": "rewrite_display_firmware_api_v1_platform_display_firmware_post",
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformUpdateAcceptedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Rewrite Display Firmware",
+        "tags": [
+          "platform"
+        ]
+      }
+    },
     "/api/v1/platform/update": {
       "get": {
-        "description": "Report the current (or last finished) platform-bundle update job.",
+        "description": "Report the job and current firmware result; abandoned firmware stages are finished.",
         "operationId": "get_update_job_api_v1_platform_update_get",
         "responses": {
           "200": {
@@ -3803,7 +3951,7 @@
     },
     "/api/v1/system/reboot": {
       "post": {
-        "description": "Reboot the machine.\n\nRaises:\n    PortalError: 503 ``system_backend_unavailable`` if the real\n        adapter's D-Bus call to logind times out or fails. Translated\n        from :class:`~palmimo_portal.ports.AdapterUnavailableError` by\n        the app-wide exception handler in :mod:`palmimo_portal.api.app`.\n        409 ``update_in_progress`` while an update/rollback job is\n        ``\"running\"`` -- see :func:`_refuse_while_updating`.",
+        "description": "Reboot the machine.\n\nRaises:\n    PortalError: 503 ``system_backend_unavailable`` if the real\n        adapter's D-Bus call to logind times out or fails. Translated\n        from :class:`~palmimo_portal.ports.AdapterUnavailableError` by\n        the app-wide exception handler in :mod:`palmimo_portal.api.app`.\n        409 ``update_in_progress`` while an update/rollback job is\n        ``\"running\"``; 409 ``platform_update_in_progress`` during a\n        live display firmware job.",
         "operationId": "reboot_api_v1_system_reboot_post",
         "responses": {
           "200": {
@@ -3825,7 +3973,7 @@
     },
     "/api/v1/system/shutdown": {
       "post": {
-        "description": "Shut the machine down safely.\n\nRaises:\n    PortalError: 503 ``system_backend_unavailable`` -- see\n        :func:`reboot`. 409 ``update_in_progress`` -- see\n        :func:`_refuse_while_updating`.",
+        "description": "Shut the machine down safely.\n\nRaises:\n    PortalError: 503 ``system_backend_unavailable`` -- see\n        :func:`reboot`. 409 ``update_in_progress`` or\n        ``platform_update_in_progress`` -- see :func:`reboot`.",
         "operationId": "shutdown_api_v1_system_shutdown_post",
         "responses": {
           "200": {

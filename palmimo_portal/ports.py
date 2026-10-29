@@ -679,6 +679,12 @@ class UpdateState:
     job: UpdateJob
 
 
+@dataclass(frozen=True)
+class PreemptedApp:
+    preempted_app: str | None
+    by: str
+
+
 class StateStore(Protocol):
     """Persists the small pieces of state the Portal must survive a restart.
 
@@ -860,6 +866,12 @@ class StateStore(Protocol):
         Raises:
             RunLockTimeoutError: another start/stop/autostart already holds it.
         """
+        ...
+
+    def read_preempted_app(self) -> PreemptedApp | None: ...
+
+    def write_preempted_app(self, record: PreemptedApp | None) -> None:
+        """Atomically replace the runtime record; None removes it. Caller holds run.lock."""
         ...
 
     def read_platform_update_state(self) -> PlatformUpdateState:
@@ -1579,6 +1591,67 @@ class PlatformCommandError(Exception):
         super().__init__(f"{step}: {message}")
 
 
+DisplayFirmwareOutcome = Literal[
+    "updated", "current", "absent", "undeclared", "skipped", "busy", "failed", "interrupted"
+]
+
+
+@dataclass(frozen=True)
+class DisplayFirmwareResult:
+    result: DisplayFirmwareOutcome
+    before: str | None = None
+    after: str | None = None
+    reason: str | None = None
+    boot_id: str | None = None
+
+    @classmethod
+    def from_payload(cls, payload: object) -> DisplayFirmwareResult:
+        if (
+            not isinstance(payload, dict)
+            or not isinstance(payload.get("result"), str)
+            or payload["result"]
+            not in {
+                "updated",
+                "current",
+                "absent",
+                "undeclared",
+                "skipped",
+                "busy",
+                "failed",
+                "interrupted",
+            }
+        ):
+            raise ValueError("invalid display firmware result")
+        for key in ("before", "after", "reason", "boot_id"):
+            if payload.get(key) is not None and not isinstance(payload[key], str):
+                raise ValueError(f"invalid display firmware {key}")
+        return cls(
+            payload["result"],
+            payload.get("before"),
+            payload.get("after"),
+            payload.get("reason"),
+            payload.get("boot_id"),
+        )
+
+
+@dataclass(frozen=True)
+class DisplayFirmwareState:
+    last_result: DisplayFirmwareOutcome
+    last_reason: str | None = None
+
+    @classmethod
+    def from_payload(cls, payload: object) -> DisplayFirmwareState:
+        if not isinstance(payload, dict):
+            raise ValueError("invalid display firmware state")
+        result = DisplayFirmwareResult.from_payload(
+            {"result": payload.get("last_result"), "reason": payload.get("last_reason")}
+        )
+        return cls(last_result=result.result, last_reason=result.reason)
+
+    def as_result(self) -> DisplayFirmwareResult:
+        return DisplayFirmwareResult(result=self.last_result, reason=self.last_reason)
+
+
 class PlatformPort(Protocol):
     """Reads/applies the realtime platform bundle (design doc 2.8). See :class:`~palmimo_portal.adapters.platform.SudoPlatformPort`.
 
@@ -1586,6 +1659,20 @@ class PlatformPort(Protocol):
     ``sudo`` -- :attr:`~palmimo_portal.settings.Settings.sudo_bin` is
     referenced nowhere else in this tree (``tests/test_platform_sudo_contract.py``).
     """
+
+    def read_boot_id(self) -> str | None:
+        """Return the kernel boot ID, or None when unavailable."""
+        ...
+
+    def has_display_firmware_tool(self) -> bool: ...
+
+    def ensure_display_firmware(self) -> DisplayFirmwareResult:
+        """Return the tool's result; raise PlatformCommandError on invalid output or execution failure."""
+        ...
+
+    def read_display_firmware_state(self) -> DisplayFirmwareState | None:
+        """Return the tool-owned state, or None when absent or unreadable."""
+        ...
 
     def read_installed(self) -> PlatformInstalled | None:
         """Return the currently-recorded platform bundle, or ``None`` if ``installed.json`` is absent/unreadable."""
@@ -1636,7 +1723,7 @@ class PlatformBundleSource(Protocol):
 
     Needs no elevated privilege (writes only into a Portal-owned staging
     directory) -- kept separate from :class:`PlatformPort` so ``sudo`` stays
-    confined to the three verbs that actually need it.
+    confined to :class:`PlatformPort`.
     """
 
     def fetch_latest_manifest(self, tag: str) -> PlatformManifest:
@@ -1682,7 +1769,7 @@ class PlatformJob:
 
     ``step`` is one of design doc 2.8's pipeline names (``"fetch"``,
     ``"verify_sha"``, ``"extract"``, ``"preflight"``, ``"install"``,
-    ``"verify"``, ``"record"``, ``"restart"``), kept a plain ``str`` (not a
+    ``"verify"``, ``"record"``, ``"display_firmware"``, ``"restart"``), kept a plain ``str`` (not a
     ``Literal``, mirroring :attr:`UpdateJob.step`) since a ``"preflight"``
     failure encodes extra detail into ``error``
     (``"reflash_required"``/``"portal_too_old"``), not into ``step``.
@@ -1698,9 +1785,10 @@ class PlatformJob:
 
 @dataclass(frozen=True)
 class PlatformUpdateState:
-    """The Portal's whole platform-update picture: just the one in-flight/last job, persisted state-wise."""
+    """The platform job and its display firmware result, persisted together."""
 
     job: PlatformJob
+    display_firmware: DisplayFirmwareResult | None = None
 
 
 class PlatformLockTimeoutError(Exception):

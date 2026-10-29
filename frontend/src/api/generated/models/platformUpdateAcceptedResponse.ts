@@ -4,8 +4,10 @@
  * Palmimo Portal
  * OpenAPI spec version: 0.1.0
  */
+import type { DisplayFirmwareResult } from './displayFirmwareResult';
 import type { PlatformJobInfo } from './platformJobInfo';
 
 export interface PlatformUpdateAcceptedResponse {
+  display_firmware?: DisplayFirmwareResult | null;
   job: PlatformJobInfo;
 }

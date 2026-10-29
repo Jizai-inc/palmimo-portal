@@ -23,7 +23,14 @@ from palmimo_portal.api.deps import get_state_store, require_auth, require_full_
 from palmimo_portal.api.errors import PortalError
 from palmimo_portal.core import platform as platform_core
 from palmimo_portal.core.platform_update import PlatformUpdateInProgressError
-from palmimo_portal.ports import AppsLockTimeoutError, AppsStateFileState, PlatformLockTimeoutError, StateStore
+from palmimo_portal.ports import (
+    AppsLockTimeoutError,
+    AppsStateFileState,
+    DisplayFirmwareResult,
+    DisplayFirmwareState,
+    PlatformLockTimeoutError,
+    StateStore,
+)
 
 
 router = APIRouter(
@@ -76,6 +83,8 @@ class PlatformStatusResponse(BaseModel):
     verify_diffs: list[PlatformVerifyDiffInfo]
     latest: PlatformLatestInfo | None
     latest_error: str | None
+    display_firmware: DisplayFirmwareState | None = None
+    display_firmware_available: bool = False
 
 
 class PlatformJobInfo(BaseModel):
@@ -89,6 +98,7 @@ class PlatformJobInfo(BaseModel):
 
 class PlatformUpdateAcceptedResponse(BaseModel):
     job: PlatformJobInfo
+    display_firmware: DisplayFirmwareResult | None = None
 
 
 def _job_info(job: Any) -> PlatformJobInfo:
@@ -128,6 +138,8 @@ def _status_response(request: Request, state_store: StateStore, *, force_verify:
         verify_diffs=[PlatformVerifyDiffInfo(**d) for d in status["verify_diffs"]],
         latest=PlatformLatestInfo(**status["latest"]) if status["latest"] is not None else None,
         latest_error=status["latest_error"],
+        display_firmware=adapters.platform.read_display_firmware_state(),
+        display_firmware_available=adapters.platform.has_display_firmware_tool(),
     )
 
 
@@ -199,10 +211,36 @@ def start_update(
     except (PlatformLockTimeoutError, PlatformUpdateInProgressError) as error:
         raise PortalError(409, "platform_update_in_progress") from error
 
-    return PlatformUpdateAcceptedResponse(job=_job_info(state_store.read_platform_update_state().job))
+    return _update_response(request)
+
+
+def _update_response(request: Request) -> PlatformUpdateAcceptedResponse:
+    state = request.app.state.platform_job_runner.current_state()
+    return PlatformUpdateAcceptedResponse(
+        job=_job_info(state.job),
+        display_firmware=request.app.state.platform_update_runner.display_firmware_result(state),
+    )
+
+
+@router.post("/display-firmware", status_code=202)
+def rewrite_display_firmware(
+    request: Request, state_store: StateStore = Depends(get_state_store)
+) -> PlatformUpdateAcceptedResponse:
+    """Exclude app jobs and Portal updates; return 409 display_firmware_unavailable without the tool."""
+    if not request.app.state.adapters.platform.has_display_firmware_tool():
+        raise PortalError(409, "display_firmware_unavailable")
+    _ensure_apps_ledger_is_current(state_store)
+    _ensure_no_portal_update_in_progress(state_store)
+    try:
+        request.app.state.platform_job_runner.start(None, None)
+    except AppsLockTimeoutError as error:
+        raise PortalError(409, "app_job_in_progress") from error
+    except (PlatformLockTimeoutError, PlatformUpdateInProgressError) as error:
+        raise PortalError(409, "platform_update_in_progress") from error
+    return _update_response(request)
 
 
 @router.get("/update")
-def get_update_job(state_store: StateStore = Depends(get_state_store)) -> PlatformUpdateAcceptedResponse:
-    """Report the current (or last finished) platform-bundle update job."""
-    return PlatformUpdateAcceptedResponse(job=_job_info(state_store.read_platform_update_state().job))
+def get_update_job(request: Request) -> PlatformUpdateAcceptedResponse:
+    """Report the job and current firmware result; abandoned firmware stages are finished."""
+    return _update_response(request)

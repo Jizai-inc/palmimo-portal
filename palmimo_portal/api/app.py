@@ -69,6 +69,7 @@ from palmimo_portal.core.apps_start import (
 )
 from palmimo_portal.core.auth import SESSION_COOKIE_NAME, LoginRateLimiter, ResetRateLimiter, decode_session
 from palmimo_portal.core.catalog import CatalogCache
+from palmimo_portal.core.display_firmware import restore_preempted_app, run_display_firmware
 from palmimo_portal.core.periodic import build_scheduler
 from palmimo_portal.core.platform import (
     PlatformJobRunner,
@@ -77,7 +78,6 @@ from palmimo_portal.core.platform import (
     compute_status,
     run_verify,
 )
-from palmimo_portal.core.platform_update import finalize_after_restart as finalize_platform_after_restart
 from palmimo_portal.core.provisioning import is_serving_setup_ap
 from palmimo_portal.core.update import finalize_after_restart
 from palmimo_portal.core.update_runner import UpdateRunner
@@ -493,7 +493,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     try:
         platform_state = adapters.state.read_platform_update_state()
-        finalized_platform = finalize_platform_after_restart(platform_state, time.time())
+        finalized_platform = app.state.platform_update_runner.finalize_after_restart(platform_state)
         if finalized_platform is not platform_state:
             adapters.state.write_platform_update_state(finalized_platform)
         logger.info(
@@ -518,7 +518,16 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:
         logger.exception("Wi-Fi startup recovery could not start")
 
-    if app.state.settings.autostart_enabled:
+    skip_autostart = False
+    try:
+        record = adapters.state.read_preempted_app()
+        skip_autostart = record is not None and record.by == "display-firmware"
+        if skip_autostart:
+            skip_autostart = await anyio.to_thread.run_sync(restore_preempted_app, app.state.start_deps)
+    except Exception:
+        logger.exception("preempt: startup recovery failed")
+
+    if app.state.settings.autostart_enabled and not skip_autostart:
         try:
             await anyio.to_thread.run_sync(_run_autostart, app)
         except Exception:
@@ -688,6 +697,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.platform_dir,
         portal_installed_version=portal_version(),
         on_finish=lambda: _refresh_platform_readiness(app),
+        display_firmware=lambda: run_display_firmware(app.state.start_deps, adapters.platform),
     )
     app.state.platform_job_runner = PlatformJobRunner(
         adapters.state, app.state.platform_update_runner, run_in_thread=bool(settings.apps_run_in_thread)

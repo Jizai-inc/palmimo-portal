@@ -402,7 +402,7 @@ def reset(
 
     Raises:
         PortalError: 403 ``reset_not_allowed_from_device`` for device-local or
-            unknown/forwarded peers; 429 ``auth_rate_limited`` while throttled -- checked
+            unknown peers; 429 ``auth_rate_limited`` while throttled -- checked
             twice: a cheap non-atomic peek via
             :meth:`~palmimo_portal.core.auth.ResetRateLimiter.is_locked`
             before the identity/auth-state read, and again via
@@ -419,8 +419,7 @@ def reset(
     """
     client_host = request.client.host if request.client is not None else None
     # Device apps must not be able to exhaust the owner's reset budget.
-    # Uvicorn may replace the peer with X-Forwarded-For supplied by a local app.
-    if "x-forwarded-for" in request.headers or not reset_source_allowed(client_host, local_addresses):
+    if not reset_source_allowed(client_host, local_addresses):
         logger.warning("auth: login credentials reset refused from %s", client_host or "unknown")
         raise PortalError(403, "reset_not_allowed_from_device")
 

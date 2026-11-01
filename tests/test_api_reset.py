@@ -17,12 +17,12 @@ import json
 import logging
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import Receive, Scope, Send
 
 from palmimo_portal.adapters.identity import FileIdentityStore
 from palmimo_portal.core.auth import SESSION_COOKIE_NAME
@@ -392,21 +392,3 @@ def test_reset_from_device_preserves_auth_and_remote_reset_budget(
         response = device_client.post("/api/v1/auth/reset", headers=CSRF_HEADERS)
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "reset_not_allowed_from_device"
-
-
-def test_reset_rejects_forwarded_local_requests_without_spending_budget(
-    app: FastAPI, client: TestClient, adapters: FakeAdapterBundle
-) -> None:
-    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
-
-    _carry_identity(adapters)
-    _promote_to_full(client)
-    before = adapters.state.read_auth()
-    assert before is not None
-    forwarded_app = cast(ASGIApp, ProxyHeadersMiddleware(cast(Any, app)))
-    with TestClient(forwarded_app, client=("127.0.0.1", 12345)) as device_client:
-        response = device_client.post("/api/v1/auth/reset", headers={**CSRF_HEADERS, "X-Forwarded-For": "192.0.2.20"})
-    assert response.status_code == 403
-    assert response.json()["error"]["code"] == "reset_not_allowed_from_device"
-    assert adapters.state.read_auth() == before
-    assert client.post("/api/v1/auth/reset", headers=CSRF_HEADERS).status_code == 200

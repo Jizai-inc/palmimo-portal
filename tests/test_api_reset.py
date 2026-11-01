@@ -366,13 +366,13 @@ def test_reset_without_the_csrf_header_is_rejected(client: TestClient, adapters:
     assert response.json()["error"]["code"] == "csrf_header_missing"
 
 
-@pytest.mark.parametrize("host", ["127.2.3.4", "192.168.1.11", "2001:db8::11", "invalid", None])
+@pytest.mark.parametrize("host", ["127.2.3.4", "198.51.100.11", "2001:db8::11", "invalid", None])
 def test_reset_from_device_preserves_auth_and_remote_reset_budget(
     app: FastAPI, client: TestClient, adapters: FakeAdapterBundle, host: str | None
 ) -> None:
     _carry_identity(adapters)
     _promote_to_full(client)
-    adapters.local_addresses.addresses.update({"192.168.1.11", "2001:db8::11"})
+    adapters.local_addresses.addresses.update({"198.51.100.11", "2001:db8::11"})
     before = adapters.state.read_auth()
     assert before is not None
 

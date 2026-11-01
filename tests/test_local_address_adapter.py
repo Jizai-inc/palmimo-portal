@@ -23,7 +23,7 @@ def test_socket_address_probe_distinguishes_local_and_remote_addresses() -> None
 
 
 @pytest.mark.parametrize(
-    "host", ["192.168.1.11", "2001:db8::11", "fe80::11", "192.168.1.20", "2001:db8::20", "fe80::20"]
+    "host", ["198.51.100.11", "2001:db8::11", "fe80::11", "198.51.100.20", "2001:db8::20", "fe80::20"]
 )
 def test_socket_address_probe_finds_assigned_addresses_including_scopeless_link_local(
     monkeypatch: pytest.MonkeyPatch, host: str
@@ -41,7 +41,7 @@ def test_socket_address_probe_finds_assigned_addresses_including_scopeless_link_
             pass
 
         def bind(self, address: tuple[str, int] | tuple[str, int, int, int]) -> None:
-            if address[0] in {"192.168.1.11", "2001:db8::11"} or address == ("fe80::11", 0, 0, 7):
+            if address[0] in {"198.51.100.11", "2001:db8::11"} or address == ("fe80::11", 0, 0, 7):
                 return
             raise OSError(errno.EADDRNOTAVAIL, "not assigned")
 

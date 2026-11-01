@@ -443,6 +443,7 @@
     "prerelease_refused": "これはプレリリースビルドのため、このチャンネルではインストールできません。",
     "preview_failed": "アプリのソースの取得または検証に失敗しました。",
     "release_source_unavailable": "Palmimo は更新サービスに接続できませんでした。しばらくしてから再試行してください。",
+    "reset_not_allowed_from_device": "ネットワーク上の別の端末からログイン情報をリセットしてください。",
     "reset_not_available": "このデバイスではリセットできません。SSH で auth.json を削除してください。",
     "secret_in_use": "このシークレットはアプリに割り当てられているため削除できません。",
     "secret_not_found": "この名前のシークレットは登録されていません。",

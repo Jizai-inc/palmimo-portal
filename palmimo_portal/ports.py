@@ -18,6 +18,14 @@ from pathlib import Path
 from typing import Any, Literal, Protocol
 
 
+class LocalAddressPort(Protocol):
+    """Current device address ownership, including secondary IPv4 and scoped IPv6 addresses."""
+
+    def is_local_address(self, address: str) -> bool:
+        """Accept a normalized IP without a zone; return True if ownership cannot be determined."""
+        ...
+
+
 class ConnectionState(StrEnum):
     """Wi-Fi state machine, mirroring comitup's: no known network yet, mid-attempt, or on the home LAN."""
 

@@ -15,12 +15,14 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+from collections.abc import Iterator
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from palmimo_portal.adapters.identity import FileIdentityStore
 from palmimo_portal.core.auth import SESSION_COOKIE_NAME
@@ -32,6 +34,12 @@ from palmimo_portal.wiring import AdapterBundle
 CSRF_HEADERS = {"X-Requested-With": "PalmimoPortal"}
 STICKER_PASSWORD = "sticker-correct-horse"
 DEVICE_ID = "palmimo-042"
+
+
+@pytest.fixture
+def client(app: FastAPI) -> Iterator[TestClient]:
+    with TestClient(app, client=("192.0.2.20", 50000)) as remote_client:
+        yield remote_client
 
 
 def _carry_identity(adapters: FakeAdapterBundle, password: str = STICKER_PASSWORD) -> None:
@@ -356,3 +364,49 @@ def test_reset_without_the_csrf_header_is_rejected(client: TestClient, adapters:
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "csrf_header_missing"
+
+
+@pytest.mark.parametrize("host", ["127.2.3.4", "192.168.1.11", "2001:db8::11", "invalid", None])
+def test_reset_from_device_preserves_auth_and_remote_reset_budget(
+    app: FastAPI, client: TestClient, adapters: FakeAdapterBundle, host: str | None
+) -> None:
+    _carry_identity(adapters)
+    _promote_to_full(client)
+    adapters.local_addresses.addresses.update({"192.168.1.11", "2001:db8::11"})
+    before = adapters.state.read_auth()
+    assert before is not None
+
+    async def from_source(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            scope["client"] = (host, 12345) if host is not None else None
+        await app(scope, receive, send)
+
+    with TestClient(from_source) as device_client:
+        response = device_client.post("/api/v1/auth/reset", headers=CSRF_HEADERS)
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "reset_not_allowed_from_device"
+    assert adapters.state.read_auth() == before
+    assert client.post("/api/v1/auth/reset", headers=CSRF_HEADERS).status_code == 200
+
+    with TestClient(from_source) as device_client:
+        response = device_client.post("/api/v1/auth/reset", headers=CSRF_HEADERS)
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "reset_not_allowed_from_device"
+
+
+def test_reset_rejects_forwarded_local_requests_without_spending_budget(
+    app: FastAPI, client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+    _carry_identity(adapters)
+    _promote_to_full(client)
+    before = adapters.state.read_auth()
+    assert before is not None
+    forwarded_app = cast(ASGIApp, ProxyHeadersMiddleware(cast(Any, app)))
+    with TestClient(forwarded_app, client=("127.0.0.1", 12345)) as device_client:
+        response = device_client.post("/api/v1/auth/reset", headers={**CSRF_HEADERS, "X-Forwarded-For": "192.0.2.20"})
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "reset_not_allowed_from_device"
+    assert adapters.state.read_auth() == before
+    assert client.post("/api/v1/auth/reset", headers=CSRF_HEADERS).status_code == 200

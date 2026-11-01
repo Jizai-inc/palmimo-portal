@@ -29,6 +29,7 @@ from palmimo_portal.ports import (
     DiskPort,
     IdentityStore,
     JournalPort,
+    LocalAddressPort,
     NetworkPort,
     ReleaseSource,
     RunDirPort,
@@ -317,3 +318,7 @@ def require_wifi_access(
     decision = decide_wifi_access(portal_state, authenticated=authenticated, provisioned=provisioned)
     if decision is WifiAccessDecision.DENY:
         raise PortalError(401, "not_authenticated")
+
+
+def get_local_address_port(request: Request) -> LocalAddressPort:
+    return request.app.state.adapters.local_addresses

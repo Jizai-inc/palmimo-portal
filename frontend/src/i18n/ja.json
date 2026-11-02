@@ -596,7 +596,7 @@
     "logsUnavailable": "現在このアプリのログを読み取れません。",
     "labelEditButton": "名前を変更",
     "labelInputLabel": "アプリ名",
-    "logsLoadMoreButton": "さらに読み込む",
+    "logsLoadMoreButton": "最新のログを取得",
     "logsPageTitle": "{{name}} のログ",
     "logsPageCloseButton": "閉じる",
     "devicesTitle": "デバイス",

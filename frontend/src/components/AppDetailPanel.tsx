@@ -512,6 +512,7 @@ function SourceSection({
 
   const isGit = app.source.type === "git";
   const isOfficialTag = app.source.official && app.source.ref_kind === "tag";
+  const updateAvailable = updateCheck.data?.update_available === true;
 
   return (
     <Section title={t("appDetail.sourceTitle")}>
@@ -525,30 +526,30 @@ function SourceSection({
         {app.installed_at ? <KvRow label={t("appDetail.sourceInstalledAtLabel")} value={formatUtcTimestamp(app.installed_at)} /> : null}
       </dl>
       {isGit ? (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {!isOfficialTag ? <Button variant="outline" size="sm" onClick={() => setEditingRef((value) => !value)}>{t("appDetail.sourceEditRefButton")}</Button> : null}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => updateCheck.mutate({ name: app.id })}
-            disabled={updateCheck.isPending}
-          >
-            {t("appDetail.checkForUpdatesButton")}
-          </Button>
+          {updateAvailable ? (
+            <Button size="sm" onClick={onUpdate} disabled={updatePending || appRunning} title={appRunning ? t("appDetail.updateDisabledAppRunning") : undefined}>
+              {t("appDetail.updateButton")}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => updateCheck.mutate({ name: app.id })}
+              disabled={updateCheck.isPending}
+            >
+              {t("appDetail.checkForUpdatesButton")}
+            </Button>
+          )}
+          {updateAvailable ? (
+            <p className="text-sm">{appRunning ? t("appDetail.updateDisabledAppRunning") : t("apps.updateAvailableChip")}</p>
+          ) : updateCheck.data ? (
+            <p className="text-sm text-muted-foreground">{t("appDetail.checkForUpdatesUpToDate")}</p>
+          ) : null}
         </div>
       ) : null}
       {isOfficialTag ? <p className="text-sm text-muted-foreground">{t("appDetail.sourceOfficialTagManaged")}</p> : null}
-      {updateCheck.data ? (
-        updateCheck.data.update_available ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm">{t("apps.updateAvailableChip")}</p>
-            <Button size="sm" onClick={onUpdate} disabled={updatePending || appRunning} title={appRunning ? t("appDetail.updateDisabledAppRunning") : undefined}>{t("appDetail.updateButton")}</Button>
-            {appRunning ? <p className="text-sm text-muted-foreground">{t("appDetail.updateDisabledAppRunning")}</p> : null}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">{t("appDetail.checkForUpdatesUpToDate")}</p>
-        )
-      ) : null}
       <ApiErrorAlert error={updateCheck.error} />
       {editingRef && !isOfficialTag ? (
         <div className="flex flex-col gap-2">

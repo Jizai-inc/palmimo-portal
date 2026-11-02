@@ -56,7 +56,7 @@ export function SidebarNav({
   const { t } = useTranslation();
   const { pathname } = useLocation();
   return (
-    <nav className="flex flex-col gap-0.5" aria-label={t("nav.primaryNavigation")}>
+    <nav className="-m-0.5 flex min-h-0 flex-col gap-0.5 overflow-y-auto p-0.5" aria-label={t("nav.primaryNavigation")}>
       {NAV_ITEMS.map((item) =>
         item.children ? (
           <NavGroup
@@ -116,7 +116,7 @@ function NavRow({
         <Icon className="size-4" />
         {showBadge ? <UpdateDot className="-right-1 -top-1 size-1.5" /> : null}
       </span>
-      <span className={cn(rail && "sr-only")}>{label}</span>
+      <span className={cn("min-w-0 truncate", rail && "sr-only")}>{label}</span>
       {showBadge ? <span className="sr-only"> {t("nav.updateAvailable")}</span> : null}
     </Link>
   );
@@ -227,7 +227,7 @@ function DocsLink({ rail }: { rail: boolean }) {
 /** Pinned to the bottom of the sidebar and drawer: the account menu. */
 export function SidebarFooter({ rail = false }: { rail?: boolean }) {
   return (
-    <div className={cn("mt-auto flex items-center gap-2 border-t border-border pt-3", rail ? "flex-col px-0" : "px-1")}>
+    <div className={cn("mt-auto flex shrink-0 items-center gap-2 border-t border-border pt-3", rail ? "flex-col px-0" : "px-1")}>
       <AccountMenu compact={rail} />
     </div>
   );

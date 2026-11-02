@@ -76,10 +76,18 @@ describe("apps child routes through the real route tree", () => {
     const router = renderAt("/apps");
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole("link", { name: "Add from GitHub or zip" }));
+    await user.click(await screen.findByRole("link", { name: "Add app" }));
 
     expect(await screen.findByRole("alertdialog", { name: "Add app" })).toBeInTheDocument();
     expect(router.state.location.search).toEqual({ add: "github" });
+  });
+
+  it("offers the app template link in the add-app dialog's GitHub tab", async () => {
+    stubAppsPage();
+    renderAt("/apps?add=github");
+
+    const dialog = await screen.findByRole("alertdialog", { name: "Add app" });
+    expect(within(dialog).getByRole("link", { name: /Start from template/ })).toHaveAttribute("target", "_blank");
   });
 
   it("removes ?add= when the add-app dialog closes", async () => {
@@ -195,7 +203,7 @@ describe("apps child routes through the real route tree", () => {
     expect(await screen.findByText(/No apps installed yet\./)).toBeInTheDocument();
   });
 
-  it("switches to Discover and shows the official catalog and the template link", async () => {
+  it("switches to Discover and shows the official catalog", async () => {
     stubAppsPage();
     const router = renderAt("/apps");
     const user = userEvent.setup();
@@ -203,7 +211,6 @@ describe("apps child routes through the real route tree", () => {
     await user.click(await screen.findByRole("link", { name: "Discover" }));
 
     expect(await screen.findByText("palmimo-teleop")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Start from template/ })).toHaveAttribute("target", "_blank");
     expect(router.state.location.search).toEqual({ tab: "discover" });
   });
 

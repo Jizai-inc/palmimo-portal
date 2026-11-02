@@ -212,7 +212,6 @@
     "attentionPortalUpdate": "Portal のアップデートがあります",
     "checklistTitle": "はじめに",
     "checklistProgress": "{{total}} 件中 {{done}} 件完了",
-    "checklistHide": "非表示",
     "checklistDone": "完了",
     "checklistConnectGithub": "GitHub を接続する",
     "checklistConnectGithubBody": "GitHub のトークンを追加すると、プライベートリポジトリのアプリをインストールできます。",

@@ -212,7 +212,6 @@
     "attentionPortalUpdate": "Portal update available",
     "checklistTitle": "Get started",
     "checklistProgress": "{{done}} of {{total}} done",
-    "checklistHide": "Hide",
     "checklistDone": "done",
     "checklistConnectGithub": "Connect GitHub",
     "checklistConnectGithubBody": "Add a GitHub token so Palmimo can install apps from your private repositories.",

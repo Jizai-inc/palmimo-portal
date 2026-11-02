@@ -19,6 +19,11 @@ afterEach(cleanup);
 // itself to override this before rendering.
 beforeEach(() => stubMatchMedia(false));
 
+// jsdom lacks the pointer-capture and scrollIntoView APIs Radix Select calls when it opens.
+Element.prototype.hasPointerCapture ??= () => false;
+Element.prototype.releasePointerCapture ??= () => undefined;
+Element.prototype.scrollIntoView ??= () => undefined;
+
 // `i18next-browser-languagedetector` picks a language from the jsdom
 // environment; force English once here so tests asserting on rendered copy
 // don't depend on jsdom's default.

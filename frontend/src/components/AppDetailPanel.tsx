@@ -42,6 +42,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { appStatusLabel, appStatusTone, isAppStatusBusy, shouldPollAppStatus } from "@/lib/appStatus";
 import { appText } from "@/lib/appText";
 import { deviceLabel } from "@/lib/deviceLabel";
@@ -360,18 +361,21 @@ function ParamsSection({ app, onSaved }: { app: AppDetailResponse; onSaved: () =
                 <div className="flex items-center gap-2">
                   <Label htmlFor={id} className="w-40 shrink-0 font-mono text-xs">{spec.name}</Label>
                   {spec.type === "enum" ? (
-                    <select
-                      id={id}
-                      className="h-10 rounded-md border border-input bg-transparent px-3 text-sm"
+                    <Select
                       value={typeof value === "string" ? value : ""}
-                      onChange={(event) => setValues((current) => ({ ...current, [spec.name]: event.target.value }))}
+                      onValueChange={(next) => setValues((current) => ({ ...current, [spec.name]: next }))}
                     >
-                      {(spec.choices ?? []).map((choice) => (
-                        <option key={choice} value={choice}>
-                          {choice}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger id={id}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(spec.choices ?? []).map((choice) => (
+                          <SelectItem key={choice} value={choice}>
+                            {choice}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   ) : spec.type === "bool" ? (
                     <input
                       id={id}

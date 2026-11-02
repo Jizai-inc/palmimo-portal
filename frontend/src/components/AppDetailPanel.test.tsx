@@ -144,7 +144,7 @@ describe("AppDetailPanel", () => {
     expect(screen.getByText("palmimo.", { exact: false })).toBeInTheDocument();
   });
 
-  it("renders an enum param as a select with its declared choices", async () => {
+  it("renders an enum param as a dropdown with its declared choices", async () => {
     server.use(
       getGetAppApiV1AppsNameGetMockHandler(
         detail({
@@ -162,10 +162,11 @@ describe("AppDetailPanel", () => {
     );
     renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
 
-    const select = await screen.findByLabelText("mode");
-    expect(select.tagName).toBe("SELECT");
-    expect(within(select).getByRole("option", { name: "walk" })).toBeInTheDocument();
-    expect(within(select).getByRole("option", { name: "trot" })).toBeInTheDocument();
+    const trigger = await screen.findByRole("combobox", { name: "mode" });
+    expect(trigger).toHaveTextContent("walk");
+    await userEvent.setup().click(trigger);
+    expect(await screen.findByRole("option", { name: "walk" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "trot" })).toBeInTheDocument();
   });
 
   it("shows each param's manifest default until a value is stored", async () => {

@@ -594,6 +594,8 @@
     "logsEmptyState": "No log entries yet.",
     "logsTruncated": "Showing the latest {{count}} lines.",
     "logsUnavailable": "Palmimo cannot read this app's logs right now.",
+    "labelEditButton": "Rename",
+    "labelInputLabel": "App name",
     "logsLoadMoreButton": "Load more",
     "logsPageTitle": "{{name}} logs",
     "logsPageCloseButton": "Close",

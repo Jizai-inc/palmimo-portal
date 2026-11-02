@@ -24,8 +24,9 @@ import { useListSecretsApiV1SecretsGet } from "@/api/generated/secrets/secrets";
 import { getGetStatusApiV1SystemStatusGetQueryKey } from "@/api/generated/system/system";
 import type { AppDetailResponse, ParamSpecInfo, SourceUpdateRequestRefKind } from "@/api/generated/models";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
-import { AppIdLabel, appIdNamePart } from "@/components/AppIdLabel";
+import { appIdNamePart } from "@/components/AppIdLabel";
 import { AppJobDialog } from "@/components/AppJobDialog";
+import { AppTitleEditor } from "@/components/AppTitle";
 import { LogViewer } from "@/components/LogViewer";
 import {
   AlertDialog,
@@ -135,7 +136,7 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-xl [overflow-wrap:anywhere]"><AppIdLabel id={app.id} /></h2>
+          <AppTitleEditor app={app} />
           <Badge variant={tone === "green" ? "default" : tone === "red" ? "destructive" : tone === "muted" ? "secondary" : "outline"} className="flex items-center gap-1">
             {busy ? <Loader2 className="size-3 animate-spin" /> : null}
             {appStatusLabel(t, app.status, app.exit_code)}

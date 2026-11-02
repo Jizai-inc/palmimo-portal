@@ -594,6 +594,8 @@
     "logsEmptyState": "ログはまだありません。",
     "logsTruncated": "最新 {{count}} 行を表示しています。",
     "logsUnavailable": "現在このアプリのログを読み取れません。",
+    "labelEditButton": "名前を変更",
+    "labelInputLabel": "アプリ名",
     "logsLoadMoreButton": "さらに読み込む",
     "logsPageTitle": "{{name}} のログ",
     "logsPageCloseButton": "閉じる",

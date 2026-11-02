@@ -120,6 +120,30 @@ describe("AppDetailPanel", () => {
     await waitFor(() => expect(putBody).toEqual({ params: expected }));
   });
 
+  it("renames the app and shows the new label with the id beneath it", async () => {
+    const user = userEvent.setup();
+    let putBody: unknown;
+    server.use(
+      getGetAppApiV1AppsNameGetMockHandler(detail()),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+      http.put("*/api/v1/apps/palmimo.teleop/label", async ({ request }) => {
+        putBody = await request.json();
+        return HttpResponse.json(detail({ label: "My teleop" }));
+      }),
+    );
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
+
+    await user.click(await screen.findByRole("button", { name: "Rename" }));
+    const input = screen.getByRole("textbox", { name: "App name" });
+    expect(input).toHaveValue("teleop");
+    await user.clear(input);
+    await user.type(input, "My teleop{Enter}");
+
+    await waitFor(() => expect(putBody).toEqual({ label: "My teleop" }));
+    expect(await screen.findByRole("heading", { name: "My teleop" })).toBeInTheDocument();
+    expect(screen.getByText("palmimo.", { exact: false })).toBeInTheDocument();
+  });
+
   it("renders an enum param as a select with its declared choices", async () => {
     server.use(
       getGetAppApiV1AppsNameGetMockHandler(

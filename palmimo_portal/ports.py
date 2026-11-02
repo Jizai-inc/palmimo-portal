@@ -1013,6 +1013,8 @@ class AppRecord:
     requires_python: str | None = None
     #: Stable machine identifier; ``name`` is the manifest-provided display name.
     id: str = ""
+    #: Owner-chosen title shown instead of ``id``; ``None`` shows ``id``. Display only.
+    label: str | None = None
 
 
 @dataclass(frozen=True)

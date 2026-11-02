@@ -23,6 +23,7 @@ export interface AppSummary {
   exit_code?: number | null;
   id: string;
   installed_at: number | null;
+  label?: string | null;
   last_job: AppJobInfo | null;
   latest_commit: string | null;
   missing_env?: string[];

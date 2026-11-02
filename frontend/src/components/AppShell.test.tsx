@@ -272,7 +272,7 @@ describe("AppShell header", () => {
     );
     renderAppShell();
 
-    expect(await screen.findByRole("link", { name: "Running app: Hello Robot" })).toBeInTheDocument();
+    expect(await screen.findByText("Running app: Hello Robot")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
   });
 });

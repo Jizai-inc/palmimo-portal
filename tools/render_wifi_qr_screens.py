@@ -26,6 +26,7 @@ def render(font_path: Path) -> None:
     title_font = ImageFont.truetype(str(font_path), 16)
     body_font = ImageFont.truetype(str(font_path), 11)
     screens = {
+        "waiting": ("Looking for Wi-Fi...", ("QR setup if none is found",), "#ffc857"),
         "checking": ("Checking QR", ("Please wait...",), "#ffc857"),
         "connecting": ("Connecting", ("Please wait...",), "#ffc857"),
         "connected": ("Connected", (), "#70e0ae"),

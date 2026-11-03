@@ -21,7 +21,7 @@ normally after restoring the face and releasing its devices.
 
 | type | Fields | Meaning |
 | --- | --- | --- |
-| hello | proto: 1 | Camera and display initialization completed; sent once |
+| hello | proto: 1 | Reservations, dependencies, camera open, and face preparation completed; streaming has not started; sent once |
 | close | None | Connected screen Close button pressed |
 | qr | text: string | Decoded QR contents, without interpretation |
 
@@ -39,7 +39,8 @@ All messages have type: screen.
 
 | state | Additional fields |
 | --- | --- |
-| scanning | None |
+| waiting | None; static Wi-Fi search notice, without starting the camera stream |
+| scanning | None; start the stream on first use, then show live preview |
 | checking | None |
 | rejected | reason |
 | connecting | ssid |
@@ -60,12 +61,30 @@ The Portal owns screen timing: rejected lasts 5 seconds, failed 8 seconds,
 and connected 300 seconds unless closed earlier. An unresolved QR trial screen fails after 120
 seconds; this does not cancel the independent network trial.
 
+## Startup and camera streaming
+
+Startup creates the socket, reserves camera then display, imports hardware
+dependencies, opens and configures the camera, and initializes the face before
+sending hello. Camera setup includes S_FMT, REQBUFS, QUERYBUF/mmap, and QBUF,
+but no STREAMON. A missing or busy camera exits with 78 or 75 before any face
+communication.
+
+The first image is the RGB565 waiting screen. The reader remains in waiting
+without decoding QR codes until the Portal sends a screen command. The first
+scanning command starts STREAMON. Until the first frame arrives, the face shows
+a GRAY8 camera preparation notice; it then shows live preview. No blank frame
+is sent during startup or a return to scanning. Once started, the stream stays
+on until reader termination. Returning to scanning after live preview resumes
+with the next camera frame without another preparation notice.
+
 ## Reader timers and termination
 
 The reader exits normally if no authorized client arrives within 30 seconds
 of startup. While checking, 15 seconds without a Portal command returns it
-to scanning. While displaying frames, it sends a display PING every 2
-seconds. SIGTERM restores the face to its power state from startup (`IDLE` if it was on, `EXPR SLEEPING` if it was off) and releases devices.
+to scanning. If no camera frame arrives within 15 seconds of STREAMON, the
+reader exits with 78, even if the Portal changes screens. These deadlines use a
+monotonic clock. While displaying frames, including waiting and camera
+preparation, it sends a display PING every 2 seconds. SIGTERM restores the face to its power state from startup (`IDLE` if it was on, `EXPR SLEEPING` if it was off) and releases devices.
 
 | Exit code | Meaning | Portal response |
 | --- | --- | --- |
@@ -73,7 +92,7 @@ seconds. SIGTERM restores the face to its power state from startup (`IDLE` if it
 | 69 | Required decoding dependencies unavailable | Disable until the Portal restarts |
 | 75 | Camera or display reservation unavailable | Retry after 30 seconds |
 | 76 | Face firmware does not support FRAME | Disable until the Portal restarts; expose firmware_too_old in setup status |
-| 78 | Camera or face display unavailable: missing, not answering, or the reservation directory is missing or unsafe | Retry after one hour |
+| 78 | Camera or face display unavailable: missing, not answering, no first camera frame within 15 seconds, or the reservation directory is missing or unsafe | Retry after one hour |
 | Other | Abnormal termination | Retry after 30 seconds, doubling to at most 10 minutes |
 
 A hello resets the abnormal retry interval to 30 seconds. A unit missing

@@ -47,6 +47,10 @@ class Camera:
     def __init__(self) -> None:
         self.frames: deque[list[str]] = deque()
         self.closed = False
+        self.starts = 0
+
+    def start(self) -> None:
+        self.starts += 1
 
     def read(self) -> list[str] | None:
         return self.frames.popleft() if self.frames else None
@@ -62,8 +66,8 @@ class Decoder:
 
 class Display:
     def __init__(self) -> None:
-        self.events: list[Any] = []
-        self.screens: list[tuple[str, dict[str, Any]]] = []
+        self.events: list[Any] = ["waiting"]
+        self.screens: list[tuple[str, dict[str, Any]]] = [("waiting", {})]
 
     def screen(self, state: str, fields: dict[str, Any]) -> None:
         self.events.append(state)
@@ -221,6 +225,7 @@ def test_qr_hides_live_frame_before_sending_once(harness: Harness, caplog: pytes
     secret = "WIFI:S:home;P:secret;;"
     with harness.connect() as client:
         receive(client)
+        harness.message(client, state="scanning")
         harness.camera.frames.append([secret, "other"])
         harness.reader.step()
         assert harness.display.events[-1] == "checking"
@@ -235,6 +240,7 @@ def test_qr_hides_live_frame_before_sending_once(harness: Harness, caplog: pytes
 def test_qr_is_suppressed_until_thirty_consecutive_absent_frames(harness: Harness) -> None:
     with harness.connect() as client:
         receive(client)
+        harness.message(client, state="scanning")
         harness.camera.frames.append(["secret"])
         harness.reader.step()
         receive(client)
@@ -314,6 +320,7 @@ def test_checking_returns_to_scanning_after_fifteen_seconds_without_screen(harne
 @pytest.mark.parametrize(
     "state,fields",
     [
+        ("waiting", {}),
         ("scanning", {}),
         ("checking", {}),
         ("rejected", {"reason": "not_wifi"}),
@@ -327,7 +334,7 @@ def test_socket_screen_updates_display(harness: Harness, state: str, fields: dic
         receive(client)
         harness.message(client, state=state, **fields)
         assert harness.display.screens[-1] == (state, fields)
-        harness.clock.now = 15
+        harness.clock.now = 14.99 if state == "scanning" else 15
         harness.reader.step()
         assert harness.display.screens[-1][0] == ("scanning" if state == "checking" else state)
 
@@ -389,7 +396,7 @@ def test_split_socket_line_waits_for_newline(harness: Harness) -> None:
         receive(client)
         client.sendall(b'{"type":"screen",')
         harness.reader.step()
-        assert harness.display.events[-1] == "scanning"
+        assert harness.display.events[-1] == "waiting"
         client.sendall(b'"state":"checking"}\n')
         harness.reader.step()
         assert harness.display.events[-1] == "checking"
@@ -403,6 +410,7 @@ def test_qr_exceptions_do_not_expose_payload(harness: Harness, caplog: pytest.Lo
     harness.reader.decoder = BrokenDecoder()
     with harness.connect() as client:
         receive(client)
+        harness.message(client, state="scanning")
         harness.camera.frames.append([])
         harness.reader.step()
     assert "secret" not in caplog.text
@@ -412,6 +420,7 @@ def test_qr_exceptions_do_not_expose_payload(harness: Harness, caplog: pytest.Lo
 def test_oversized_qr_keeps_live_view_scanning(harness: Harness, text: str) -> None:
     with harness.connect() as client:
         receive(client)
+        harness.message(client, state="scanning")
         harness.camera.frames.append([text])
         harness.reader.step()
         assert harness.display.screens[-1][0] == "scanning"
@@ -499,6 +508,7 @@ def test_checking_deadline_refreshes_on_new_screen(harness: Harness) -> None:
 def test_scanning_live_view_stops_on_portal_checking(harness: Harness) -> None:
     with harness.connect() as client:
         receive(client)
+        harness.message(client, state="scanning")
         harness.camera.frames.append([])
         harness.reader.step()
         assert harness.display.events[-1] == ("live", [])
@@ -570,3 +580,51 @@ raise SystemExit(result)
         if process.poll() is None:
             process.kill()
             process.communicate()
+
+
+def test_waiting_does_not_start_camera_or_decode_queued_qr(harness: Harness) -> None:
+    harness.camera.frames.append(["secret"])
+    with harness.connect() as client:
+        assert receive(client) == [{"type": "hello", "proto": 1}]
+        harness.message(client, state="waiting")
+        assert harness.reader.state == "waiting"
+        assert harness.camera.starts == 0
+        assert list(harness.camera.frames) == [["secret"]]
+        assert harness.display.screens == [("waiting", {}), ("waiting", {})]
+
+
+def test_scanning_starts_camera_once_across_screen_changes(harness: Harness) -> None:
+    with harness.connect() as client:
+        receive(client)
+        for state in ("scanning", "checking", "scanning", "waiting", "scanning"):
+            harness.message(client, state=state)
+        assert harness.camera.starts == 1
+
+
+@pytest.mark.parametrize("intervening_state", ["scanning", "checking", "waiting"])
+def test_camera_without_first_frame_exits_78_after_fifteen_seconds_and_keeps_pinging(
+    harness: Harness, intervening_state: str
+) -> None:
+    with harness.connect() as client:
+        receive(client)
+        harness.clock.now = 10
+        harness.message(client, state="scanning")
+        harness.message(client, state=intervening_state)
+        for now in (12, 14, 16, 18, 20, 22, 24, 24.99):
+            harness.clock.now = now
+            assert harness.reader.step()
+        assert harness.display.events.count("ping") == 8
+        harness.clock.now = 25
+        harness.reader.sleep = lambda seconds: harness.reader.stop()
+        assert harness.reader.run() == 78
+
+
+def test_first_camera_frame_cancels_startup_deadline(harness: Harness) -> None:
+    with harness.connect() as client:
+        receive(client)
+        harness.message(client, state="scanning")
+        harness.clock.now = 14.99
+        harness.camera.frames.append([])
+        harness.reader.step()
+        harness.clock.now = 16
+        assert harness.reader.step()

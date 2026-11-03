@@ -26,6 +26,9 @@ def test_portal_socket_client_exchanges_setup_messages_with_real_reader(module: 
     disconnected = threading.Event()
 
     class Camera:
+        def start(self) -> None:
+            pass
+
         def read(self) -> list[str] | None:
             try:
                 return frames.get_nowait()
@@ -53,6 +56,7 @@ def test_portal_socket_client_exchanges_setup_messages_with_real_reader(module: 
         def close(self) -> None:
             display_closed.set()
 
+    screens.put(("waiting", {}))
     reader = module.Reader(
         tmp_path,
         os.getuid(),
@@ -70,7 +74,7 @@ def test_portal_socket_client_exchanges_setup_messages_with_real_reader(module: 
     try:
         client.connect()
         assert received.get(timeout=2) == {"type": "hello", "proto": 1}
-        assert screens.get(timeout=2) == ("scanning", {})
+        assert screens.get(timeout=2) == ("waiting", {})
         assert client.send({"type": "screen", "state": "scanning"})
         assert screens.get(timeout=2) == ("scanning", {})
 

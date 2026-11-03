@@ -62,7 +62,7 @@ def test_connected_rejects_invalid_qr_without_changing_screen(harness: Harness, 
     with harness.connect() as client:
         receive(client)
         harness.message(client, state="connected", url="http://robot.local", qr=qr)
-        assert harness.display.screens[-1][0] == "scanning"
+        assert harness.display.screens[-1][0] == "waiting"
 
 
 class TapSerial(Serial):
@@ -113,6 +113,8 @@ def test_close_tap_is_sent_once_only_for_rendered_connected_button(
     clock = Clock()
     serial = TapSerial(clock, tap if timing == "before" else None)
     display = module.Display(port_factory=lambda: serial, clock=clock)
+    serial.rendered.clear()
+    serial.tap_read.clear()
     rig = Harness(module, tmp_path)
     rig.reader.display_factory = lambda: display
     rig.reader.start()

@@ -2,17 +2,23 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-from palmimo_portal.ports import PreemptedApp
+from palmimo_portal.ports import ConnectionState, PreemptedApp, WifiStatus
 from palmimo_portal.testing.fakes import FakeAdapterBundle
 from tests.test_wifi_setup_lifespan import install_app
 from tests.test_wifi_setup_lifespan import settings as settings
 
 
+@pytest.mark.parametrize(
+    "network,screen", [(ConnectionState.UNPROVISIONED, "scanning"), (ConnectionState.CONNECTING, "waiting")]
+)
 def test_system_status_reports_setup_mode_and_screen(
     client: TestClient,
     app: FastAPI,
     adapters: FakeAdapterBundle,
+    network: ConnectionState,
+    screen: str,
 ) -> None:
+    adapters.network.status = WifiStatus(network, None, None)
     app.state.wifi_setup.tick()
     for _ in range(3):
         adapters.clock.monotonic_value += 2
@@ -21,7 +27,7 @@ def test_system_status_reports_setup_mode_and_screen(
     reader.emit({"type": "hello", "proto": 1, "display": "frame"})
     assert client.get("/api/v1/system/status").json()["wifi_setup"] == {
         "mode": "active",
-        "screen": "scanning",
+        "screen": screen,
         "reason": None,
     }
     app.state.wifi_setup.stop("app")
@@ -42,7 +48,7 @@ def test_web_app_start_arbitrates_with_running_reader(
     adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=headers)
     app.state.wifi_setup.tick()
-    for _ in range(30):
+    for _ in range(3):
         adapters.clock.monotonic_value += 2
         app.state.wifi_setup.tick()
     reader = adapters.wifi_qr_client.clients[-1]
@@ -102,7 +108,7 @@ def test_old_firmware_reason_is_reported_by_system(
     adapters.saved_networks.save("home", "", first=False)
     client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=headers)
     app.state.wifi_setup.tick()
-    for _ in range(30):
+    for _ in range(3):
         adapters.clock.monotonic_value += 2
         app.state.wifi_setup.tick()
     adapters.wifi_qr_unit.unit_status = WifiQrUnitStatus("failed", "loaded", "exit-code", 1, 76)

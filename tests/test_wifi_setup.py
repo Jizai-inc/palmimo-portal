@@ -1,5 +1,7 @@
 import logging
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -89,7 +91,7 @@ def rig(prepared: tuple[StartDeps, FakeAdapterBundle], monkeypatch: pytest.Monke
     return Rig(setup, adapters, unit, clock, reader)
 
 
-@pytest.mark.parametrize("known,delay", [(False, 6), (True, 60)])
+@pytest.mark.parametrize("known,delay", [(False, 6), (True, 6)])
 def test_setup_waits_for_observed_ap_interval(
     rig: Rig, known: bool, delay: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -427,9 +429,15 @@ def test_setup_caps_retry_interval_at_ten_minutes(rig: Rig) -> None:
         assert rig.setup.status().mode == "starting"
 
 
+@pytest.mark.parametrize("initial", [ConnectionState.UNPROVISIONED, ConnectionState.CONNECTING])
 def test_setup_completes_qr_flow_over_unix_socket(
-    rig: Rig, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, tmp_path: Path
+    rig: Rig,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    tmp_path: Path,
+    initial: ConnectionState,
 ) -> None:
+    rig.adapters.network.status = WifiStatus(initial, None, None)
     monkeypatch.chdir(tmp_path)
     accepted = threading.Event()
 
@@ -447,6 +455,11 @@ def test_setup_completes_qr_flow_over_unix_socket(
         rig.setup.tick()
         rig.advance(6)
         reader.send({"type": "hello", "proto": 1, "display": "frame"})
+        if initial is ConnectionState.CONNECTING:
+            assert reader.receive() == {"type": "screen", "state": "waiting"}
+            rig.adapters.network.status = WifiStatus(ConnectionState.UNPROVISIONED, None, None)
+            rig.setup.tick()
+            rig.advance(6)
         assert reader.receive() == {"type": "screen", "state": "scanning"}
         reader.send({"type": "qr", "text": "WIFI:S:home;P:secret-password;;"})
         assert reader.receive()["state"] == "checking"
@@ -704,8 +717,9 @@ def test_setup_defers_entry_until_conflicting_app_finishes_stopping(
     observations: list[str] = []
 
     def status(name: str) -> UnitStatus:
-        active = "inactive" if observations else "deactivating"
-        observations.append(active)
+        active = "inactive" if observations and rig.clock.monotonic() >= 6 else "deactivating"
+        if rig.clock.monotonic() >= 6:
+            observations.append(active)
         return UnitStatus(active, "", "success", 0)
 
     if finishes_during_poll:
@@ -1095,3 +1109,241 @@ def test_setup_monitors_reader_and_deadlines_during_network_outage(
     assert rig.adapters.state.read_preempted_app() == (
         None if event == "connected" else PreemptedApp(None, "wifi-setup", hold=True)
     )
+
+
+@pytest.mark.parametrize(
+    "record", [None, PreemptedApp("face", "wifi-setup"), PreemptedApp(None, "wifi-setup", hold=True)]
+)
+def test_setup_connecting_starts_waiting_without_preemption(rig: Rig, record: PreemptedApp | None) -> None:
+    rig.adapters.state.write_preempted_app(record)
+    rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTING, None, None)
+    rig.setup.tick()
+    rig.advance(4)
+    assert rig.setup.status().mode == "idle"
+    rig.advance(1)
+    assert rig.setup.status().mode == "starting"
+    rig.setup.on_message({"type": "hello", "proto": 1})
+    assert rig.reader.messages == [{"type": "screen", "state": "waiting"}]
+    assert rig.adapters.app_unit.stop_calls == []
+    assert rig.adapters.state.read_preempted_app() == record
+
+
+@pytest.mark.parametrize("devices,enters", [(["camera"], False), (["motor_display"], False), (["audio"], True)])
+def test_setup_notice_respects_running_app_devices(rig: Rig, devices: list[str], enters: bool) -> None:
+    path = rig.setup.apps.deps.apps_job_ctx.app_dir("face") / "palmimo.toml"
+    path.write_text(path.read_text().replace('["camera"]', str(devices).replace("'", '"')))
+    rig.adapters.app_unit.simulate_active_state("face", UnitStatus("active", "running", "success", 0))
+    rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTING, None, None)
+    rig.setup.tick()
+    rig.advance(6)
+    assert rig.setup.status().mode == ("starting" if enters else "idle")
+    assert rig.adapters.app_unit.stop_calls == []
+
+
+def test_setup_web_attempt_resets_notice_timer(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> None:
+    rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTING, None, None)
+    rig.setup.tick()
+    rig.advance(4)
+    manager = type(rig.adapters.wifi_attempts)
+    monkeypatch.setattr(manager, "in_progress", property(lambda self: True))
+    rig.advance(20)
+    assert rig.setup.status().mode == "idle"
+    monkeypatch.setattr(manager, "in_progress", property(lambda self: False))
+    rig.advance(4)
+    assert rig.setup.status().mode == "idle"
+    rig.advance(1)
+    assert rig.setup.status().mode == "starting"
+
+
+@pytest.mark.parametrize("hello_before_ap", [True, False])
+def test_setup_waiting_advances_to_scanning_after_five_ap_seconds(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch, hello_before_ap: bool
+) -> None:
+    monkeypatch.setattr(rig.adapters.network, "has_known_networks", lambda: True)
+    rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTING, None, None)
+    rig.setup.tick()
+    rig.advance(5)
+    if hello_before_ap:
+        rig.setup.on_message({"type": "hello", "proto": 1})
+        assert rig.setup.status().screen == "waiting"
+    rig.adapters.network.status = WifiStatus(ConnectionState.UNPROVISIONED, None, None)
+    rig.setup.tick()
+    rig.advance(4)
+    assert rig.setup.status().screen == ("waiting" if hello_before_ap else None)
+    rig.advance(1)
+    if not hello_before_ap:
+        rig.setup.on_message({"type": "hello", "proto": 1})
+    assert rig.reader.messages[-1] == {"type": "screen", "state": "scanning"}
+
+
+def test_setup_known_network_waits_sixty_ap_seconds_before_preempting(
+    rig: Rig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(rig.adapters.network, "has_known_networks", lambda: True)
+    rig.adapters.app_unit.simulate_active_state("face", UnitStatus("active", "running", "success", 0))
+    rig.setup.tick()
+    rig.advance(59)
+    assert rig.setup.status().mode == "idle"
+    assert rig.adapters.app_unit.stop_calls == []
+    rig.advance(1)
+    assert rig.setup.status().mode == "starting"
+    assert rig.adapters.app_unit.stop_calls == ["face"]
+    rig.setup.on_message({"type": "hello", "proto": 1})
+    assert rig.reader.messages == [{"type": "screen", "state": "scanning"}]
+
+
+@pytest.mark.parametrize(
+    "state,ip,nm",
+    [(ConnectionState.CONNECTED, None, 100), (ConnectionState.CONNECTED, "192.0.2.1", 70), (None, None, 100)],
+)
+def test_setup_notice_timer_pauses_without_network_observation(
+    rig: Rig, state: ConnectionState | None, ip: str | None, nm: int
+) -> None:
+    rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTING, None, None)
+    rig.setup.tick()
+    rig.advance(3)
+    if state is None:
+        rig.adapters.network.raise_on_get_status = AdapterUnavailableError("offline", "no bus")
+    else:
+        rig.adapters.network.status = WifiStatus(state, "home", ip)
+        rig.adapters.wifi_profiles.device = WifiDeviceStatus(nm, None)
+    rig.advance(20)
+    assert rig.setup.status().mode == "idle"
+    rig.adapters.network.raise_on_get_status = None
+    rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTING, None, None)
+    rig.advance(1)
+    assert rig.setup.status().mode == "idle"
+    rig.advance(1)
+    assert rig.setup.status().mode == "starting"
+
+
+@pytest.mark.parametrize("phase", ["starting", "waiting", "hello_during_lan"])
+def test_setup_lan_return_stops_notice_without_success_screen(
+    rig: Rig, phase: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTING, None, None)
+    rig.setup.tick()
+    rig.advance(5)
+    assert rig.setup.status().mode == "starting"
+    if phase == "waiting":
+        rig.setup.on_message({"type": "hello", "proto": 1})
+    rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTED, "home", "192.0.2.1")
+    if phase == "hello_during_lan":
+        monkeypatch.setattr(rig.setup.apps, "clear_hold", lambda: rig.setup.on_message({"type": "hello", "proto": 1}))
+    rig.setup.tick()
+    assert rig.setup.status().mode == "idle"
+    assert rig.unit.status().active_state == "inactive"
+    rig.setup.on_message({"type": "hello", "proto": 1})
+    assert rig.reader.messages == ([{"type": "screen", "state": "waiting"}] if phase == "waiting" else [])
+
+
+def test_setup_notice_rechecks_apps_under_run_lock(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> None:
+    original = rig.adapters.state.lock_run
+
+    @contextmanager
+    def lock_run(timeout_s: float = 0.0) -> Iterator[None]:
+        with original(timeout_s):
+            rig.adapters.app_unit.simulate_active_state("face", UnitStatus("active", "running", "success", 0))
+            yield
+
+    monkeypatch.setattr(rig.adapters.state, "lock_run", lock_run)
+    rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTING, None, None)
+    rig.setup.tick()
+    rig.advance(5)
+    assert rig.setup.status().mode == "idle"
+    assert rig.adapters.app_unit.stop_calls == []
+    assert "start" not in rig.unit.calls
+
+
+def test_setup_firmware_recovery_blocks_notice(rig: Rig) -> None:
+    record = PreemptedApp("face", "display-firmware")
+    rig.adapters.state.write_preempted_app(record)
+    rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTING, None, None)
+    rig.setup.tick()
+    rig.advance(6)
+    assert rig.setup.status().mode == "idle"
+    assert "start" not in rig.unit.calls
+    assert rig.adapters.state.read_preempted_app() == record
+
+
+@pytest.mark.parametrize("exit", ["web", "outside", "disconnect"])
+def test_setup_waiting_preserves_exit_conditions(rig: Rig, exit: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    disconnects: list[Any] = []
+
+    def factory(message: Any, disconnect: Any) -> Reader:
+        disconnects.append(disconnect)
+        return rig.reader
+
+    monkeypatch.setattr(rig.setup, "_factory", factory)
+    rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTING, None, None)
+    rig.setup.tick()
+    rig.advance(5)
+    rig.setup.on_message({"type": "hello", "proto": 1})
+    assert rig.setup.status().screen == "waiting"
+    if exit == "web":
+        start_app(replace(rig.setup.apps.deps, before_start=rig.setup.before_app_start), "face", host="robot")
+    elif exit == "outside":
+        rig.adapters.app_unit.simulate_active_state("face", UnitStatus("active", "running", "success", 0))
+        rig.setup.tick()
+    else:
+        disconnects[0]()
+        rig.setup.tick()
+    assert rig.setup.status().mode == ("backoff" if exit == "disconnect" else "idle")
+    assert rig.setup.status().screen is None
+
+
+def test_setup_live_entry_rechecks_short_delay_before_preempting(rig: Rig, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(rig.adapters.network, "has_known_networks", lambda: True)
+    original = rig.adapters.state.lock_run
+
+    @contextmanager
+    def lock_run(timeout_s: float = 0.0) -> Iterator[None]:
+        with original(timeout_s):
+            rig.adapters.app_unit.simulate_active_state("face", UnitStatus("active", "running", "success", 0))
+            yield
+
+    monkeypatch.setattr(rig.adapters.state, "lock_run", lock_run)
+    rig.setup.tick()
+    rig.advance(6)
+    assert rig.setup.status().mode == "idle"
+    assert rig.adapters.app_unit.stop_calls == []
+    assert "start" not in rig.unit.calls
+
+
+def test_setup_lan_return_resets_notice_timer(rig: Rig) -> None:
+    rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTING, None, None)
+    rig.setup.tick()
+    rig.advance(4)
+    rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTED, "home", "192.0.2.1")
+    rig.setup.tick()
+    rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTING, None, None)
+    rig.advance(4)
+    assert rig.setup.status().mode == "idle"
+    rig.advance(1)
+    assert rig.setup.status().mode == "starting"
+
+
+@pytest.mark.parametrize("interruption", [ConnectionState.CONNECTING, None])
+def test_setup_waiting_ap_timer_counts_only_observed_ap_intervals(
+    rig: Rig, interruption: ConnectionState | None
+) -> None:
+    rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTING, None, None)
+    rig.setup.tick()
+    rig.advance(5)
+    rig.setup.on_message({"type": "hello", "proto": 1})
+    rig.adapters.network.status = WifiStatus(ConnectionState.UNPROVISIONED, None, None)
+    rig.setup.tick()
+    rig.advance(3)
+    if interruption is None:
+        rig.adapters.network.raise_on_get_status = AdapterUnavailableError("offline", "no bus")
+    else:
+        rig.adapters.network.status = WifiStatus(interruption, None, None)
+    rig.advance(20)
+    assert rig.setup.status().screen == "waiting"
+    rig.adapters.network.raise_on_get_status = None
+    rig.adapters.network.status = WifiStatus(ConnectionState.UNPROVISIONED, None, None)
+    rig.setup.tick()
+    rig.advance(1)
+    assert rig.setup.status().screen == "waiting"
+    rig.advance(1 if interruption is None else 4)
+    assert rig.setup.status().screen == "scanning"

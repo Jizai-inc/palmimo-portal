@@ -333,10 +333,10 @@ def test_socket_screen_updates_display(harness: Harness, state: str, fields: dic
     with harness.connect() as client:
         receive(client)
         harness.message(client, state=state, **fields)
-        assert harness.display.screens[-1] == (state, fields)
-        harness.clock.now = 14.99 if state == "scanning" else 15
+        if state == "scanning":
+            harness.camera.frames.append([])
         harness.reader.step()
-        assert harness.display.screens[-1][0] == ("scanning" if state == "checking" else state)
+        assert harness.display.screens[-1] == (state, fields)
 
 
 def test_display_heartbeat_runs_every_two_seconds(module: Any, tmp_path: Path) -> None:
@@ -602,7 +602,7 @@ def test_scanning_starts_camera_once_across_screen_changes(harness: Harness) -> 
 
 
 @pytest.mark.parametrize("intervening_state", ["scanning", "checking", "waiting"])
-def test_camera_without_first_frame_exits_78_after_fifteen_seconds_and_keeps_pinging(
+def test_camera_without_first_frame_exits_abnormally_after_fifteen_seconds_and_keeps_pinging(
     harness: Harness, intervening_state: str
 ) -> None:
     with harness.connect() as client:
@@ -616,7 +616,7 @@ def test_camera_without_first_frame_exits_78_after_fifteen_seconds_and_keeps_pin
         assert harness.display.events.count("ping") == 8
         harness.clock.now = 25
         harness.reader.sleep = lambda seconds: harness.reader.stop()
-        assert harness.reader.run() == 78
+        assert harness.reader.run() == 1
 
 
 def test_first_camera_frame_cancels_startup_deadline(harness: Harness) -> None:

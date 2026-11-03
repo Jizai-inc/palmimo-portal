@@ -6,6 +6,15 @@ and their reservations. It creates the socket in its service runtime
 directory, permits socket access, and verifies the client's uid with
 SO_PEERCRED against the configured Portal user.
 
+After five observed non-LAN seconds, the Portal starts the reader in waiting
+when no running app uses the camera or face display and no Wi-Fi attempt is in
+progress. The reader draws waiting before hello; the Portal records that state
+without resending it. After five observed AP seconds, the Portal sends scanning.
+If known Wi-Fi networks exist and an app must be stopped, the Portal instead
+waits for 60 observed AP seconds before stopping the app and entering scanning.
+Returning to LAN without a pending QR attempt stops the reader without a success
+screen, including while waiting for hello.
+
 ## Framing
 
 Each message is one UTF-8 JSON object followed by LF. The limit is 32 KiB
@@ -82,8 +91,8 @@ with the next camera frame without another preparation notice.
 The reader exits normally if no authorized client arrives within 30 seconds
 of startup. While checking, 15 seconds without a Portal command returns it
 to scanning. If no camera frame arrives within 15 seconds of STREAMON, the
-reader exits with 78, even if the Portal changes screens. These deadlines use a
-monotonic clock. While displaying frames, including waiting and camera
+reader exits abnormally with 1, even if the Portal changes screens. These deadlines
+use a monotonic clock. While displaying frames, including waiting and camera
 preparation, it sends a display PING every 2 seconds. SIGTERM restores the face to its power state from startup (`IDLE` if it was on, `EXPR SLEEPING` if it was off) and releases devices.
 
 | Exit code | Meaning | Portal response |
@@ -92,7 +101,7 @@ preparation, it sends a display PING every 2 seconds. SIGTERM restores the face 
 | 69 | Required decoding dependencies unavailable | Disable until the Portal restarts |
 | 75 | Camera or display reservation unavailable | Retry after 30 seconds |
 | 76 | Face firmware does not support FRAME | Disable until the Portal restarts; expose firmware_too_old in setup status |
-| 78 | Camera or face display unavailable: missing, not answering, no first camera frame within 15 seconds, or the reservation directory is missing or unsafe | Retry after one hour |
+| 78 | Camera or face display unavailable: missing, not answering, or the reservation directory is missing or unsafe | Retry after one hour |
 | Other | Abnormal termination | Retry after 30 seconds, doubling to at most 10 minutes |
 
 A hello resets the abnormal retry interval to 30 seconds. A unit missing

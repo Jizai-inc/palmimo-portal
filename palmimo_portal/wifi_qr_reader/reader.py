@@ -1328,7 +1328,7 @@ class Reader:
                 if self.state == "scanning" or not self.received_frame:
                     self._frame()
                 if not self.received_frame and self.clock() - self.stream_started_at >= 15:
-                    raise DeviceUnavailableError("Camera did not deliver its first frame")
+                    raise ReaderOperationError("Camera did not deliver its first frame")
             self._flush()
         except (BrokenPipeError, ConnectionResetError):
             self.stop()

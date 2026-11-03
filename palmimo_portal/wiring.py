@@ -23,6 +23,7 @@ from palmimo_portal.adapters.git_uv_updater import GitUvUpdater
 from palmimo_portal.adapters.github_releases import GitHubReleaseSource
 from palmimo_portal.adapters.identity import FileIdentityStore
 from palmimo_portal.adapters.journal import JournalctlPort
+from palmimo_portal.adapters.local_address import SocketLocalAddressPort
 from palmimo_portal.adapters.networkmanager import NetworkManagerSavedNetworkPort
 from palmimo_portal.adapters.platform import GitHubPlatformBundleSource, SudoPlatformPort
 from palmimo_portal.adapters.rundir import TmpfsRunDirPort
@@ -49,6 +50,7 @@ from palmimo_portal.ports import (
     GitPort,
     IdentityStore,
     JournalPort,
+    LocalAddressPort,
     NetworkPort,
     PlatformBundleSource,
     PlatformPort,
@@ -76,6 +78,7 @@ from palmimo_portal.testing.fakes import (
     FakeGitPort,
     FakeIdentityStore,
     FakeJournalPort,
+    FakeLocalAddressPort,
     FakeNetworkPort,
     FakePlatformBundleSource,
     FakePlatformPort,
@@ -104,6 +107,7 @@ class AdapterBundle:
     """The five ports, wired to concrete implementations."""
 
     network: NetworkPort
+    local_addresses: LocalAddressPort
     saved_networks: SavedNetworkPort
     wifi_profiles: WifiProfilePort
     comitup_service: ComitupServicePort
@@ -166,6 +170,7 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         )
         return AdapterBundle(
             network=fake_network,
+            local_addresses=FakeLocalAddressPort(),
             saved_networks=fake_saved,
             wifi_profiles=fake_profiles,
             comitup_service=fake_service,
@@ -211,6 +216,7 @@ def build_adapters(settings: Settings) -> AdapterBundle:
     )
     return AdapterBundle(
         network=network,
+        local_addresses=SocketLocalAddressPort(),
         saved_networks=saved_networks,
         wifi_profiles=saved_networks,
         comitup_service=comitup_service,

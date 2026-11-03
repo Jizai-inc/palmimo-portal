@@ -443,6 +443,7 @@
     "prerelease_refused": "That is a pre-release build and cannot be installed on this channel.",
     "preview_failed": "The app source could not be fetched or validated.",
     "release_source_unavailable": "Palmimo could not reach the update service. Try again shortly.",
+    "reset_not_allowed_from_device": "Reset login from another device on the network.",
     "reset_not_available": "This device cannot be reset from here. Delete auth.json over SSH.",
     "secret_in_use": "This secret is still bound to an app and cannot be deleted.",
     "secret_not_found": "No secret with this name is registered.",

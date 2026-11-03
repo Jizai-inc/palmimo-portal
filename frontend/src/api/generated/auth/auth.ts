@@ -356,7 +356,8 @@ export const useLogoutApiV1AuthLogoutPost = <TError = unknown,
  * never be made from a stale cache of an identity file since removed.
  *
  * Raises:
- *     PortalError: 429 ``auth_rate_limited`` while throttled -- checked
+ *     PortalError: 403 ``reset_not_allowed_from_device`` for device-local or
+ *         unknown peers; 429 ``auth_rate_limited`` while throttled -- checked
  *         twice: a cheap non-atomic peek via
  *         :meth:`~palmimo_portal.core.auth.ResetRateLimiter.is_locked`
  *         before the identity/auth-state read, and again via

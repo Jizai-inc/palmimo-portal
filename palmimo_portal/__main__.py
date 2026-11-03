@@ -13,7 +13,7 @@ import os
 import uvicorn
 
 from palmimo_portal.api.app import create_app
-from palmimo_portal.settings import get_settings
+from palmimo_portal.settings import Settings, get_settings
 
 
 def _configure_logging() -> None:
@@ -30,12 +30,15 @@ def _configure_logging() -> None:
     logging.basicConfig(level=level, format="%(asctime)s %(levelname)s %(name)s: %(message)s", force=True)
 
 
+def server_config(settings: Settings) -> uvicorn.Config:
+    # Portal listens directly; no upstream proxy is trusted to supply peer addresses.
+    return uvicorn.Config(create_app(settings), host="0.0.0.0", port=settings.port, proxy_headers=False)
+
+
 def main() -> None:
     """Configure logging, build the app from environment settings, and serve it."""
     _configure_logging()
-    settings = get_settings()
-    app = create_app(settings)
-    uvicorn.run(app, host="0.0.0.0", port=settings.port)
+    uvicorn.Server(server_config(get_settings())).run()
 
 
 if __name__ == "__main__":

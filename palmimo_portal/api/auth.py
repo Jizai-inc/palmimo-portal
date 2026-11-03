@@ -23,6 +23,7 @@ from pydantic import BaseModel
 
 from palmimo_portal.api.deps import (
     get_identity_store,
+    get_local_address_port,
     get_rate_limiter,
     get_reset_rate_limiter,
     get_state_store,
@@ -50,6 +51,7 @@ from palmimo_portal.core.auth import (
     verify_password_against_store,
 )
 from palmimo_portal.core.identity import PortalAuthState, compute_auth_state
+from palmimo_portal.core.reset_source import reset_source_allowed
 from palmimo_portal.ports import (
     IDENTITY_UNAVAILABLE,
     AuthAlreadyExistsError,
@@ -57,6 +59,7 @@ from palmimo_portal.ports import (
     AuthLockTimeoutError,
     Identity,
     IdentityStore,
+    LocalAddressPort,
     StateStore,
 )
 
@@ -369,6 +372,7 @@ def reset(
     state: StateStore = Depends(get_state_store),
     identity_store: IdentityStore = Depends(get_identity_store),
     reset_rate_limiter: ResetRateLimiter = Depends(get_reset_rate_limiter),
+    local_addresses: LocalAddressPort = Depends(get_local_address_port),
 ) -> ResetResponse:
     """Reset the Portal's login credentials -- unauthenticated, identity-carrying devices only.
 
@@ -397,7 +401,8 @@ def reset(
     never be made from a stale cache of an identity file since removed.
 
     Raises:
-        PortalError: 429 ``auth_rate_limited`` while throttled -- checked
+        PortalError: 403 ``reset_not_allowed_from_device`` for device-local or
+            unknown peers; 429 ``auth_rate_limited`` while throttled -- checked
             twice: a cheap non-atomic peek via
             :meth:`~palmimo_portal.core.auth.ResetRateLimiter.is_locked`
             before the identity/auth-state read, and again via
@@ -412,6 +417,12 @@ def reset(
             :meth:`~palmimo_portal.ports.StateStore.lock_auth` past its
             timeout.
     """
+    client_host = request.client.host if request.client is not None else None
+    # Device apps must not be able to exhaust the owner's reset budget.
+    if not reset_source_allowed(client_host, local_addresses):
+        logger.warning("auth: login credentials reset refused from %s", client_host or "unknown")
+        raise PortalError(403, "reset_not_allowed_from_device")
+
     if reset_rate_limiter.is_locked():
         raise PortalError(
             429, "auth_rate_limited", retry_after_seconds=math.ceil(reset_rate_limiter.seconds_remaining())
@@ -432,7 +443,6 @@ def reset(
             429, "auth_rate_limited", retry_after_seconds=math.ceil(reset_rate_limiter.seconds_remaining())
         )
 
-    client_host = request.client.host if request.client is not None else "unknown"
     device_id = identity.device_id if isinstance(identity, Identity) else None
     logger.warning("auth: login credentials reset requested from %s (device %s)", client_host, device_id)
     try:

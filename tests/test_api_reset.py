@@ -15,12 +15,14 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+from collections.abc import Iterator
 from pathlib import Path
 from typing import cast
 
 import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
+from starlette.types import Receive, Scope, Send
 
 from palmimo_portal.adapters.identity import FileIdentityStore
 from palmimo_portal.core.auth import SESSION_COOKIE_NAME
@@ -32,6 +34,12 @@ from palmimo_portal.wiring import AdapterBundle
 CSRF_HEADERS = {"X-Requested-With": "PalmimoPortal"}
 STICKER_PASSWORD = "sticker-correct-horse"
 DEVICE_ID = "palmimo-042"
+
+
+@pytest.fixture
+def client(app: FastAPI) -> Iterator[TestClient]:
+    with TestClient(app, client=("192.0.2.20", 50000)) as remote_client:
+        yield remote_client
 
 
 def _carry_identity(adapters: FakeAdapterBundle, password: str = STICKER_PASSWORD) -> None:
@@ -356,3 +364,31 @@ def test_reset_without_the_csrf_header_is_rejected(client: TestClient, adapters:
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "csrf_header_missing"
+
+
+@pytest.mark.parametrize("host", ["127.2.3.4", "198.51.100.11", "2001:db8::11", "invalid", None])
+def test_reset_from_device_preserves_auth_and_remote_reset_budget(
+    app: FastAPI, client: TestClient, adapters: FakeAdapterBundle, host: str | None
+) -> None:
+    _carry_identity(adapters)
+    _promote_to_full(client)
+    adapters.local_addresses.addresses.update({"198.51.100.11", "2001:db8::11"})
+    before = adapters.state.read_auth()
+    assert before is not None
+
+    async def from_source(scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            scope["client"] = (host, 12345) if host is not None else None
+        await app(scope, receive, send)
+
+    with TestClient(from_source) as device_client:
+        response = device_client.post("/api/v1/auth/reset", headers=CSRF_HEADERS)
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "reset_not_allowed_from_device"
+    assert adapters.state.read_auth() == before
+    assert client.post("/api/v1/auth/reset", headers=CSRF_HEADERS).status_code == 200
+
+    with TestClient(from_source) as device_client:
+        response = device_client.post("/api/v1/auth/reset", headers=CSRF_HEADERS)
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "reset_not_allowed_from_device"

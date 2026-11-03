@@ -1165,6 +1165,14 @@ class FakeJournalPort(JournalPort):
         return self.readable
 
 
+class FakeLocalAddressPort:
+    def __init__(self) -> None:
+        self.addresses: set[str] = set()
+
+    def is_local_address(self, address: str) -> bool:
+        return address in self.addresses
+
+
 @dataclass(frozen=True)
 class FakeAdapterBundle:
     """The same ports as :class:`~palmimo_portal.wiring.AdapterBundle`, typed to the concrete fakes.
@@ -1176,6 +1184,7 @@ class FakeAdapterBundle:
     """
 
     network: FakeNetworkPort
+    local_addresses: FakeLocalAddressPort
     saved_networks: FakeSavedNetworkPort
     wifi_profiles: FakeWifiProfilePort
     comitup_service: FakeComitupServicePort

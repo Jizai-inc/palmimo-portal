@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
-import { Upload } from "lucide-react";
+import { Download, ExternalLink, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -30,6 +30,7 @@ import { appText } from "@/lib/appText";
 import { parseCatalogSource } from "@/lib/catalogSource";
 import { deviceLabel } from "@/lib/deviceLabel";
 import { isHttpUrl } from "@/lib/isHttpUrl";
+import { TEMPLATE_REPO_URL } from "@/lib/navigation";
 import { tabClassName } from "@/lib/tabClassName";
 
 export type AddAppTab = "catalog" | "github" | "zip";
@@ -255,6 +256,7 @@ function InstallFlow({
   );
   const installButton = (
     <Button disabled={!preview || install.isPending || !namePartValid} onClick={() => install.mutate()}>
+      <Download className="size-4" aria-hidden />
       {t("appAdd.installButton")}
     </Button>
   );
@@ -287,6 +289,7 @@ function InstallFlow({
           previewMutation.mutate();
         }}
       >
+        {inlineConfirm ? null : <Download className="size-4" aria-hidden />}
         {inlineConfirm ? t("appAdd.continueButton") : t("appAdd.installButton")}
       </Button>
       {appRunning ? <p className="text-sm text-muted-foreground">{t("appAdd.installDisabledAppRunning")}</p> : null}
@@ -375,13 +378,15 @@ function CatalogCard({
         </div>
       ) : null}
       {source ? (
-        <InstallFlow
-          getSource={() => source}
-          sourceKey={`${source.url}\u0000${source.ref_kind}\u0000${source.ref}\u0000${source.subdir ?? ""}\u0000${source.manifest ?? ""}`}
-          canPreview
-          appRunning={appRunning}
-          onInstalled={onInstalled}
-        />
+        <div className="mt-auto pt-2">
+          <InstallFlow
+            getSource={() => source}
+            sourceKey={`${source.url}\u0000${source.ref_kind}\u0000${source.ref}\u0000${source.subdir ?? ""}\u0000${source.manifest ?? ""}`}
+            canPreview
+            appRunning={appRunning}
+            onInstalled={onInstalled}
+          />
+        </div>
       ) : null}
     </div>
   );
@@ -416,6 +421,18 @@ function GithubTab({ onInstalled, appRunning, inlineConfirm, onConfirmingChange 
       inlineConfirm={inlineConfirm}
       onConfirmingChange={onConfirmingChange}
     >
+      <p className="text-sm text-muted-foreground">
+        {t("apps.templateHint")}{" "}
+        <a
+          href={TEMPLATE_REPO_URL}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 font-medium text-foreground underline underline-offset-4"
+        >
+          {t("apps.templateButton")}
+          <ExternalLink className="size-3.5" aria-hidden />
+        </a>
+      </p>
       <div className="flex flex-col gap-1">
         <Label htmlFor="github-url">{t("appAdd.githubUrlLabel")}</Label>
         <Input id="github-url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://github.com/org/repo" />

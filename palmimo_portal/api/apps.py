@@ -147,6 +147,7 @@ from palmimo_portal.version import portal_version
 
 #: Journal lines attached to a 500 `start_failed` response (design doc pass E).
 _START_FAILED_JOURNAL_LINES = 20
+APP_LABEL_MAX_LENGTH = 64
 
 #: Journal lines included in `GET /apps/{id}/diagnostics`'s `[journal]` section (design doc 3.2).
 _DIAGNOSTICS_JOURNAL_LINES = 50
@@ -288,6 +289,7 @@ class AppSummary(BaseModel):
 
     name: str
     id: str
+    label: str | None = None
     source: AppSourceInfo
     installed_at: float | None
     autostart: bool
@@ -352,6 +354,7 @@ class AppDetailResponse(BaseModel):
     translations: dict[str, dict[str, str]] = Field(default_factory=dict)
     name: str
     id: str
+    label: str | None = None
     source: AppSourceInfo
     installed_at: float | None
     autostart: bool
@@ -426,6 +429,11 @@ class UpdateCheckResponse(BaseModel):
 
 class AutostartRequest(BaseModel):
     enabled: bool
+
+
+class LabelRequest(BaseModel):
+    #: Blank or ``None`` clears the label.
+    label: str | None = Field(default=None, max_length=APP_LABEL_MAX_LENGTH)
 
 
 class SourceUpdateRequest(BaseModel):
@@ -618,6 +626,7 @@ def _summary(
     return AppSummary(
         name=record.name,
         id=record.id,
+        label=record.label,
         source=_source_info(record, deps.apps_job_ctx.catalog_repo),
         installed_at=record.installed_at,
         autostart=record.autostart,
@@ -709,6 +718,7 @@ def _detail(
     return AppDetailResponse(
         name=record.name,
         id=record.id,
+        label=record.label,
         source=_source_info(record, ctx.catalog_repo),
         installed_at=record.installed_at,
         autostart=record.autostart,
@@ -1304,6 +1314,36 @@ def put_autostart(
     new_record = new_state.apps[name]
     logger.info("autostart: toggled name=%s enabled=%s", name, body.enabled)
     return _detail(new_record, new_state, ctx, secrets, app_unit, deps, _request_host(request))
+
+
+@router.put("/{name}/label")
+def put_label(
+    name: str,
+    body: LabelRequest,
+    request: Request,
+    state_store: StateStore = Depends(get_state_store),
+    secrets: SecretsStore = Depends(get_secrets_store),
+    ctx: AppsJobContext = Depends(get_apps_job_context),
+    app_unit: AppUnitPort = Depends(get_app_unit_port),
+    deps: StartDeps = Depends(get_start_deps),
+) -> AppDetailResponse:
+    """Set the app's display title; ``id`` and everything keyed by it stay unchanged.
+
+    Raises:
+        PortalError: 404 ``app_not_found``.
+    """
+    _ensure_not_corrupt(state_store)
+    label = (body.label or "").strip() or None
+
+    def update(current: AppsState) -> AppsState:
+        latest = current.apps.get(name)
+        if latest is None:
+            raise PortalError(404, "app_not_found")
+        return replace(current, apps={**current.apps, name: replace(latest, label=label)})
+
+    new_state = state_store.update_apps_state(update)
+    logger.info("label: set name=%s cleared=%s", name, label is None)
+    return _detail(new_state.apps[name], new_state, ctx, secrets, app_unit, deps, _request_host(request))
 
 
 @router.put("/{name}/source")

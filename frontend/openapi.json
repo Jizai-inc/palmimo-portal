@@ -93,6 +93,17 @@
             ],
             "title": "Installed At"
           },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
           "last_job": {
             "anyOf": [
               {
@@ -498,6 +509,17 @@
               }
             ],
             "title": "Installed At"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
           },
           "last_job": {
             "anyOf": [
@@ -1201,6 +1223,24 @@
           "started_at"
         ],
         "title": "JournalInvocationInfo",
+        "type": "object"
+      },
+      "LabelRequest": {
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          }
+        },
+        "title": "LabelRequest",
         "type": "object"
       },
       "LoginResponse": {
@@ -2888,6 +2928,59 @@
           }
         },
         "summary": "Get Diagnostics",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/{name}/label": {
+      "put": {
+        "description": "Set the app's display title; ``id`` and everything keyed by it stay unchanged.\n\nRaises:\n    PortalError: 404 ``app_not_found``.",
+        "operationId": "put_label_api_v1_apps__name__label_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppDetailResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Label",
         "tags": [
           "apps"
         ]

@@ -1,9 +1,8 @@
 import { QueryClientProvider } from "@tanstack/react-query";
 import { RouterProvider, createMemoryHistory, createRouter } from "@tanstack/react-router";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { HttpResponse, http } from "msw";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { getListAppsApiV1AppsGetMockHandler } from "@/api/generated/apps/apps.msw";
 import type { AppSummary } from "@/api/generated/models";
@@ -62,15 +61,8 @@ describe("Home", () => {
     expect(router.state.location.pathname).toBe("/home");
   });
 
-  it("shows the setup checklist with progress and hides it on request", async () => {
-    const putSpy = vi.fn();
+  it("shows the setup checklist with progress and collapses it on request", async () => {
     stubHome();
-    server.use(
-      http.put("*/api/v1/system/checklist", async ({ request }) => {
-        putSpy(await request.json());
-        return HttpResponse.json({ dismissed: true });
-      }),
-    );
     renderAt("/home");
     const user = userEvent.setup();
 
@@ -79,10 +71,11 @@ describe("Home", () => {
       "href",
       "https://docs.palmimo.dev/guides/installation/",
     );
-    await user.click(screen.getByRole("button", { name: "Hide" }));
+    expect(screen.queryByRole("button", { name: "Hide" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Get started" }));
 
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "Get started" })).not.toBeInTheDocument());
-    expect(putSpy).toHaveBeenCalledWith({ dismissed: true });
+    expect(screen.getByRole("button", { name: "Get started" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("link", { name: "Read the getting started guide" })).not.toBeInTheDocument();
   });
 
   it("does not show a dismissed checklist", async () => {

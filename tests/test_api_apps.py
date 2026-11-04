@@ -229,6 +229,7 @@ def test_list_apps_shows_a_deleting_row_after_the_ledger_entry_is_removed(
         {
             "name": "teleop",
             "id": ZIP_TELEOP_ID,
+            "label": None,
             "status": "deleting",
             "autostart": False,
             "installed_at": None,
@@ -1125,6 +1126,47 @@ def test_put_autostart_persists_the_flag(client: TestClient, adapters: FakeAdapt
     assert response.status_code == 200
     assert response.json()["autostart"] is True
     assert adapters.state.read_apps_state().apps["zip.palmimo-teleop"].autostart is True
+
+
+def test_put_label_sets_the_title_and_keeps_the_id(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+    _install_zip(client)
+
+    response = client.put(f"/api/v1/apps/{ZIP_TELEOP_ID}/label", json={"label": "  Teleop  "}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 200
+    assert response.json()["label"] == "Teleop"
+    assert response.json()["id"] == ZIP_TELEOP_ID
+    assert client.get("/api/v1/apps").json()["apps"][0]["label"] == "Teleop"
+
+
+def test_put_label_blank_clears_the_label(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+    _install_zip(client)
+    client.put(f"/api/v1/apps/{ZIP_TELEOP_ID}/label", json={"label": "Teleop"}, headers=CSRF_HEADERS)
+
+    response = client.put(f"/api/v1/apps/{ZIP_TELEOP_ID}/label", json={"label": "   "}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 200
+    assert response.json()["label"] is None
+    assert adapters.state.read_apps_state().apps[ZIP_TELEOP_ID].label is None
+
+
+def test_put_label_is_422_when_too_long(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+    _install_zip(client)
+
+    response = client.put(f"/api/v1/apps/{ZIP_TELEOP_ID}/label", json={"label": "x" * 65}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 422
+
+
+def test_put_label_is_404_for_an_unknown_app(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+
+    response = client.put("/api/v1/apps/zip.nope/label", json={"label": "x"}, headers=CSRF_HEADERS)
+
+    assert response.status_code == 404
 
 
 def test_put_autostart_keeps_a_concurrent_job_completion(

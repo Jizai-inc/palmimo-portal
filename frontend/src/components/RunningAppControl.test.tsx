@@ -40,10 +40,11 @@ describe("RunningAppControl", () => {
     await waitFor(() => expect(router.state.location.pathname).toBe("/apps"));
   });
 
-  it("links the running app's name to its detail page", async () => {
+  it("shows the running app's name as a label, not a link", async () => {
     renderControl({ id: "robot", name: "Hello Robot", state: "running" });
 
-    expect(await screen.findByRole("link", { name: "Running app: Hello Robot" })).toHaveAttribute("href", "/apps/robot");
+    expect(await screen.findByText("Running app: Hello Robot")).toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
   });
 
   it("stops the running app and refreshes system status and its detail query", async () => {

@@ -131,6 +131,15 @@ def test_write_then_read_apps_state_round_trips_periodic_check_fields(tmp_path: 
     assert store.read_apps_state() == state
 
 
+def test_write_then_read_apps_state_round_trips_a_label(tmp_path: Path) -> None:
+    store = JsonFileStateStore(tmp_path / "state")
+    state = AppsState(apps={APP_ID: replace(_record("palmimo-teleop"), label="Teleop")})
+
+    store.write_apps_state(state)
+
+    assert store.read_apps_state() == state
+
+
 def test_write_then_read_apps_state_round_trips_a_non_default_manifest(tmp_path: Path) -> None:
     store = JsonFileStateStore(tmp_path / "state")
     record = replace(_record("palmimo-realtime"), id="palmimo.realtime")

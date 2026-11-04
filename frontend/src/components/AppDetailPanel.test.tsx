@@ -120,7 +120,31 @@ describe("AppDetailPanel", () => {
     await waitFor(() => expect(putBody).toEqual({ params: expected }));
   });
 
-  it("renders an enum param as a select with its declared choices", async () => {
+  it("renames the app and shows the new label with the id beneath it", async () => {
+    const user = userEvent.setup();
+    let putBody: unknown;
+    server.use(
+      getGetAppApiV1AppsNameGetMockHandler(detail()),
+      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+      http.put("*/api/v1/apps/palmimo.teleop/label", async ({ request }) => {
+        putBody = await request.json();
+        return HttpResponse.json(detail({ label: "My teleop" }));
+      }),
+    );
+    renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
+
+    await user.click(await screen.findByRole("button", { name: "Rename" }));
+    const input = screen.getByRole("textbox", { name: "App name" });
+    expect(input).toHaveValue("teleop");
+    await user.clear(input);
+    await user.type(input, "My teleop{Enter}");
+
+    await waitFor(() => expect(putBody).toEqual({ label: "My teleop" }));
+    expect(await screen.findByRole("heading", { name: "My teleop" })).toBeInTheDocument();
+    expect(screen.getByText("palmimo.", { exact: false })).toBeInTheDocument();
+  });
+
+  it("renders an enum param as a dropdown with its declared choices", async () => {
     server.use(
       getGetAppApiV1AppsNameGetMockHandler(
         detail({
@@ -138,10 +162,11 @@ describe("AppDetailPanel", () => {
     );
     renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
 
-    const select = await screen.findByLabelText("mode");
-    expect(select.tagName).toBe("SELECT");
-    expect(within(select).getByRole("option", { name: "walk" })).toBeInTheDocument();
-    expect(within(select).getByRole("option", { name: "trot" })).toBeInTheDocument();
+    const trigger = await screen.findByRole("combobox", { name: "mode" });
+    expect(trigger).toHaveTextContent("walk");
+    await userEvent.setup().click(trigger);
+    expect(await screen.findByRole("option", { name: "walk" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "trot" })).toBeInTheDocument();
   });
 
   it("shows each param's manifest default until a value is stored", async () => {

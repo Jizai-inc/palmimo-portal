@@ -24,8 +24,9 @@ import { useListSecretsApiV1SecretsGet } from "@/api/generated/secrets/secrets";
 import { getGetStatusApiV1SystemStatusGetQueryKey } from "@/api/generated/system/system";
 import type { AppDetailResponse, ParamSpecInfo, SourceUpdateRequestRefKind } from "@/api/generated/models";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
-import { AppIdLabel, appIdNamePart } from "@/components/AppIdLabel";
+import { appIdNamePart } from "@/components/AppIdLabel";
 import { AppJobDialog } from "@/components/AppJobDialog";
+import { AppTitleEditor } from "@/components/AppTitle";
 import { LogViewer } from "@/components/LogViewer";
 import {
   AlertDialog,
@@ -41,6 +42,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { appStatusLabel, appStatusTone, isAppStatusBusy, shouldPollAppStatus } from "@/lib/appStatus";
 import { appText } from "@/lib/appText";
 import { deviceLabel } from "@/lib/deviceLabel";
@@ -135,7 +137,7 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
     <div className="flex flex-col gap-6">
       <div className="flex flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-xl [overflow-wrap:anywhere]"><AppIdLabel id={app.id} /></h2>
+          <AppTitleEditor app={app} />
           <Badge variant={tone === "green" ? "default" : tone === "red" ? "destructive" : tone === "muted" ? "secondary" : "outline"} className="flex items-center gap-1">
             {busy ? <Loader2 className="size-3 animate-spin" /> : null}
             {appStatusLabel(t, app.status, app.exit_code)}
@@ -359,18 +361,21 @@ function ParamsSection({ app, onSaved }: { app: AppDetailResponse; onSaved: () =
                 <div className="flex items-center gap-2">
                   <Label htmlFor={id} className="w-40 shrink-0 font-mono text-xs">{spec.name}</Label>
                   {spec.type === "enum" ? (
-                    <select
-                      id={id}
-                      className="h-10 rounded-md border border-input bg-transparent px-3 text-sm"
+                    <Select
                       value={typeof value === "string" ? value : ""}
-                      onChange={(event) => setValues((current) => ({ ...current, [spec.name]: event.target.value }))}
+                      onValueChange={(next) => setValues((current) => ({ ...current, [spec.name]: next }))}
                     >
-                      {(spec.choices ?? []).map((choice) => (
-                        <option key={choice} value={choice}>
-                          {choice}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger id={id}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(spec.choices ?? []).map((choice) => (
+                          <SelectItem key={choice} value={choice}>
+                            {choice}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   ) : spec.type === "bool" ? (
                     <input
                       id={id}
@@ -507,6 +512,7 @@ function SourceSection({
 
   const isGit = app.source.type === "git";
   const isOfficialTag = app.source.official && app.source.ref_kind === "tag";
+  const updateAvailable = updateCheck.data?.update_available === true;
 
   return (
     <Section title={t("appDetail.sourceTitle")}>
@@ -520,30 +526,30 @@ function SourceSection({
         {app.installed_at ? <KvRow label={t("appDetail.sourceInstalledAtLabel")} value={formatUtcTimestamp(app.installed_at)} /> : null}
       </dl>
       {isGit ? (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {!isOfficialTag ? <Button variant="outline" size="sm" onClick={() => setEditingRef((value) => !value)}>{t("appDetail.sourceEditRefButton")}</Button> : null}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => updateCheck.mutate({ name: app.id })}
-            disabled={updateCheck.isPending}
-          >
-            {t("appDetail.checkForUpdatesButton")}
-          </Button>
+          {updateAvailable ? (
+            <Button size="sm" onClick={onUpdate} disabled={updatePending || appRunning} title={appRunning ? t("appDetail.updateDisabledAppRunning") : undefined}>
+              {t("appDetail.updateButton")}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => updateCheck.mutate({ name: app.id })}
+              disabled={updateCheck.isPending}
+            >
+              {t("appDetail.checkForUpdatesButton")}
+            </Button>
+          )}
+          {updateAvailable ? (
+            <p className="text-sm">{appRunning ? t("appDetail.updateDisabledAppRunning") : t("apps.updateAvailableChip")}</p>
+          ) : updateCheck.data ? (
+            <p className="text-sm text-muted-foreground">{t("appDetail.checkForUpdatesUpToDate")}</p>
+          ) : null}
         </div>
       ) : null}
       {isOfficialTag ? <p className="text-sm text-muted-foreground">{t("appDetail.sourceOfficialTagManaged")}</p> : null}
-      {updateCheck.data ? (
-        updateCheck.data.update_available ? (
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm">{t("apps.updateAvailableChip")}</p>
-            <Button size="sm" onClick={onUpdate} disabled={updatePending || appRunning} title={appRunning ? t("appDetail.updateDisabledAppRunning") : undefined}>{t("appDetail.updateButton")}</Button>
-            {appRunning ? <p className="text-sm text-muted-foreground">{t("appDetail.updateDisabledAppRunning")}</p> : null}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground">{t("appDetail.checkForUpdatesUpToDate")}</p>
-        )
-      ) : null}
       <ApiErrorAlert error={updateCheck.error} />
       {editingRef && !isOfficialTag ? (
         <div className="flex flex-col gap-2">

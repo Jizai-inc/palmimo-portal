@@ -17,6 +17,7 @@ import { getGetStatusApiV1SystemStatusGetQueryKey } from "@/api/generated/system
 import { PortalApiError } from "@/api/client";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { AppIdLabel, appIdNamePart } from "@/components/AppIdLabel";
+import { AppTitle } from "@/components/AppTitle";
 import { AppJobDialog } from "@/components/AppJobDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -252,7 +253,7 @@ function AppRow({
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
           <Link to="/apps/$id" params={{ id: app.id }} className="min-w-0 truncate hover:underline">
-            <AppIdLabel id={app.id} />
+            <AppTitle app={app} />
           </Link>
           <Badge
             variant={tone === "green" ? "default" : tone === "red" ? "destructive" : tone === "muted" ? "secondary" : "outline"}
@@ -271,6 +272,7 @@ function AppRow({
           {app.update_available ? <Badge variant="outline">{t("apps.updateAvailableChip")}</Badge> : null}
           {app.credential_rejected ? <Badge variant="destructive">{t("apps.credentialRejectedBadge")}</Badge> : null}
         </div>
+        {app.label ? <AppIdLabel id={app.id} className="truncate font-mono text-xs" /> : null}
         {app.name !== appIdNamePart(app.id) ? <p className="truncate text-xs text-muted-foreground">{app.name}</p> : null}
         <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{formatSourceSummary(app.source)}</p>
         <ApiErrorAlert error={rowError} />

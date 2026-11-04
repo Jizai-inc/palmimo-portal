@@ -184,7 +184,7 @@ export function AppShell({
   );
 
   return (
-    <div className={cn("flex flex-col bg-background", fitViewport ? "h-dvh overflow-hidden [&>header]:shrink-0" : "min-h-screen")}>
+    <div className={cn("flex flex-col bg-background [&>header]:sticky [&>header]:top-0 [&>header]:z-40", fitViewport ? "h-dvh overflow-hidden [&>header]:shrink-0" : "min-h-screen")}>
       <AppHeader
         onToggleSidebar={handleToggleClick}
         actions={headerActions}
@@ -193,10 +193,11 @@ export function AppShell({
         wordmarkLinksHome
       />
       <div className={cn("flex flex-1 md:flex-row", fitViewport && "min-h-0")}>
+        {/* top-14 and the 3.5rem offset track AppHeader's h-14. */}
         <aside
           data-rail={sidebarCollapsed || undefined}
           className={cn(
-            "hidden shrink-0 flex-col gap-4 border-r border-border bg-sidebar md:flex",
+            "hidden min-h-0 shrink-0 flex-col gap-4 border-r border-border bg-sidebar md:sticky md:top-14 md:flex md:h-[calc(100dvh-3.5rem)]",
             sidebarCollapsed ? "w-14 px-2 py-3.5" : "w-58 px-2.5 py-3.5",
           )}
         >

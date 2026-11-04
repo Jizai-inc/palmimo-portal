@@ -24,7 +24,7 @@ function ErrorAnnouncement({ message }: { message: string | null }) {
   ) : null;
 }
 
-/** The running app with Stop; when idle, the default app with Start, or a link to Apps when there is none. */
+/** The running app's name with Stop; when idle, the default app's name with Start, or a link to Apps when there is none. The names are labels, not links, so only the action is clickable. */
 export function RunningAppControl({
   runningApp,
   defaultApp,
@@ -46,14 +46,10 @@ export function RunningAppControl({
     const startError = startApp.error ? apiErrorMessage(t, startApp.error) : null;
     return (
       <div className="flex items-center gap-1">
-        <Link
-          to="/apps/$id"
-          params={{ id: defaultApp.id }}
-          className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-        >
+        <span className="flex min-w-0 items-center gap-1.5 px-2 py-1 text-sm text-muted-foreground">
           <span className="size-2 shrink-0 rounded-full border border-muted-foreground" aria-hidden />
           <span className="hidden max-w-32 truncate sm:inline">{defaultApp.name}</span>
-        </Link>
+        </span>
         <Button
           type="button"
           variant="ghost"
@@ -95,12 +91,8 @@ export function RunningAppControl({
 
   return (
     <div className="flex items-center gap-1">
-      <Link
-        to="/apps/$id"
-        params={{ id: runningApp.id }}
-        className="flex min-w-0 items-center gap-1.5 rounded-md px-2 py-1 text-sm hover:bg-accent hover:text-accent-foreground"
-        aria-label={t("header.runningApp", { name: runningApp.name })}
-      >
+      <span className="flex min-w-0 items-center gap-1.5 px-2 py-1 text-sm">
+        <span className="sr-only">{t("header.runningApp", { name: runningApp.name })}</span>
         <span
           className={cn(
             "size-2 shrink-0 rounded-full",
@@ -108,9 +100,11 @@ export function RunningAppControl({
           )}
           aria-hidden
         />
-        <span className="hidden max-w-32 truncate font-medium sm:inline">{runningApp.name}</span>
+        <span className="hidden max-w-32 truncate font-medium sm:inline" aria-hidden>
+          {runningApp.name}
+        </span>
         {stateLabel ? <span className="hidden text-xs text-muted-foreground md:inline">{stateLabel}</span> : null}
-      </Link>
+      </span>
       <Button
         type="button"
         variant="ghost"

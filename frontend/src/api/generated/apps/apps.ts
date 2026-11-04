@@ -34,6 +34,7 @@ import type {
   DefaultAppResponse,
   GetLogsApiV1AppsNameLogsGetParams,
   HTTPValidationError,
+  LabelRequest,
   LogsResponse,
   ManifestPreviewResponse,
   PalmimoPortalApiAppsResetResponse,
@@ -1030,7 +1031,82 @@ export function useGetDiagnosticsApiV1AppsNameDiagnosticsGet<TData = Awaited<Ret
 
 
 
-export const getGetLogsApiV1AppsNameLogsGetUrl = (name: string,
+export const getPutLabelApiV1AppsNameLabelPutUrl = (name: string,) => {
+
+
+
+
+  return `/api/v1/apps/${name}/label`
+}
+
+/**
+ * Set the app's display title; ``id`` and everything keyed by it stay unchanged.
+ *
+ * Raises:
+ *     PortalError: 404 ``app_not_found``.
+ * @summary Put Label
+ */
+export const putLabelApiV1AppsNameLabelPut = async (name: string,
+    labelRequest: LabelRequest, options?: RequestInit): Promise<AppDetailResponse> => {
+
+  return customFetch<AppDetailResponse>(getPutLabelApiV1AppsNameLabelPutUrl(name),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(labelRequest)
+  }
+);}
+
+
+
+
+
+export const getPutLabelApiV1AppsNameLabelPutMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putLabelApiV1AppsNameLabelPut>>, TError,{name: string;data: LabelRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof putLabelApiV1AppsNameLabelPut>>, TError,{name: string;data: LabelRequest}, TContext> => {
+
+const mutationKey = ['putLabelApiV1AppsNameLabelPut'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof putLabelApiV1AppsNameLabelPut>>, {name: string;data: LabelRequest}> = (props) => {
+          const {name,data} = props ?? {};
+
+          return  putLabelApiV1AppsNameLabelPut(name,data,)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type PutLabelApiV1AppsNameLabelPutMutationResult = NonNullable<Awaited<ReturnType<typeof putLabelApiV1AppsNameLabelPut>>>
+    export type PutLabelApiV1AppsNameLabelPutMutationBody = LabelRequest
+    export type PutLabelApiV1AppsNameLabelPutMutationError = HTTPValidationError
+
+    /**
+ * @summary Put Label
+ */
+export const usePutLabelApiV1AppsNameLabelPut = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof putLabelApiV1AppsNameLabelPut>>, TError,{name: string;data: LabelRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof putLabelApiV1AppsNameLabelPut>>,
+        TError,
+        {name: string;data: LabelRequest},
+        TContext
+      > => {
+      return useMutation(getPutLabelApiV1AppsNameLabelPutMutationOptions(options), queryClient);
+    }
+    export const getGetLogsApiV1AppsNameLogsGetUrl = (name: string,
     params?: GetLogsApiV1AppsNameLogsGetParams,) => {
   const normalizedParams = new URLSearchParams();
 

@@ -2,6 +2,7 @@ import base64
 import ctypes
 import errno
 import threading
+import time
 from collections import deque
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ from tests.test_wifi_qr_reader import Clock
 
 
 module = reader_tests.module
+tmp_path = reader_tests.tmp_path
 
 
 @pytest.mark.parametrize(
@@ -269,6 +271,7 @@ class VideoDevice:
         self.ready: deque[tuple[int, bytes]] = deque()
         self.buffers = [bytearray(4096) for _ in range(3)]
         self.streaming = False
+        self.starts = 0
 
     def ioctl(self, fd: int, request: int, argument: Any) -> None:
         if request == 0xC0D05605:
@@ -282,6 +285,7 @@ class VideoDevice:
             self.queued.append(argument.index)
         elif request == 0x40045612:
             self.streaming = True
+            self.starts += 1
         elif request == 0x40045613:
             self.streaming = False
         elif request == 0xC0585611:
@@ -303,6 +307,10 @@ def test_camera_returns_latest_frame_and_requeues_all_buffers(module: Any, tmp_p
         path, ioctl=video.ioctl, map_buffer=lambda fd, length, offset: memoryview(video.buffers[offset // 4096])
     )
     try:
+        assert not video.streaming
+        camera.start()
+        camera.start()
+        assert video.starts == 1
         assert video.streaming
         assert video.queued == [0, 1, 2]
         video.ready.extend([(0, b"old"), (1, b"new"), (2, b"latest")])
@@ -432,6 +440,12 @@ def test_live_preview_shows_centered_wifi_prompt_inside_face_without_changing_ca
     serial = SlowSerial(Clock())
     display = module.Display(port_factory=lambda: serial, clock=serial.clock)
     frame = b"\x03" * (168 * 168)
+    display.screen("scanning", {})
+    deadline = time.monotonic() + 2
+    while len(serial.finished) < 2 and time.monotonic() < deadline:
+        time.sleep(0.001)
+    assert serial.finished[-1][0] == "GRAY8"
+    serial.completed.clear()
     serial.finished.clear()
     try:
         display.live(frame)
@@ -500,6 +514,12 @@ def test_display_worker_drops_stale_previews_and_prioritizes_screen_without_shar
         return serial
 
     display = module.Display(port_factory=open_port, clock=clock)
+    display.screen("scanning", {})
+    deadline = time.monotonic() + 2
+    while len(serial.finished) < 2 and time.monotonic() < deadline:
+        time.sleep(0.001)
+    assert serial.finished[-1][0] == "GRAY8"
+    serial.completed.clear()
     serial.finished.clear()
     serial.on_data = lambda: setattr(serial, "block_once", not serial.waiting.is_set())
     try:
@@ -580,6 +600,7 @@ def test_display_worker_surfaces_serial_loss_without_leaking_exception(module: A
         failed.set()
         raise OSError("WIFI:P:secret;;")
 
+    display.screen("scanning", {})
     serial.on_data = fail
     try:
         display.live(bytes(168 * 168))
@@ -592,7 +613,7 @@ def test_display_worker_surfaces_serial_loss_without_leaking_exception(module: A
         display.close()
 
 
-@pytest.mark.parametrize("failure_request", [0xC0585609, 0x40045612])
+@pytest.mark.parametrize("failure_request", [0xC0585609, 0xC058560F])
 def test_camera_initialization_failure_closes_fd_and_mappings(
     module: Any, tmp_path: Path, failure_request: int
 ) -> None:
@@ -672,3 +693,56 @@ def test_heartbeat_consumes_reply_before_next_command(module: Any) -> None:
     for _ in range(3):
         client.ping()
         assert not serial.incoming
+
+
+def test_reader_hello_follows_only_waiting_frame(module: Any, tmp_path: Path) -> None:
+    serial = SlowSerial(Clock())
+    rig = reader_tests.Harness(module, tmp_path)
+    rig.reader.display_factory = lambda: module.Display(port_factory=lambda: serial, clock=serial.clock)
+    rig.reader.start()
+    try:
+        with rig.connect() as client:
+            assert reader_tests.receive(client) == [{"type": "hello", "proto": 1}]
+            expected = (reader_tests.READER_PATH.parent / "waiting.bin").read_bytes()
+            assert serial.finished == [("RGB565", expected)]
+            assert any(expected)
+    finally:
+        rig.reader.close()
+
+
+@pytest.mark.parametrize("first_frame", [False, True])
+def test_scanning_displays_nonblank_preparation_only_on_first_entry(module: Any, first_frame: bool) -> None:
+    serial = SlowSerial(Clock())
+    display = module.Display(port_factory=lambda: serial, clock=serial.clock)
+    try:
+        serial.completed.clear()
+        display.screen("scanning", {})
+        deadline = time.monotonic() + 2
+        while len(serial.finished) < 2 and time.monotonic() < deadline:
+            time.sleep(0.001)
+        assert serial.finished[-1][0] == "GRAY8"
+        assert any(serial.finished[-1][1])
+        if first_frame:
+            display.live(b"\x03" * (168 * 168))
+            assert serial.completed.wait(2)
+            assert serial.finished[-1][1][:168] == b"\x03" * 168
+        serial.completed.clear()
+        display.screen("checking", {})
+        assert serial.completed.wait(2)
+        serial.completed.clear()
+        pinged = threading.Event()
+        original_write = serial.write
+
+        def write(line: bytes) -> int:
+            result = original_write(line)
+            if line == b"PING\n":
+                pinged.set()
+            return result
+
+        serial.write = write  # type: ignore[method-assign]
+        display.screen("scanning", {})
+        display.ping()
+        assert pinged.wait(2)
+        assert serial.finished[-1][0] == "RGB565"
+    finally:
+        display.close()

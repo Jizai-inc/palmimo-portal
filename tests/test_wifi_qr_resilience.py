@@ -66,6 +66,7 @@ def test_decode_failures_keep_scanning_and_success_resets_failure_limit(
     harness.reader.decoder = Decoder()
     with harness.connect() as client:
         receive(client)
+        harness.message(client, state="scanning")
         for frame in [["broken"]] * 99 + [[]] + [["broken"]] * 99:
             harness.camera.frames.append(frame)
             assert harness.reader.step()
@@ -87,7 +88,10 @@ def test_reader_stops_after_one_hundred_consecutive_decode_failures(harness: Har
     decoder = Decoder()
     harness.reader.decoder = decoder
     harness.camera.frames.extend([[]] * 101)
-    assert harness.reader.run() == 1
+    with harness.connect() as client:
+        receive(client)
+        harness.message(client, state="scanning")
+        assert harness.reader.run() == 1
     assert decoder.calls == 100
 
 
@@ -156,6 +160,7 @@ def test_invalid_camera_buffer_is_discarded_and_next_frame_remains_readable(
         path, ioctl=ioctl, map_buffer=lambda fd, length, offset: memoryview(video.buffers[offset // 4096])
     )
     try:
+        camera.start()
         video.ready.append((0, b"broken"))
         with pytest.raises(ValueError):
             camera.read()
@@ -246,7 +251,15 @@ def test_reservation_holder_logs_only_valid_bounded_metadata(
 
 @pytest.mark.parametrize(
     "stage,number,code",
-    [("start", errno.EBUSY, 75), ("read", errno.ENODEV, 78), ("read", errno.ENXIO, 78), ("read", errno.EIO, 78)],
+    [
+        ("start", errno.ENODEV, 78),
+        ("start", errno.EBUSY, 75),
+        ("stream", errno.EBUSY, 75),
+        ("stream", errno.ENODEV, 78),
+        ("read", errno.ENODEV, 78),
+        ("read", errno.ENXIO, 78),
+        ("read", errno.EIO, 78),
+    ],
 )
 def test_camera_errno_is_classified_at_start_and_during_capture(
     module: Any, tmp_path: Path, stage: str, number: int, code: int, caplog: pytest.LogCaptureFixture
@@ -257,14 +270,27 @@ def test_camera_errno_is_classified_at_start_and_during_capture(
     path.touch()
 
     def ioctl(fd: int, request: int, argument: Any) -> None:
-        if request == (0xC0D05605 if stage == "start" else 0xC0585611):
+        if request == {"start": 0xC0D05605, "stream": 0x40045612, "read": 0xC0585611}[stage]:
             raise OSError(number, "WIFI:P:secret;;")
         video.ioctl(fd, request, argument)
 
+    serial = Serial(Clock())
+    rig.reader.display_factory = lambda: module.Display(port_factory=lambda: serial, clock=serial.clock)
     rig.reader.camera_factory = lambda: module.Camera(
         path, ioctl=ioctl, map_buffer=lambda fd, length, offset: memoryview(video.buffers[offset // 4096])
     )
-    assert rig.reader.run() == code
+    if stage in {"read", "stream"}:
+        rig.reader.start()
+        client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        client.connect(str(rig.reader.socket_path))
+        client.sendall(b'{"type":"screen","state":"scanning"}\n')
+        try:
+            assert rig.reader.run() == code
+        finally:
+            client.close()
+    else:
+        assert rig.reader.run() == code
+        assert serial.writes == []
     assert "secret" not in caplog.text
     assert str(number) in caplog.text
     assert any(getattr(record, "error_errno", None) == number for record in caplog.records)
@@ -290,25 +316,13 @@ def test_serial_errno_distinguishes_busy_from_unavailable(
         serial = Serial(clock)
         display = module.Display(port_factory=lambda: serial, clock=clock)
         serial.on_data = fail
+        display.screen("scanning", {})
         display.live(bytes(168 * 168))
         display.thread.join(timeout=2)
         rig.reader.display_factory = lambda: display
     assert rig.reader.run() == code
     assert "secret" not in caplog.text
     assert any(getattr(record, "error_type", None) == "SerialException" for record in caplog.records)
-
-
-def test_qr_detected_before_portal_connection_hides_preview_without_caching(harness: Harness) -> None:
-    harness.camera.frames.append(["secret"])
-    harness.reader.step()
-    assert harness.display.screens[-1][0] == "checking"
-    with harness.connect() as client:
-        assert receive(client) == [{"type": "hello", "proto": 1}]
-        harness.clock.now = 15
-        harness.reader.step()
-        assert harness.display.screens[-1][0] == "scanning"
-        with pytest.raises(TimeoutError):
-            client.recv(1)
 
 
 def test_firmware_without_power_status_is_unavailable_without_power_changes(module: Any) -> None:

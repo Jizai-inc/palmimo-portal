@@ -78,13 +78,15 @@ class WifiSetupApps:
         self._prepare_reason = reason
         return False
 
-    def prepare_locked(self) -> bool:
+    def prepare_locked(self, *, preempt: bool = True) -> bool:
         """Caller holds run.lock through reader StartUnit."""
         try:
             record = self.deps.state.read_preempted_app()
             if record is not None and record.by != "wifi-setup":
                 return self._refuse("other_recovery")
             conflicts = self.conflicting_apps()
+            if conflicts and not preempt:
+                return self._refuse("app_preemption_disabled")
             if "deactivating" in conflicts.values():
                 return self._refuse("app_stopping")
             if record is not None and record.hold and conflicts:
@@ -225,6 +227,11 @@ class WifiSetup:
         self._retry_at: float | None = None
         self._retry_delay = 30.0
         self._pending: Pending | None = None
+        self._non_lan_elapsed = 0.0
+        self._last_lan = False
+        self._live_ready = False
+        self._notice_entry = False
+        self._notice_blocked = False
         self._ap_elapsed = 0.0
         self._last_poll: float | None = None
         self._was_ap = False
@@ -255,6 +262,24 @@ class WifiSetup:
                 self._disconnected = True
                 logger.warning("wifi-setup: screen send failed")
 
+    def _reader_hello(self, generation: int | None) -> None:
+        with self._condition:
+            if self._mode != "starting" or (generation is not None and generation != self._generation):
+                return
+            lan = self._last_lan
+            if not lan:
+                self._mode = "active"
+                logger.info("wifi-setup: reader active")
+                self._retry_delay = 30
+                if self._notice_entry and not self._live_ready:
+                    self._screen = "waiting"
+                    self._screen_at = self._now()
+                else:
+                    self._show_locked("scanning")
+        if lan:
+            self.stop("connected")
+            self._restore()
+
     def on_message(self, message: dict[str, Any], *, generation: int | None = None) -> None:
         if message.get("type") == "close":
             with self._condition:
@@ -265,14 +290,11 @@ class WifiSetup:
                 self.stop("connected")
                 self._restore()
             return
+        if message.get("type") == "hello":
+            self._reader_hello(generation)
+            return
         with self._condition:
             if generation is not None and generation != self._generation:
-                return
-            if message.get("type") == "hello" and self._mode == "starting":
-                self._mode = "active"
-                logger.info("wifi-setup: reader active")
-                self._retry_delay = 30
-                self._show_locked("scanning")
                 return
             if self._mode != "active" or self._screen != "scanning" or message.get("type") != "qr":
                 return
@@ -353,7 +375,7 @@ class WifiSetup:
         self._mode = "unavailable"
         self._retry_at = self._now() + retry_s if retry_s is not None else None
 
-    def _enter(self, *, known: bool) -> None:
+    def _enter(self, *, known: bool, notice: bool = False) -> None:
         try:
             with self.apps.deps.state.lock_run():
                 status = self.unit.status()
@@ -365,9 +387,10 @@ class WifiSetup:
                     self._generation += 1
                     generation = self._generation
                     self._mode = "starting"
+                    self._notice_entry = notice
                     self._disconnected = False
                     self._conflict_warning = False
-                if not self.apps.prepare_locked():
+                if not self.apps.prepare_locked(preempt=not notice and (not known or self._ap_elapsed >= 60)):
                     with self._condition:
                         if self._generation == generation:
                             self._mode = "idle"
@@ -377,7 +400,10 @@ class WifiSetup:
                     if self._generation != generation:
                         return
                     self._started_at = self._now()
-                logger.info("wifi-setup: entering reason=%s", "known_network_lost" if known else "unprovisioned")
+                logger.info(
+                    "wifi-setup: entering reason=%s",
+                    "notice" if notice else "known_network_lost" if known else "unprovisioned",
+                )
                 self.unit.start()
                 with self._condition:
                     stale = self._generation != generation or self._shutdown.is_set()
@@ -573,7 +599,7 @@ class WifiSetup:
         with self._condition:
             elapsed = min(2.0, max(0.0, now - self._last_poll)) if self._last_poll is not None else 0.0
             self._last_poll = now
-        lan = ap = known = False
+        lan = ap = known = non_lan = False
         observed = False
         try:
             network = self.network.get_status()
@@ -584,6 +610,7 @@ class WifiSetup:
                 and self.profiles.device_status().state == 100
             )
             ap = network.state is ConnectionState.UNPROVISIONED
+            non_lan = network.state in {ConnectionState.CONNECTING, ConnectionState.UNPROVISIONED}
             observed = True
         except AdapterUnavailableError:
             if not self._poll_warning:
@@ -591,6 +618,14 @@ class WifiSetup:
                 self._poll_warning = True
         else:
             self._poll_warning = False
+        attempting = self.attempts.in_progress
+        with self._condition:
+            if observed:
+                self._last_lan = lan
+            if lan or attempting:
+                self._non_lan_elapsed = 0
+            elif observed and non_lan:
+                self._non_lan_elapsed += elapsed
         if lan:
             with suppress(RunLockTimeoutError):
                 self.apps.clear_hold()
@@ -602,15 +637,58 @@ class WifiSetup:
                 self._mode = "idle"
             mode = self._mode
             pending = self._pending
+        live_ready = False
+        notice_ready = False
+        notice_blocked = False
+        if not lan and (mode in {"idle", "starting"} or (mode == "active" and self.status().screen == "waiting")):
+            try:
+                conflicts = self.apps.conflicting_apps()
+                record = self.apps.deps.state.read_preempted_app()
+                recovery_owned = record is None or record.by == "wifi-setup"
+                live_ready = (
+                    ap
+                    and self._ap_elapsed >= (60 if known and conflicts else 5)
+                    and recovery_owned
+                    and (mode != "active" or not conflicts)
+                    and "deactivating" not in conflicts.values()
+                    and not (record is not None and record.hold and conflicts)
+                )
+                notice_eligible = (
+                    observed and non_lan and self._non_lan_elapsed >= 5 and not attempting and recovery_owned
+                )
+                notice_ready = notice_eligible and not conflicts
+                notice_blocked = mode == "idle" and notice_eligible and bool(conflicts)
+            except Exception as error:
+                if not self._conflict_warning:
+                    logger.warning(
+                        "wifi-setup: entry app observation failed error_type=%s app=%s",
+                        type(error).__name__,
+                        error.app if isinstance(error, UnknownAppDevicesError) else None,
+                    )
+                self._conflict_warning = True
+            else:
+                self._conflict_warning = False
+            with self._condition:
+                self._live_ready = live_ready
+        if notice_blocked and not self._notice_blocked:
+            logger.info("wifi-setup: notice deferred reason=app_running")
+        self._notice_blocked = notice_blocked
         if mode == "idle":
             if lan:
                 self.apps.restore(hold=False)
-            elif ap and self._ap_elapsed >= (60 if known else 5) and not self._shutdown.is_set():
-                self._enter(known=known)
+            elif not self._shutdown.is_set():
+                if live_ready:
+                    self._enter(known=known)
+                elif notice_ready:
+                    self._enter(known=known, notice=True)
             return
         if mode not in {"starting", "active"}:
             if lan:
                 self.apps.restore(hold=False)
+            return
+        if mode == "starting" and lan:
+            self.stop("connected")
+            self._restore()
             return
         try:
             result = self.unit.status()
@@ -656,6 +734,9 @@ class WifiSetup:
             ):
                 self._pending = None
                 self._show_locked("failed", reason="connect_failed")
+            if self._screen == "waiting" and live_ready and not should_stop:
+                self._show_locked("scanning")
+                logger.info("wifi-setup: screen transition from=waiting to=scanning")
             if self._screen in {"rejected", "failed"} and now - self._screen_at >= (
                 5 if self._screen == "rejected" else 8
             ):

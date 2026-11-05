@@ -330,17 +330,24 @@ class Camera:
                 self.ioctl(self.fd, VIDIOC_QUERYBUF, buffer)
                 self.buffers.append(map_buffer(self.fd, buffer.length, buffer.m.offset))
                 self.ioctl(self.fd, VIDIOC_QBUF, buffer)
-            self.ioctl(self.fd, VIDIOC_STREAMON, ctypes.c_int(1))
-            self.streaming = True
         except BaseException as error:
             self.close()
             if isinstance(error, OSError):
                 raise camera_failure(error) from None
             raise
 
+    def start(self) -> None:
+        if self.streaming or self.fd is None:
+            return
+        try:
+            self.ioctl(self.fd, VIDIOC_STREAMON, ctypes.c_int(1))
+        except OSError as error:
+            raise camera_failure(error) from None
+        self.streaming = True
+
     def read(self) -> bytes | None:
         """Drain queued frames without waiting; only copy the newest complete MJPEG buffer."""
-        if self.fd is None:
+        if self.fd is None or not self.streaming:
             return None
         dequeued: list[V4L2Buffer] = []
         try:
@@ -613,7 +620,7 @@ class FrameClient:
             for attempt in range(2):
                 if attempt:
                     self._synchronize()
-                self._write(b"FRAME BEGIN 168 168 GRAY8")
+                self._write(b"FRAME BEGIN 168 168 RGB565")
                 try:
                     response = self._response()
                 except DisplayProtocolError:
@@ -627,7 +634,7 @@ class FrameClient:
                 raise DeviceUnavailableError("Face display did not acknowledge frames")
             self._write(b"STAT")
             self.original_power = parse_power(self._response())
-            self.send_frame(bytes(168 * 168), 168, 168, "GRAY8", begun=True)
+            self.send_frame(state_screen("waiting", {}), 168, 168, "RGB565", begun=True)
         except DisplayProtocolError as error:
             raise DeviceUnavailableError("Face display did not initialize", error=error) from None
 
@@ -894,11 +901,12 @@ class Display:
         self.stopping = False
         self.failure: Exception | None = None
         self.generation = 0
-        self.state = "scanning"
+        self.state = "waiting"
         self.rendered_connected: int | None = None
         self.close_pending = False
         self.pending_screen: tuple[str, bytes, int] | None = None
         self.pending_live: bytes | None = None
+        self.scanning_started = False
         self.pending_ping = False
         self.thread = threading.Thread(
             target=self._run, args=(port_factory, clock), daemon=True, name="wifi-qr-display"
@@ -918,14 +926,24 @@ class Display:
     def screen(self, state: str, fields: dict[str, Any]) -> None:
         self.check()
         format_ = "GRAY8" if state == "scanning" else "RGB565"
-        pixels = bytes(168 * 168) if state == "scanning" else state_screen(state, fields)
+        if state == "scanning":
+            canvas = bytearray(168 * 168)
+            text = "Starting camera..."
+            draw_ascii(canvas, 168, 168, text, (168 - len(text) * FONT_WIDTH) // 2, 79, color=255, bytes_per_pixel=1)
+            pixels = bytes(canvas)
+        else:
+            pixels = state_screen(state, fields)
         with self.condition:
             self.state = state
             self.generation += 1
             self.rendered_connected = None
             self.close_pending = False
             self.pending_live = None
-            self.pending_screen = (format_, pixels, self.generation)
+            self.pending_screen = (
+                None if state == "scanning" and self.scanning_started else (format_, pixels, self.generation)
+            )
+            if state == "scanning":
+                self.scanning_started = True
             self.condition.notify()
 
     def live(self, frame: bytes | None) -> None:
@@ -1094,10 +1112,12 @@ class Reader:
         self.camera: Any = None
         self.decoder: Any = None
         self.display: Any = None
+        self.stream_started_at: float | None = None
+        self.received_frame = False
         self.started_at = 0.0
         self.checking_since = 0.0
         self.last_ping = 0.0
-        self.state = "scanning"
+        self.state = "waiting"
         self.sent_texts: dict[str, int] = {}
         self.frame_failures = 0
         self.incoming = bytearray()
@@ -1139,10 +1159,12 @@ class Reader:
             self.stack.callback(self._cleanup, self.decoder.close)
         self.display = self.display_factory()
         self.stack.callback(self._cleanup, self.display.close)
-        self._screen("scanning", {})
         self.last_ping = self.clock()
 
     def _screen(self, state: str, fields: dict[str, Any]) -> None:
+        if state == "scanning" and self.stream_started_at is None:
+            self.camera.start()
+            self.stream_started_at = self.clock()
         self.state = state
         if state == "checking":
             self.checking_since = self.clock()
@@ -1204,7 +1226,7 @@ class Reader:
             if not isinstance(value, str):
                 return
             fields[key] = value
-        elif state not in {"scanning", "checking"}:
+        elif state not in {"waiting", "scanning", "checking"}:
             return
         self._screen(state, fields)
 
@@ -1241,6 +1263,9 @@ class Reader:
         try:
             frame = self.camera.read()
             if frame is None:
+                return
+            self.received_frame = True
+            if self.state != "scanning":
                 return
             texts = self.decoder.decode(frame)
         except ValueError as error:
@@ -1299,8 +1324,11 @@ class Reader:
             ):
                 self._send({"type": "close"})
                 self.close_sent = True
-            if self.state == "scanning":
-                self._frame()
+            if self.stream_started_at is not None:
+                if self.state == "scanning" or not self.received_frame:
+                    self._frame()
+                if not self.received_frame and self.clock() - self.stream_started_at >= 15:
+                    raise ReaderOperationError("Camera did not deliver its first frame")
             self._flush()
         except (BrokenPipeError, ConnectionResetError):
             self.stop()

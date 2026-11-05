@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import type { JournalEntryInfo, JournalInvocationInfo } from "@/api/generated/models";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { copyText } from "@/lib/copyText";
 import { formatLogMessage } from "@/lib/formatLogMessage";
 import { formatLocalTimestamp } from "@/lib/formatTimestamp";
@@ -138,13 +139,18 @@ export function LogViewer({
     <div className={cn("flex min-h-0 min-w-0 flex-col gap-2", expanded && "flex-1")}>
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         {invocations.length > 1 && invocation !== null ? (
-          <select aria-label={t("appDetail.logsInvocationLabel")} className="h-9 max-w-full rounded-md border border-input bg-transparent px-2 text-sm" value={invocation} onChange={(event) => setInvocation?.(event.target.value)}>
-            {invocations.map((start) => (
-              <option key={start.id} value={start.id}>
-                {t("appDetail.logsInvocationAt", { time: formatLocalTimestamp(start.started_at, { locale: i18n.language }) })}
-              </option>
-            ))}
-          </select>
+          <Select value={invocation} onValueChange={(next) => setInvocation?.(next)}>
+            <SelectTrigger aria-label={t("appDetail.logsInvocationLabel")} className="h-9 w-auto max-w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {invocations.map((start) => (
+                <SelectItem key={start.id} value={start.id}>
+                  {t("appDetail.logsInvocationAt", { time: formatLocalTimestamp(start.started_at, { locale: i18n.language }) })}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         ) : null}
         <Button type="button" variant="outline" size="sm" onClick={() => void handleCopy()}>
           {copyStatus === "copied" ? t("appDetail.logsCopied") : copyStatus === "failed" ? t("appDetail.logsCopyFailed") : t("appDetail.logsCopyButton")}

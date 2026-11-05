@@ -23,6 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { GitInstallSource, InstallSource } from "@/lib/appInstall";
 import { installApp, previewApp } from "@/lib/appInstall";
 import { isValidAppNamePart } from "@/lib/appNamePart";
@@ -439,15 +440,15 @@ function GithubTab({ onInstalled, appRunning, inlineConfirm, onConfirmingChange 
       </div>
       <div className="flex flex-col gap-1">
         <Label htmlFor="github-ref-kind">{t("appAdd.githubRefKindLabel")}</Label>
-        <select
-          id="github-ref-kind"
-          className="h-10 rounded-md border border-input bg-transparent px-3 text-sm"
-          value={refKind}
-          onChange={(event) => setRefKind(event.target.value as "branch" | "tag")}
-        >
-          <option value="branch">{t("appAdd.githubRefKindBranch")}</option>
-          <option value="tag">{t("appAdd.githubRefKindTag")}</option>
-        </select>
+        <Select value={refKind} onValueChange={(next) => setRefKind(next as "branch" | "tag")}>
+          <SelectTrigger id="github-ref-kind">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="branch">{t("appAdd.githubRefKindBranch")}</SelectItem>
+            <SelectItem value="tag">{t("appAdd.githubRefKindTag")}</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-col gap-1">
         <Label htmlFor="github-ref">{t("appAdd.githubRefLabel")}</Label>

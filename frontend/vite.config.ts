@@ -86,8 +86,10 @@ export default defineConfig({
         // bytes -> same hash) but Rollup's default chunking can still vary
         // module iteration order across environments. Fixed, unhashed names
         // keep the diff meaningful (a real content change, not chunking
-        // noise) — cache-busting does not matter here since the backend
-        // serves one pinned build per release, not a rolling deployment.
+        // noise). Because the names never change across releases, the
+        // backend sends `Cache-Control: no-cache` on every frontend file
+        // (see `_mount_frontend` in palmimo_portal/api/app.py) so browsers
+        // revalidate and pick up a new build right after an update.
         entryFileNames: "assets/[name].js",
         chunkFileNames: "assets/[name].js",
         assetFileNames: "assets/[name][extname]",

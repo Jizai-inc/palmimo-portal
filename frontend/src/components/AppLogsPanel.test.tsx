@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,6 +10,7 @@ import { getListSecretsApiV1SecretsGetMockHandler } from "@/api/generated/secret
 import { AppLogsPanel } from "@/components/AppLogsPanel";
 import { LOG_POLL_INTERVAL_MS } from "@/lib/useAppLogs";
 import { renderWithRouter } from "@/test/render";
+import { chooseOption, openSelect, selectedOptionIndex } from "@/test/select";
 import { server } from "@/test/server";
 
 function detail(overrides: Partial<AppDetailResponse> = {}): AppDetailResponse {
@@ -50,7 +51,8 @@ describe("AppLogsPanel", () => {
 
     renderWithRouter(<AppLogsPanel id="palmimo.teleop" />);
 
-    await waitFor(() => expect(screen.getByLabelText("Start")).toHaveValue("11111111111111111111111111111111"));
+    await screen.findByRole("combobox", { name: "Start" });
+    expect(await selectedOptionIndex(userEvent.setup(), "Start")).toBe(0);
     expect(screen.getByText("Current run. Updates every 2 seconds.")).toBeInTheDocument();
   });
 
@@ -79,9 +81,9 @@ describe("AppLogsPanel", () => {
     const view = renderWithRouter(<AppLogsPanel id="palmimo.teleop" />);
     try {
       await waitFor(() => expect(cursorRequested).toBe(true));
-      const select = screen.getByRole("combobox", { name: "Start" });
-      expect(select).toHaveValue(invocations[0].id);
-      expect(within(select).getAllByRole("option").map((option) => (option as HTMLOptionElement).value)).toEqual(invocations.map((invocation) => invocation.id));
+      const options = await openSelect(userEvent.setup(), "Start");
+      expect(options).toHaveLength(invocations.length);
+      expect(options[0]).toHaveAttribute("data-state", "checked");
       expect(screen.getByText("current line")).toBeInTheDocument();
     } finally {
       releaseResponse();
@@ -159,13 +161,14 @@ describe("AppLogsPanel", () => {
       );
 
       renderWithRouter(<AppLogsPanel id="palmimo.teleop" />);
-      await waitFor(() => expect(screen.getByLabelText("Start")).toHaveValue("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+      await screen.findByRole("combobox", { name: "Start" });
+      expect(await selectedOptionIndex(user, "Start")).toBe(0);
 
-      await user.selectOptions(screen.getByLabelText("Start"), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+      await chooseOption(user, "Start", 1);
       await waitFor(() => expect(screen.getByText("w line")).toBeInTheDocument());
       expect(screen.getByText("A previous run.")).toBeInTheDocument();
 
-      await user.selectOptions(screen.getByLabelText("Start"), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+      await chooseOption(user, "Start", 0);
       await waitFor(() => expect(screen.getByText("x line")).toBeInTheDocument());
       expect(screen.getByText("Current run. Updates every 2 seconds.")).toBeInTheDocument();
 

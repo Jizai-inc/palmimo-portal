@@ -14,6 +14,7 @@ import { getListSecretsApiV1SecretsGetMockHandler } from "@/api/generated/secret
 import type { AppDetailResponse, AppSummary } from "@/api/generated/models";
 import { AppDetailPanel } from "@/components/AppDetailPanel";
 import { renderWithRouter } from "@/test/render";
+import { chooseOption, selectedOptionIndex } from "@/test/select";
 import { server } from "@/test/server";
 
 function detail(overrides: Partial<AppDetailResponse> = {}): AppDetailResponse {
@@ -89,9 +90,8 @@ describe("AppDetailPanel", () => {
 
     await screen.findByText("WIFI_PASSWORD");
     expect(screen.getByText("This required variable is not bound.")).toBeInTheDocument();
-    await within(screen.getByLabelText("WIFI_PASSWORD")).findByRole("option", { name: "HOME_WIFI_PASSWORD" });
-
-    await user.selectOptions(screen.getByLabelText("WIFI_PASSWORD"), "HOME_WIFI_PASSWORD");
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "WIFI_PASSWORD" })).toHaveTextContent("Not bound"));
+    await chooseOption(user, "WIFI_PASSWORD", "HOME_WIFI_PASSWORD");
     await user.click(screen.getByRole("button", { name: "Save bindings" }));
 
     await waitFor(() => expect(putBody).toEqual({ bindings: { WIFI_PASSWORD: "HOME_WIFI_PASSWORD" } }));
@@ -220,9 +220,9 @@ describe("AppDetailPanel", () => {
     );
     renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
 
-    const startSelect = await screen.findByLabelText("Start");
-    await waitFor(() => expect(startSelect).toHaveValue("11111111111111111111111111111111"));
-    await user.selectOptions(startSelect, "00000000000000000000000000000000");
+    await screen.findByRole("combobox", { name: "Start" });
+    expect(await selectedOptionIndex(user, "Start")).toBe(0);
+    await chooseOption(user, "Start", 1);
 
     await waitFor(() => expect(lastInvocationParam).toBe("00000000000000000000000000000000"));
     expect(await screen.findByText("old start line")).toBeInTheDocument();

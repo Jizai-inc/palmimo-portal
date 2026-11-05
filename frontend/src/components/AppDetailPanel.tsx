@@ -251,6 +251,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+// Secret names are uppercase-only, so this cannot collide; Radix Select forbids "" as an item value.
+const UNBOUND = "unbound";
+
 function BindingsSection({ app, onSaved }: { app: AppDetailResponse; onSaved: () => void }) {
   const { t, i18n } = useTranslation();
   const { data: secretsData } = useListSecretsApiV1SecretsGet();
@@ -300,17 +303,20 @@ function BindingsSection({ app, onSaved }: { app: AppDetailResponse; onSaved: ()
                 </p>
                 {unbound ? <p className="text-xs text-destructive">{t("appDetail.bindingsUnboundRequiredWarning")}</p> : null}
               </div>
-              <select
-                aria-label={envVar.name}
-                className="h-10 rounded-md border border-input bg-transparent px-3 text-sm"
-                value={bindings[envVar.name] ?? ""}
-                onChange={(event) => setBindings((current) => ({ ...current, [envVar.name]: event.target.value }))}
+              <Select
+                value={bindings[envVar.name] || UNBOUND}
+                onValueChange={(next) => setBindings((current) => ({ ...current, [envVar.name]: next === UNBOUND ? "" : next }))}
               >
-                <option value="">{t("appDetail.bindingsNotBound")}</option>
-                {secretNames.map((secretName) => (
-                  <option key={secretName} value={secretName}>{secretName}</option>
-                ))}
-              </select>
+                <SelectTrigger aria-label={envVar.name} className="sm:w-72">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={UNBOUND}>{t("appDetail.bindingsNotBound")}</SelectItem>
+                  {secretNames.map((secretName) => (
+                    <SelectItem key={secretName} value={secretName}>{secretName}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           );
         })}
@@ -557,15 +563,15 @@ function SourceSection({
           <div className="flex flex-wrap items-end gap-2">
           <div className="flex flex-col gap-1">
             <Label htmlFor="source-ref-kind">{t("appAdd.githubRefKindLabel")}</Label>
-            <select
-              id="source-ref-kind"
-              className="h-10 rounded-md border border-input bg-transparent px-3 text-sm"
-              value={refKind}
-              onChange={(event) => setRefKind(event.target.value as SourceUpdateRequestRefKind)}
-            >
-              <option value="branch">{t("appAdd.githubRefKindBranch")}</option>
-              <option value="tag">{t("appAdd.githubRefKindTag")}</option>
-            </select>
+            <Select value={refKind} onValueChange={(next) => setRefKind(next as SourceUpdateRequestRefKind)}>
+              <SelectTrigger id="source-ref-kind" className="w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="branch">{t("appAdd.githubRefKindBranch")}</SelectItem>
+                <SelectItem value="tag">{t("appAdd.githubRefKindTag")}</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex flex-col gap-1">
             <Label htmlFor="source-ref">{t("appDetail.sourceRefLabel")}</Label>

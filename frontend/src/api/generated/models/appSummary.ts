@@ -28,6 +28,7 @@ export interface AppSummary {
   latest_commit: string | null;
   missing_env?: string[];
   name: string;
+  public_app_available?: boolean | null;
   reason?: string | null;
   source: AppSourceInfo;
   status: AppSummaryStatus;

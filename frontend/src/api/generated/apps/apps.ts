@@ -39,6 +39,7 @@ import type {
   ManifestPreviewResponse,
   PalmimoPortalApiAppsResetResponse,
   ParamsRequest,
+  PublicInstallRequest,
   SourceUpdateRequest,
   StartResponse,
   StopResponse,
@@ -328,6 +329,77 @@ export const useInstallApiV1AppsInstallPost = <TError = unknown,
         TContext
       > => {
       return useMutation(getInstallApiV1AppsInstallPostMutationOptions(options), queryClient);
+    }
+    export const getInstallPublicApiV1AppsInstallPublicPostUrl = () => {
+
+
+
+
+  return `/api/v1/apps/install-public`
+}
+
+/**
+ * Install only if the selected public app still advertises the displayed commit.
+ * @summary Install Public
+ */
+export const installPublicApiV1AppsInstallPublicPost = async (publicInstallRequest: PublicInstallRequest, options?: RequestInit): Promise<AppJobAcceptedResponse> => {
+
+  return customFetch<AppJobAcceptedResponse>(getInstallPublicApiV1AppsInstallPublicPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(publicInstallRequest)
+  }
+);}
+
+
+
+
+
+export const getInstallPublicApiV1AppsInstallPublicPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof installPublicApiV1AppsInstallPublicPost>>, TError,{data: PublicInstallRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof installPublicApiV1AppsInstallPublicPost>>, TError,{data: PublicInstallRequest}, TContext> => {
+
+const mutationKey = ['installPublicApiV1AppsInstallPublicPost'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof installPublicApiV1AppsInstallPublicPost>>, {data: PublicInstallRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  installPublicApiV1AppsInstallPublicPost(data,)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type InstallPublicApiV1AppsInstallPublicPostMutationResult = NonNullable<Awaited<ReturnType<typeof installPublicApiV1AppsInstallPublicPost>>>
+    export type InstallPublicApiV1AppsInstallPublicPostMutationBody = PublicInstallRequest
+    export type InstallPublicApiV1AppsInstallPublicPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Install Public
+ */
+export const useInstallPublicApiV1AppsInstallPublicPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof installPublicApiV1AppsInstallPublicPost>>, TError,{data: PublicInstallRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof installPublicApiV1AppsInstallPublicPost>>,
+        TError,
+        {data: PublicInstallRequest},
+        TContext
+      > => {
+      return useMutation(getInstallPublicApiV1AppsInstallPublicPostMutationOptions(options), queryClient);
     }
     export const getGetJobApiV1AppsJobsJobIdGetUrl = (jobId: string,) => {
 
@@ -1552,7 +1624,7 @@ export const useStopAppEndpointApiV1AppsNameStopPost = <TError = HTTPValidationE
 }
 
 /**
- * Start re-fetching a git-sourced app at its pinned ref and swapping it in.
+ * Update a public app to its catalog commit, or another git app to its pinned ref.
  *
  * Raises:
  *     PortalError: 404 ``app_not_found``; 409 ``update_in_progress`` /

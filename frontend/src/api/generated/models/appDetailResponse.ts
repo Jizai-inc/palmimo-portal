@@ -25,13 +25,16 @@ export interface AppDetailResponse {
   installed_at: number | null;
   label?: string | null;
   last_job: AppJobInfo | null;
+  latest_commit?: string | null;
   manifest: AppManifestInfo | null;
   missing_env?: string[];
   name: string;
   params: AppDetailResponseParams;
+  public_app_available?: boolean | null;
   reason?: string | null;
   source: AppSourceInfo;
   status: AppDetailResponseStatus;
   translations?: AppDetailResponseTranslations;
+  update_available?: boolean;
   url?: string | null;
 }

@@ -17,15 +17,22 @@ import type {
 } from 'msw';
 
 import type {
-  CatalogResponse
+  CatalogResponse,
+  PublicCatalogResponse
 } from '../models';
 
 
-export const getGetCatalogApiV1CatalogGetResponseMock = (overrideResponse: Partial<Extract<CatalogResponse, object>> = {}): CatalogResponse => ({apps: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({description: faker.string.alpha({length: {min: 10, max: 20}}), devices: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), env: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({description: faker.string.alpha({length: {min: 10, max: 20}}), help_url: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), name: faker.string.alpha({length: {min: 10, max: 20}}), required: faker.datatype.boolean()})), name: faker.string.alpha({length: {min: 10, max: 20}}), source: {commit: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), manifest: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), official: faker.datatype.boolean(), ref: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), ref_kind: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), subdir: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), type: faker.string.alpha({length: {min: 10, max: 20}}), url: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,])}, translations: faker.helpers.arrayElement([{
+export const getGetCatalogApiV1CatalogGetResponseMock = (overrideResponse: Partial<Extract<CatalogResponse, object>> = {}): CatalogResponse => ({apps: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({description: faker.string.alpha({length: {min: 10, max: 20}}), devices: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), env: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({description: faker.string.alpha({length: {min: 10, max: 20}}), help_url: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), name: faker.string.alpha({length: {min: 10, max: 20}}), required: faker.datatype.boolean()})), name: faker.string.alpha({length: {min: 10, max: 20}}), source: {commit: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), manifest: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), official: faker.datatype.boolean(), public_app_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), ref: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), ref_kind: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), subdir: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), type: faker.string.alpha({length: {min: 10, max: 20}}), url: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,])}, translations: faker.helpers.arrayElement([{
         [faker.string.alphanumeric(5)]: {
         [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
       }
       }, undefined])})), fetched_at: faker.helpers.arrayElement([faker.number.float({fractionDigits: 2}),null,]), reason: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), stale: faker.datatype.boolean(), tag: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), ...overrideResponse})
+
+export const getGetPublicCatalogApiV1CatalogPublicGetResponseMock = (overrideResponse: Partial<Extract<PublicCatalogResponse, object>> = {}): PublicCatalogResponse => ({apps: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({description: faker.string.alpha({length: {min: 10, max: 20}}), devices: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), env: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({description: faker.string.alpha({length: {min: 10, max: 20}}), help_url: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), name: faker.string.alpha({length: {min: 10, max: 20}}), required: faker.datatype.boolean()})), name: faker.string.alpha({length: {min: 10, max: 20}}), public: {app_id: faker.string.alpha({length: {min: 10, max: 20}}), namespace: faker.string.alpha({length: {min: 10, max: 20}}), official: faker.datatype.boolean()}, source: {commit: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), manifest: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), official: faker.datatype.boolean(), public_app_id: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined]), ref: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), ref_kind: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), subdir: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), type: faker.string.alpha({length: {min: 10, max: 20}}), url: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,])}, translations: {
+        [faker.string.alphanumeric(5)]: {
+        [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
+      }
+      }})), fetched_at: faker.helpers.arrayElement([faker.number.float({fractionDigits: 2}),null,]), generated_at: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), reason: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), stale: faker.datatype.boolean(), ...overrideResponse})
 
 
 export const getGetCatalogApiV1CatalogGetMockHandler = (overrideResponse?: CatalogResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<CatalogResponse> | CatalogResponse), options?: RequestHandlerOptions) => {
@@ -39,6 +46,19 @@ export const getGetCatalogApiV1CatalogGetMockHandler = (overrideResponse?: Catal
       })
   }, options)
 }
+
+export const getGetPublicCatalogApiV1CatalogPublicGetMockHandler = (overrideResponse?: PublicCatalogResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PublicCatalogResponse> | PublicCatalogResponse), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/catalog/public', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+
+    return HttpResponse.json(overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getGetPublicCatalogApiV1CatalogPublicGetResponseMock(),
+      { status: 200
+      })
+  }, options)
+}
 export const getCatalogMock = () => [
-  getGetCatalogApiV1CatalogGetMockHandler()
+  getGetCatalogApiV1CatalogGetMockHandler(),
+  getGetPublicCatalogApiV1CatalogPublicGetMockHandler()
 ]

@@ -6,6 +6,7 @@
  */
 
 export interface UpdateCheckResponse {
+  public_app_available?: boolean | null;
   remote_commit: string | null;
   update_available: boolean;
 }

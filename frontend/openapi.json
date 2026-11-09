@@ -114,6 +114,17 @@
               }
             ]
           },
+          "latest_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Commit"
+          },
           "manifest": {
             "anyOf": [
               {
@@ -139,6 +150,17 @@
             "additionalProperties": true,
             "title": "Params",
             "type": "object"
+          },
+          "public_app_available": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public App Available"
           },
           "reason": {
             "anyOf": [
@@ -179,6 +201,11 @@
             },
             "title": "Translations",
             "type": "object"
+          },
+          "update_available": {
+            "default": false,
+            "title": "Update Available",
+            "type": "boolean"
           },
           "url": {
             "anyOf": [
@@ -400,6 +427,17 @@
             "title": "Official",
             "type": "boolean"
           },
+          "public_app_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public App Id"
+          },
           "ref": {
             "anyOf": [
               {
@@ -552,6 +590,17 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "public_app_available": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public App Available"
           },
           "reason": {
             "anyOf": [
@@ -1774,6 +1823,157 @@
         "title": "PlatformVerifyDiffInfo",
         "type": "object"
       },
+      "PublicAppIdentity": {
+        "properties": {
+          "app_id": {
+            "title": "App Id",
+            "type": "string"
+          },
+          "namespace": {
+            "title": "Namespace",
+            "type": "string"
+          },
+          "official": {
+            "title": "Official",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "app_id",
+          "namespace",
+          "official"
+        ],
+        "title": "PublicAppIdentity",
+        "type": "object"
+      },
+      "PublicCatalogAppInfo": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "devices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Devices",
+            "type": "array"
+          },
+          "env": {
+            "items": {
+              "$ref": "#/components/schemas/EnvSpecInfo"
+            },
+            "title": "Env",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "public": {
+            "$ref": "#/components/schemas/PublicAppIdentity"
+          },
+          "source": {
+            "$ref": "#/components/schemas/AppSourceInfo"
+          },
+          "translations": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Translations",
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "translations",
+          "source",
+          "env",
+          "devices",
+          "public"
+        ],
+        "title": "PublicCatalogAppInfo",
+        "type": "object"
+      },
+      "PublicCatalogResponse": {
+        "properties": {
+          "apps": {
+            "items": {
+              "$ref": "#/components/schemas/PublicCatalogAppInfo"
+            },
+            "title": "Apps",
+            "type": "array"
+          },
+          "fetched_at": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fetched At"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "stale": {
+            "title": "Stale",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "generated_at",
+          "apps",
+          "fetched_at",
+          "stale",
+          "reason"
+        ],
+        "title": "PublicCatalogResponse",
+        "type": "object"
+      },
+      "PublicInstallRequest": {
+        "properties": {
+          "commit": {
+            "title": "Commit",
+            "type": "string"
+          },
+          "public_app_id": {
+            "title": "Public App Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "public_app_id",
+          "commit"
+        ],
+        "title": "PublicInstallRequest",
+        "type": "object"
+      },
       "ReleaseInfo": {
         "properties": {
           "html_url": {
@@ -2110,6 +2310,17 @@
       },
       "UpdateCheckResponse": {
         "properties": {
+          "public_app_available": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public App Available"
+          },
           "remote_commit": {
             "anyOf": [
               {
@@ -2608,6 +2819,48 @@
           }
         },
         "summary": "Install",
+        "tags": [
+          "apps"
+        ]
+      }
+    },
+    "/api/v1/apps/install-public": {
+      "post": {
+        "description": "Install only if the selected public app still advertises the displayed commit.",
+        "operationId": "install_public_api_v1_apps_install_public_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicInstallRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppJobAcceptedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Install Public",
         "tags": [
           "apps"
         ]
@@ -3267,7 +3520,7 @@
     },
     "/api/v1/apps/{name}/update": {
       "post": {
-        "description": "Start re-fetching a git-sourced app at its pinned ref and swapping it in.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``update_in_progress`` /\n        409 ``app_job_in_progress`` / 409 ``platform_not_ready`` / 409\n        ``app_running`` (the app must be stopped first). A failure\n        after the job starts (bad manifest, disk full, sync failure)\n        surfaces on the app's ``last_job``, not here.",
+        "description": "Update a public app to its catalog commit, or another git app to its pinned ref.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``update_in_progress`` /\n        409 ``app_job_in_progress`` / 409 ``platform_not_ready`` / 409\n        ``app_running`` (the app must be stopped first). A failure\n        after the job starts (bad manifest, disk full, sync failure)\n        surfaces on the app's ``last_job``, not here.",
         "operationId": "update_app_api_v1_apps__name__update_post",
         "parameters": [
           {
@@ -3538,6 +3791,28 @@
           }
         },
         "summary": "Get Catalog",
+        "tags": [
+          "catalog"
+        ]
+      }
+    },
+    "/api/v1/catalog/public": {
+      "get": {
+        "description": "Return the public catalog, refreshing an unfetched or expired cache before responding.",
+        "operationId": "get_public_catalog_api_v1_catalog_public_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicCatalogResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Public Catalog",
         "tags": [
           "catalog"
         ]

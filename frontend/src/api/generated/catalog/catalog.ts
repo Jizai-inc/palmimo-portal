@@ -20,7 +20,8 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  CatalogResponse
+  CatalogResponse,
+  PublicCatalogResponse
 } from '../models';
 
 import { customFetch } from '../../client';
@@ -139,6 +140,107 @@ export function useGetCatalogApiV1CatalogGet<TData = Awaited<ReturnType<typeof g
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetCatalogApiV1CatalogGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+export const getGetPublicCatalogApiV1CatalogPublicGetUrl = () => {
+
+
+
+
+  return `/api/v1/catalog/public`
+}
+
+/**
+ * Return the public catalog, refreshing an unfetched or expired cache before responding.
+ * @summary Get Public Catalog
+ */
+export const getPublicCatalogApiV1CatalogPublicGet = async ( options?: RequestInit): Promise<PublicCatalogResponse> => {
+
+  return customFetch<PublicCatalogResponse>(getGetPublicCatalogApiV1CatalogPublicGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPublicCatalogApiV1CatalogPublicGetQueryKey = () => {
+    return [
+    `/api/v1/catalog/public`
+    ] as const;
+    }
+
+
+export const getGetPublicCatalogApiV1CatalogPublicGetQueryOptions = <TData = Awaited<ReturnType<typeof getPublicCatalogApiV1CatalogPublicGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPublicCatalogApiV1CatalogPublicGet>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPublicCatalogApiV1CatalogPublicGetQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPublicCatalogApiV1CatalogPublicGet>>> = ({ signal }) => getPublicCatalogApiV1CatalogPublicGet({ signal });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPublicCatalogApiV1CatalogPublicGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetPublicCatalogApiV1CatalogPublicGetQueryResult = NonNullable<Awaited<ReturnType<typeof getPublicCatalogApiV1CatalogPublicGet>>>
+export type GetPublicCatalogApiV1CatalogPublicGetQueryError = unknown
+
+
+export function useGetPublicCatalogApiV1CatalogPublicGet<TData = Awaited<ReturnType<typeof getPublicCatalogApiV1CatalogPublicGet>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPublicCatalogApiV1CatalogPublicGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPublicCatalogApiV1CatalogPublicGet>>,
+          TError,
+          Awaited<ReturnType<typeof getPublicCatalogApiV1CatalogPublicGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetPublicCatalogApiV1CatalogPublicGet<TData = Awaited<ReturnType<typeof getPublicCatalogApiV1CatalogPublicGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPublicCatalogApiV1CatalogPublicGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getPublicCatalogApiV1CatalogPublicGet>>,
+          TError,
+          Awaited<ReturnType<typeof getPublicCatalogApiV1CatalogPublicGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetPublicCatalogApiV1CatalogPublicGet<TData = Awaited<ReturnType<typeof getPublicCatalogApiV1CatalogPublicGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPublicCatalogApiV1CatalogPublicGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Public Catalog
+ */
+
+export function useGetPublicCatalogApiV1CatalogPublicGet<TData = Awaited<ReturnType<typeof getPublicCatalogApiV1CatalogPublicGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getPublicCatalogApiV1CatalogPublicGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetPublicCatalogApiV1CatalogPublicGetQueryOptions(options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

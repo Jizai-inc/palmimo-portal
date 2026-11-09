@@ -529,6 +529,8 @@ function SourceSection({
   const unavailable = app.public_app_available === false;
   const isOfficialTag = isPublic ? app.source.official !== false : app.source.official && app.source.ref_kind === "tag";
   const needsPublicRepair = isPublic && !unavailable && (app.status === "broken" || app.status === "needs_repair");
+  const repairWouldUpdate = Boolean(app.latest_source?.commit && app.latest_source.commit !== app.source.commit);
+  const repairChangesVersion = repairing && target !== null && target.commit !== app.source.commit;
   const addedDevices = target?.devices.filter((device) => !app.devices.includes(device)) ?? [];
   const currentRequired = new Set(app.env.filter((entry) => entry.required).map((entry) => entry.name));
   const addedRequiredEnv = target?.env.filter((entry) => entry.required && !currentRequired.has(entry.name)) ?? [];
@@ -550,7 +552,7 @@ function SourceSection({
       {isGit ? (
         <div className="flex flex-wrap items-center gap-2">
           {!isOfficialTag ? <Button variant="outline" size="sm" onClick={() => setEditingRef((value) => !value)}>{t("appDetail.sourceEditRefButton")}</Button> : null}
-          {needsPublicRepair ? <Button disabled={updatePending || appRunning || !app.latest_source?.commit} onClick={() => { if (app.latest_source) { setRepairing(true); setTarget(app.latest_source); } }}>{t("apps.repairButton")}</Button> : null}
+          {needsPublicRepair ? <Button disabled={updatePending || appRunning || !app.latest_source?.commit} onClick={() => { if (app.latest_source) { setRepairing(true); setTarget(app.latest_source); } }}>{repairWouldUpdate ? t("appDetail.updateAndRepair") : t("apps.repairButton")}</Button> : null}
           {unavailable || (needsPublicRepair && app.latest_source?.commit) ? null : updateAvailable ? (
             <Button size="sm" onClick={() => {
               if (!isPublic) onUpdate();
@@ -610,7 +612,8 @@ function SourceSection({
       <ApiErrorAlert error={putSource.error} />
       <AlertDialog open={target !== null} onOpenChange={(open) => { if (!open) setTarget(null); }}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>{repairing ? t("appDetail.confirmPublicRepair") : t("appDetail.confirmPublicUpdate")}</AlertDialogTitle></AlertDialogHeader>
+          <AlertDialogHeader><AlertDialogTitle>{repairChangesVersion ? t("appDetail.updateAndRepair") : repairing ? t("appDetail.confirmPublicRepair") : t("appDetail.confirmPublicUpdate")}</AlertDialogTitle></AlertDialogHeader>
+          {repairChangesVersion ? <p role="note" className="text-sm [overflow-wrap:anywhere]">{t("appDetail.repairVersionChange", { current: app.source.commit, target: target.commit })}</p> : null}
           {target?.url && target.url !== app.source.url ? <p>{t("appDetail.publicUpdateSource")} <a className="underline [overflow-wrap:anywhere]" href={target.url} target="_blank" rel="noreferrer">{target.url}</a></p> : null}
           {target?.ref ? <p>{target.ref}</p> : null}
           {target ? <div className="flex flex-col gap-2 text-sm">
@@ -623,7 +626,7 @@ function SourceSection({
           </div> : null}
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <Button onClick={() => { const commit = target?.commit; setTarget(null); if (commit) onUpdate(commit); }}>{repairing ? t("apps.repairButton") : t("appDetail.updateButton")}</Button>
+            <Button onClick={() => { const commit = target?.commit; setTarget(null); if (commit) onUpdate(commit); }}>{repairChangesVersion ? t("appDetail.updateAndRepair") : repairing ? t("apps.repairButton") : t("appDetail.updateButton")}</Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

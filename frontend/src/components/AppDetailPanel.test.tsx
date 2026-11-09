@@ -741,17 +741,34 @@ it("warns that saving a community ref opts out of catalog updates", async () => 
   expect(screen.getByRole("note")).toHaveTextContent(i18n.t("appDetail.publicRefOptOut"));
 });
 
-it.each(["broken", "needs_repair"] as const)("repairs a public app at the same commit from %s detail", async (status) => {
+it.each([
+  ["broken", false],
+  ["needs_repair", false],
+  ["broken", true],
+  ["needs_repair", true],
+] as const)("confirms public repair from %s with a changed version %s", async (status, changesVersion) => {
   const source = { ...detail().source, public_app_id: "public-id" };
-  const record = detail({ source, status, broken_reason: "venv_missing", update_available: false, public_app_available: true, latest_commit: source.commit, latest_source: { ...source, devices: [], env: [] } });
+  const commit = changesVersion ? "b".repeat(40) : source.commit;
+  const latest = { ...source, commit, devices: changesVersion ? ["camera"] : [], env: changesVersion ? [...detail().env, { name: "REPAIR_TOKEN", required: true, description: "Token", help_url: null }] : detail().env };
+  const record = detail({ source, status, broken_reason: "venv_missing", update_available: changesVersion, public_app_available: true, latest_commit: commit, latest_source: latest });
   const posted = vi.fn();
   server.use(getGetAppApiV1AppsNameGetMockHandler(record), getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }), getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }), http.post("*/api/v1/apps/palmimo.teleop/update", async ({ request }) => { posted(await request.json()); return HttpResponse.json({ error: { code: "public_app_changed", params: {} } }, { status: 409 }); }));
   const user = userEvent.setup();
   renderWithRouter(<AppDetailPanel id={record.id} />);
-  await user.click(await screen.findByRole("button", { name: i18n.t("apps.repairButton") }));
+  const action = i18n.t(changesVersion ? "appDetail.updateAndRepair" : "apps.repairButton");
+  await user.click(await screen.findByRole("button", { name: action }));
+  const dialog = within(screen.getByRole("alertdialog"));
+  expect(dialog.getByRole("heading", { name: i18n.t(changesVersion ? "appDetail.updateAndRepair" : "appDetail.confirmPublicRepair") })).toBeInTheDocument();
+  if (changesVersion) {
+    expect(dialog.getByRole("note")).toHaveTextContent(i18n.t("appDetail.repairVersionChange", { current: source.commit, target: commit }));
+    expect(within(dialog.getByRole("list", { name: i18n.t("appDetail.addedDevices") })).getByText(i18n.t("devices.camera"))).toBeInTheDocument();
+    expect(within(dialog.getByRole("list", { name: i18n.t("appDetail.addedRequiredEnv") })).getByText("REPAIR_TOKEN")).toBeInTheDocument();
+  } else {
+    expect(dialog.queryByRole("note")).not.toBeInTheDocument();
+  }
   expect(posted).not.toHaveBeenCalled();
-  await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: i18n.t("apps.repairButton") }));
-  await waitFor(() => expect(posted).toHaveBeenCalledWith({ commit: source.commit }));
+  await user.click(dialog.getByRole("button", { name: action }));
+  await waitFor(() => expect(posted).toHaveBeenCalledWith({ commit }));
 });
 
 it("shows added device and required environment requirements before confirming", async () => {

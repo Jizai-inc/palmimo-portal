@@ -625,6 +625,8 @@
     "sourceInstalledAtLabel": "Installed",
     "sourceEditRefButton": "Edit",
     "publicRefOptOut": "Saving will stop updates from the public catalog for this app.",
+    "updateAndRepair": "Update to latest and repair",
+    "repairVersionChange": "This repair changes the installed version: {{current}} → {{target}}.",
     "confirmPublicRepair": "Confirm app repair",
     "targetDevices": "Devices in the target version",
     "targetEnv": "Environment variables in the target version",

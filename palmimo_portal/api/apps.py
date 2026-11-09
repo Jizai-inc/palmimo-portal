@@ -45,7 +45,17 @@ from typing import Any, Literal, NoReturn, cast
 import anyio.to_thread
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    GetJsonSchemaHandler,
+    SerializerFunctionWrapHandler,
+    ValidationError,
+    field_validator,
+    model_serializer,
+)
+from pydantic.json_schema import JsonSchemaValue
+from pydantic_core import CoreSchema
 
 from palmimo_portal.api.deps import (
     get_app_unit_port,
@@ -288,7 +298,23 @@ class AppJobAcceptedResponse(BaseModel):
     job: AppJobInfo
 
 
-class AppSummary(BaseModel):
+class PublicAvailabilityResponse(BaseModel):
+    @model_serializer(mode="wrap")
+    def serialize_availability(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if data.get("update_available") is None:
+            data["public_app_available"] = None
+        return data
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema: CoreSchema, handler: GetJsonSchemaHandler) -> JsonSchemaValue:
+        # Keep the declared response fields instead of the serializer's generic dictionary schema.
+        schema = dict(core_schema)
+        schema.pop("serialization", None)
+        return handler(cast(CoreSchema, schema))
+
+
+class AppSummary(PublicAvailabilityResponse):
     """One app's ledger entry plus a coarse status.
 
     ``status`` is one of ``stopped``/``broken`` (ledger-derived) or
@@ -308,8 +334,8 @@ class AppSummary(BaseModel):
     credential_rejected: bool
     update_available: bool | None
     latest_commit: str | None
-    public_app_available: bool | None = None
-    latest_source: AppSourceInfo | None = Field(default=None, exclude_if=lambda value: value is None)
+    public_app_available: bool | None = Field(default=None, exclude_if=lambda value: value is None)
+    latest_source: PublicUpdateSourceInfo | None = Field(default=None, exclude_if=lambda value: value is None)
     last_job: AppJobInfo | None
     exit_code: int | None = None
     reason: str | None = None
@@ -340,6 +366,11 @@ class EnvSpecInfo(BaseModel):
     help_url: str | None
 
 
+class PublicUpdateSourceInfo(AppSourceInfo):
+    devices: list[str]
+    env: list[EnvSpecInfo]
+
+
 class ParamSpecInfo(BaseModel):
     """One declared ``[params.*]`` entry's shape -- not its current stored value (see ``params``)."""
 
@@ -362,11 +393,11 @@ class AppManifestInfo(BaseModel):
     devices: list[str]
 
 
-class AppDetailResponse(BaseModel):
+class AppDetailResponse(PublicAvailabilityResponse):
     update_available: bool | None = False
     latest_commit: str | None = None
-    public_app_available: bool | None = None
-    latest_source: AppSourceInfo | None = Field(default=None, exclude_if=lambda value: value is None)
+    public_app_available: bool | None = Field(default=None, exclude_if=lambda value: value is None)
+    latest_source: PublicUpdateSourceInfo | None = Field(default=None, exclude_if=lambda value: value is None)
     translations: dict[str, dict[str, str]] = Field(default_factory=dict)
     name: str
     id: str
@@ -447,9 +478,9 @@ class BindingsRequest(BaseModel):
     bindings: dict[str, str]
 
 
-class UpdateCheckResponse(BaseModel):
-    public_app_available: bool | None = None
-    latest_source: AppSourceInfo | None = Field(default=None, exclude_if=lambda value: value is None)
+class UpdateCheckResponse(PublicAvailabilityResponse):
+    public_app_available: bool | None = Field(default=None, exclude_if=lambda value: value is None)
+    latest_source: PublicUpdateSourceInfo | None = Field(default=None, exclude_if=lambda value: value is None)
     update_available: bool | None
     remote_commit: str | None
 
@@ -666,11 +697,18 @@ def _update_status(record: AppRecord, ctx: AppsJobContext) -> dict[str, Any]:
             "update_available": status.update_available,
             "latest_commit": status.latest_commit,
             "public_app_available": status.available,
-            "latest_source": _source_info(
-                replace(record, source=replace(candidate.source, public_app_id=record.source.public_app_id)),
-                ctx.catalog_repo,
-                ctx.public_catalog_cache,
-                ctx.public_catalog_url,
+            "latest_source": PublicUpdateSourceInfo(
+                **_source_info(
+                    replace(record, source=replace(candidate.source, public_app_id=record.source.public_app_id)),
+                    ctx.catalog_repo,
+                    ctx.public_catalog_cache,
+                    ctx.public_catalog_url,
+                ).model_dump(),
+                devices=list(candidate.devices),
+                env=[
+                    EnvSpecInfo(name=name, required=spec.required, description=spec.description, help_url=spec.help_url)
+                    for name, spec in sorted(candidate.env.items())
+                ],
             )
             if candidate
             else None,
@@ -1244,19 +1282,25 @@ def update_app(
     runner: AppsJobRunner = Depends(get_apps_job_runner),
     deps: StartDeps = Depends(get_start_deps),
 ) -> AppJobAcceptedResponse:
-    """Update a public app to its catalog commit, or another git app to its pinned ref.
+    """Refuse busy devices before fetching; recheck under the job lock before accepting.
 
-    Raises:
-        PortalError: 404 ``app_not_found``; 409 ``update_in_progress`` /
-            409 ``app_job_in_progress`` / 409 ``platform_not_ready`` / 409
-            ``app_running`` (the app must be stopped first). A failure
-            after the job starts (bad manifest, disk full, sync failure)
-            surfaces on the app's ``last_job``, not here.
+    Public updates require the displayed commit and validate their fetched manifest before
+    returning 202: unavailable/changed catalog entries return 409, unknown catalogs return 503,
+    manifest/requirement/clone failures return 422, and disk shortages return 507.
+    Legacy sources fetch in the job. All dependency-sync/swap failures remain job failures.
     """
     _ensure_not_corrupt(state_store)
     _ensure_no_portal_update_in_progress(state_store)
     _ensure_no_platform_update_in_progress(state_store)
     _ensure_platform_ready(deps)
+    try:
+        runner.preflight_update(name)
+    except AppNotFoundError as error:
+        raise PortalError(404, "app_not_found") from error
+    except AppsLockTimeoutError as error:
+        raise PortalError(409, "app_job_in_progress") from error
+    except AppStartError as error:
+        _raise_for_start_error(error)
     record = state_store.read_apps_state().apps.get(name)
     prepared = None
     if record is not None and record.source.public_app_id:

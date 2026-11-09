@@ -845,7 +845,9 @@ def prepare_install_public(ctx: AppsJobContext, app: PublicCatalogApp) -> Prepar
     source = replace(app.source, public_app_id=app.public.app_id)
     prepared = _prepare_install_git_source(ctx, source, None)
     try:
-        if set(prepared.manifest.devices) != set(app.devices) or set(prepared.manifest.env) != set(app.env):
+        if set(prepared.manifest.devices) != set(app.devices) or {
+            name: spec.required for name, spec in prepared.manifest.env.items()
+        } != {name: spec.required for name, spec in app.env.items()}:
             raise PublicAppMismatchError("public_app_mismatch")
     except BaseException:
         purge_path(ctx, prepared.staging_container)

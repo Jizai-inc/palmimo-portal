@@ -569,6 +569,7 @@ def test_public_official_source_cannot_be_edited(
     before = adapters.state.read_apps_state()
     response = client.put(f"/api/v1/apps/{APP_ID}/source", json={"ref": "other", "ref_kind": "branch"}, headers=HEADERS)
     assert response.status_code == 409
+    assert response.json()["error"]["code"] == "official_tag_ref_managed"
     assert adapters.state.read_apps_state() == before
 
 
@@ -593,3 +594,142 @@ def test_public_page_links_use_the_configured_catalog_origin(
     assert item["public_page_url"] == f"https://catalog.example/apps/{public_app.public.app_id}"
     install(client, public_app)
     assert client.get(f"/api/v1/apps/{APP_ID}").json()["source"]["public_page_url"] == item["public_page_url"]
+
+
+@pytest.mark.parametrize("operation", ["install", "update"])
+def test_public_manifest_required_flags_must_match_catalog(
+    client: TestClient, app: FastAPI, adapters: FakeAdapterBundle, public_app: PublicCatalogApp, operation: str
+) -> None:
+    if operation == "update":
+        install(client, public_app)
+    before = adapters.state.read_apps_state()
+    seed = adapters.git.on_clone
+    assert seed is not None
+
+    def seed_optional(dest: Path, url: str, ref: str, kind: str) -> None:
+        seed(dest, url, ref, kind)
+        manifest = dest / (public_app.source.subdir or "") / "palmimo.toml"
+        manifest.write_text(manifest.read_text().replace("required = true", "required = false"))
+
+    adapters.git.on_clone = seed_optional
+    path = "/api/v1/apps/install-public" if operation == "install" else f"/api/v1/apps/{APP_ID}/update"
+    response = client.post(
+        path, json={"public_app_id": public_app.public.app_id, "commit": public_app.source.commit}, headers=HEADERS
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "public_app_mismatch"
+    assert adapters.state.read_apps_state() == before
+    assert list(app.state.apps_job_context.staging_dir.glob("*")) == []
+
+
+def test_public_latest_source_includes_devices_and_required_environment(
+    client: TestClient, public_app: PublicCatalogApp
+) -> None:
+    install(client, public_app)
+    latest = client.get(f"/api/v1/apps/{APP_ID}").json()["latest_source"]
+    assert set(latest["devices"]) == set(public_app.devices)
+    assert {entry["name"]: entry["required"] for entry in latest["env"]} == {
+        name: spec.required for name, spec in public_app.env.items()
+    }
+
+
+@pytest.mark.parametrize("busy", ["running", "job"])
+def test_public_update_refuses_busy_device_before_fetching(
+    client: TestClient, app: FastAPI, adapters: FakeAdapterBundle, public_app: PublicCatalogApp, busy: str
+) -> None:
+    install(client, public_app)
+    before = len(adapters.git.clone_commit_calls)
+    fetches = adapters.public_catalog.fetch_calls
+    if busy == "running":
+        adapters.app_unit.simulate_active_state("other.app", UnitStatus("active", "running", "success", 0))
+    else:
+        state = adapters.state.read_apps_state()
+        job = state.apps[APP_ID].last_job
+        assert job is not None
+        adapters.state.write_apps_state(
+            replace(state, current_job=replace(job, state="running"), current_job_app="other.app")
+        )
+    response = client.post(f"/api/v1/apps/{APP_ID}/update", json={"commit": public_app.source.commit}, headers=HEADERS)
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == ("app_running" if busy == "running" else "app_job_in_progress")
+    assert len(adapters.git.clone_commit_calls) == before
+    assert adapters.public_catalog.fetch_calls == fetches
+
+
+def test_non_public_api_omits_public_availability(
+    client: TestClient, adapters: FakeAdapterBundle, public_app: PublicCatalogApp
+) -> None:
+    install(client, public_app)
+    state = adapters.state.read_apps_state()
+    record = state.apps[APP_ID]
+    adapters.state.write_apps_state(
+        replace(state, apps={APP_ID: replace(record, source=replace(record.source, public_app_id=""))})
+    )
+    responses = [
+        client.get("/api/v1/apps").json()["apps"][0],
+        client.get(f"/api/v1/apps/{APP_ID}").json(),
+        client.post(f"/api/v1/apps/{APP_ID}/update/check", headers=HEADERS).json(),
+    ]
+    for body in responses:
+        assert "public_app_available" not in body
+        assert type(body["update_available"]) is bool
+
+
+@pytest.mark.parametrize("change", ["catalog", "running"])
+def test_public_update_discards_preparation_when_acceptance_changes(
+    client: TestClient, app: FastAPI, adapters: FakeAdapterBundle, public_app: PublicCatalogApp, change: str
+) -> None:
+    install(client, public_app)
+    before = adapters.state.read_apps_state()
+    seed = adapters.git.on_clone
+    assert seed is not None
+
+    def seed_then_change(dest: Path, url: str, ref: str, kind: str) -> None:
+        seed(dest, url, ref, kind)
+        if change == "catalog":
+            refresh(app, adapters, replace(public_app, source=replace(public_app.source, commit="b" * 40)))
+        else:
+            adapters.app_unit.simulate_active_state("other.app", UnitStatus("active", "running", "success", 0))
+
+    adapters.git.on_clone = seed_then_change
+    response = client.post(f"/api/v1/apps/{APP_ID}/update", json={"commit": public_app.source.commit}, headers=HEADERS)
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == ("public_app_changed" if change == "catalog" else "app_running")
+    assert adapters.state.read_apps_state() == before
+    assert list(app.state.apps_job_context.staging_dir.glob("*")) == []
+
+
+@pytest.mark.parametrize("operation", ["install", "update"])
+def test_public_commit_unavailable_is_an_api_error(
+    client: TestClient, adapters: FakeAdapterBundle, public_app: PublicCatalogApp, operation: str
+) -> None:
+    if operation == "update":
+        install(client, public_app)
+    before = adapters.state.read_apps_state()
+    adapters.git.raise_on_clone = GitCommandError("unreachable SHA", reason="public_commit_unavailable")
+    path = "/api/v1/apps/install-public" if operation == "install" else f"/api/v1/apps/{APP_ID}/update"
+    response = client.post(
+        path, json={"public_app_id": public_app.public.app_id, "commit": public_app.source.commit}, headers=HEADERS
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "public_commit_unavailable"
+    assert adapters.state.read_apps_state() == before
+
+
+def test_public_repair_reinstalls_the_current_catalog_commit(
+    client: TestClient, app: FastAPI, adapters: FakeAdapterBundle, public_app: PublicCatalogApp
+) -> None:
+    install(client, public_app)
+    project = app.state.apps_job_context.app_dir(APP_ID) / (public_app.source.subdir or "")
+    (project / ".venv/bin/python").unlink()
+    state = adapters.state.read_apps_state()
+    record = state.apps[APP_ID]
+    adapters.state.write_apps_state(replace(state, apps={APP_ID: replace(record, broken_reason="venv_missing")}))
+    response = client.post(f"/api/v1/apps/{APP_ID}/update", json={"commit": public_app.source.commit}, headers=HEADERS)
+    assert response.status_code == 202
+    assert response.json()["job"]["state"] == "done"
+    repaired = adapters.state.read_apps_state().apps[APP_ID]
+    assert repaired.source == record.source
+    assert repaired.broken_reason is None
+    assert (project / ".venv/bin/python").is_file()
+    assert len(adapters.git.clone_commit_calls) == 2

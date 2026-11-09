@@ -57,6 +57,7 @@ from palmimo_portal.ports import (
     AppJob,
     AppNotFoundError,
     AppRecord,
+    AppsLockTimeoutError,
     AppsState,
     AppUnitPort,
     GitCommandError,
@@ -230,6 +231,17 @@ class AppsJobRunner:
 
         self._spawn(run, lock_cm)
         return result.get("job", job)
+
+    def preflight_update(self, name: str) -> None:
+        with self._state.lock_apps():
+            state = self._state.read_apps_state()
+            if state.current_job is not None:
+                raise AppsLockTimeoutError("an app job is already in progress")
+            active = self._app_unit.list_active_app_units()
+            if active:
+                raise AppRunningError(active[0])
+            if name not in state.apps:
+                raise AppNotFoundError(name)
 
     def start_update(self, name: str, *, prepared: PreparedInstall | None = None) -> AppJob:
         """Start updating a git-sourced app.

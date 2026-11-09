@@ -1,3 +1,4 @@
+import { AppOfficialBadge } from "@/components/AppOfficialBadge";
 import { refreshAppQueries } from "@/lib/refreshAppQueries";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -263,7 +264,7 @@ function AppRow({
             {busy ? <Loader2 className="size-3 animate-spin" /> : null}
             {appStatusLabel(t, app.status, app.exit_code)}
           </Badge>
-          {app.source.official ? <Badge>{t("appAdd.catalogOfficialBadge")}</Badge> : null}
+          <AppOfficialBadge official={app.source.official} publicAppId={app.source.public_app_id} />
           {isDefault ? <Badge variant="outline">{t("apps.defaultBadge")}</Badge> : null}
           {app.missing_env && app.missing_env.length > 0 ? (
             <Link to="/apps/$id" params={{ id: app.id }}>
@@ -299,7 +300,7 @@ function AppRow({
           </Button>
         ) : needsRepair ? (
           app.source.type === "git" && app.public_app_available !== false ? (
-            <Button variant="outline" onClick={onRepair} disabled={disabledForPlatform}>
+            app.source.public_app_id ? <Button variant="outline" asChild><Link to="/apps/$id" params={{ id: app.id }}>{t("apps.repairButton")}</Link></Button> : <Button variant="outline" onClick={onRepair} disabled={disabledForPlatform}>
               {t("apps.repairButton")}
             </Button>
           ) : (

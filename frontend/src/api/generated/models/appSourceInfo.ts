@@ -8,8 +8,9 @@
 export interface AppSourceInfo {
   commit: string | null;
   manifest: string | null;
-  official: boolean;
+  official: boolean | null;
   public_app_id?: string | null;
+  public_page_url?: string | null;
   ref: string | null;
   ref_kind: string | null;
   subdir: string | null;

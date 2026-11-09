@@ -40,6 +40,7 @@ import type {
   PalmimoPortalApiAppsResetResponse,
   ParamsRequest,
   PublicInstallRequest,
+  PublicUpdateRequest,
   SourceUpdateRequest,
   StartResponse,
   StopResponse,
@@ -1634,14 +1635,15 @@ export const useStopAppEndpointApiV1AppsNameStopPost = <TError = HTTPValidationE
  *         surfaces on the app's ``last_job``, not here.
  * @summary Update App
  */
-export const updateAppApiV1AppsNameUpdatePost = async (name: string, options?: RequestInit): Promise<AppJobAcceptedResponse> => {
+export const updateAppApiV1AppsNameUpdatePost = async (name: string,
+    publicUpdateRequestNull?: PublicUpdateRequest | null, options?: RequestInit): Promise<AppJobAcceptedResponse> => {
 
   return customFetch<AppJobAcceptedResponse>(getUpdateAppApiV1AppsNameUpdatePostUrl(name),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(publicUpdateRequestNull)
   }
 );}
 
@@ -1650,8 +1652,8 @@ export const updateAppApiV1AppsNameUpdatePost = async (name: string, options?: R
 
 
 export const getUpdateAppApiV1AppsNameUpdatePostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>, TError,{name: string}, TContext>, }
-): UseMutationOptions<Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>, TError,{name: string}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>, TError,{name: string;data?: PublicUpdateRequest | null}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>, TError,{name: string;data?: PublicUpdateRequest | null}, TContext> => {
 
 const mutationKey = ['updateAppApiV1AppsNameUpdatePost'];
 const {mutation: mutationOptions} = options ?
@@ -1663,10 +1665,10 @@ const {mutation: mutationOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>, {name: string}> = (props) => {
-          const {name} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>, {name: string;data?: PublicUpdateRequest | null}> = (props) => {
+          const {name,data} = props ?? {};
 
-          return  updateAppApiV1AppsNameUpdatePost(name,)
+          return  updateAppApiV1AppsNameUpdatePost(name,data,)
         }
 
 
@@ -1677,18 +1679,18 @@ const {mutation: mutationOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type UpdateAppApiV1AppsNameUpdatePostMutationResult = NonNullable<Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>>
-
+    export type UpdateAppApiV1AppsNameUpdatePostMutationBody = PublicUpdateRequest | null | undefined
     export type UpdateAppApiV1AppsNameUpdatePostMutationError = HTTPValidationError
 
     /**
  * @summary Update App
  */
 export const useUpdateAppApiV1AppsNameUpdatePost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>, TError,{name: string}, TContext>, }
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>, TError,{name: string;data?: PublicUpdateRequest | null}, TContext>, }
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>,
         TError,
-        {name: string},
+        {name: string;data?: PublicUpdateRequest | null},
         TContext
       > => {
       return useMutation(getUpdateAppApiV1AppsNameUpdatePostMutationOptions(options), queryClient);

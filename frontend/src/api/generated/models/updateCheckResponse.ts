@@ -4,9 +4,11 @@
  * Palmimo Portal
  * OpenAPI spec version: 0.1.0
  */
+import type { AppSourceInfo } from './appSourceInfo';
 
 export interface UpdateCheckResponse {
+  latest_source?: AppSourceInfo | null;
   public_app_available?: boolean | null;
   remote_commit: string | null;
-  update_available: boolean;
+  update_available: boolean | null;
 }

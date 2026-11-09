@@ -10,11 +10,12 @@ import { renderWithProviders } from "@/test/render";
 import { server } from "@/test/server";
 
 const COMMUNITY: PublicCatalogAppInfo = {
+  public_page_url: "https://apps.palmimo.dev/apps/019a3f2c-0000-7000-8000-000000000001",
   name: "dance", description: "Community dance", translations: {}, env: [], devices: [],
   public: { app_id: "019a3f2c-0000-7000-8000-000000000001", namespace: "alice", official: false },
   source: { type: "git", url: "https://github.com/alice/dance", ref: "v1", ref_kind: "tag", commit: "a".repeat(40), subdir: null, manifest: null, official: false },
 };
-const OFFICIAL: PublicCatalogAppInfo = { ...COMMUNITY, description: "Official dance", public: { ...COMMUNITY.public, app_id: "019a3f2c-0000-7000-8000-000000000002", namespace: "palmimo", official: true }, source: { ...COMMUNITY.source, official: true } };
+const OFFICIAL: PublicCatalogAppInfo = { ...COMMUNITY, public_page_url: "https://apps.palmimo.dev/apps/019a3f2c-0000-7000-8000-000000000002", description: "Official dance", public: { ...COMMUNITY.public, app_id: "019a3f2c-0000-7000-8000-000000000002", namespace: "palmimo", official: true }, source: { ...COMMUNITY.source, official: true } };
 const CATALOG: PublicCatalogResponse = { generated_at: "2026-11-09T00:00:00Z", fetched_at: 1700000000, stale: false, reason: null, apps: [OFFICIAL, COMMUNITY] };
 const JOB = { id: "public-job", app_id: "alice.dance", kind: "install", state: "done", step: "register", error: null, error_code: null, started_at: 1, finished_at: 2, lock_generated: false, dropped_params: [], dropped_bindings: [] };
 
@@ -135,4 +136,10 @@ it("keeps the confirmed commit when the catalog changes while confirmation is op
   await act(() => queryClient.refetchQueries());
   await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: i18n.t("appAdd.installButton") }));
   await waitFor(() => expect(posted).toHaveBeenCalledWith({ public_app_id: OFFICIAL.public.app_id, commit: OFFICIAL.source.commit }));
+});
+
+it("uses the public page URL supplied by the backend", async () => {
+  handlers({ ...CATALOG, apps: [{ ...OFFICIAL, public_page_url: "https://catalog.example/apps/official-id" }] });
+  renderWithProviders(<DiscoverPanel />);
+  expect(await screen.findByRole("link", { name: i18n.t("appAdd.publicPageLink") })).toHaveAttribute("href", "https://catalog.example/apps/official-id");
 });

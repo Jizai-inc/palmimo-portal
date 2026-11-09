@@ -26,6 +26,7 @@ export interface AppDetailResponse {
   label?: string | null;
   last_job: AppJobInfo | null;
   latest_commit?: string | null;
+  latest_source?: AppSourceInfo | null;
   manifest: AppManifestInfo | null;
   missing_env?: string[];
   name: string;
@@ -35,6 +36,6 @@ export interface AppDetailResponse {
   source: AppSourceInfo;
   status: AppDetailResponseStatus;
   translations?: AppDetailResponseTranslations;
-  update_available?: boolean;
+  update_available?: boolean | null;
   url?: string | null;
 }

@@ -15,6 +15,7 @@ export interface PublicCatalogAppInfo {
   env: EnvSpecInfo[];
   name: string;
   public: PublicAppIdentity;
+  public_page_url: string | null;
   source: AppSourceInfo;
   translations: PublicCatalogAppInfoTranslations;
 }

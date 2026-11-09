@@ -125,6 +125,16 @@
             ],
             "title": "Latest Commit"
           },
+          "latest_source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppSourceInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "manifest": {
             "anyOf": [
               {
@@ -203,9 +213,16 @@
             "type": "object"
           },
           "update_available": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": false,
-            "title": "Update Available",
-            "type": "boolean"
+            "title": "Update Available"
           },
           "url": {
             "anyOf": [
@@ -424,8 +441,15 @@
             "title": "Manifest"
           },
           "official": {
-            "title": "Official",
-            "type": "boolean"
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Official"
           },
           "public_app_id": {
             "anyOf": [
@@ -437,6 +461,17 @@
               }
             ],
             "title": "Public App Id"
+          },
+          "public_page_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Page Url"
           },
           "ref": {
             "anyOf": [
@@ -580,6 +615,16 @@
             ],
             "title": "Latest Commit"
           },
+          "latest_source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppSourceInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "missing_env": {
             "items": {
               "type": "string"
@@ -633,8 +678,15 @@
             "type": "string"
           },
           "update_available": {
-            "title": "Update Available",
-            "type": "boolean"
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Update Available"
           },
           "url": {
             "anyOf": [
@@ -1873,6 +1925,17 @@
           "public": {
             "$ref": "#/components/schemas/PublicAppIdentity"
           },
+          "public_page_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Page Url"
+          },
           "source": {
             "$ref": "#/components/schemas/AppSourceInfo"
           },
@@ -1894,7 +1957,8 @@
           "source",
           "env",
           "devices",
-          "public"
+          "public",
+          "public_page_url"
         ],
         "title": "PublicCatalogAppInfo",
         "type": "object"
@@ -1972,6 +2036,23 @@
           "commit"
         ],
         "title": "PublicInstallRequest",
+        "type": "object"
+      },
+      "PublicUpdateRequest": {
+        "properties": {
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          }
+        },
+        "title": "PublicUpdateRequest",
         "type": "object"
       },
       "ReleaseInfo": {
@@ -2310,6 +2391,16 @@
       },
       "UpdateCheckResponse": {
         "properties": {
+          "latest_source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppSourceInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "public_app_available": {
             "anyOf": [
               {
@@ -2333,8 +2424,15 @@
             "title": "Remote Commit"
           },
           "update_available": {
-            "title": "Update Available",
-            "type": "boolean"
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Update Available"
           }
         },
         "required": [
@@ -3533,6 +3631,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PublicUpdateRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "202": {
             "content": {

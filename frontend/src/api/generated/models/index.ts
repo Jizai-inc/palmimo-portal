@@ -70,6 +70,7 @@ export * from './publicCatalogAppInfo';
 export * from './publicCatalogAppInfoTranslations';
 export * from './publicCatalogResponse';
 export * from './publicInstallRequest';
+export * from './publicUpdateRequest';
 export * from './releaseInfo';
 export * from './runningAppInfo';
 export * from './runningAppInfoState';

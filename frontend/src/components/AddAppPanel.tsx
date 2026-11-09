@@ -164,6 +164,8 @@ function EnvRequirementList({
 /** Reason-specific text for a stale catalog, via explicit `t(...)` calls (see `appStatusLabel` for why). */
 function catalogStaleReasonText(t: TFunction, reason: string | null): string {
   switch (reason) {
+    case "persistence_failed":
+      return t("appAdd.catalogPersistenceFailed");
     case "offline":
       return t("appAdd.catalogStaleReasonOffline");
     case "clock_unsynced":
@@ -419,7 +421,7 @@ function CatalogAppDetails({ app }: { app: PublicCatalogAppInfo }) {
       description: appText(app.translations, i18n.language, `env.${entry.name}`, entry.description), helpUrl: entry.help_url,
     }))} />
     {app.devices.length ? <div className="flex flex-wrap gap-1">{app.devices.map((device) => <Badge key={device} variant="outline">{deviceLabel(t, device)}</Badge>)}</div> : null}
-    <a href={`https://apps.palmimo.dev/apps/${encodeURIComponent(app.public.app_id)}`} target="_blank" rel="noreferrer" className="text-sm underline">{t("appAdd.publicPageLink")}</a>
+    <a href={app.public_page_url ?? undefined} target="_blank" rel="noreferrer" className="text-sm underline">{t("appAdd.publicPageLink")}</a>
   </>;
 }
 

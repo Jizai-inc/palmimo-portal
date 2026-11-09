@@ -26,12 +26,13 @@ export interface AppSummary {
   label?: string | null;
   last_job: AppJobInfo | null;
   latest_commit: string | null;
+  latest_source?: AppSourceInfo | null;
   missing_env?: string[];
   name: string;
   public_app_available?: boolean | null;
   reason?: string | null;
   source: AppSourceInfo;
   status: AppSummaryStatus;
-  update_available: boolean;
+  update_available: boolean | null;
   url?: string | null;
 }

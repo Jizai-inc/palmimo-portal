@@ -55,7 +55,7 @@ function stubAppsPage() {
     getGetStatusApiV1WifiStatusGetMockHandler({ ssid: "Home", ip_address: null, state: "connected" }),
     getListAppsApiV1AppsGetMockHandler({ apps: [] }),
     getGetPlatformApiV1PlatformGetMockHandler(),
-    getGetPublicCatalogApiV1CatalogPublicGetMockHandler({ generated_at: "2026-11-09T00:00:00Z", fetched_at: null, stale: false, reason: null, apps: [{ ...CATALOG_APP, translations: {}, public: { app_id: "019a3f2c-0000-7000-8000-000000000001", namespace: "palmimo", official: true } }] }),
+    getGetPublicCatalogApiV1CatalogPublicGetMockHandler({ generated_at: "2026-11-09T00:00:00Z", fetched_at: null, stale: false, reason: null, apps: [{ ...CATALOG_APP, public_page_url: null, translations: {}, public: { app_id: "019a3f2c-0000-7000-8000-000000000001", namespace: "palmimo", official: true } }] }),
     getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
   );
 }

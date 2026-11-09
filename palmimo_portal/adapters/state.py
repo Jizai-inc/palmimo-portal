@@ -429,6 +429,8 @@ class JsonFileStateStore(StateStore):
             fetched_at = payload.get("fetched_at")
             _require_optional_type(fetched_at, (int, float), "public catalog fetched_at")
             asset = parse_public_catalog_payload(payload)
+            if len(asset.apps) != len(payload["apps"]):
+                raise TypeError("public catalog cache contains invalid items")
             return PublicCatalogCacheState(asset.generated_at, asset.apps, fetched_at)
         except (OSError, ValueError, TypeError, AttributeError, RecursionError, PublicCatalogSourceError) as error:
             logger.warning("public catalog cache unreadable: %s", error)

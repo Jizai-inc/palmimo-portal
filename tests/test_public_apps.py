@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from dataclasses import replace
 from pathlib import Path
@@ -62,6 +63,8 @@ def adapters(app: FastAPI, public_app: PublicCatalogApp) -> FakeAdapterBundle:
         project.mkdir(parents=True)
         (project / (public_app.source.manifest or "palmimo.toml")).write_text(
             'schema = 1\nname = "display-name"\ndescription = "d"\ncommand = ["run"]\n'
+            + f"devices = {json.dumps(list(public_app.devices))}\n"
+            + "".join(f'[env.{name}]\nrequired = true\ndescription = "key"\n' for name in public_app.env)
         )
         (project / "pyproject.toml").write_text('[project]\nname="app"\nversion="0"\n')
         (project / ".venv/bin").mkdir(parents=True)
@@ -229,7 +232,7 @@ def test_public_update_uses_latest_source_and_preserves_local_id(
 
     adapters.git.on_clone = seed_relocated
     refresh(app, adapters, target)
-    response = client.post(f"/api/v1/apps/{APP_ID}/update", headers=HEADERS)
+    response = client.post(f"/api/v1/apps/{APP_ID}/update", json={"commit": target.source.commit}, headers=HEADERS)
     assert response.status_code == 202
     assert response.json()["job"]["state"] == "done", response.text
     record = adapters.state.read_apps_state().apps[APP_ID]
@@ -358,9 +361,10 @@ def test_public_update_failure_preserves_installed_source_and_files(
         adapters.git.on_clone = lambda dest, *args: dest.mkdir(parents=True)
     else:
         adapters.sync_unit.default_status = UnitStatus("failed", "failed", "exit-code", 1)
-    response = client.post(f"/api/v1/apps/{APP_ID}/update", headers=HEADERS)
-    assert response.status_code == 202
-    assert response.json()["job"]["state"] == "failed"
+    response = client.post(f"/api/v1/apps/{APP_ID}/update", json={"commit": target.source.commit}, headers=HEADERS)
+    assert response.status_code == (202 if failure == "sync" else 422)
+    if failure == "sync":
+        assert response.json()["job"]["state"] == "failed"
     after = adapters.state.read_apps_state().apps[APP_ID]
     assert after.source == previous.source
     assert after.params == previous.params
@@ -439,7 +443,7 @@ def test_public_update_does_not_clear_another_apps_rejected_credential(
     )
     adapters.state.write_apps_state(replace(state, apps={**state.apps, private.id: private}))
     refresh(app, adapters, replace(public_app, source=replace(public_app.source, commit="a" * 40)))
-    response = client.post(f"/api/v1/apps/{APP_ID}/update", headers=HEADERS)
+    response = client.post(f"/api/v1/apps/{APP_ID}/update", json={"commit": "a" * 40}, headers=HEADERS)
     assert response.status_code == 202
     assert response.json()["job"]["state"] == "done"
     assert adapters.state.read_apps_state().apps[private.id].credential_rejected
@@ -460,3 +464,132 @@ def test_periodic_credential_rejection_does_not_mark_public_apps(
     after = adapters.state.read_apps_state()
     assert after.apps[private.id].credential_rejected
     assert not after.apps[APP_ID].credential_rejected
+
+
+@pytest.mark.parametrize(
+    "cache_text", [None, "not json", '{"schema":1,"generated_at":"2026-11-09T00:00:00Z","apps":[{}]}']
+)
+def test_public_state_is_unknown_when_starting_without_valid_cache(
+    client: TestClient,
+    app: FastAPI,
+    adapters: FakeAdapterBundle,
+    public_app: PublicCatalogApp,
+    tmp_path: Path,
+    cache_text: str | None,
+) -> None:
+    from palmimo_portal.adapters.state import JsonFileStateStore
+    from palmimo_portal.core.public_catalog import PublicCatalogCache
+
+    install(client, public_app)
+    if cache_text is not None:
+        (tmp_path / "public_catalog_cache.json").write_text(cache_text)
+    cache = PublicCatalogCache(adapters.public_catalog, JsonFileStateStore(tmp_path))
+    app.state.public_catalog_cache = cache
+    app.state.apps_job_context.public_catalog_cache = cache
+    body = client.get(f"/api/v1/apps/{APP_ID}").json()
+    assert body["public_app_available"] is None
+    assert body["source"]["official"] is None
+    assert body["update_available"] is None
+    adapters.public_catalog.raise_on_fetch = PublicCatalogSourceError("offline")
+    checked = client.post(f"/api/v1/apps/{APP_ID}/update/check", headers=HEADERS).json()
+    assert checked["public_app_available"] is None
+    assert checked["update_available"] is None
+    response = client.post(f"/api/v1/apps/{APP_ID}/update", json={"commit": public_app.source.commit}, headers=HEADERS)
+    assert response.status_code == 503
+
+
+@pytest.mark.parametrize("commit", [None, "f" * 40])
+def test_public_update_rejects_an_unconfirmed_commit(
+    client: TestClient, app: FastAPI, adapters: FakeAdapterBundle, public_app: PublicCatalogApp, commit: str | None
+) -> None:
+    install(client, public_app)
+    refresh(app, adapters, replace(public_app, source=replace(public_app.source, commit="b" * 40)))
+    before = adapters.state.read_apps_state()
+    response = client.post(f"/api/v1/apps/{APP_ID}/update", json={"commit": commit} if commit else {}, headers=HEADERS)
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "public_app_changed"
+    assert adapters.state.read_apps_state() == before
+
+
+@pytest.mark.parametrize("operation", ["install", "update"])
+@pytest.mark.parametrize("field", ["devices", "env"])
+def test_public_manifest_mismatch_is_rejected_before_registration(
+    client: TestClient,
+    app: FastAPI,
+    adapters: FakeAdapterBundle,
+    public_app: PublicCatalogApp,
+    operation: str,
+    field: str,
+) -> None:
+    if operation == "update":
+        install(client, public_app)
+    before = adapters.state.read_apps_state()
+    seed = adapters.git.on_clone
+    assert seed is not None
+
+    def mismatch(dest: Path, url: str, ref: str, kind: str) -> None:
+        seed(dest, url, ref, kind)
+        path = dest / (public_app.source.subdir or "") / "palmimo.toml"
+        content = path.read_text()
+        path.write_text(
+            content.replace("motor_display", "camera")
+            if field == "devices"
+            else content.replace("API_KEY", "OTHER_KEY")
+        )
+
+    adapters.git.on_clone = mismatch
+    endpoint = "/api/v1/apps/install-public" if operation == "install" else f"/api/v1/apps/{APP_ID}/update"
+    response = client.post(
+        endpoint, json={"public_app_id": public_app.public.app_id, "commit": public_app.source.commit}, headers=HEADERS
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "public_app_mismatch"
+    assert adapters.state.read_apps_state() == before
+    assert list(app.state.apps_job_context.staging_dir.glob("*")) == []
+
+
+def test_public_update_check_refreshes_expired_catalog(
+    client: TestClient, adapters: FakeAdapterBundle, public_app: PublicCatalogApp
+) -> None:
+    install(client, public_app)
+    adapters.clock.monotonic_value += 3600
+    adapters.public_catalog.asset = PublicCatalogAsset(
+        "2026-11-09T01:00:00Z", (replace(public_app, source=replace(public_app.source, commit="b" * 40)),)
+    )
+    response = client.post(f"/api/v1/apps/{APP_ID}/update/check", headers=HEADERS)
+    assert response.json()["remote_commit"] == "b" * 40
+    assert adapters.public_catalog.fetch_calls == 2
+
+
+def test_public_official_source_cannot_be_edited(
+    client: TestClient, app: FastAPI, adapters: FakeAdapterBundle, public_app: PublicCatalogApp
+) -> None:
+    install(client, public_app)
+    refresh(app, adapters, replace(public_app, public=replace(public_app.public, official=True)))
+    before = adapters.state.read_apps_state()
+    response = client.put(f"/api/v1/apps/{APP_ID}/source", json={"ref": "other", "ref_kind": "branch"}, headers=HEADERS)
+    assert response.status_code == 409
+    assert adapters.state.read_apps_state() == before
+
+
+def test_public_install_reports_unsynchronized_clock(
+    client: TestClient, adapters: FakeAdapterBundle, public_app: PublicCatalogApp
+) -> None:
+    adapters.clock.synchronized = False
+    response = client.post(
+        "/api/v1/apps/install-public",
+        json={"public_app_id": public_app.public.app_id, "commit": public_app.source.commit},
+        headers=HEADERS,
+    )
+    assert response.status_code == 503
+    assert response.json()["error"]["params"]["reason"] == "clock_unsynced"
+
+
+def test_public_page_links_use_the_configured_catalog_origin(
+    client: TestClient, app: FastAPI, public_app: PublicCatalogApp
+) -> None:
+    app.state.apps_job_context.public_catalog_url = "https://catalog.example/custom/catalog.json"
+    item = client.get("/api/v1/catalog/public").json()["apps"][0]
+    assert item["public_page_url"] == f"https://catalog.example/apps/{public_app.public.app_id}"
+    install(client, public_app)
+    assert client.get(f"/api/v1/apps/{APP_ID}").json()["source"]["public_page_url"] == item["public_page_url"]

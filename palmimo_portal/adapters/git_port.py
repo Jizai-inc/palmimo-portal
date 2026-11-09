@@ -76,7 +76,21 @@ class SubprocessGitPort(GitPort):
             ["fetch", "--depth", "1", "origin", sha],
             ["checkout", "FETCH_HEAD"],
         ):
-            self._run(["git", *args], cwd=dest, timeout=CLONE_TIMEOUT_SECONDS, env=env)
+            try:
+                self._run(["git", *args], cwd=dest, timeout=CLONE_TIMEOUT_SECONDS, env=env)
+            except GitCommandError as error:
+                if args[0] == "fetch" and any(
+                    marker in str(error).lower()
+                    for marker in (
+                        "not our ref",
+                        "unadvertised object",
+                        "couldn't find remote ref",
+                    )
+                ):
+                    raise GitCommandError(
+                        "the catalog commit is unavailable", reason="public_commit_unavailable"
+                    ) from error
+                raise
         return self._rev_parse(dest, env=env)
 
     def clone_shallow(

@@ -84,9 +84,9 @@ def reset_platform(
 ) -> ResetResult:
     """Stop every active app, then erase the contents of ``apps/``/``uv-cache/``, every run dir, secrets, and the ledger.
 
-    ``catalog_cache.json`` is deliberately untouched -- design doc 3.2:
+    ``catalog_cache.json`` and ``public_catalog_cache.json`` are deliberately untouched -- design doc 3.2:
     reset returns the app platform to its initial state, not to "never
-    contacted GitHub". The caller (``api/apps.py``) already guarantees no
+    fetched an app catalog". The caller (``api/apps.py``) already guarantees no
     platform-bundle update job is running before calling this, so
     ``platform_update.json`` is unconditionally reset to idle here too.
     A path :func:`_clear_directory_contents` could not remove is reported

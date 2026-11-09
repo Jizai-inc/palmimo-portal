@@ -235,3 +235,21 @@ def test_public_catalog_recovers_after_failed_first_fetch(tmp_path: Path) -> Non
     assert cache.peek().generated_at is not None
     assert not cache.peek().stale
     assert cache.peek().reason is None
+
+
+def test_public_catalog_persistence_failure_keeps_fetched_data_in_memory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = JsonFileStateStore(tmp_path)
+
+    def fail_write(state: object) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(store, "write_public_catalog_cache", fail_write)
+    cache = PublicCatalogCache(HttpPublicCatalogSource(opener=lambda *args: io.BytesIO(catalog_bytes())), store)
+    cache.refresh(ntp_synchronized=True)
+    snapshot = cache.peek()
+    assert snapshot.apps == parse_public_catalog(catalog_bytes()).apps
+    assert snapshot.generated_at is not None
+    assert snapshot.fetched_at is not None
+    assert snapshot.reason == "persistence_failed"

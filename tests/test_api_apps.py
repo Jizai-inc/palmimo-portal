@@ -236,6 +236,7 @@ def test_list_apps_shows_a_deleting_row_after_the_ledger_entry_is_removed(
             "broken_reason": None,
             "credential_rejected": False,
             "update_available": False,
+            "public_app_available": None,
             "latest_commit": None,
             "last_job": {
                 "id": "j-delete",
@@ -652,7 +653,7 @@ def test_update_check_reports_update_available_for_branch_pinned_app(
     response = client.post(f"/api/v1/apps/{GIT_TELEOP_ID}/update/check", headers=CSRF_HEADERS)
 
     assert response.status_code == 200
-    assert response.json() == {"update_available": True, "remote_commit": "v2"}
+    assert response.json() == {"update_available": True, "public_app_available": None, "remote_commit": "v2"}
 
 
 def test_update_check_clears_credential_rejected_for_every_app_sharing_the_host_owner(

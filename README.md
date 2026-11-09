@@ -65,7 +65,8 @@ state. If the UI or API is unreachable, the same result over SSH is:
 `sudo find /var/lib/palmimo/apps /var/lib/palmimo/uv-cache -mindepth 1 -delete` —
 so their ownership and setgid bit survive, then
 `sudo rm -rf /var/lib/palmimo/secrets /run/palmimo/apps/* /var/lib/palmimo/portal/apps.json /var/lib/palmimo/portal/platform_update.json`,
-leaving `/var/lib/palmimo/portal/catalog_cache.json` in place, then
+leaving `/var/lib/palmimo/portal/catalog_cache.json` and
+`/var/lib/palmimo/portal/public_catalog_cache.json` in place, then
 `sudo systemctl restart palmimo-portal` and re-apply the platform bundle
 from the Portal if `GET /api/v1/platform` reports it is no longer ready.
 

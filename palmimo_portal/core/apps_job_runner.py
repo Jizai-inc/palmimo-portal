@@ -50,7 +50,7 @@ from palmimo_portal.core.apps_jobs import (
     update_git,
 )
 from palmimo_portal.core.apps_start import RUNNING_ACTIVE_STATES, AppRunningError
-from palmimo_portal.core.public_catalog import PublicAppUnavailableError, public_update_source
+from palmimo_portal.core.public_catalog import PublicAppChangedError, PublicAppUnavailableError, public_update_source
 from palmimo_portal.core.secrets import mask_authorization_lines
 from palmimo_portal.ports import (
     AppExistsError,
@@ -231,7 +231,7 @@ class AppsJobRunner:
         self._spawn(run, lock_cm)
         return result.get("job", job)
 
-    def start_update(self, name: str) -> AppJob:
+    def start_update(self, name: str, *, prepared: PreparedInstall | None = None) -> AppJob:
         """Start updating a git-sourced app.
 
         Raises:
@@ -239,7 +239,7 @@ class AppsJobRunner:
             AppNotFoundError: no app named ``name`` is installed.
         """
         lock_cm = self._acquire_lock()
-        job_id = apps_core.new_job_id()
+        job_id = prepared.job_id if prepared is not None else apps_core.new_job_id()
         started = time.time()
         try:
             active = self._app_unit.list_active_app_units()
@@ -260,8 +260,12 @@ class AppsJobRunner:
                 nonlocal job
                 if name not in state.apps:
                     raise AppNotFoundError(name)
+                if prepared is not None and prepared.source.public_app_id != state.apps[name].source.public_app_id:
+                    raise PublicAppChangedError("public_app_changed")
                 if state.apps[name].source.public_app_id:
-                    public_update_source(self._ctx.public_catalog_cache, state.apps[name].source)
+                    target = public_update_source(self._ctx.public_catalog_cache, state.apps[name].source)
+                    if prepared is None or prepared.public_app is None or prepared.source != target:
+                        raise PublicAppChangedError("public_app_changed")
                 job = replace(job, display_name=state.apps[name].name)
                 return replace(state, current_job=job, current_job_app=name)
 
@@ -291,6 +295,7 @@ class AppsJobRunner:
                         job_id=job_id,
                         started=started,
                         on_step=on_step,
+                        prepared=prepared,
                         on_registered=lambda updated: self._write_own_record(
                             name, updated, clear_credential_for_host_owner=not bool(updated.source.public_app_id)
                         ),

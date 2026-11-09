@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from palmimo_portal.api.apps import AppSourceInfo, EnvSpecInfo
 from palmimo_portal.api.deps import require_auth, require_full_session, require_provisioned
-from palmimo_portal.core.public_catalog import PublicCatalogCache
+from palmimo_portal.core.public_catalog import PublicCatalogCache, public_page_url
 from palmimo_portal.ports import PublicAppIdentity
 
 
@@ -24,6 +24,7 @@ class PublicCatalogAppInfo(BaseModel):
     env: list[EnvSpecInfo]
     devices: list[str]
     public: PublicAppIdentity
+    public_page_url: str | None
 
 
 class PublicCatalogResponse(BaseModel):
@@ -62,6 +63,9 @@ def get_public_catalog(request: Request) -> PublicCatalogResponse:
                 ],
                 devices=list(app.devices),
                 public=app.public,
+                public_page_url=public_page_url(
+                    request.app.state.apps_job_context.public_catalog_url, app.public.app_id
+                ),
             )
             for app in snapshot.apps
         ],

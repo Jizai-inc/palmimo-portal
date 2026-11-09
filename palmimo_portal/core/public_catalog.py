@@ -4,6 +4,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from palmimo_portal.ports import (
     AppSource,
@@ -86,8 +87,7 @@ class PublicCatalogCache:
         try:
             asset = self._source.fetch()
             state = PublicCatalogCacheState(asset.generated_at, asset.apps, self._wall_clock())
-            self._state_store.write_public_catalog_cache(state)
-        except (PublicCatalogSourceError, OSError) as error:
+        except PublicCatalogSourceError as error:
             logger.warning("public catalog: keeping previous cache: %s", error)
             self._reason = "offline"
             self._failed_at_monotonic = self._monotonic()
@@ -96,6 +96,19 @@ class PublicCatalogCache:
         self._fetched_at_monotonic = self._monotonic()
         self._failed_at_monotonic = None
         self._reason = None
+        try:
+            self._state_store.write_public_catalog_cache(state)
+        except OSError as error:
+            self._reason = "persistence_failed"
+            logger.warning("public catalog: fetched but persistence failed: %s", error)
+
+
+class PublicAppChangedError(Exception):
+    pass
+
+
+class PublicAppMismatchError(Exception):
+    pass
 
 
 class PublicAppUnavailableError(Exception):
@@ -110,13 +123,15 @@ def find_public_app(cache: PublicCatalogCache | None, public_app_id: str) -> Pub
 
 @dataclass(frozen=True)
 class PublicAppStatus:
-    available: bool
-    update_available: bool
+    available: bool | None
+    update_available: bool | None
     latest_commit: str | None
-    official: bool
+    official: bool | None
 
 
 def public_app_status(cache: PublicCatalogCache | None, source: AppSource) -> PublicAppStatus:
+    if cache is None or cache.peek().generated_at is None:
+        return PublicAppStatus(None, None, None, None)
     app = find_public_app(cache, source.public_app_id or "")
     if app is None:
         return PublicAppStatus(False, False, None, False)
@@ -128,3 +143,15 @@ def public_update_source(cache: PublicCatalogCache | None, source: AppSource) ->
     if app is None:
         raise PublicAppUnavailableError("public_app_unavailable")
     return replace(app.source, public_app_id=source.public_app_id)
+
+
+def public_page_url(catalog_url: str | None, public_app_id: str) -> str | None:
+    if catalog_url is None:
+        return None
+    try:
+        origin = urlsplit(catalog_url)
+        if origin.scheme not in ("http", "https") or not origin.netloc:
+            return None
+        return urlunsplit((origin.scheme, origin.netloc, f"/apps/{quote(public_app_id, safe='')}", "", ""))
+    except ValueError:
+        return None

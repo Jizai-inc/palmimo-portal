@@ -63,7 +63,7 @@ from palmimo_portal.core.manifest import (
     validate_manifest_filename,
 )
 from palmimo_portal.core.os_group import apps_gid
-from palmimo_portal.core.public_catalog import PublicCatalogCache, public_app_status, public_update_source
+from palmimo_portal.core.public_catalog import PublicAppMismatchError, PublicCatalogCache, public_app_status
 from palmimo_portal.core.secrets import mask_authorization_lines
 from palmimo_portal.ports import (
     AppExistsError,
@@ -142,6 +142,7 @@ class AppsJobContext:
     #: 4.1) -- the same value the catalog itself is fetched from (``Settings.catalog_repo``).
     catalog_repo: str | None = None
     public_catalog_cache: PublicCatalogCache | None = None
+    public_catalog_url: str | None = None
 
     @property
     def staging_dir(self) -> Path:
@@ -842,7 +843,14 @@ def prepare_install_git(
 
 def prepare_install_public(ctx: AppsJobContext, app: PublicCatalogApp) -> PreparedInstall:
     source = replace(app.source, public_app_id=app.public.app_id)
-    return replace(_prepare_install_git_source(ctx, source, None), public_app=app)
+    prepared = _prepare_install_git_source(ctx, source, None)
+    try:
+        if set(prepared.manifest.devices) != set(app.devices) or set(prepared.manifest.env) != set(app.env):
+            raise PublicAppMismatchError("public_app_mismatch")
+    except BaseException:
+        purge_path(ctx, prepared.staging_container)
+        raise
+    return replace(prepared, public_app=app)
 
 
 def _clone_app_source(ctx: AppsJobContext, source: AppSource, dest: Path) -> str:
@@ -1004,6 +1012,7 @@ def update_git(
     started: float | None = None,
     on_step: Callable[[str], None] = _no_step,
     on_registered: Callable[[AppRecord], None] = _no_record,
+    prepared: PreparedInstall | None = None,
 ) -> tuple[AppsState, AppRecord]:
     """Stage the selected git version and swap it in after dependency sync.
 
@@ -1028,15 +1037,17 @@ def update_git(
     job_id = job_id or ctx.new_id()
     started = started if started is not None else ctx.now()
     staging_container = ctx.staging_dir / job_id
-    target_source = (
-        public_update_source(ctx.public_catalog_cache, record.source)
-        if record.source.public_app_id
-        else replace(record.source, ref=_official_catalog_target_ref(ctx, record.source))
-    )
+    if record.source.public_app_id and prepared is None:
+        raise ValueError("public updates require a confirmed prepared source")
+    if prepared is not None:
+        staging_container = prepared.staging_container
+        target_source = prepared.source
+    else:
+        target_source = replace(record.source, ref=_official_catalog_target_ref(ctx, record.source))
     uncontained = False
     try:
         on_step("fetch")
-        commit = _clone_app_source(ctx, target_source, staging_container)
+        commit = prepared.commit if prepared is not None else _clone_app_source(ctx, target_source, staging_container)
         on_step("validate")
         project_dir = resolve_subdir(staging_container, target_source.subdir)
         manifest = _read_manifest(project_dir, _manifest_filename_for(target_source))
@@ -1258,7 +1269,7 @@ def check_git_update(ctx: AppsJobContext, record: AppRecord) -> tuple[bool, str 
     """
     if record.source.public_app_id:
         status = public_app_status(ctx.public_catalog_cache, record.source)
-        return status.update_available, status.latest_commit
+        return status.update_available is True, status.latest_commit
     if record.source.type != "git":
         return False, None
     if record.source.ref_kind == "tag":

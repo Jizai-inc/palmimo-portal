@@ -48,6 +48,7 @@ from pathlib import Path
 from typing import Any
 
 from palmimo_portal.adapters.atomic_write import atomic_write_text, create_exclusive_text, ensure_private_dir, fsync_dir
+from palmimo_portal.adapters.public_catalog import parse_public_catalog_payload
 from palmimo_portal.core.app_translations import parse_translations
 from palmimo_portal.core.apps import APP_ID_RE
 from palmimo_portal.core.auth import AUTH_LOCK_TIMEOUT_SECONDS
@@ -73,6 +74,8 @@ from palmimo_portal.ports import (
     PlatformLockTimeoutError,
     PlatformUpdateState,
     PreemptedApp,
+    PublicCatalogCacheState,
+    PublicCatalogSourceError,
     Release,
     RunLockTimeoutError,
     StateStore,
@@ -416,6 +419,38 @@ class JsonFileStateStore(StateStore):
         fetched_at = data.get("fetched_at")
         _require_optional_type(fetched_at, (int, float), "catalog_cache.json fetched_at")
         return CatalogCacheState(tag=data.get("tag"), apps=apps, fetched_at=fetched_at)
+
+    def read_public_catalog_cache(self) -> PublicCatalogCacheState:
+        path = self._state_dir / "public_catalog_cache.json"
+        if not path.is_file():
+            return PublicCatalogCacheState()
+        try:
+            payload = json.loads(path.read_bytes())
+            fetched_at = payload.get("fetched_at")
+            _require_optional_type(fetched_at, (int, float), "public catalog fetched_at")
+            asset = parse_public_catalog_payload(payload)
+            return PublicCatalogCacheState(asset.generated_at, asset.apps, fetched_at)
+        except (OSError, ValueError, TypeError, AttributeError, RecursionError, PublicCatalogSourceError) as error:
+            logger.warning("public catalog cache unreadable: %s", error)
+            return PublicCatalogCacheState()
+
+    def write_public_catalog_cache(self, state: PublicCatalogCacheState) -> None:
+        payload = {
+            "schema": 1,
+            "generated_at": state.generated_at,
+            "fetched_at": state.fetched_at,
+            "apps": [
+                {
+                    **asdict(app),
+                    "env": {
+                        name: {key: value for key, value in asdict(spec).items() if value is not None}
+                        for name, spec in app.env.items()
+                    },
+                }
+                for app in state.apps
+            ],
+        }
+        atomic_write_text(self._state_dir / "public_catalog_cache.json", json.dumps(payload))
 
     def read_catalog_cache(self) -> CatalogCacheState:
         if not self._catalog_cache_path.is_file():
@@ -840,6 +875,8 @@ class JsonFileStateStore(StateStore):
         }
         if source.manifest is not None:
             payload["manifest"] = source.manifest
+        if source.public_app_id is not None:
+            payload["public_app_id"] = source.public_app_id
         return payload
 
     @staticmethod
@@ -883,6 +920,7 @@ class JsonFileStateStore(StateStore):
             source_data = entry["source"]
             if not isinstance(source_data, dict):
                 raise TypeError(f"apps.json apps.{name}.source must be an object")
+            _require_optional_type(source_data.get("public_app_id"), str, "apps.json public_app_id")
             source = AppSource(
                 type=source_data["type"],
                 url=source_data.get("url"),
@@ -891,6 +929,7 @@ class JsonFileStateStore(StateStore):
                 subdir=source_data.get("subdir"),
                 commit=source_data.get("commit"),
                 manifest=source_data.get("manifest"),
+                public_app_id=source_data.get("public_app_id"),
             )
             last_job_data = entry.get("last_job")
             last_job = (

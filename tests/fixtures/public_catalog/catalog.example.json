@@ -1,0 +1,1624 @@
+{
+  "schema": 1,
+  "generated_at": "2026-11-09T00:00:00Z",
+  "future_catalog": {
+    "enabled": true
+  },
+  "apps": [
+    {
+      "name": "dance",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本",
+          "env.API_KEY": "APIキー"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help",
+          "future_env": true
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "future_source": true
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000001",
+        "namespace": "alice",
+        "official": false,
+        "future_public": true
+      },
+      "future_item": true
+    },
+    {
+      "name": "teleop",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {},
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/Jizai-inc/palmimo-apps",
+        "ref": "main",
+        "ref_kind": "branch",
+        "subdir": "teleop",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000002",
+        "namespace": "palmimo",
+        "official": true
+      }
+    },
+    {
+      "name": "branch-dance",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/bob/dance",
+        "ref": "feature/dance",
+        "ref_kind": "branch",
+        "subdir": null,
+        "manifest": "palmimo.dance.toml",
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000003",
+        "namespace": "bob",
+        "official": false
+      }
+    },
+    {
+      "name": "Bad_Name",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000004",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-4",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000005",
+        "namespace": "Alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-5",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "abc123"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000006",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-6",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000007",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-7",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "-main",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000008",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-8",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/../dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000009",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-9",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000010",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-10",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "dance/",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000011",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-11",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000012",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-12",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": "palmimo.toml",
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000013",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-13",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": "../palmimo.toml",
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000014",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-14",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "javascript:alert(1)"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000015",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-15",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["servo"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000016",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-16",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "not-a-uuid",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-17",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "archive",
+        "url": "https://alice.example/dance.zip"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000018",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-18",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://alice.example/dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000019",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-19",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance.git",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000020",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-20",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "commit",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000021",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-21",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "name": "dance-22",
+      "description": 42,
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000023",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "duplicate-id-first",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000024",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "duplicate-name",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000025",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-25",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000026",
+        "namespace": "zip",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-26",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000027",
+        "namespace": "git",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-27",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000028",
+        "namespace": "cloud",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-28",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000029",
+        "namespace": "alice",
+        "official": true
+      }
+    },
+    {
+      "name": "dance-29",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/bob/dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000030",
+        "namespace": "bob",
+        "official": true
+      }
+    },
+    {
+      "name": "dance-30",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000031",
+        "namespace": "palmimo",
+        "official": true
+      }
+    },
+    {
+      "name": "dance-31",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/Jizai-inc/palmimo-apps",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000032",
+        "namespace": "palmimo",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-32",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/bob/dance",
+        "ref": "feature/dance",
+        "ref_kind": "branch",
+        "subdir": null,
+        "manifest": "palmimo.dance.toml",
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000024",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "duplicate-name",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/bob/dance",
+        "ref": "feature/dance",
+        "ref_kind": "branch",
+        "subdir": null,
+        "manifest": "palmimo.dance.toml",
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000034",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-34",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": " 有効な説明 ",
+          "env.API_KEY": " ",
+          "params.mode": " Auto ",
+          "params.speed": 7,
+          "unknown": "drop",
+          "env.TOO_LONG": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "env.LIMIT200": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "params.x": "1"
+        },
+        "JA": {
+          "description": "drop"
+        },
+        "de": 42
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/bob/dance",
+        "ref": "feature/dance",
+        "ref_kind": "branch",
+        "subdir": null,
+        "manifest": "palmimo.dance.toml",
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000035",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-35",
+      "description": "A fictional dance app",
+      "translations": {
+        "aa": {
+          "description": "Language"
+        },
+        "ab": {
+          "description": "Language"
+        },
+        "ac": {
+          "description": "Language"
+        },
+        "ad": {
+          "description": "Language"
+        },
+        "ae": {
+          "description": "Language"
+        },
+        "af": {
+          "description": "Language"
+        },
+        "ag": {
+          "description": "Language"
+        },
+        "ah": {
+          "description": "Language"
+        },
+        "ai": {
+          "description": "Language"
+        },
+        "aj": {
+          "description": "Language"
+        },
+        "ak": {
+          "description": "Language"
+        },
+        "al": {
+          "description": "Language"
+        },
+        "am": {
+          "description": "Language"
+        },
+        "an": {
+          "description": "Language"
+        },
+        "ao": {
+          "description": "Language"
+        },
+        "ap": {
+          "description": "Language"
+        },
+        "aq": {
+          "description": "Language"
+        },
+        "ar": {
+          "description": "Language"
+        },
+        "as": {
+          "description": "Language"
+        },
+        "at": {
+          "description": "Language"
+        },
+        "au": {
+          "description": "Language"
+        },
+        "av": {
+          "description": "Language"
+        },
+        "aw": {
+          "description": "Language"
+        },
+        "ax": {
+          "description": "Language"
+        },
+        "ay": {
+          "description": "Language"
+        },
+        "az": {
+          "description": "Language"
+        },
+        "ba": {
+          "description": "Language"
+        },
+        "bb": {
+          "description": "Language"
+        },
+        "bc": {
+          "description": "Language"
+        },
+        "bd": {
+          "description": "Language"
+        },
+        "be": {
+          "description": "Language"
+        },
+        "bf": {
+          "description": "Language"
+        },
+        "bg": {
+          "description": "Language"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/bob/dance",
+        "ref": "feature/dance",
+        "ref_kind": "branch",
+        "subdir": null,
+        "manifest": "palmimo.dance.toml",
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000036",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-36",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/Jizai-inc/palmimo-apps",
+        "ref": "feature/dance",
+        "ref_kind": "branch",
+        "subdir": null,
+        "manifest": "palmimo.dance.toml",
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000037",
+        "namespace": "jizai-inc",
+        "official": true
+      }
+    },
+    {
+      "name": "dance-37",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/bob/dance",
+        "ref": "feature/dance",
+        "ref_kind": "branch",
+        "subdir": "apps/foo..bar",
+        "manifest": "palmimo.dance.toml",
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000038",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance\n",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/bob/dance",
+        "ref": "feature/dance",
+        "ref_kind": "branch",
+        "subdir": null,
+        "manifest": "palmimo.dance.toml",
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000039",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-39",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/bob/dance",
+        "ref": "feature/dance",
+        "ref_kind": "branch",
+        "subdir": null,
+        "manifest": "palmimo.dance.toml",
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000040",
+        "namespace": "alice ",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-40",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/dance\n",
+        "ref": "feature/dance",
+        "ref_kind": "branch",
+        "subdir": null,
+        "manifest": "palmimo.dance.toml",
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000041",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-41",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/bob/dance",
+        "ref": "main ",
+        "ref_kind": "branch",
+        "subdir": null,
+        "manifest": "palmimo.dance.toml",
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000042",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-42",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/bob/dance",
+        "ref": "feature/dance",
+        "ref_kind": "branch",
+        "subdir": "apps/dance ",
+        "manifest": "palmimo.dance.toml",
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000043",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-43",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/bob/dance",
+        "ref": "feature/dance",
+        "ref_kind": "branch",
+        "subdir": null,
+        "manifest": "palmimo.dance.toml\n",
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000044",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "dance-44",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/bob/dance",
+        "ref": "feature/dance",
+        "ref_kind": "branch",
+        "subdir": null,
+        "manifest": "palmimo.dance.toml",
+        "commit": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000045",
+        "namespace": "alice",
+        "official": false
+      }
+    },
+    {
+      "name": "translations-32",
+      "description": "A fictional dance app",
+      "translations": {
+        "aa": {
+          "description": "Language"
+        },
+        "ab": {
+          "description": "Language"
+        },
+        "ac": {
+          "description": "Language"
+        },
+        "ad": {
+          "description": "Language"
+        },
+        "ae": {
+          "description": "Language"
+        },
+        "af": {
+          "description": "Language"
+        },
+        "ag": {
+          "description": "Language"
+        },
+        "ah": {
+          "description": "Language"
+        },
+        "ai": {
+          "description": "Language"
+        },
+        "aj": {
+          "description": "Language"
+        },
+        "ak": {
+          "description": "Language"
+        },
+        "al": {
+          "description": "Language"
+        },
+        "am": {
+          "description": "Language"
+        },
+        "an": {
+          "description": "Language"
+        },
+        "ao": {
+          "description": "Language"
+        },
+        "ap": {
+          "description": "Language"
+        },
+        "aq": {
+          "description": "Language"
+        },
+        "ar": {
+          "description": "Language"
+        },
+        "as": {
+          "description": "Language"
+        },
+        "at": {
+          "description": "Language"
+        },
+        "au": {
+          "description": "Language"
+        },
+        "av": {
+          "description": "Language"
+        },
+        "aw": {
+          "description": "Language"
+        },
+        "ax": {
+          "description": "Language"
+        },
+        "ay": {
+          "description": "Language"
+        },
+        "az": {
+          "description": "Language"
+        },
+        "ba": {
+          "description": "Language"
+        },
+        "bb": {
+          "description": "Language"
+        },
+        "bc": {
+          "description": "Language"
+        },
+        "bd": {
+          "description": "Language"
+        },
+        "be": {
+          "description": "Language"
+        },
+        "bf": {
+          "description": "Language"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/bob/dance",
+        "ref": "feature/dance",
+        "ref_kind": "branch",
+        "subdir": null,
+        "manifest": "palmimo.dance.toml",
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000046",
+        "namespace": "bob",
+        "official": false
+      }
+    }
+  ]
+}

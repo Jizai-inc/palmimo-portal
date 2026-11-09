@@ -560,6 +560,45 @@ class CatalogApp:
 
 
 @dataclass(frozen=True)
+class PublicAppIdentity:
+    app_id: str
+    namespace: str
+    official: bool
+
+
+@dataclass(frozen=True)
+class PublicCatalogApp:
+    name: str
+    description: str
+    source: AppSource
+    env: dict[str, CatalogEnvSpec]
+    devices: tuple[str, ...]
+    public: PublicAppIdentity
+    translations: dict[str, dict[str, str]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class PublicCatalogAsset:
+    generated_at: str
+    apps: tuple[PublicCatalogApp, ...]
+
+
+@dataclass(frozen=True)
+class PublicCatalogCacheState:
+    generated_at: str | None = None
+    apps: tuple[PublicCatalogApp, ...] = ()
+    fetched_at: float | None = None
+
+
+class PublicCatalogSourceError(Exception):
+    pass
+
+
+class PublicCatalogSource(Protocol):
+    def fetch(self) -> PublicCatalogAsset: ...
+
+
+@dataclass(frozen=True)
 class CatalogAsset:
     """One fetched, verified, and schema-validated catalog release."""
 
@@ -909,6 +948,10 @@ class StateStore(Protocol):
         """
         ...
 
+    def read_public_catalog_cache(self) -> PublicCatalogCacheState: ...
+
+    def write_public_catalog_cache(self, state: PublicCatalogCacheState) -> None: ...
+
     def read_catalog_cache(self) -> CatalogCacheState:
         """Return the last successfully fetched official catalog, or an empty state if none yet.
 
@@ -965,6 +1008,8 @@ class AppSource:
     #: ``palmimo.toml`` -- ``None`` means the default. Fixed at install time; ``update`` re-reads
     #: this same file.
     manifest: str | None = None
+    #: An empty string records an explicit opt-out; None means no public association.
+    public_app_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1265,6 +1310,8 @@ class GitPort(Protocol):
     revoked credential must fail fast, never hang the job waiting on a
     prompt no one can answer.
     """
+
+    def clone_commit_shallow(self, url: str, sha: str, dest: Path) -> str: ...
 
     def clone_shallow(
         self,

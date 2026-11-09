@@ -24,11 +24,12 @@ from palmimo_portal.ports import (
     AppsState,
     InvalidHostOwnerError,
     InvalidManifestSourceError,
+    PublicCatalogApp,
 )
 
 
 APP_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}\.[a-z][a-z0-9-]{0,39}$")
-_RESERVED_GITHUB_NAMESPACES = frozenset({"palmimo", "zip", "git"})
+_RESERVED_GITHUB_NAMESPACES = frozenset({"palmimo", "zip", "git", "cloud"})
 
 
 def normalize_git_url(url: str) -> tuple[str, str, str] | None:
@@ -76,6 +77,11 @@ def suggest_app_name(namespace: str, requested_name: str, state: AppsState) -> s
         if f"{namespace}.{candidate}" not in occupied:
             return candidate
     raise RuntimeError("no app id available")
+
+
+def public_app_id(app: PublicCatalogApp, state: AppsState) -> str:
+    namespace = app.public.namespace
+    return f"{namespace}.{suggest_app_name(namespace, app.name, state)}"
 
 
 def new_job_id() -> str:

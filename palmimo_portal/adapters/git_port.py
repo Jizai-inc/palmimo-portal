@@ -66,6 +66,19 @@ def _parse_http_status(stderr: str) -> int | None:
 class SubprocessGitPort(GitPort):
     runner: object = field(default=subprocess.run)
 
+    def clone_commit_shallow(self, url: str, sha: str, dest: Path) -> str:
+        if re.fullmatch(r"[0-9a-f]{40}", sha) is None:
+            raise GitCommandError("invalid commit SHA")
+        env = {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "/bin/true"}
+        self._run(["git", "init", "--", str(dest)], cwd=None, timeout=CLONE_TIMEOUT_SECONDS, env=env)
+        for args in (
+            ["remote", "add", "origin", "--", url],
+            ["fetch", "--depth", "1", "origin", sha],
+            ["checkout", "FETCH_HEAD"],
+        ):
+            self._run(["git", *args], cwd=dest, timeout=CLONE_TIMEOUT_SECONDS, env=env)
+        return self._rev_parse(dest, env=env)
+
     def clone_shallow(
         self,
         url: str,

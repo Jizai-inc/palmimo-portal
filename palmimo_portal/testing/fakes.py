@@ -75,6 +75,7 @@ from palmimo_portal.ports import (
     PlatformUpdateState,
     PlatformVerifyDiff,
     PreemptedApp,
+    PublicCatalogCacheState,
     Release,
     ReleaseSource,
     ReleaseSourceError,
@@ -372,6 +373,7 @@ class FakeStateStore(StateStore):
     _run_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _platform_update_state: PlatformUpdateState = field(default_factory=lambda: IDLE_PLATFORM_STATE)
     _platform_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+    _public_catalog_cache: PublicCatalogCacheState = field(default_factory=PublicCatalogCacheState)
     _catalog_cache: CatalogCacheState = field(
         default_factory=lambda: CatalogCacheState(tag=None, apps=(), fetched_at=None)
     )
@@ -514,6 +516,12 @@ class FakeStateStore(StateStore):
             yield
         finally:
             self._platform_lock.release()
+
+    def read_public_catalog_cache(self) -> PublicCatalogCacheState:
+        return self._public_catalog_cache
+
+    def write_public_catalog_cache(self, state: PublicCatalogCacheState) -> None:
+        self._public_catalog_cache = state
 
     def read_catalog_cache(self) -> CatalogCacheState:
         return self._catalog_cache
@@ -822,6 +830,16 @@ class FakeGitPort(GitPort):
     #: Called with (dest, manifest_text) on a successful clone, so a test can seed the
     #: cloned tree's palmimo.toml/pyproject.toml without a real git binary.
     on_clone: Callable[[Path, str, str, str], None] | None = None
+
+    clone_commit_calls: list[tuple[str, str]] = field(default_factory=list)
+
+    def clone_commit_shallow(self, url: str, sha: str, dest: Path) -> str:
+        self.clone_commit_calls.append((url, sha))
+        if self.raise_on_clone is not None:
+            raise self.raise_on_clone
+        if self.on_clone is not None:
+            self.on_clone(dest, url, sha, "commit")
+        return sha
 
     def clone_shallow(
         self,

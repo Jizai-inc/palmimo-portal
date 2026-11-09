@@ -26,6 +26,7 @@ from palmimo_portal.adapters.journal import JournalctlPort
 from palmimo_portal.adapters.local_address import SocketLocalAddressPort
 from palmimo_portal.adapters.networkmanager import NetworkManagerSavedNetworkPort
 from palmimo_portal.adapters.platform import GitHubPlatformBundleSource, SudoPlatformPort
+from palmimo_portal.adapters.public_catalog import HttpPublicCatalogSource
 from palmimo_portal.adapters.rundir import TmpfsRunDirPort
 from palmimo_portal.adapters.secrets import JsonSecretsStore
 from palmimo_portal.adapters.ssh_keys import AuthorizedKeysSshKeyPort
@@ -54,6 +55,7 @@ from palmimo_portal.ports import (
     NetworkPort,
     PlatformBundleSource,
     PlatformPort,
+    PublicCatalogSource,
     ReleaseSource,
     RunDirPort,
     SavedNetworkPort,
@@ -82,6 +84,7 @@ from palmimo_portal.testing.fakes import (
     FakeNetworkPort,
     FakePlatformBundleSource,
     FakePlatformPort,
+    FakePublicCatalogSource,
     FakeReleaseSource,
     FakeRunDirPort,
     FakeSavedNetworkPort,
@@ -133,6 +136,7 @@ class AdapterBundle:
     platform_releases: ReleaseSource
     clock: ClockPort
     catalog: CatalogSource
+    public_catalog: PublicCatalogSource
 
 
 def build_adapters(settings: Settings) -> AdapterBundle:
@@ -196,6 +200,7 @@ def build_adapters(settings: Settings) -> AdapterBundle:
             platform_releases=FakeReleaseSource(),
             clock=FakeClockPort(),
             catalog=FakeCatalogSource(),
+            public_catalog=FakePublicCatalogSource(),
         )
     preflight_state_dir(settings.state_dir)
     real_state = JsonFileStateStore(settings.state_dir)
@@ -241,6 +246,7 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         platform_bundle=GitHubPlatformBundleSource(platform_repo=settings.platform_repo),
         platform_releases=GitHubReleaseSource(repo=settings.platform_repo, channel=settings.update_channel),
         clock=SystemClockPort(),
+        public_catalog=HttpPublicCatalogSource(public_catalog_url=settings.public_catalog_url),
         catalog=GitHubCatalogSource(
             catalog_repo=settings.catalog_repo,
             release_source=GitHubReleaseSource(

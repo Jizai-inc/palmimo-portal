@@ -75,7 +75,10 @@ from palmimo_portal.ports import (
     PlatformUpdateState,
     PlatformVerifyDiff,
     PreemptedApp,
+    PublicCatalogAsset,
     PublicCatalogCacheState,
+    PublicCatalogSource,
+    PublicCatalogSourceError,
     Release,
     ReleaseSource,
     ReleaseSourceError,
@@ -1013,6 +1016,21 @@ class FakeClockPort(ClockPort):
 
 
 @dataclass
+class FakePublicCatalogSource(PublicCatalogSource):
+    asset: PublicCatalogAsset | None = None
+    raise_on_fetch: Exception | None = None
+    fetch_calls: int = field(default=0, init=False)
+
+    def fetch(self) -> PublicCatalogAsset:
+        self.fetch_calls += 1
+        if self.raise_on_fetch is not None:
+            raise self.raise_on_fetch
+        if self.asset is None:
+            raise PublicCatalogSourceError("fake public catalog has no configured asset")
+        return self.asset
+
+
+@dataclass
 class FakeCatalogSource(CatalogSource):
     """Scriptable :class:`CatalogSource`. Reports no catalog (``CatalogSourceError``) by default."""
 
@@ -1228,6 +1246,7 @@ class FakeAdapterBundle:
     platform_releases: FakeReleaseSource
     clock: FakeClockPort
     catalog: FakeCatalogSource
+    public_catalog: FakePublicCatalogSource
 
 
 @dataclass

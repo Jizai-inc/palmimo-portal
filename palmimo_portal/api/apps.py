@@ -114,6 +114,12 @@ from palmimo_portal.core.manifest import (
     validate_param_values,
 )
 from palmimo_portal.core.platform import compute_status
+from palmimo_portal.core.public_catalog import (
+    PublicAppUnavailableError,
+    PublicCatalogCache,
+    find_public_app,
+    public_app_status,
+)
 from palmimo_portal.core.secrets import collect_registered_secret_values, mask_known_values
 from palmimo_portal.ports import (
     AdapterUnavailableError,
@@ -251,10 +257,8 @@ class AppSourceInfo(BaseModel):
     subdir: str | None
     commit: str | None
     manifest: str | None
-    #: True iff this source normalizes to the official devkit repo (``app_namespace(...) ==
-    #: "palmimo"``, design doc 3.9) -- the "official" badge must key off source, not the app id's
-    #: namespace segment, so a UI never has to re-derive the normalization rule itself.
     official: bool
+    public_app_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class AppJobInfo(BaseModel):
@@ -298,6 +302,7 @@ class AppSummary(BaseModel):
     credential_rejected: bool
     update_available: bool
     latest_commit: str | None
+    public_app_available: bool | None = Field(default=None, exclude_if=lambda value: value is None)
     last_job: AppJobInfo | None
     exit_code: int | None = None
     reason: str | None = None
@@ -351,6 +356,9 @@ class AppManifestInfo(BaseModel):
 
 
 class AppDetailResponse(BaseModel):
+    update_available: bool = False
+    latest_commit: str | None = None
+    public_app_available: bool | None = Field(default=None, exclude_if=lambda value: value is None)
     translations: dict[str, dict[str, str]] = Field(default_factory=dict)
     name: str
     id: str
@@ -398,6 +406,11 @@ class GitSourceRequest(BaseModel):
     _validate_manifest = field_validator("manifest")(validate_manifest_filename)
 
 
+class PublicInstallRequest(BaseModel):
+    public_app_id: str
+    commit: str
+
+
 class GitInstallRequest(BaseModel):
     source: GitSourceRequest
     name: str | None = None
@@ -423,6 +436,7 @@ class BindingsRequest(BaseModel):
 
 
 class UpdateCheckResponse(BaseModel):
+    public_app_available: bool | None = Field(default=None, exclude_if=lambda value: value is None)
     update_available: bool
     remote_commit: str | None
 
@@ -555,7 +569,9 @@ def _app_id_for_job(state: AppsState, job: AppJob) -> str | None:
     return None
 
 
-def _source_info(record: AppRecord, catalog_repo: str | None) -> AppSourceInfo:
+def _source_info(
+    record: AppRecord, catalog_repo: str | None, public_cache: PublicCatalogCache | None = None
+) -> AppSourceInfo:
     return AppSourceInfo(
         type=record.source.type,
         url=record.source.url,
@@ -564,7 +580,12 @@ def _source_info(record: AppRecord, catalog_repo: str | None) -> AppSourceInfo:
         subdir=record.source.subdir,
         commit=record.source.commit,
         manifest=record.source.manifest,
-        official=app_namespace(record.source.type, record.source.url, catalog_repo) == "palmimo",
+        official=(
+            public_app_status(public_cache, record.source).official
+            if record.source.public_app_id
+            else app_namespace(record.source.type, record.source.url, catalog_repo) == "palmimo"
+        ),
+        public_app_id=record.source.public_app_id,
     )
 
 
@@ -618,6 +639,17 @@ def _snapshot_manifest(record: AppRecord) -> Manifest | None:
         return None
 
 
+def _update_status(record: AppRecord, ctx: AppsJobContext) -> dict[str, Any]:
+    if record.source.public_app_id:
+        status = public_app_status(ctx.public_catalog_cache, record.source)
+        return {
+            "update_available": status.update_available,
+            "latest_commit": status.latest_commit,
+            "public_app_available": status.available,
+        }
+    return {"update_available": record.update_available, "latest_commit": record.latest_commit}
+
+
 def _summary(
     record: AppRecord, state: AppsState, app_unit: AppUnitPort, deps: StartDeps, host: str, registered: set[str]
 ) -> AppSummary:
@@ -627,14 +659,13 @@ def _summary(
         name=record.name,
         id=record.id,
         label=record.label,
-        source=_source_info(record, deps.apps_job_ctx.catalog_repo),
+        source=_source_info(record, deps.apps_job_ctx.catalog_repo, deps.apps_job_ctx.public_catalog_cache),
         installed_at=record.installed_at,
         autostart=record.autostart,
         status=status,
         broken_reason=record.broken_reason,
         credential_rejected=record.credential_rejected,
-        update_available=record.update_available,
-        latest_commit=record.latest_commit,
+        **_update_status(record, deps.apps_job_ctx),
         last_job=_job_info(record.last_job, record.id) if record.last_job is not None else None,
         exit_code=exit_code,
         reason=reason,
@@ -716,10 +747,11 @@ def _detail(
     status, exit_code, reason = _run_status(record, state, app_unit, deps.run_dir, deps.state)
     url = resolve_running_url(deps, record, host=host) if status == "running" else None
     return AppDetailResponse(
+        **_update_status(record, ctx),
         name=record.name,
         id=record.id,
         label=record.label,
-        source=_source_info(record, ctx.catalog_repo),
+        source=_source_info(record, ctx.catalog_repo, ctx.public_catalog_cache),
         installed_at=record.installed_at,
         autostart=record.autostart,
         status=status,
@@ -982,6 +1014,55 @@ async def install(
     return AppJobAcceptedResponse(job=_job_info(job, _app_id_for_job(state_store.read_apps_state(), job)))
 
 
+@router.post("/install-public", status_code=202)
+def install_public(
+    body: PublicInstallRequest,
+    request: Request,
+    state_store: StateStore = Depends(get_state_store),
+    ctx: AppsJobContext = Depends(get_apps_job_context),
+    runner: AppsJobRunner = Depends(get_apps_job_runner),
+    deps: StartDeps = Depends(get_start_deps),
+) -> AppJobAcceptedResponse:
+    """Install only if the selected public app still advertises the displayed commit."""
+    _ensure_not_corrupt(state_store)
+    _ensure_no_portal_update_in_progress(state_store)
+    _ensure_no_platform_update_in_progress(state_store)
+    _ensure_platform_ready(deps)
+    cache = ctx.public_catalog_cache
+    snapshot = cache.get(ntp_synchronized=request.app.state.adapters.clock.ntp_synchronized()) if cache else None
+    if snapshot is None or snapshot.generated_at is None:
+        raise PortalError(503, "public_catalog_unavailable")
+    app = find_public_app(cache, body.public_app_id)
+    if app is None:
+        raise PortalError(404, "public_app_not_found")
+    if app.source.commit != body.commit:
+        raise PortalError(409, "public_app_changed")
+    try:
+        prepared = apps_jobs.prepare_install_public(ctx, app)
+    except ManifestValidationError as error:
+        raise PortalError(422, "manifest_invalid", errors=error.errors) from error
+    except DiskFullError as error:
+        raise PortalError(507, "disk_full") from error
+    except AppsDirUnavailableError as error:
+        raise PortalError(503, "platform_not_ready") from error
+    except InvalidManifestSourceError as error:
+        raise PortalError(422, "install_failed", detail=str(error)) from error
+    except GitCommandError as error:
+        _raise_for_git_error(error, 422)
+    try:
+        job = runner.start_install(prepared)
+    except BaseException as error:
+        apps_jobs.purge_path(ctx, prepared.staging_container)
+        if isinstance(error, AppExistsError):
+            raise PortalError(409, "app_exists") from error
+        if isinstance(error, AppsLockTimeoutError):
+            raise PortalError(409, "app_job_in_progress") from error
+        if isinstance(error, AppStartError):
+            _raise_for_start_error(error)
+        raise
+    return AppJobAcceptedResponse(job=_job_info(job, _app_id_for_job(state_store.read_apps_state(), job)))
+
+
 @router.get("/jobs/{job_id}")
 def get_job(job_id: str, state_store: StateStore = Depends(get_state_store)) -> AppJobInfo:
     """Look up one install/update/delete job by id: in flight (``current_job``) or finished (an app's ``last_job``)."""
@@ -1125,7 +1206,7 @@ def update_app(
     runner: AppsJobRunner = Depends(get_apps_job_runner),
     deps: StartDeps = Depends(get_start_deps),
 ) -> AppJobAcceptedResponse:
-    """Start re-fetching a git-sourced app at its pinned ref and swapping it in.
+    """Update a public app to its catalog commit, or another git app to its pinned ref.
 
     Raises:
         PortalError: 404 ``app_not_found``; 409 ``update_in_progress`` /
@@ -1140,6 +1221,8 @@ def update_app(
     _ensure_platform_ready(deps)
     try:
         job = runner.start_update(name)
+    except PublicAppUnavailableError as error:
+        raise PortalError(409, "public_app_unavailable") from error
     except AppNotFoundError as error:
         raise PortalError(404, "app_not_found") from error
     except AppsLockTimeoutError as error:
@@ -1176,11 +1259,19 @@ def update_check(
         available, remote_commit = apps_jobs.check_git_update(ctx, record)
     except GitCommandError as error:
         _raise_for_git_error(error, 502)
-    if record.source.ref_kind == "branch" and record.source.url is not None:
+    if not record.source.public_app_id and record.source.ref_kind == "branch" and record.source.url is not None:
         host_owner = host_owner_from_url(record.source.url)
         if host_owner is not None:
             state_store.update_apps_state(lambda state: clear_credential_rejected(state, host_owner))
-    return UpdateCheckResponse(update_available=available, remote_commit=remote_commit)
+    return UpdateCheckResponse(
+        update_available=available,
+        remote_commit=remote_commit,
+        public_app_available=(
+            public_app_status(ctx.public_catalog_cache, record.source).available
+            if record.source.public_app_id
+            else None
+        ),
+    )
 
 
 @router.post("/{name}/start", status_code=202)
@@ -1373,7 +1464,8 @@ def put_source(
     if record.source.type != "git":
         raise PortalError(409, "source_update_git_only")
     if (
-        app_namespace(record.source.type, record.source.url, ctx.catalog_repo) == "palmimo"
+        not record.source.public_app_id
+        and app_namespace(record.source.type, record.source.url, ctx.catalog_repo) == "palmimo"
         and record.source.ref_kind == "tag"
         and body.ref_kind == "tag"
         and body.ref != record.source.ref
@@ -1389,7 +1481,15 @@ def put_source(
             current,
             apps={
                 **current.apps,
-                name: replace(latest, source=replace(latest.source, ref=body.ref, ref_kind=body.ref_kind)),
+                name: replace(
+                    latest,
+                    source=replace(
+                        latest.source,
+                        ref=body.ref,
+                        ref_kind=body.ref_kind,
+                        public_app_id="" if latest.source.public_app_id is not None else None,
+                    ),
+                ),
             },
         )
 

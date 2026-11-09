@@ -3,9 +3,10 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from palmimo_portal.ports import (
+    AppSource,
     PublicCatalogApp,
     PublicCatalogCacheState,
     PublicCatalogSource,
@@ -95,3 +96,35 @@ class PublicCatalogCache:
         self._fetched_at_monotonic = self._monotonic()
         self._failed_at_monotonic = None
         self._reason = None
+
+
+class PublicAppUnavailableError(Exception):
+    pass
+
+
+def find_public_app(cache: PublicCatalogCache | None, public_app_id: str) -> PublicCatalogApp | None:
+    if cache is None:
+        return None
+    return next((app for app in cache.peek().apps if app.public.app_id == public_app_id), None)
+
+
+@dataclass(frozen=True)
+class PublicAppStatus:
+    available: bool
+    update_available: bool
+    latest_commit: str | None
+    official: bool
+
+
+def public_app_status(cache: PublicCatalogCache | None, source: AppSource) -> PublicAppStatus:
+    app = find_public_app(cache, source.public_app_id or "")
+    if app is None:
+        return PublicAppStatus(False, False, None, False)
+    return PublicAppStatus(True, source.commit != app.source.commit, app.source.commit, app.public.official)
+
+
+def public_update_source(cache: PublicCatalogCache | None, source: AppSource) -> AppSource:
+    app = find_public_app(cache, source.public_app_id or "")
+    if app is None:
+        raise PublicAppUnavailableError("public_app_unavailable")
+    return replace(app.source, public_app_id=source.public_app_id)

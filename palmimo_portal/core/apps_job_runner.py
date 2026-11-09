@@ -50,6 +50,7 @@ from palmimo_portal.core.apps_jobs import (
     update_git,
 )
 from palmimo_portal.core.apps_start import RUNNING_ACTIVE_STATES, AppRunningError
+from palmimo_portal.core.public_catalog import PublicAppUnavailableError, public_update_source
 from palmimo_portal.core.secrets import mask_authorization_lines
 from palmimo_portal.ports import (
     AppExistsError,
@@ -78,6 +79,8 @@ _ADAPTER_ERROR_CODE = "sync_unit_uncontained"
 
 
 def _job_error_code(error: Exception) -> str | None:
+    if isinstance(error, PublicAppUnavailableError):
+        return "public_app_unavailable"
     if isinstance(error, GitCommandError):
         return error.reason
     if isinstance(error, SyncUnitContainmentError):
@@ -159,8 +162,13 @@ class AppsJobRunner:
 
             def begin(state: AppsState) -> AppsState:
                 nonlocal name, job, prepared
-                desired_name = requested_name or apps_core.suggest_app_name(namespace, prepared.manifest.name, state)
-                name = f"{namespace}.{desired_name}"
+                if prepared.public_app is not None:
+                    name = apps_core.app_id_from_public_catalog(prepared.public_app, state)
+                else:
+                    desired_name = requested_name or apps_core.suggest_app_name(
+                        namespace, prepared.manifest.name, state
+                    )
+                    name = f"{namespace}.{desired_name}"
                 prepared = replace(prepared, app_id=name)
                 if name in state.apps:
                     raise AppExistsError(name)
@@ -252,6 +260,8 @@ class AppsJobRunner:
                 nonlocal job
                 if name not in state.apps:
                     raise AppNotFoundError(name)
+                if state.apps[name].source.public_app_id:
+                    public_update_source(self._ctx.public_catalog_cache, state.apps[name].source)
                 job = replace(job, display_name=state.apps[name].name)
                 return replace(state, current_job=job, current_job_app=name)
 
@@ -282,7 +292,7 @@ class AppsJobRunner:
                         started=started,
                         on_step=on_step,
                         on_registered=lambda updated: self._write_own_record(
-                            name, updated, clear_credential_for_host_owner=True
+                            name, updated, clear_credential_for_host_owner=not bool(updated.source.public_app_id)
                         ),
                     )
                     result["job"] = record.last_job or job

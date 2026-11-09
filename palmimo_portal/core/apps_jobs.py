@@ -63,6 +63,7 @@ from palmimo_portal.core.manifest import (
     validate_manifest_filename,
 )
 from palmimo_portal.core.os_group import apps_gid
+from palmimo_portal.core.public_catalog import PublicCatalogCache, public_app_status, public_update_source
 from palmimo_portal.core.secrets import mask_authorization_lines
 from palmimo_portal.ports import (
     AppExistsError,
@@ -80,6 +81,7 @@ from palmimo_portal.ports import (
     GitPort,
     InvalidManifestSourceError,
     JournalPort,
+    PublicCatalogApp,
     RunDirPort,
     SecretsStore,
     StateStore,
@@ -139,6 +141,7 @@ class AppsJobContext:
     #: ``owner/repo`` :func:`check_git_update` treats as "the official devkit repo" (design doc
     #: 4.1) -- the same value the catalog itself is fetched from (``Settings.catalog_repo``).
     catalog_repo: str | None = None
+    public_catalog_cache: PublicCatalogCache | None = None
 
     @property
     def staging_dir(self) -> Path:
@@ -764,6 +767,7 @@ class PreparedInstall:
     commit: str | None
     requires_python: str | None = None
     app_id: str | None = None
+    public_app: PublicCatalogApp | None = None
 
 
 def prepare_install_zip(
@@ -822,21 +826,49 @@ def prepare_install_git(
         InvalidManifestSourceError / ManifestValidationError: the clone
             fails validation.
     """
-    resolved_manifest = validate_manifest_filename(manifest_filename)
-    _check_disk_space(ctx, 0)
-    job_id = job_id or ctx.new_id()
-    staging_container = ctx.staging_dir / job_id
-    try:
-        commit = _fetch_git_source(
-            ctx,
+    return _prepare_install_git_source(
+        ctx,
+        AppSource(
+            type="git",
             url=url,
             ref=ref,
             ref_kind=ref_kind,
             subdir=subdir,
-            manifest=_stored_manifest(resolved_manifest),
-            dest=staging_container,
-        )
-        project_dir = resolve_subdir(staging_container, subdir)
+            manifest=_stored_manifest(validate_manifest_filename(manifest_filename)),
+        ),
+        job_id,
+    )
+
+
+def prepare_install_public(ctx: AppsJobContext, app: PublicCatalogApp) -> PreparedInstall:
+    source = replace(app.source, public_app_id=app.public.app_id)
+    return replace(_prepare_install_git_source(ctx, source, None), public_app=app)
+
+
+def _clone_app_source(ctx: AppsJobContext, source: AppSource, dest: Path) -> str:
+    assert source.url is not None and source.ref is not None and source.ref_kind is not None
+    if source.public_app_id:
+        assert source.commit is not None
+        return ctx.git.clone_commit_shallow(source.url, source.commit, dest)
+    return _fetch_git_source(
+        ctx,
+        url=source.url,
+        ref=source.ref,
+        ref_kind=source.ref_kind,
+        subdir=source.subdir,
+        manifest=source.manifest,
+        dest=dest,
+    )
+
+
+def _prepare_install_git_source(ctx: AppsJobContext, source: AppSource, job_id: str | None) -> PreparedInstall:
+    resolved_manifest = _manifest_filename_for(source)
+    _check_disk_space(ctx, 0)
+    job_id = job_id or ctx.new_id()
+    staging_container = ctx.staging_dir / job_id
+    try:
+        commit = _clone_app_source(ctx, source, staging_container)
+        project_dir = resolve_subdir(staging_container, source.subdir)
         manifest = _read_manifest(project_dir, resolved_manifest)
         _check_pyproject(project_dir)
     except BaseException:
@@ -848,9 +880,7 @@ def prepare_install_git(
         install_root=staging_container,
         project_dir=project_dir,
         staging_container=staging_container,
-        source=AppSource(
-            type="git", url=url, ref=ref, ref_kind=ref_kind, subdir=subdir, manifest=_stored_manifest(resolved_manifest)
-        ),
+        source=source,
         commit=commit,
         requires_python=_read_requires_python(project_dir),
     )
@@ -869,6 +899,8 @@ def commit_install(
         AppExistsError: ``prepared.app_id`` is already installed.
     """
     app_id = prepared.app_id
+    if app_id is None and prepared.public_app is not None:
+        app_id = apps_core.app_id_from_public_catalog(prepared.public_app, state)
     if app_id is None:
         namespace = app_namespace(prepared.source.type, prepared.source.url, ctx.catalog_repo)
         app_id = f"{namespace}.{suggest_app_name(namespace, prepared.manifest.name, state)}"
@@ -973,7 +1005,7 @@ def update_git(
     on_step: Callable[[str], None] = _no_step,
     on_registered: Callable[[AppRecord], None] = _no_record,
 ) -> tuple[AppsState, AppRecord]:
-    """Re-clone a git-sourced app at its pinned ref and swap it in.
+    """Stage the selected git version and swap it in after dependency sync.
 
     Sync runs on the staged clone, *before* the swap -- a failure here
     never touches the live tree (design doc 3.4: in-place update was
@@ -996,27 +1028,23 @@ def update_git(
     job_id = job_id or ctx.new_id()
     started = started if started is not None else ctx.now()
     staging_container = ctx.staging_dir / job_id
-    target_ref = _official_catalog_target_ref(ctx, record.source)
+    target_source = (
+        public_update_source(ctx.public_catalog_cache, record.source)
+        if record.source.public_app_id
+        else replace(record.source, ref=_official_catalog_target_ref(ctx, record.source))
+    )
     uncontained = False
     try:
         on_step("fetch")
-        commit = _fetch_git_source(
-            ctx,
-            url=record.source.url,
-            ref=target_ref,
-            ref_kind=record.source.ref_kind,
-            subdir=record.source.subdir,
-            manifest=record.source.manifest,
-            dest=staging_container,
-        )
+        commit = _clone_app_source(ctx, target_source, staging_container)
         on_step("validate")
-        project_dir = resolve_subdir(staging_container, record.source.subdir)
-        manifest = _read_manifest(project_dir, _manifest_filename_for(record.source))
+        project_dir = resolve_subdir(staging_container, target_source.subdir)
+        manifest = _read_manifest(project_dir, _manifest_filename_for(target_source))
         _check_pyproject(project_dir)
         requires_python = _read_requires_python(project_dir)
         _chmod_group_rwx(project_dir)
         on_step("sync")
-        layout = resolve_layout(staging_container, record.source.subdir)
+        layout = resolve_layout(staging_container, target_source.subdir)
         lock_generated = _sync_dependencies(
             ctx, job_id, record.id, staging_container, layout, staging_container, requires_python
         )
@@ -1064,7 +1092,7 @@ def update_git(
         )
         new_record = AppRecord(
             name=manifest.name,
-            source=replace(record.source, ref=target_ref, commit=commit),
+            source=replace(target_source, commit=commit),
             installed_at=ctx.now(),
             params={key: value for key, value in record.params.items() if key not in dropped_params},
             autostart=record.autostart,
@@ -1219,7 +1247,8 @@ def _official_catalog_target_ref(ctx: AppsJobContext, source: AppSource) -> str:
 def check_git_update(ctx: AppsJobContext, record: AppRecord) -> tuple[bool, str | None]:
     """Report whether a git-sourced app has a new version upstream (design doc 3.2).
 
-    A branch-pinned app is checked with a live ``git ls-remote``. A
+    Public apps compare commits against the public catalog cache.
+    Other branch-pinned apps are checked with a live ``git ls-remote``. A
     tag-pinned app is checked only when its source is the official devkit
     repo (:attr:`AppsJobContext.catalog_repo`) -- its pin is compared with
     the matching cached catalog entry, never fetched here. Any other tag-pinned app (a
@@ -1227,6 +1256,9 @@ def check_git_update(ctx: AppsJobContext, record: AppRecord) -> tuple[bool, str 
     compare against, so it always reports no update available; raising its
     pin is a manual ``PUT /apps/{id}/source`` instead.
     """
+    if record.source.public_app_id:
+        status = public_app_status(ctx.public_catalog_cache, record.source)
+        return status.update_available, status.latest_commit
     if record.source.type != "git":
         return False, None
     if record.source.ref_kind == "tag":

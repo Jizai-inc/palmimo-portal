@@ -25,6 +25,7 @@ from palmimo_portal.core.apps import host_owner_from_url
 from palmimo_portal.core.apps_jobs import AppsJobContext
 from palmimo_portal.core.catalog import CatalogCache
 from palmimo_portal.core.platform import PlatformLatestCache
+from palmimo_portal.core.public_catalog import PublicCatalogCache
 from palmimo_portal.ports import AppRecord, AppsLockTimeoutError, AppsState, ClockPort, GitCommandError, StateStore
 
 
@@ -133,7 +134,12 @@ def run_git_check_sweep(ctx: AppsJobContext, state_store: StateStore) -> None:
     updates: dict[str, AppRecord] = {}
     rejected_host_owners: set[str] = set()
     for name, record in state.apps.items():
-        if record.source.type != "git" or record.source.ref_kind != "branch" or record.credential_rejected:
+        if (
+            record.source.public_app_id
+            or record.source.type != "git"
+            or record.source.ref_kind != "branch"
+            or record.credential_rejected
+        ):
             continue
         try:
             available, remote_commit = apps_jobs.check_git_update(ctx, record)
@@ -157,7 +163,7 @@ def run_git_check_sweep(ctx: AppsJobContext, state_store: StateStore) -> None:
             updates[name] = replace(record, update_available=available, latest_commit=remote_commit)
 
     for name, record in state.apps.items():
-        if name in updates or record.credential_rejected or record.source.url is None:
+        if record.source.public_app_id or name in updates or record.credential_rejected or record.source.url is None:
             continue
         if host_owner_from_url(record.source.url) in rejected_host_owners:
             updates[name] = replace(record, credential_rejected=True)
@@ -204,6 +210,7 @@ def build_scheduler(
     state_store: StateStore,
     catalog_cache: CatalogCache,
     platform_latest_cache: PlatformLatestCache,
+    public_catalog_cache: PublicCatalogCache | None = None,
 ) -> PeriodicScheduler:
     """Build the one scheduler ``api/app.py`` runs for the process's lifetime."""
 
@@ -211,12 +218,18 @@ def build_scheduler(
         catalog_cache.refresh(ntp_synchronized=True)
         platform_latest_cache.get(ntp_synchronized=True, force=True)
 
-    return PeriodicScheduler(
-        clock,
-        [
+    tasks = [
+        PeriodicTask(
+            "git_check", GIT_CHECK_INTERVAL_SECONDS, lambda: run_git_check_sweep(apps_job_context, state_store)
+        ),
+        PeriodicTask("catalog_and_platform", CATALOG_AND_PLATFORM_INTERVAL_SECONDS, _catalog_and_platform),
+    ]
+    if public_catalog_cache is not None:
+        tasks.append(
             PeriodicTask(
-                "git_check", GIT_CHECK_INTERVAL_SECONDS, lambda: run_git_check_sweep(apps_job_context, state_store)
-            ),
-            PeriodicTask("catalog_and_platform", CATALOG_AND_PLATFORM_INTERVAL_SECONDS, _catalog_and_platform),
-        ],
-    )
+                "public_catalog",
+                CATALOG_AND_PLATFORM_INTERVAL_SECONDS,
+                lambda: public_catalog_cache.refresh(ntp_synchronized=True),
+            )
+        )
+    return PeriodicScheduler(clock, tasks)

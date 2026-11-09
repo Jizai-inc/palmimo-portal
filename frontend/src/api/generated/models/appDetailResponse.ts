@@ -12,6 +12,7 @@ import type { AppJobInfo } from './appJobInfo';
 import type { AppManifestInfo } from './appManifestInfo';
 import type { AppSourceInfo } from './appSourceInfo';
 import type { EnvSpecInfo } from './envSpecInfo';
+import type { PublicUpdateSourceInfo } from './publicUpdateSourceInfo';
 
 export interface AppDetailResponse {
   autostart: boolean;
@@ -26,7 +27,7 @@ export interface AppDetailResponse {
   label?: string | null;
   last_job: AppJobInfo | null;
   latest_commit?: string | null;
-  latest_source?: AppSourceInfo | null;
+  latest_source?: PublicUpdateSourceInfo | null;
   manifest: AppManifestInfo | null;
   missing_env?: string[];
   name: string;

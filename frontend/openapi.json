@@ -128,7 +128,7 @@
           "latest_source": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/AppSourceInfo"
+                "$ref": "#/components/schemas/PublicUpdateSourceInfo"
               },
               {
                 "type": "null"
@@ -618,7 +618,7 @@
           "latest_source": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/AppSourceInfo"
+                "$ref": "#/components/schemas/PublicUpdateSourceInfo"
               },
               {
                 "type": "null"
@@ -2055,6 +2055,141 @@
         "title": "PublicUpdateRequest",
         "type": "object"
       },
+      "PublicUpdateSourceInfo": {
+        "properties": {
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commit"
+          },
+          "devices": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Devices",
+            "type": "array"
+          },
+          "env": {
+            "items": {
+              "$ref": "#/components/schemas/EnvSpecInfo"
+            },
+            "title": "Env",
+            "type": "array"
+          },
+          "manifest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manifest"
+          },
+          "official": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Official"
+          },
+          "public_app_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public App Id"
+          },
+          "public_page_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Page Url"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref"
+          },
+          "ref_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref Kind"
+          },
+          "subdir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subdir"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "type",
+          "url",
+          "ref",
+          "ref_kind",
+          "subdir",
+          "commit",
+          "manifest",
+          "official",
+          "devices",
+          "env"
+        ],
+        "title": "PublicUpdateSourceInfo",
+        "type": "object"
+      },
       "ReleaseInfo": {
         "properties": {
           "html_url": {
@@ -2394,7 +2529,7 @@
           "latest_source": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/AppSourceInfo"
+                "$ref": "#/components/schemas/PublicUpdateSourceInfo"
               },
               {
                 "type": "null"
@@ -3618,7 +3753,7 @@
     },
     "/api/v1/apps/{name}/update": {
       "post": {
-        "description": "Update a public app to its catalog commit, or another git app to its pinned ref.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 ``update_in_progress`` /\n        409 ``app_job_in_progress`` / 409 ``platform_not_ready`` / 409\n        ``app_running`` (the app must be stopped first). A failure\n        after the job starts (bad manifest, disk full, sync failure)\n        surfaces on the app's ``last_job``, not here.",
+        "description": "Refuse busy devices before fetching; recheck under the job lock before accepting.\n\nPublic updates require the displayed commit and validate their fetched manifest before\nreturning 202: unavailable/changed catalog entries return 409, unknown catalogs return 503,\nmanifest/requirement/clone failures return 422, and disk shortages return 507.\nLegacy sources fetch in the job. All dependency-sync/swap failures remain job failures.",
         "operationId": "update_app_api_v1_apps__name__update_post",
         "parameters": [
           {

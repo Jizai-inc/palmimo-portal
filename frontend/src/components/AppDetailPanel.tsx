@@ -24,7 +24,7 @@ import {
 } from "@/api/generated/apps/apps";
 import { useListSecretsApiV1SecretsGet } from "@/api/generated/secrets/secrets";
 import { getGetStatusApiV1SystemStatusGetQueryKey } from "@/api/generated/system/system";
-import type { AppSourceInfo, AppDetailResponse, ParamSpecInfo, SourceUpdateRequestRefKind } from "@/api/generated/models";
+import type { PublicUpdateSourceInfo, AppDetailResponse, ParamSpecInfo, SourceUpdateRequestRefKind } from "@/api/generated/models";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { appIdNamePart } from "@/components/AppIdLabel";
 import { AppJobDialog } from "@/components/AppJobDialog";
@@ -510,7 +510,8 @@ function SourceSection({
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const [target, setTarget] = useState<AppSourceInfo | null>(null);
+  const [target, setTarget] = useState<PublicUpdateSourceInfo | null>(null);
+  const [repairing, setRepairing] = useState(false);
   const [editingRef, setEditingRef] = useState(false);
   const [refKind, setRefKind] = useState<SourceUpdateRequestRefKind>("branch");
   const [ref, setRef] = useState("");
@@ -527,6 +528,10 @@ function SourceSection({
   const isPublic = Boolean(app.source.public_app_id);
   const unavailable = app.public_app_available === false;
   const isOfficialTag = isPublic ? app.source.official !== false : app.source.official && app.source.ref_kind === "tag";
+  const needsPublicRepair = isPublic && !unavailable && (app.status === "broken" || app.status === "needs_repair");
+  const addedDevices = target?.devices.filter((device) => !app.devices.includes(device)) ?? [];
+  const currentRequired = new Set(app.env.filter((entry) => entry.required).map((entry) => entry.name));
+  const addedRequiredEnv = target?.env.filter((entry) => entry.required && !currentRequired.has(entry.name)) ?? [];
   const updateAvailable = !unavailable && (isPublic ? app.update_available === true : updateCheck.data?.update_available === true);
 
   return (
@@ -545,11 +550,12 @@ function SourceSection({
       {isGit ? (
         <div className="flex flex-wrap items-center gap-2">
           {!isOfficialTag ? <Button variant="outline" size="sm" onClick={() => setEditingRef((value) => !value)}>{t("appDetail.sourceEditRefButton")}</Button> : null}
-          {unavailable ? null : updateAvailable ? (
+          {needsPublicRepair ? <Button disabled={updatePending || appRunning || !app.latest_source?.commit} onClick={() => { if (app.latest_source) { setRepairing(true); setTarget(app.latest_source); } }}>{t("apps.repairButton")}</Button> : null}
+          {unavailable || (needsPublicRepair && app.latest_source?.commit) ? null : updateAvailable ? (
             <Button size="sm" onClick={() => {
               if (!isPublic) onUpdate();
-              else if (app.latest_commit) setTarget(app.latest_source ?? { ...app.source, commit: app.latest_commit });
-            }} disabled={updatePending || appRunning || (isPublic && !app.latest_commit)} title={appRunning ? t("appDetail.updateDisabledAppRunning") : undefined}>
+              else if (app.latest_source) { setRepairing(false); setTarget(app.latest_source); }
+            }} disabled={updatePending || appRunning || (isPublic && !app.latest_source?.commit)} title={appRunning ? t("appDetail.updateDisabledAppRunning") : undefined}>
               {t("appDetail.updateButton")}
             </Button>
           ) : (
@@ -569,7 +575,7 @@ function SourceSection({
           ) : null}
         </div>
       ) : null}
-      {isOfficialTag ? <p className="text-sm text-muted-foreground">{t("appDetail.sourceOfficialTagManaged")}</p> : null}
+      {isPublic && app.source.official === null ? <p role="note" className="text-sm text-muted-foreground">{t("appDetail.sourceCatalogUnknown")}</p> : isOfficialTag ? <p className="text-sm text-muted-foreground">{t("appDetail.sourceOfficialTagManaged")}</p> : null}
       <ApiErrorAlert error={updateCheck.error} />
       {editingRef && !isOfficialTag ? (
         <div className="flex flex-col gap-2">
@@ -604,12 +610,20 @@ function SourceSection({
       <ApiErrorAlert error={putSource.error} />
       <AlertDialog open={target !== null} onOpenChange={(open) => { if (!open) setTarget(null); }}>
         <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>{t("appDetail.confirmPublicUpdate")}</AlertDialogTitle></AlertDialogHeader>
+          <AlertDialogHeader><AlertDialogTitle>{repairing ? t("appDetail.confirmPublicRepair") : t("appDetail.confirmPublicUpdate")}</AlertDialogTitle></AlertDialogHeader>
           {target?.url && target.url !== app.source.url ? <p>{t("appDetail.publicUpdateSource")} <a className="underline [overflow-wrap:anywhere]" href={target.url} target="_blank" rel="noreferrer">{target.url}</a></p> : null}
           {target?.ref ? <p>{target.ref}</p> : null}
+          {target ? <div className="flex flex-col gap-2 text-sm">
+            <p className="font-medium">{t("appDetail.targetDevices")}</p>
+            <ul aria-label={t("appDetail.targetDevices")}>{target.devices.map((device) => <li key={device}>{deviceLabel(t, device)}</li>)}</ul>
+            <p className="font-medium">{t("appDetail.targetEnv")}</p>
+            <ul aria-label={t("appDetail.targetEnv")}>{target.env.map((entry) => <li key={entry.name}><code>{entry.name}</code> <Badge variant={entry.required ? "destructive" : "outline"}>{entry.required ? t("appAdd.envRequiredBadge") : t("appAdd.envOptionalBadge")}</Badge></li>)}</ul>
+            {addedDevices.length ? <><p className="font-medium">{t("appDetail.addedDevices")}</p><ul aria-label={t("appDetail.addedDevices")}>{addedDevices.map((device) => <li key={device}>{deviceLabel(t, device)}</li>)}</ul></> : null}
+            {addedRequiredEnv.length ? <><p className="font-medium">{t("appDetail.addedRequiredEnv")}</p><ul aria-label={t("appDetail.addedRequiredEnv")}>{addedRequiredEnv.map((entry) => <li key={entry.name}><code>{entry.name}</code></li>)}</ul></> : null}
+          </div> : null}
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <Button onClick={() => { const commit = target?.commit; setTarget(null); if (commit) onUpdate(commit); }}>{t("appDetail.updateButton")}</Button>
+            <Button onClick={() => { const commit = target?.commit; setTarget(null); if (commit) onUpdate(commit); }}>{repairing ? t("apps.repairButton") : t("appDetail.updateButton")}</Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

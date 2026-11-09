@@ -71,6 +71,7 @@ export * from './publicCatalogAppInfoTranslations';
 export * from './publicCatalogResponse';
 export * from './publicInstallRequest';
 export * from './publicUpdateRequest';
+export * from './publicUpdateSourceInfo';
 export * from './releaseInfo';
 export * from './runningAppInfo';
 export * from './runningAppInfoState';

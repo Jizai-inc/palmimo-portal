@@ -7,6 +7,7 @@
 import type { AppJobInfo } from './appJobInfo';
 import type { AppSourceInfo } from './appSourceInfo';
 import type { AppSummaryStatus } from './appSummaryStatus';
+import type { PublicUpdateSourceInfo } from './publicUpdateSourceInfo';
 
 /**
  * One app's ledger entry plus a coarse status.
@@ -26,7 +27,7 @@ export interface AppSummary {
   label?: string | null;
   last_job: AppJobInfo | null;
   latest_commit: string | null;
-  latest_source?: AppSourceInfo | null;
+  latest_source?: PublicUpdateSourceInfo | null;
   missing_env?: string[];
   name: string;
   public_app_available?: boolean | null;

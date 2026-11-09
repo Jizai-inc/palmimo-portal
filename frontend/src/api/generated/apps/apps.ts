@@ -1625,14 +1625,12 @@ export const useStopAppEndpointApiV1AppsNameStopPost = <TError = HTTPValidationE
 }
 
 /**
- * Update a public app to its catalog commit, or another git app to its pinned ref.
+ * Refuse busy devices before fetching; recheck under the job lock before accepting.
  *
- * Raises:
- *     PortalError: 404 ``app_not_found``; 409 ``update_in_progress`` /
- *         409 ``app_job_in_progress`` / 409 ``platform_not_ready`` / 409
- *         ``app_running`` (the app must be stopped first). A failure
- *         after the job starts (bad manifest, disk full, sync failure)
- *         surfaces on the app's ``last_job``, not here.
+ * Public updates require the displayed commit and validate their fetched manifest before
+ * returning 202: unavailable/changed catalog entries return 409, unknown catalogs return 503,
+ * manifest/requirement/clone failures return 422, and disk shortages return 507.
+ * Legacy sources fetch in the job. All dependency-sync/swap failures remain job failures.
  * @summary Update App
  */
 export const updateAppApiV1AppsNameUpdatePost = async (name: string,

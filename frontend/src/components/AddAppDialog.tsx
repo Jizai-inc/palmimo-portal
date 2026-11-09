@@ -1,9 +1,9 @@
+import { refreshAppQueries } from "@/lib/refreshAppQueries";
 import { useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { getListAppsApiV1AppsGetQueryKey } from "@/api/generated/apps/apps";
 import type { AppJobInfo } from "@/api/generated/models";
 import type { AddAppTab } from "@/components/AddAppPanel";
 import { AddAppPanel } from "@/components/AddAppPanel";
@@ -31,7 +31,7 @@ export function AddAppDialog({
   const [installJob, setInstallJob] = useState<{ jobId: string; name: string } | null>(null);
 
   function handleJobDone(job: AppJobInfo) {
-    void queryClient.invalidateQueries({ queryKey: getListAppsApiV1AppsGetQueryKey() });
+    void refreshAppQueries(queryClient);
     setInstallJob(null);
     onInstalled(job.app_id);
   }

@@ -1,3 +1,4 @@
+import { refreshAppQueries } from "@/lib/refreshAppQueries";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Loader2 } from "lucide-react";
@@ -103,7 +104,8 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
   const updateApp = useUpdateAppApiV1AppsNameUpdatePost({
     mutation: { onSuccess: (data) => setJob({ id: data.job.id, kind: "update" }) },
   });
-  const { data: appsData } = useListAppsApiV1AppsGet();
+  const { data: appsResponse, error: appsError } = useListAppsApiV1AppsGet();
+  const appsData = appsError ? undefined : appsResponse;
   const deleteApp = useDeleteAppApiV1AppsNameDelete({
     mutation: {
       onSuccess: (data) => {
@@ -229,8 +231,7 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
             setDeleteOutcome("done");
           } else {
             setJob(null);
-            invalidate();
-            void queryClient.invalidateQueries({ queryKey: getListAppsApiV1AppsGetQueryKey() });
+            void refreshAppQueries(queryClient, id);
             setUpdateCompleted((value) => value + 1);
           }
         }}
@@ -465,7 +466,8 @@ function LogsSection({ id, status }: { id: string; status: string }) {
 function DefaultAppSection({ app, onSaved }: { app: AppDetailResponse; onSaved: () => void }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { data: appsData } = useListAppsApiV1AppsGet();
+  const { data: appsResponse, error: appsError } = useListAppsApiV1AppsGet();
+  const appsData = appsError ? undefined : appsResponse;
   const isDefault = appsData?.default_app === app.id;
   const putDefault = usePutDefaultAppApiV1AppsDefaultPut({
     mutation: {
@@ -505,11 +507,13 @@ function SourceSection({
   appRunning: boolean;
 }) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const [editingRef, setEditingRef] = useState(false);
   const [refKind, setRefKind] = useState<SourceUpdateRequestRefKind>("branch");
   const [ref, setRef] = useState("");
   const putSource = usePutSourceApiV1AppsNameSourcePut();
-  const updateCheck = useUpdateCheckApiV1AppsNameUpdateCheckPost();
+  const refresh = () => { void queryClient.invalidateQueries({ queryKey: getGetAppApiV1AppsNameGetQueryKey(app.id) }); void queryClient.invalidateQueries({ queryKey: getListAppsApiV1AppsGetQueryKey() }); };
+  const updateCheck = useUpdateCheckApiV1AppsNameUpdateCheckPost({ mutation: { onSuccess: refresh } });
   const { reset: resetUpdateCheck } = updateCheck;
 
   useEffect(() => {
@@ -517,11 +521,15 @@ function SourceSection({
   }, [resetUpdateCheck, updateCompleted]);
 
   const isGit = app.source.type === "git";
-  const isOfficialTag = app.source.official && app.source.ref_kind === "tag";
-  const updateAvailable = updateCheck.data?.update_available === true;
+  const isPublic = Boolean(app.source.public_app_id);
+  const unavailable = app.public_app_available === false;
+  const isOfficialTag = !isPublic && app.source.official && app.source.ref_kind === "tag";
+  const updateAvailable = !unavailable && (isPublic ? app.update_available === true : updateCheck.data?.update_available === true || app.update_available === true);
 
   return (
     <Section title={t("appDetail.sourceTitle")}>
+      {isPublic ? <a href={`https://apps.palmimo.dev/apps/${encodeURIComponent(app.source.public_app_id!)}`} target="_blank" rel="noreferrer" className="text-sm underline">{t("appAdd.publicPageLink")}</a> : null}
+      {unavailable ? <p role="status" className="text-sm text-muted-foreground">{t("apps.publicAppUnavailable")}</p> : null}
       <dl className="flex flex-col gap-1 text-sm">
         <KvRow label={t("appDetail.sourceTypeLabel")} value={app.source.type} />
         {app.source.url ? <KvRow label={t("appDetail.sourceRepoLabel")} value={app.source.url} /> : null}
@@ -534,7 +542,7 @@ function SourceSection({
       {isGit ? (
         <div className="flex flex-wrap items-center gap-2">
           {!isOfficialTag ? <Button variant="outline" size="sm" onClick={() => setEditingRef((value) => !value)}>{t("appDetail.sourceEditRefButton")}</Button> : null}
-          {updateAvailable ? (
+          {unavailable ? null : updateAvailable ? (
             <Button size="sm" onClick={onUpdate} disabled={updatePending || appRunning} title={appRunning ? t("appDetail.updateDisabledAppRunning") : undefined}>
               {t("appDetail.updateButton")}
             </Button>
@@ -548,9 +556,9 @@ function SourceSection({
               {t("appDetail.checkForUpdatesButton")}
             </Button>
           )}
-          {updateAvailable ? (
+          {unavailable ? null : updateAvailable ? (
             <p className="text-sm">{appRunning ? t("appDetail.updateDisabledAppRunning") : t("apps.updateAvailableChip")}</p>
-          ) : updateCheck.data ? (
+          ) : !unavailable && updateCheck.data ? (
             <p className="text-sm text-muted-foreground">{t("appDetail.checkForUpdatesUpToDate")}</p>
           ) : null}
         </div>
@@ -578,7 +586,7 @@ function SourceSection({
             <Input id="source-ref" value={ref} onChange={(event) => setRef(event.target.value)} />
           </div>
           <Button
-            onClick={() => putSource.mutate({ name: app.id, data: { ref, ref_kind: refKind } }, { onSuccess: () => setEditingRef(false) })}
+            onClick={() => putSource.mutate({ name: app.id, data: { ref, ref_kind: refKind } }, { onSuccess: () => { setEditingRef(false); refresh(); } })}
             disabled={putSource.isPending || !ref}
           >
             {t("appDetail.sourceSaveButton")}

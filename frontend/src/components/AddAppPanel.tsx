@@ -5,10 +5,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PortalApiError } from "@/api/client";
-import { getListAppsApiV1AppsGetQueryKey, useListAppsApiV1AppsGet } from "@/api/generated/apps/apps";
-import { useGetCatalogApiV1CatalogGet } from "@/api/generated/catalog/catalog";
+import { useInstallPublicApiV1AppsInstallPublicPost, useListAppsApiV1AppsGet } from "@/api/generated/apps/apps";
+import { getGetPublicCatalogApiV1CatalogPublicGetQueryKey, useGetPublicCatalogApiV1CatalogPublicGet } from "@/api/generated/catalog/catalog";
 import { useListSecretsApiV1SecretsGet } from "@/api/generated/secrets/secrets";
-import type { AppJobInfo, CatalogAppInfo, ManifestPreviewResponse } from "@/api/generated/models";
+import type { AppJobInfo, PublicCatalogAppInfo, ManifestPreviewResponse } from "@/api/generated/models";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { AppJobDialog } from "@/components/AppJobDialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -28,7 +28,8 @@ import type { GitInstallSource, InstallSource } from "@/lib/appInstall";
 import { installApp, previewApp } from "@/lib/appInstall";
 import { isValidAppNamePart } from "@/lib/appNamePart";
 import { appText } from "@/lib/appText";
-import { parseCatalogSource } from "@/lib/catalogSource";
+import { formatLocalTimestamp } from "@/lib/formatTimestamp";
+import { refreshAppQueries } from "@/lib/refreshAppQueries";
 import { deviceLabel } from "@/lib/deviceLabel";
 import { isHttpUrl } from "@/lib/isHttpUrl";
 import { TEMPLATE_REPO_URL } from "@/lib/navigation";
@@ -73,11 +74,11 @@ export function AddAppPanel({
   const [tab, setTab] = useState<AddAppTab>(initialTab && tabs.includes(initialTab) ? initialTab : tabs[0]);
   const [confirming, setConfirming] = useState(false);
   const [installJob, setInstallJob] = useState<{ jobId: string; name: string } | null>(null);
-  const { data: appsData } = useListAppsApiV1AppsGet();
-  const appRunning = (appsData?.apps ?? []).some((app) => ["running", "starting", "stopping"].includes(app.status));
+  const { data: appsData, error: appsError } = useListAppsApiV1AppsGet();
+  const appRunning = (appsError ? [] : appsData?.apps ?? []).some((app) => ["running", "starting", "stopping"].includes(app.status));
 
   function handleJobDone(job: AppJobInfo) {
-    void queryClient.invalidateQueries({ queryKey: getListAppsApiV1AppsGetQueryKey() });
+    void refreshAppQueries(queryClient);
     setInstallJob(null);
     onInstalled(job.app_id);
   }
@@ -87,6 +88,7 @@ export function AddAppPanel({
 
   return (
     <div className="flex flex-col gap-4">
+      <ApiErrorAlert error={appsError} />
       {tabs.length > 1 && !confirming ? (
         <div className="flex gap-6 border-b border-border">
           {tabs.map((option) => (
@@ -174,7 +176,7 @@ function catalogStaleReasonText(t: TFunction, reason: string | null): string {
 }
 
 /**
- * Fetches an install preview and confirms the install, shared by all three add-app tabs. The
+ * Fetches an install preview and confirms the install, shared by the GitHub and zip tabs. The
  * confirmation opens in its own dialog, or with `inlineConfirm` replaces `children` (the
  * source form) in place, so a host dialog never stacks a second one.
  *
@@ -314,83 +316,111 @@ function InstallFlow({
   );
 }
 
+function catalogAppTitle(app: PublicCatalogAppInfo): string {
+  return app.public.official ? app.name : `${app.public.namespace}/${app.name}`;
+}
+
 function CatalogTab({ onInstalled, appRunning }: FlowProps) {
   const { t } = useTranslation();
-  const { data, isLoading } = useGetCatalogApiV1CatalogGet();
+  const queryClient = useQueryClient();
+  const { data, error, isLoading } = useGetPublicCatalogApiV1CatalogPublicGet();
+  const [kind, setKind] = useState("official");
+  const [selected, setSelected] = useState<PublicCatalogAppInfo | null>(null);
+  const [installError, setInstallError] = useState<unknown>(null);
+  const install = useInstallPublicApiV1AppsInstallPublicPost({ mutation: {
+    onSuccess: (response) => {
+      const title = selected ? catalogAppTitle(selected) : "";
+      setSelected(null);
+      onInstalled(response.job.id, title);
+    },
+    onError: (failure) => {
+      setSelected(null);
+      setInstallError(failure);
+      if (failure instanceof PortalApiError && failure.code === "public_app_changed") {
+        void queryClient.invalidateQueries({ queryKey: getGetPublicCatalogApiV1CatalogPublicGetQueryKey() });
+      }
+    },
+  } });
+  useEffect(() => { if (error) setSelected(null); }, [error]);
+  const catalog = error ? undefined : data;
+  const apps = (catalog?.apps ?? []).filter((app) => app.public.official === (kind === "official"));
 
   return (
     <div className="flex flex-col gap-3">
-      {data?.stale ? (
+      <div className="flex flex-col gap-1">
+        <Label htmlFor="catalog-kind">{t("appAdd.catalogFilterLabel")}</Label>
+        <select id="catalog-kind" value={kind} onChange={(event) => setKind(event.target.value)} className="h-9 w-fit rounded-md border border-input bg-background px-3 text-sm">
+          <option value="official">{t("appAdd.catalogOfficialBadge")}</option>
+          <option value="public">{t("appAdd.catalogPublicOption")}</option>
+        </select>
+      </div>
+      <ApiErrorAlert error={error} />
+      <ApiErrorAlert error={installError} />
+      {catalog?.stale ? (
         <Alert>
-          <AlertDescription>{catalogStaleReasonText(t, data.reason)}</AlertDescription>
+          <AlertDescription className="flex flex-col gap-1">
+            <span>{catalogStaleReasonText(t, catalog.reason)}</span>
+            {catalog.fetched_at !== null ? (
+              <span>{t("appAdd.catalogLastFetched")} <time dateTime={new Date(catalog.fetched_at * 1000).toISOString()}>{formatLocalTimestamp(catalog.fetched_at)}</time></span>
+            ) : <span>{t("appAdd.catalogNeverFetched")}</span>}
+          </AlertDescription>
         </Alert>
       ) : null}
-      {isLoading ? (
+      {error ? null : isLoading ? (
         <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
-      ) : (data?.apps ?? []).length === 0 ? (
+      ) : apps.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t("appAdd.catalogEmptyState")}</p>
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          {(data?.apps ?? []).map((catalogApp) => (
-            <CatalogCard key={catalogApp.name} app={catalogApp} onInstalled={onInstalled} appRunning={appRunning} />
+          {apps.map((app) => (
+            <div key={app.public.app_id} className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="font-semibold">{catalogAppTitle(app)}</h3>
+                {app.public.official ? <Badge>{t("appAdd.catalogOfficialBadge")}</Badge> : null}
+                {app.source.ref ? <Badge variant="outline">{app.source.ref}</Badge> : null}
+              </div>
+              <CatalogAppDetails app={app} />
+              <Button className="mt-auto w-fit" disabled={appRunning || !app.source.commit} onClick={() => { setInstallError(null); setSelected(app); }}>
+                <Download className="size-4" aria-hidden />{t("appAdd.installButton")}
+              </Button>
+              {appRunning ? <p className="text-sm text-muted-foreground">{t("appAdd.installDisabledAppRunning")}</p> : null}
+            </div>
           ))}
         </div>
       )}
+      <AlertDialog open={selected !== null && !error} onOpenChange={(open) => { if (!open && !install.isPending) setSelected(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader><AlertDialogTitle>{selected ? catalogAppTitle(selected) : t("appAdd.confirmInstallTitle")}</AlertDialogTitle></AlertDialogHeader>
+          {selected ? <>
+            <CatalogAppDetails app={selected} />
+            {!selected.public.official ? <Alert><AlertDescription className="flex flex-col gap-2">
+              <p>{t("appAdd.publicWarning", { namespace: selected.public.namespace })}</p>
+              {isHttpUrl(selected.source.url) ? <a href={selected.source.url} target="_blank" rel="noreferrer" className="underline [overflow-wrap:anywhere]">{t("appAdd.publicSourceLink")}</a> : null}
+            </AlertDescription></Alert> : null}
+          </> : null}
+          <AlertDialogFooter>
+            <Button variant="outline" disabled={install.isPending} onClick={() => setSelected(null)}>{t("common.cancel")}</Button>
+            <Button disabled={install.isPending || appRunning || !selected?.source.commit} onClick={() => {
+              if (selected?.source.commit) install.mutate({ data: { public_app_id: selected.public.app_id, commit: selected.source.commit } });
+            }}>{t("appAdd.installButton")}</Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
 
-function CatalogCard({
-  app,
-  onInstalled,
-  appRunning,
-}: {
-  app: CatalogAppInfo;
-  onInstalled: (jobId: string, displayName: string) => void;
-  appRunning: boolean;
-}) {
+function CatalogAppDetails({ app }: { app: PublicCatalogAppInfo }) {
   const { t, i18n } = useTranslation();
-  const env = app.env.map((entry) => ({
-    name: entry.name,
-    required: entry.required,
-    description: appText(app.translations, i18n.language, `env.${entry.name}`, entry.description),
-    helpUrl: entry.help_url,
-  }));
-  const source = parseCatalogSource(app.source);
-
-  return (
-    <div className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <p className="font-semibold">{app.name}</p>
-        <Badge>{t("appAdd.catalogOfficialBadge")}</Badge>
-        {source ? <Badge variant="outline">{source.ref}</Badge> : null}
-      </div>
-      <p className="text-sm text-muted-foreground">
-        {appText(app.translations, i18n.language, "description", app.description)}
-      </p>
-      <EnvRequirementList entries={env} />
-      {app.devices.length > 0 ? (
-        <div className="flex flex-wrap gap-1">
-          {app.devices.map((device) => (
-            <Badge key={device} variant="outline">
-              {deviceLabel(t, device)}
-            </Badge>
-          ))}
-        </div>
-      ) : null}
-      {source ? (
-        <div className="mt-auto pt-2">
-          <InstallFlow
-            getSource={() => source}
-            sourceKey={`${source.url}\u0000${source.ref_kind}\u0000${source.ref}\u0000${source.subdir ?? ""}\u0000${source.manifest ?? ""}`}
-            canPreview
-            appRunning={appRunning}
-            onInstalled={onInstalled}
-          />
-        </div>
-      ) : null}
-    </div>
-  );
+  return <>
+    <p className="text-sm text-muted-foreground">{appText(app.translations, i18n.language, "description", app.description)}</p>
+    <EnvRequirementList entries={app.env.map((entry) => ({
+      name: entry.name, required: entry.required,
+      description: appText(app.translations, i18n.language, `env.${entry.name}`, entry.description), helpUrl: entry.help_url,
+    }))} />
+    {app.devices.length ? <div className="flex flex-wrap gap-1">{app.devices.map((device) => <Badge key={device} variant="outline">{deviceLabel(t, device)}</Badge>)}</div> : null}
+    <a href={`https://apps.palmimo.dev/apps/${encodeURIComponent(app.public.app_id)}`} target="_blank" rel="noreferrer" className="text-sm underline">{t("appAdd.publicPageLink")}</a>
+  </>;
 }
 
 function GithubTab({ onInstalled, appRunning, inlineConfirm, onConfirmingChange }: FlowProps) {

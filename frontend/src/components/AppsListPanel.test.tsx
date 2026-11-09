@@ -1,3 +1,4 @@
+import i18n from "@/i18n";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
@@ -281,4 +282,24 @@ describe("AppsListPanel", () => {
       expect(screen.getByText("Stopped")).toBeInTheDocument();
     });
   });
+});
+
+it("shows public unavailability instead of an update badge", async () => {
+  server.use(
+    getListAppsApiV1AppsGetMockHandler({ apps: [app({ public_app_available: false, update_available: true })], default_app: null, autostart_conflict: [] }),
+    getGetPlatformApiV1PlatformGetMockHandler(READY_PLATFORM),
+  );
+  renderWithRouter(<AppsListPanel />);
+  expect(await screen.findByText(i18n.t("apps.publicAppUnavailable"))).toBeInTheDocument();
+  expect(screen.queryByText(i18n.t("apps.updateAvailableChip"))).not.toBeInTheDocument();
+});
+
+it("hides previously fetched installed apps after a failed refresh", async () => {
+  server.use(getListAppsApiV1AppsGetMockHandler({ apps: [app({})] }), getGetPlatformApiV1PlatformGetMockHandler(READY_PLATFORM));
+  const { queryClient } = renderWithRouter(<AppsListPanel />);
+  await screen.findByRole("button", { name: i18n.t("apps.startButton") });
+  server.use(http.get("*/api/v1/apps", () => HttpResponse.json({ error: { code: "public_catalog_unavailable", params: {} } }, { status: 503 })));
+  await act(() => queryClient.refetchQueries());
+  expect(await screen.findByRole("alert")).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: i18n.t("apps.startButton") })).not.toBeInTheDocument();
 });

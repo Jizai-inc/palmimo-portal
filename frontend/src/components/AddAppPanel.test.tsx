@@ -2,23 +2,25 @@ import i18n from "@/i18n";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { getGetCatalogApiV1CatalogGetMockHandler } from "@/api/generated/catalog/catalog.msw";
+import { getGetPublicCatalogApiV1CatalogPublicGetMockHandler } from "@/api/generated/catalog/catalog.msw";
 import { getListAppsApiV1AppsGetMockHandler } from "@/api/generated/apps/apps.msw";
 import { getListSecretsApiV1SecretsGetMockHandler } from "@/api/generated/secrets/secrets.msw";
-import type { CatalogResponse } from "@/api/generated/models";
+import type { PublicCatalogResponse } from "@/api/generated/models";
 import { AddAppPanel } from "@/components/AddAppPanel";
 import { renderWithProviders } from "@/test/render";
 import { server } from "@/test/server";
 
-const CATALOG: CatalogResponse = {
-  tag: "v1.0.0",
+const CATALOG: PublicCatalogResponse = {
+  generated_at: "2026-11-09T00:00:00Z",
   fetched_at: 1_700_000_000,
   stale: false,
   reason: null,
   apps: [
     {
+      public: { app_id: "019a3f2c-0000-7000-8000-000000000001", namespace: "palmimo", official: true },
+      translations: {},
       name: "palmimo-teleop",
       description: "Drive the robot from a browser.",
       devices: ["camera"],
@@ -34,7 +36,7 @@ const CATALOG: CatalogResponse = {
         manifest: "palmimo.realtime.toml",
         ref_kind: "tag",
         ref: "v1.0.0",
-        commit: null,
+        commit: "a".repeat(40),
       },
     },
   ],
@@ -52,10 +54,12 @@ function installDialog() {
   return within(screen.getByRole("alertdialog"));
 }
 
+beforeEach(() => server.use(getListAppsApiV1AppsGetMockHandler({ apps: [], default_app: null, autostart_conflict: [] })));
+
 describe("AddAppPanel", () => {
   it("disables install while an app is running", async () => {
     server.use(
-      getGetCatalogApiV1CatalogGetMockHandler(CATALOG),
+      getGetPublicCatalogApiV1CatalogPublicGetMockHandler(CATALOG),
       getListAppsApiV1AppsGetMockHandler({
         apps: [{ id: "palmimo.teleop", name: "teleop", status: "running", autostart: false, broken_reason: null, credential_rejected: false, installed_at: 1, last_job: null, latest_commit: null, update_available: false, source: { type: "git", official: false, url: "https://github.com/x/y", subdir: null, manifest: null, ref_kind: "tag", ref: "v1", commit: "abc" } }],
       }),
@@ -67,7 +71,7 @@ describe("AddAppPanel", () => {
   });
 
   it("hides the tab bar when only one source is offered", async () => {
-    server.use(getGetCatalogApiV1CatalogGetMockHandler(CATALOG));
+    server.use(getGetPublicCatalogApiV1CatalogPublicGetMockHandler(CATALOG));
     renderWithProviders(<AddAppPanel tabs={["catalog"]} />);
 
     await screen.findByText("palmimo-teleop");
@@ -76,7 +80,7 @@ describe("AddAppPanel", () => {
   });
 
   it("shows a catalog card's required and optional env badges", async () => {
-    server.use(getGetCatalogApiV1CatalogGetMockHandler(CATALOG));
+    server.use(getGetPublicCatalogApiV1CatalogPublicGetMockHandler(CATALOG));
     renderWithProviders(<AddAppPanel />);
 
     await screen.findByText("palmimo-teleop");
@@ -87,79 +91,42 @@ describe("AddAppPanel", () => {
   });
 
   it("shows a human-readable label for a catalog app's declared device instead of its raw id", async () => {
-    server.use(getGetCatalogApiV1CatalogGetMockHandler(CATALOG));
+    server.use(getGetPublicCatalogApiV1CatalogPublicGetMockHandler(CATALOG));
     renderWithProviders(<AddAppPanel />);
 
     expect(await screen.findByText("Camera")).toBeInTheDocument();
     expect(screen.queryByText("camera")).not.toBeInTheDocument();
   });
 
-  it("confirms then installs a catalog app, sending the default ID name and reporting completion with the installed app's id", async () => {
+  it("confirms then installs the catalog UUID and displayed commit and reports the local ID", async () => {
     const user = userEvent.setup();
     const onInstalled = vi.fn();
     let installedBody: unknown;
-    let jobPolls = 0;
     server.use(
-      getGetCatalogApiV1CatalogGetMockHandler(CATALOG),
-      getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
-      http.post("*/api/v1/apps/preview", () =>
-        HttpResponse.json({ name: "palmimo-teleop", namespace: "palmimo", suggested_name: "teleop", suggested_id: "palmimo.teleop", description: "Drive the robot from a browser.", devices: ["camera"], env: [] }),
-      ),
-      http.post("*/api/v1/apps/install", async ({ request }) => {
+      getGetPublicCatalogApiV1CatalogPublicGetMockHandler(CATALOG),
+      http.post("*/api/v1/apps/install-public", async ({ request }) => {
         installedBody = await request.json();
         return HttpResponse.json(JOB_RESPONSE, { status: 202 });
       }),
-      http.get("*/api/v1/apps/jobs/job-1", () => {
-        jobPolls += 1;
-        return HttpResponse.json({ id: "job-1", app_id: "palmimo.teleop", kind: "install", state: jobPolls === 1 ? "running" : "done", step: "register", error: null, started_at: 1, finished_at: jobPolls === 1 ? null : 2, dropped_bindings: [], dropped_params: [], lock_generated: false });
-      }),
+      http.get("*/api/v1/apps/jobs/job-1", () => HttpResponse.json({ ...JOB_RESPONSE.job, state: "done", finished_at: 2 })),
     );
     renderWithProviders(<AddAppPanel onInstalled={onInstalled} />);
-
-    await screen.findByText("palmimo-teleop");
+    await screen.findByRole("heading", { name: CATALOG.apps[0].name });
     await openInstallDialog(user);
-    expect(await installDialog().findByLabelText("ID")).toHaveValue("teleop");
-    await user.click(installDialog().getByRole("button", { name: "Install" }));
-
-    expect(await screen.findByRole("heading", { name: /palmimo-teleop/ })).toBeInTheDocument();
-
-    await waitFor(() =>
-      expect(installedBody).toEqual({
-        source: {
-          type: "git",
-          url: "https://github.com/Jizai-inc/palmimo-devkit",
-          ref: "v1.0.0",
-          ref_kind: "tag",
-          subdir: "examples/teleop",
-          manifest: "palmimo.realtime.toml",
-        },
-        name: "teleop",
-      }),
-    );
+    await user.click(installDialog().getByRole("button", { name: i18n.t("appAdd.installButton") }));
+    await waitFor(() => expect(installedBody).toEqual({ public_app_id: CATALOG.apps[0].public.app_id, commit: CATALOG.apps[0].source.commit }));
     await waitFor(() => expect(onInstalled).toHaveBeenCalledWith("palmimo.teleop"));
   });
 
-  it("does not install when the confirmation dialog is cancelled", async () => {
+  it("does not install when the public catalog confirmation is cancelled", async () => {
     const user = userEvent.setup();
-    let installRequests = 0;
-    server.use(
-      getGetCatalogApiV1CatalogGetMockHandler(CATALOG),
-      http.post("*/api/v1/apps/preview", () =>
-        HttpResponse.json({ name: "palmimo-teleop", namespace: "palmimo", suggested_name: "teleop", suggested_id: "palmimo.teleop", description: "d", devices: [], env: [] }),
-      ),
-      http.post("*/api/v1/apps/install", () => {
-        installRequests += 1;
-        return HttpResponse.json(JOB_RESPONSE, { status: 202 });
-      }),
-    );
+    const install = vi.fn();
+    server.use(getGetPublicCatalogApiV1CatalogPublicGetMockHandler(CATALOG), http.post("*/api/v1/apps/install-public", () => { install(); return HttpResponse.json(JOB_RESPONSE, { status: 202 }); }));
     renderWithProviders(<AddAppPanel />);
-
-    await screen.findByText("palmimo-teleop");
+    await screen.findByRole("heading", { name: CATALOG.apps[0].name });
     await openInstallDialog(user);
-    await installDialog().findByLabelText("ID");
-    await user.click(installDialog().getByRole("button", { name: "Cancel" }));
-
-    expect(installRequests).toBe(0);
+    await user.click(installDialog().getByRole("button", { name: i18n.t("common.cancel") }));
+    expect(install).not.toHaveBeenCalled();
   });
 
   it("shows the namespace as read-only and sends an edited device name part on install", async () => {
@@ -320,7 +287,7 @@ describe("AddAppPanel", () => {
 
   it("only renders an env help_url as a link when its scheme is http(s)", async () => {
     server.use(
-      getGetCatalogApiV1CatalogGetMockHandler({
+      getGetPublicCatalogApiV1CatalogPublicGetMockHandler({
         ...CATALOG,
         apps: [
           {
@@ -341,7 +308,7 @@ describe("AddAppPanel", () => {
   });
 
   it("shows the offline-specific stale-catalog message distinct from the generic one", async () => {
-    server.use(getGetCatalogApiV1CatalogGetMockHandler({ ...CATALOG, stale: true, reason: "offline" }));
+    server.use(getGetPublicCatalogApiV1CatalogPublicGetMockHandler({ ...CATALOG, stale: true, reason: "offline" }));
     renderWithProviders(<AddAppPanel />);
 
     expect(await screen.findByText(/this device appears to be offline/)).toBeInTheDocument();
@@ -406,11 +373,11 @@ describe("AddAppPanel", () => {
 });
 
 
-it("localizes catalog and preview text and keeps untranslated fields readable", async () => {
+it("localizes catalog cards and confirmation while retaining untranslated fields", async () => {
   const user = userEvent.setup();
   const translations = { ja: { description: "Localized summary", "env.WIFI_PASSWORD": "Localized key" } };
   server.use(
-    getGetCatalogApiV1CatalogGetMockHandler({ ...CATALOG, apps: CATALOG.apps.map((app) => ({ ...app, translations })) }),
+    getGetPublicCatalogApiV1CatalogPublicGetMockHandler({ ...CATALOG, apps: CATALOG.apps.map((app) => ({ ...app, translations })) }),
     http.post("*/api/v1/apps/preview", () => HttpResponse.json({
       name: "palmimo-teleop", namespace: "palmimo", suggested_name: "teleop", suggested_id: "palmimo.teleop",
       description: CATALOG.apps[0].description, devices: [], env: CATALOG.apps[0].env, translations,

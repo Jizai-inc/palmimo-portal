@@ -638,3 +638,49 @@ it("switches app descriptions without losing unsaved parameter values", async ()
     await act(() => i18n.changeLanguage("en"));
   }
 });
+
+it.each([true, false])("uses API update state for a public app with availability %s and links its page", async (available) => {
+  const publicId = "019a3f2c-0000-7000-8000-000000000001";
+  const record = detail({ update_available: true, public_app_available: available, source: { ...detail().source, public_app_id: publicId } });
+  server.use(getGetAppApiV1AppsNameGetMockHandler(record), getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }), getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }));
+  renderWithRouter(<AppDetailPanel id={record.id} />);
+  expect(await screen.findByRole("link", { name: i18n.t("appAdd.publicPageLink") })).toHaveAttribute("href", `https://apps.palmimo.dev/apps/${publicId}`);
+  if (available) expect(screen.getByRole("button", { name: i18n.t("appDetail.updateButton") })).toBeInTheDocument();
+  else {
+    expect(screen.getByText(i18n.t("apps.publicAppUnavailable"))).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: i18n.t("appDetail.updateButton") })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: i18n.t("appDetail.checkForUpdatesButton") })).not.toBeInTheDocument();
+  }
+});
+
+it("refreshes installed apps and public catalog after updating", async () => {
+  let updated = false;
+  let listGets = 0;
+  let catalogGets = 0;
+  const record = detail({ update_available: true, public_app_available: true, source: { ...detail().source, public_app_id: "019a3f2c-0000-7000-8000-000000000001" } });
+  const done = { id: "update-public", app_id: record.id, kind: "update", state: "done", step: "register", error: null, started_at: 1, finished_at: 2, lock_generated: false, dropped_bindings: [], dropped_params: [] };
+  server.use(
+    http.get("*/api/v1/apps/palmimo.teleop", () => HttpResponse.json({ ...record, update_available: !updated })),
+    http.get("*/api/v1/apps", () => { listGets++; return HttpResponse.json({ apps: [summary({ update_available: !updated })], default_app: null, autostart_conflict: [] }); }),
+    http.get("*/api/v1/catalog/public", () => { catalogGets++; return HttpResponse.json({ generated_at: "2026-11-09T00:00:00Z", apps: [], fetched_at: 1, stale: false, reason: null }); }),
+    getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }), getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }),
+    http.post("*/api/v1/apps/palmimo.teleop/update", () => { updated = true; return HttpResponse.json({ job: done }, { status: 202 }); }),
+    http.get("*/api/v1/apps/jobs/update-public", () => HttpResponse.json(done)),
+  );
+  const user = userEvent.setup();
+  const { queryClient } = renderWithRouter(<AppDetailPanel id={record.id} />);
+  await queryClient.fetchQuery({ queryKey: ["/api/v1/catalog/public"], queryFn: () => fetch("/api/v1/catalog/public").then((response) => response.json()) });
+  await user.click(await screen.findByRole("button", { name: i18n.t("appDetail.updateButton") }));
+  await waitFor(() => { expect(listGets).toBeGreaterThan(1); expect(catalogGets).toBeGreaterThan(1); });
+  await waitFor(() => expect(screen.queryByRole("button", { name: i18n.t("appDetail.updateButton") })).not.toBeInTheDocument());
+});
+
+it("hides previous app detail after a failed refetch", async () => {
+  server.use(getGetAppApiV1AppsNameGetMockHandler(detail()), getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }), getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }));
+  const { queryClient } = renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
+  await screen.findByText(detail().description);
+  server.use(http.get("*/api/v1/apps/palmimo.teleop", () => HttpResponse.json({ error: { code: "public_catalog_unavailable", params: {} } }, { status: 503 })));
+  await act(() => queryClient.refetchQueries());
+  expect(await screen.findByRole("alert")).toBeInTheDocument();
+  expect(screen.queryByText(detail().description)).not.toBeInTheDocument();
+});

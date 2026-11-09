@@ -1,3 +1,4 @@
+import { refreshAppQueries } from "@/lib/refreshAppQueries";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Info, Loader2, Package } from "lucide-react";
@@ -176,7 +177,7 @@ export function AppsListPanel() {
         jobId={repairJob?.jobId ?? null}
         title={t("apps.jobDialogTitle", { name: repairJob?.name ?? "" })}
         onClose={() => setRepairJob(null)}
-        onDone={invalidateList}
+        onDone={() => { void refreshAppQueries(queryClient); }}
       />
       <AlertDialog
         open={resetDialogOpen}
@@ -269,7 +270,8 @@ function AppRow({
               <Badge variant="destructive">{t("apps.missingKeysBadge")}</Badge>
             </Link>
           ) : null}
-          {app.update_available ? <Badge variant="outline">{t("apps.updateAvailableChip")}</Badge> : null}
+          {app.public_app_available === false ? <Badge variant="outline">{t("apps.publicAppUnavailable")}</Badge> : null}
+          {app.public_app_available !== false && app.update_available ? <Badge variant="outline">{t("apps.updateAvailableChip")}</Badge> : null}
           {app.credential_rejected ? <Badge variant="destructive">{t("apps.credentialRejectedBadge")}</Badge> : null}
         </div>
         {app.label ? <AppIdLabel id={app.id} className="truncate font-mono text-xs" /> : null}
@@ -296,7 +298,7 @@ function AppRow({
             {t("apps.startButton")}
           </Button>
         ) : needsRepair ? (
-          app.source.type === "git" ? (
+          app.source.type === "git" && app.public_app_available !== false ? (
             <Button variant="outline" onClick={onRepair} disabled={disabledForPlatform}>
               {t("apps.repairButton")}
             </Button>

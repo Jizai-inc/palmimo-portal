@@ -203,7 +203,7 @@ describe("apps child routes through the real route tree", () => {
     expect(await screen.findByText(/No apps installed yet\./)).toBeInTheDocument();
   });
 
-  it("switches to Discover and shows the official catalog", async () => {
+  it("switches to Discover and shows official entries from the public catalog", async () => {
     stubAppsPage();
     const router = renderAt("/apps");
     const user = userEvent.setup();

@@ -378,11 +378,6 @@ it("localizes catalog cards and confirmation while retaining untranslated fields
   const translations = { ja: { description: "Localized summary", "env.WIFI_PASSWORD": "Localized key" } };
   server.use(
     getGetPublicCatalogApiV1CatalogPublicGetMockHandler({ ...CATALOG, apps: CATALOG.apps.map((app) => ({ ...app, translations })) }),
-    http.post("*/api/v1/apps/preview", () => HttpResponse.json({
-      name: "palmimo-teleop", namespace: "palmimo", suggested_name: "teleop", suggested_id: "palmimo.teleop",
-      description: CATALOG.apps[0].description, devices: [], env: CATALOG.apps[0].env, translations,
-    })),
-    getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
   );
   renderWithProviders(<AddAppPanel />);
   await screen.findByText("Drive the robot from a browser.");

@@ -79,7 +79,7 @@ def suggest_app_name(namespace: str, requested_name: str, state: AppsState) -> s
     raise RuntimeError("no app id available")
 
 
-def public_app_id(app: PublicCatalogApp, state: AppsState) -> str:
+def app_id_from_public_catalog(app: PublicCatalogApp, state: AppsState) -> str:
     namespace = app.public.namespace
     return f"{namespace}.{suggest_app_name(namespace, app.name, state)}"
 

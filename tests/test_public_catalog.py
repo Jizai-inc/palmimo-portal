@@ -11,7 +11,7 @@ import pytest
 from palmimo_portal.adapters.git_port import SubprocessGitPort
 from palmimo_portal.adapters.public_catalog import MAX_CATALOG_BYTES, HttpPublicCatalogSource, parse_public_catalog
 from palmimo_portal.adapters.state import JsonFileStateStore
-from palmimo_portal.core.apps import app_namespace, public_app_id
+from palmimo_portal.core.apps import app_id_from_public_catalog, app_namespace
 from palmimo_portal.core.manifest import manifest_snapshot, parse_manifest
 from palmimo_portal.core.public_catalog import PublicCatalogCache
 from palmimo_portal.ports import AppRecord, AppSource, AppsState
@@ -173,10 +173,10 @@ def test_clone_commit_shallow_fetches_commit_without_named_ref(tmp_path: Path) -
 
 
 @pytest.mark.parametrize("occupied, expected", [(None, "palmimo.teleop"), ("palmimo.teleop", "palmimo.teleop-2")])
-def test_public_app_id_uses_catalog_namespace_and_existing_collision_rule(occupied: str | None, expected: str) -> None:
+def test_catalog_app_id_uses_public_namespace_and_existing_collision_rule(occupied: str | None, expected: str) -> None:
     app = parse_public_catalog(catalog_bytes()).apps[1]
     state = AppsState(current_job_app=occupied)
-    assert public_app_id(app, state) == expected
+    assert app_id_from_public_catalog(app, state) == expected
 
 
 def test_cloud_namespace_is_reserved_for_github_sources() -> None:

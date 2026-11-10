@@ -134,7 +134,7 @@ def run_git_check_sweep(ctx: AppsJobContext, state_store: StateStore) -> None:
     rejected_host_owners: set[str] = set()
     for name, record in state.apps.items():
         if (
-            is_public_source(record.source)
+            is_public_source(record)
             or record.source.type != "git"
             or record.source.ref_kind != "branch"
             or record.credential_rejected
@@ -162,12 +162,7 @@ def run_git_check_sweep(ctx: AppsJobContext, state_store: StateStore) -> None:
             updates[name] = replace(record, update_available=available, latest_commit=remote_commit)
 
     for name, record in state.apps.items():
-        if (
-            is_public_source(record.source)
-            or name in updates
-            or record.credential_rejected
-            or record.source.url is None
-        ):
+        if is_public_source(record) or name in updates or record.credential_rejected or record.source.url is None:
             continue
         if host_owner_from_url(record.source.url) in rejected_host_owners:
             updates[name] = replace(record, credential_rejected=True)

@@ -622,8 +622,8 @@ def _source_info(
     public_cache: PublicCatalogCache | None = None,
     catalog_url: str | None = None,
 ) -> AppSourceInfo:
-    legacy = legacy_official(record.source)
-    source = effective_public_source(public_cache, record.source)
+    legacy = legacy_official(record)
+    source = effective_public_source(public_cache, record)
     return AppSourceInfo(
         type=record.source.type,
         url=record.source.url,
@@ -632,9 +632,7 @@ def _source_info(
         subdir=record.source.subdir,
         commit=record.source.commit,
         manifest=record.source.manifest,
-        official=(
-            public_app_status(public_cache, record.source).official if is_public_source(record.source) else False
-        ),
+        official=(public_app_status(public_cache, record).official if is_public_source(record) else False),
         legacy_official=("retired" if legacy.name is None else "migrating") if legacy else None,
         public_app_id=source.public_app_id or ("" if record.source.public_app_id == "" else None),
         public_page_url=public_page_url(catalog_url, source.public_app_id) if source.public_app_id else None,
@@ -692,9 +690,9 @@ def _snapshot_manifest(record: AppRecord) -> Manifest | None:
 
 
 def _update_status(record: AppRecord, ctx: AppsJobContext) -> dict[str, Any]:
-    if is_public_source(record.source):
-        source = effective_public_source(ctx.public_catalog_cache, record.source)
-        status = public_app_status(ctx.public_catalog_cache, record.source)
+    if is_public_source(record):
+        source = effective_public_source(ctx.public_catalog_cache, record)
+        status = public_app_status(ctx.public_catalog_cache, record)
         candidate = find_public_app(ctx.public_catalog_cache, source.public_app_id or "")
         return {
             "update_available": status.update_available,
@@ -1307,7 +1305,7 @@ def update_app(
         _raise_for_start_error(error)
     record = state_store.read_apps_state().apps.get(name)
     prepared = None
-    if record is not None and is_public_source(record.source):
+    if record is not None and is_public_source(record):
         snapshot = (
             ctx.public_catalog_cache.get(ntp_synchronized=request.app.state.adapters.clock.ntp_synchronized())
             if ctx.public_catalog_cache
@@ -1315,7 +1313,7 @@ def update_app(
         )
         if snapshot is None or snapshot.generated_at is None:
             raise PortalError(503, "public_catalog_unavailable", reason=snapshot.reason if snapshot else None)
-        source = effective_public_source(ctx.public_catalog_cache, record.source)
+        source = effective_public_source(ctx.public_catalog_cache, record)
         candidate = find_public_app(ctx.public_catalog_cache, source.public_app_id or "")
         if candidate is None:
             raise PortalError(409, "public_app_unavailable")
@@ -1381,28 +1379,26 @@ def update_check(
     record = state.apps.get(name)
     if record is None:
         raise PortalError(404, "app_not_found")
-    if is_public_source(record.source) and ctx.public_catalog_cache is not None:
+    if is_public_source(record) and ctx.public_catalog_cache is not None:
         ctx.public_catalog_cache.get(ntp_synchronized=request.app.state.adapters.clock.ntp_synchronized())
     try:
         available, remote_commit = apps_jobs.check_git_update(ctx, record)
     except GitCommandError as error:
         _raise_for_git_error(error, 502)
-    if not is_public_source(record.source) and record.source.ref_kind == "branch" and record.source.url is not None:
+    if not is_public_source(record) and record.source.ref_kind == "branch" and record.source.url is not None:
         host_owner = host_owner_from_url(record.source.url)
         if host_owner is not None:
             state_store.update_apps_state(lambda state: clear_credential_rejected(state, host_owner))
     return UpdateCheckResponse(
         update_available=(
-            public_app_status(ctx.public_catalog_cache, record.source).update_available
-            if is_public_source(record.source)
+            public_app_status(ctx.public_catalog_cache, record).update_available
+            if is_public_source(record)
             else available
         ),
         remote_commit=remote_commit,
-        latest_source=_update_status(record, ctx).get("latest_source") if is_public_source(record.source) else None,
+        latest_source=_update_status(record, ctx).get("latest_source") if is_public_source(record) else None,
         public_app_available=(
-            public_app_status(ctx.public_catalog_cache, record.source).available
-            if is_public_source(record.source)
-            else None
+            public_app_status(ctx.public_catalog_cache, record).available if is_public_source(record) else None
         ),
     )
 
@@ -1594,7 +1590,7 @@ def put_source(
     if record is None:
         raise PortalError(404, "app_not_found")
     _ensure_no_app_job_in_progress(state, name)
-    if legacy_official(record.source) is not None:
+    if legacy_official(record) is not None:
         raise PortalError(409, "official_tag_ref_managed")
     if record.source.public_app_id:
         snapshot = (
@@ -1604,7 +1600,7 @@ def put_source(
         )
         if snapshot is None or snapshot.generated_at is None:
             raise PortalError(503, "public_catalog_unavailable", reason=snapshot.reason if snapshot else None)
-    if record.source.public_app_id and public_app_status(ctx.public_catalog_cache, record.source).official:
+    if record.source.public_app_id and public_app_status(ctx.public_catalog_cache, record).official:
         raise PortalError(409, "official_tag_ref_managed")
     if record.source.type != "git":
         raise PortalError(409, "source_update_git_only")
@@ -1614,9 +1610,9 @@ def put_source(
         if latest is None:
             raise PortalError(404, "app_not_found")
         _ensure_no_app_job_in_progress(current, name)
-        if legacy_official(latest.source) is not None:
+        if legacy_official(latest) is not None:
             raise PortalError(409, "official_tag_ref_managed")
-        if latest.source.public_app_id and public_app_status(ctx.public_catalog_cache, latest.source).official:
+        if latest.source.public_app_id and public_app_status(ctx.public_catalog_cache, latest).official:
             raise PortalError(409, "official_tag_ref_managed")
         return replace(
             current,

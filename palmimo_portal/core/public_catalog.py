@@ -8,6 +8,7 @@ from urllib.parse import quote, urlsplit, urlunsplit
 
 from palmimo_portal.core.legacy_official import legacy_official
 from palmimo_portal.ports import (
+    AppRecord,
     AppSource,
     AppsState,
     PublicCatalogApp,
@@ -123,12 +124,13 @@ def find_public_app(cache: PublicCatalogCache | None, public_app_id: str) -> Pub
     return next((app for app in cache.peek().apps if app.public.app_id == public_app_id), None)
 
 
-def is_public_source(source: AppSource) -> bool:
-    return bool(source.public_app_id) or legacy_official(source) is not None
+def is_public_source(record: AppRecord) -> bool:
+    return bool(record.source.public_app_id) or legacy_official(record) is not None
 
 
-def effective_public_source(cache: PublicCatalogCache | None, source: AppSource) -> AppSource:
-    legacy = legacy_official(source)
+def effective_public_source(cache: PublicCatalogCache | None, record: AppRecord) -> AppSource:
+    legacy = legacy_official(record)
+    source = record.source
     if legacy is None:
         return source
     candidate = (
@@ -151,7 +153,7 @@ def installed_public_app(state: AppsState, cache: PublicCatalogCache | None, pub
         (
             record.id
             for record in state.apps.values()
-            if effective_public_source(cache, record.source).public_app_id == public_app_id
+            if effective_public_source(cache, record).public_app_id == public_app_id
         ),
         None,
     )
@@ -171,11 +173,11 @@ class PublicAppStatus:
     official: bool | None
 
 
-def public_app_status(cache: PublicCatalogCache | None, source: AppSource) -> PublicAppStatus:
-    legacy = legacy_official(source)
+def public_app_status(cache: PublicCatalogCache | None, record: AppRecord) -> PublicAppStatus:
+    legacy = legacy_official(record)
     if legacy is not None and legacy.name is None:
         return PublicAppStatus(False, False, None, True)
-    source = effective_public_source(cache, source)
+    source = effective_public_source(cache, record)
     if cache is None or cache.peek().generated_at is None:
         return PublicAppStatus(None, None, None, True if legacy else None)
     app = find_public_app(cache, source.public_app_id or "")
@@ -184,8 +186,8 @@ def public_app_status(cache: PublicCatalogCache | None, source: AppSource) -> Pu
     return PublicAppStatus(True, source.commit != app.source.commit, app.source.commit, app.public.official)
 
 
-def public_update_source(cache: PublicCatalogCache | None, source: AppSource) -> AppSource:
-    source = effective_public_source(cache, source)
+def public_update_source(cache: PublicCatalogCache | None, record: AppRecord) -> AppSource:
+    source = effective_public_source(cache, record)
     app = find_public_app(cache, source.public_app_id or "")
     if app is None:
         raise PublicAppUnavailableError("public_app_unavailable")

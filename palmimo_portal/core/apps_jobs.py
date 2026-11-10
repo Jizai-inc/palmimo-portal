@@ -972,7 +972,7 @@ def update_git(
     job_id = job_id or ctx.new_id()
     started = started if started is not None else ctx.now()
     staging_container = ctx.staging_dir / job_id
-    if is_public_source(record.source) and prepared is None:
+    if is_public_source(record) and prepared is None:
         raise ValueError("public updates require a confirmed prepared source")
     if prepared is not None:
         staging_container = prepared.staging_container
@@ -1155,8 +1155,8 @@ def _purge_uv_cache(ctx: AppsJobContext, name: str) -> str | None:
 
 def check_git_update(ctx: AppsJobContext, record: AppRecord) -> tuple[bool, str | None]:
     """Compare public catalog commits or check a branch with live git; other tags stay pinned."""
-    if is_public_source(record.source):
-        status = public_app_status(ctx.public_catalog_cache, record.source)
+    if is_public_source(record):
+        status = public_app_status(ctx.public_catalog_cache, record)
         return status.update_available is True, status.latest_commit
     if record.source.type != "git":
         return False, None

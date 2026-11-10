@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from palmimo_portal.ports import AppSource
+from palmimo_portal.ports import AppRecord
 
 
 @dataclass(frozen=True)
@@ -16,9 +16,11 @@ _OFFICIAL_APPS = {
 }
 
 
-def legacy_official(source: AppSource) -> LegacyOfficial | None:
+def legacy_official(record: AppRecord) -> LegacyOfficial | None:
+    source = record.source
     if (
-        source.public_app_id is not None
+        record.id.partition(".")[0] != "palmimo"
+        or source.public_app_id is not None
         or source.type != "git"
         or source.ref_kind != "tag"
         or not (source.ref or "").startswith("examples-v")

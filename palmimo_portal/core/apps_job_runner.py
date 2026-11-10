@@ -288,11 +288,11 @@ class AppsJobRunner:
                 if (
                     prepared is not None
                     and prepared.source.public_app_id
-                    != effective_public_source(self._ctx.public_catalog_cache, state.apps[name].source).public_app_id
+                    != effective_public_source(self._ctx.public_catalog_cache, state.apps[name]).public_app_id
                 ):
                     raise PublicAppChangedError("public_app_changed")
-                if is_public_source(state.apps[name].source):
-                    target = public_update_source(self._ctx.public_catalog_cache, state.apps[name].source)
+                if is_public_source(state.apps[name]):
+                    target = public_update_source(self._ctx.public_catalog_cache, state.apps[name])
                     if prepared is None or prepared.public_app is None or prepared.source != target:
                         raise PublicAppChangedError("public_app_changed")
                 job = replace(job, display_name=state.apps[name].name)

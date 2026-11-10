@@ -3,7 +3,7 @@ from dataclasses import replace
 import pytest
 
 from palmimo_portal.core.legacy_official import legacy_official
-from palmimo_portal.ports import AppSource
+from palmimo_portal.ports import AppRecord, AppSource
 
 
 @pytest.mark.parametrize(
@@ -39,7 +39,8 @@ def test_legacy_official_matches_only_shipped_sources(
         source = replace(source, manifest="custom.toml")
     elif variant == "zip":
         source = replace(source, type="zip")
-    match = legacy_official(source)
+    record = AppRecord("App", source, None, {}, False, None, id="palmimo.app")
+    match = legacy_official(record)
     if variant in ("original", "normalized_url"):
         assert match is not None
         assert match.name == target

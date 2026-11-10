@@ -25,6 +25,7 @@ from palmimo_portal.testing.fakes import FakeAdapterBundle
 
 HEADERS = {"X-Requested-With": "PalmimoPortal"}
 APP_ID = "alice.dance"
+LEGACY_ID = "palmimo.teleop"
 
 
 @pytest.fixture
@@ -755,6 +756,7 @@ def legacy_record(client: TestClient, adapters: FakeAdapterBundle, public_app: P
     record = state.apps[APP_ID]
     record = replace(
         record,
+        id=LEGACY_ID,
         autostart=True,
         params={"port": 9000},
         source=replace(
@@ -767,9 +769,11 @@ def legacy_record(client: TestClient, adapters: FakeAdapterBundle, public_app: P
             commit="0" * 40,
         ),
     )
-    adapters.state.write_apps_state(replace(state, apps={APP_ID: record}))
+    ctx = client.app.state.apps_job_context
+    ctx.app_dir(APP_ID).rename(ctx.app_dir(LEGACY_ID))
+    adapters.state.write_apps_state(replace(state, apps={LEGACY_ID: record}))
     adapters.secrets.set_secret("LEGACY_KEY", "secret")
-    adapters.secrets.write_bindings(APP_ID, dict.fromkeys(public_app.env, "LEGACY_KEY"))
+    adapters.secrets.write_bindings(LEGACY_ID, dict.fromkeys(public_app.env, "LEGACY_KEY"))
     return record
 
 
@@ -792,27 +796,27 @@ def test_legacy_official_migrates_on_confirmed_update(
     target = official_target(public_app)
     refresh(app, adapters, target)
     before = adapters.state.read_apps_state()
-    for body in (client.get("/api/v1/apps").json()["apps"][0], client.get(f"/api/v1/apps/{APP_ID}").json()):
+    for body in (client.get("/api/v1/apps").json()["apps"][0], client.get(f"/api/v1/apps/{LEGACY_ID}").json()):
         assert body["update_available"] is True
         assert body["source"]["official"] is True
         assert body["source"]["public_app_id"] == target.public.app_id
         assert body["source"]["public_page_url"].endswith(target.public.app_id)
         assert body["latest_commit"] == target.source.commit
-    check = client.post(f"/api/v1/apps/{APP_ID}/update/check", headers=HEADERS)
+    check = client.post(f"/api/v1/apps/{LEGACY_ID}/update/check", headers=HEADERS)
     assert check.json()["update_available"] is True
     assert check.json()["latest_source"]["url"] == target.source.url
     assert adapters.state.read_apps_state() == before
     run_git_check_sweep(app.state.apps_job_context, adapters.state)
     assert adapters.git.fetch_commit_calls == []
-    response = client.post(f"/api/v1/apps/{APP_ID}/update", json={"commit": target.source.commit}, headers=HEADERS)
+    response = client.post(f"/api/v1/apps/{LEGACY_ID}/update", json={"commit": target.source.commit}, headers=HEADERS)
     assert response.status_code == 202, response.text
     assert response.json()["job"]["state"] == "done", response.text
-    record = adapters.state.read_apps_state().apps[APP_ID]
+    record = adapters.state.read_apps_state().apps[LEGACY_ID]
     assert record.id == legacy_record.id
     assert record.params == legacy_record.params
     assert record.autostart is True
-    assert adapters.secrets.read_bindings(APP_ID) == dict.fromkeys(public_app.env, "LEGACY_KEY")
-    assert client.get("/api/v1/apps").json()["default_app"] == APP_ID
+    assert adapters.secrets.read_bindings(LEGACY_ID) == dict.fromkeys(public_app.env, "LEGACY_KEY")
+    assert client.get("/api/v1/apps").json()["default_app"] == LEGACY_ID
     assert record.source == replace(target.source, public_app_id=target.public.app_id)
     assert adapters.git.clone_commit_calls[-1] == (target.source.url, target.source.commit)
 
@@ -843,7 +847,7 @@ def test_legacy_official_status_without_a_target(
                 replace(
                     state,
                     apps={
-                        APP_ID: replace(
+                        LEGACY_ID: replace(
                             legacy_record, source=replace(legacy_record.source, subdir="examples/agents/wakeword")
                         )
                     },
@@ -858,15 +862,15 @@ def test_legacy_official_status_without_a_target(
         refresh(app, adapters, *(() if condition == "missing" else (target,)))
     for body in (
         client.get("/api/v1/apps").json()["apps"][0],
-        client.get(f"/api/v1/apps/{APP_ID}").json(),
-        client.post(f"/api/v1/apps/{APP_ID}/update/check", headers=HEADERS).json(),
+        client.get(f"/api/v1/apps/{LEGACY_ID}").json(),
+        client.post(f"/api/v1/apps/{LEGACY_ID}/update/check", headers=HEADERS).json(),
     ):
         assert body["update_available"] is (None if condition == "unknown" else False)
         assert body["public_app_available"] is (None if condition == "unknown" else False)
         if "source" in body:
             assert body["source"]["official"] is True
             assert body["source"]["legacy_official"] == ("retired" if condition == "retired" else "migrating")
-    response = client.post(f"/api/v1/apps/{APP_ID}/update", headers=HEADERS)
+    response = client.post(f"/api/v1/apps/{LEGACY_ID}/update", headers=HEADERS)
     assert response.status_code == (503 if condition == "unknown" else 409)
 
 
@@ -888,7 +892,7 @@ def test_public_install_refuses_an_existing_identity(
             replace(
                 state,
                 apps={
-                    APP_ID: replace(legacy_record, source=replace(target.source, public_app_id=target.public.app_id))
+                    LEGACY_ID: replace(legacy_record, source=replace(target.source, public_app_id=target.public.app_id))
                 },
             )
         )
@@ -911,7 +915,7 @@ def test_public_install_refuses_an_existing_identity(
         headers=HEADERS,
     )
     assert response.status_code == 409
-    assert response.json()["error"] == {"code": "public_app_installed", "params": {"app_id": APP_ID}}
+    assert response.json()["error"] == {"code": "public_app_installed", "params": {"app_id": LEGACY_ID}}
     assert adapters.state.read_apps_state() == before
     assert len(adapters.git.clone_commit_calls) == len(clones) + int(during_fetch)
     assert list(app.state.apps_job_context.staging_dir.glob("*")) == []
@@ -927,13 +931,15 @@ def test_legacy_official_ref_cannot_be_edited(
             replace(
                 state,
                 apps={
-                    APP_ID: replace(
+                    LEGACY_ID: replace(
                         legacy_record, source=replace(legacy_record.source, subdir="examples/agents/companion")
                     )
                 },
             )
         )
-    response = client.put(f"/api/v1/apps/{APP_ID}/source", json={"ref": "main", "ref_kind": "branch"}, headers=HEADERS)
+    response = client.put(
+        f"/api/v1/apps/{LEGACY_ID}/source", json={"ref": "main", "ref_kind": "branch"}, headers=HEADERS
+    )
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "official_tag_ref_managed"
 
@@ -949,37 +955,50 @@ def test_legacy_update_failure_preserves_source_and_files(
 ) -> None:
     target = official_target(public_app)
     refresh(app, adapters, target)
-    root = app.state.apps_job_context.app_dir(APP_ID)
+    root = app.state.apps_job_context.app_dir(LEGACY_ID)
     (root / "keep.txt").write_text("previous")
-    bindings = adapters.secrets.read_bindings(APP_ID)
+    bindings = adapters.secrets.read_bindings(LEGACY_ID)
     if failure == "fetch":
         adapters.git.raise_on_clone = GitCommandError("unreachable commit")
     else:
         adapters.sync_unit.default_status = UnitStatus("failed", "failed", "exit-code", 1)
-    response = client.post(f"/api/v1/apps/{APP_ID}/update", json={"commit": target.source.commit}, headers=HEADERS)
+    response = client.post(f"/api/v1/apps/{LEGACY_ID}/update", json={"commit": target.source.commit}, headers=HEADERS)
     assert response.status_code == (422 if failure == "fetch" else 202)
     if failure == "sync":
         assert response.json()["job"]["state"] == "failed"
-    record = adapters.state.read_apps_state().apps[APP_ID]
+    record = adapters.state.read_apps_state().apps[LEGACY_ID]
     assert record.source == legacy_record.source
     assert record.params == legacy_record.params
     assert record.autostart is True
-    assert adapters.secrets.read_bindings(APP_ID) == bindings
+    assert adapters.secrets.read_bindings(LEGACY_ID) == bindings
     assert (root / "keep.txt").read_text() == "previous"
     assert list(app.state.apps_job_context.staging_dir.glob("*")) == []
 
 
-@pytest.mark.parametrize("ref_kind, ref", [("branch", "main"), ("tag", "custom-v1")])
+@pytest.mark.parametrize("ref_kind, ref", [("branch", "main"), ("tag", "custom-v1"), ("tag", "examples-v0.1.4")])
 def test_github_install_uses_owner_namespace_without_official_status(
-    client: TestClient, public_app: PublicCatalogApp, ref_kind: str, ref: str
+    client: TestClient, app: FastAPI, adapters: FakeAdapterBundle, public_app: PublicCatalogApp, ref_kind: str, ref: str
 ) -> None:
+    subdir = "examples/teleop" if ref.startswith("examples-v") else public_app.source.subdir
     source = {
         "type": "git",
         "url": "https://github.com/Jizai-inc/palmimo-devkit",
         "ref_kind": ref_kind,
         "ref": ref,
-        "subdir": public_app.source.subdir,
+        "subdir": subdir,
     }
+    original_seed = adapters.git.on_clone
+    assert original_seed is not None
+
+    def seed(dest: Path, url: str, ref: str, kind: str) -> None:
+        original_seed(dest, url, ref, kind)
+        if subdir == "examples/teleop" and url == source["url"]:
+            (dest / "examples").mkdir()
+            (dest / "apps/dance").rename(dest / subdir)
+
+    adapters.git.on_clone = seed
+    target = official_target(public_app)
+    refresh(app, adapters, target)
     preview = client.post("/api/v1/apps/preview", json={"source": source}, headers=HEADERS)
     assert preview.status_code == 200, preview.text
     assert preview.json()["namespace"] == "jizai-inc"
@@ -988,7 +1007,13 @@ def test_github_install_uses_owner_namespace_without_official_status(
     assert response.json()["job"]["state"] == "done", response.text
     app_id = response.json()["job"]["app_id"]
     assert app_id == "jizai-inc.display-name"
-    for body in (client.get("/api/v1/apps").json()["apps"][0], client.get(f"/api/v1/apps/{app_id}").json()):
+    install(client, target)
+    assert {row["id"] for row in client.get("/api/v1/apps").json()["apps"]} == {app_id, LEGACY_ID}
+    for body in (
+        next(row for row in client.get("/api/v1/apps").json()["apps"] if row["id"] == app_id),
+        client.get(f"/api/v1/apps/{app_id}").json(),
+    ):
         assert body["source"]["official"] is False
+        assert body["source"].get("legacy_official") is None
     changed = client.put(f"/api/v1/apps/{app_id}/source", json={"ref_kind": "tag", "ref": "custom-v2"}, headers=HEADERS)
     assert changed.status_code == 200, changed.text

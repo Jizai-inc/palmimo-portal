@@ -23,29 +23,53 @@ def pixel(pixels: bytes, x: int, y: int) -> int:
 
 
 def test_connected_qr_renders_modules_and_four_module_quiet_zone(module: Any) -> None:
-    pixels = module.state_screen("connected", {"url": "http://robot.local", "qr": QR})
-    assert pixel(pixels, 75, 76) == 0
-    assert pixel(pixels, 83, 84) == 0
-    assert pixel(pixels, 84, 76) == 0xFFFF
-    assert pixel(pixels, 75, 85) == 0xFFFF
-    assert pixel(pixels, 84, 85) == 0
-    assert pixel(pixels, 92, 93) == 0
-    assert pixel(pixels, 39, 40) == 0xFFFF
-    assert pixel(pixels, 74, 75) == 0xFFFF
-    assert pixel(pixels, 93, 94) == 0xFFFF
-    assert pixel(pixels, 128, 129) == 0xFFFF
+    pixels = module.state_screen("connected", {"url": "http://192.0.2.1", "qr": QR})
+    assert pixel(pixels, 76, 81) == 0
+    assert pixel(pixels, 83, 88) == 0
+    assert pixel(pixels, 84, 81) == 0xFFFF
+    assert pixel(pixels, 76, 89) == 0xFFFF
+    assert pixel(pixels, 84, 89) == 0
+    assert pixel(pixels, 91, 96) == 0
+    assert pixel(pixels, 43, 48) == 0xFFFF
+    assert pixel(pixels, 75, 80) == 0xFFFF
+    assert pixel(pixels, 92, 97) == 0xFFFF
+    assert pixel(pixels, 124, 129) == 0xFFFF
 
 
+def test_connected_qr_panel_leaves_room_for_the_name_line(module: Any) -> None:
+    pixels = module.state_screen("connected", {"url": "http://192.0.2.1", "qr": QR})
+    background = pixel(pixels, 5, 60)
+    assert background != 0xFFFF
+    assert pixel(pixels, 42, 48) == background
+    assert pixel(pixels, 43, 47) == background
+    assert pixel(pixels, 125, 129) == background
+
+
+A_GLYPH = ("000000", "000000", "000000", "011100", "000010", "011110", "100010", "011110", "000000", "000000")
+ELLIPSIS_GLYPH = ("000000",) * 7 + ("101010",) + ("000000",) * 2
+
+
+@pytest.mark.parametrize("field,top,color", [("url", 24, 0xFFFF), ("name", 35, 0xBDF7)])
 @pytest.mark.parametrize("length,truncated", [(28, False), (29, True), (80, True)])
-def test_connected_url_uses_six_pixel_cells_and_ellipsis(module: Any, length: int, truncated: bool) -> None:
-    pixels = module.state_screen("connected", {"url": "a" * length, "qr": QR})
-    expected_a = ("000000", "000000", "000000", "011100", "000010", "011110", "100010", "011110", "000000", "000000")
-    expected_ellipsis = ("000000",) * 7 + ("101010",) + ("000000",) * 2
-    for left, glyph in ((156, expected_a), (162, expected_ellipsis if truncated else expected_a)):
+def test_connected_text_lines_use_six_pixel_cells_and_ellipsis(
+    module: Any, field: str, top: int, color: int, length: int, truncated: bool
+) -> None:
+    fields = {"url": "http://192.0.2.1", "qr": QR, field: "a" * length}
+    pixels = module.state_screen("connected", fields)
+    for left, glyph in ((156, A_GLYPH), (162, ELLIPSIS_GLYPH if truncated else A_GLYPH)):
         for row, bits in enumerate(glyph):
-            assert [pixel(pixels, left + column, 26 + row) == 0xFFFF for column in range(6)] == [
+            assert [pixel(pixels, left + column, top + row) == color for column in range(6)] == [
                 bit == "1" for bit in bits
             ]
+
+
+@pytest.mark.parametrize("name", [1, "robot\n.local", "ロボット.local"])
+def test_connected_rejects_invalid_name_without_changing_screen(harness: Harness, name: Any) -> None:
+    with harness.connect() as client:
+        receive(client)
+        harness.message(client, state="connected", url="http://192.0.2.1", qr=QR, name=name)
+        harness.reader.step()
+        assert harness.display.screens[-1][0] == "waiting"
 
 
 @pytest.mark.parametrize(

@@ -54,17 +54,21 @@ All messages have type: screen.
 | rejected | reason |
 | connecting | ssid |
 | failed | reason |
-| connected | url: http://hostname.local; qr: {size: n, rows: [binary strings]} |
+| connected | url: http://LAN-IPv4; qr: {size: n, rows: [binary strings]}; name (optional): hostname.local |
 
 Reasons are not_wifi, unsupported_security, hidden_network, invalid_ssid,
 invalid_psk, busy, or connect_failed. The connected screen presents the URL,
-its QR code, a Close button, and an automatic-close notice without a network
-name: the connected LAN can differ from the QR's network.
+the name below it, the URL's QR code, a Close button, and an automatic-close
+notice without a network name: the connected LAN can differ from the QR's
+network. The url and name are printable ASCII.
 
 The Portal encodes the URL with error correction M. The square matrix has
 size rows of size characters each; 1 is dark and 0 is light. It excludes the
 quiet zone, which the reader adds when rendering. The URL has no trailing
-slash. The reader sends close when the connected screen's button is tapped.
+slash. It names the LAN IPv4 address rather than hostname.local, because
+Android Chrome does not resolve mDNS names; the name stays on screen as the
+stable address for browsers that do. The reader sends close when the
+connected screen's button is tapped.
 
 The Portal owns screen timing: rejected lasts 5 seconds, failed 8 seconds,
 and connected 300 seconds unless closed earlier. An unresolved QR trial screen fails after 120

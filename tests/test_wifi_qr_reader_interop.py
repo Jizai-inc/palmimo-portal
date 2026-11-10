@@ -83,10 +83,10 @@ def test_portal_socket_client_exchanges_setup_messages_with_real_reader(module: 
         assert screens.get(timeout=2) == ("checking", {})
         assert received.get(timeout=2) == {"type": "qr", "text": text}
 
-        url = "http://robot.local"
+        url = "http://192.0.2.1"
         qr = make_url_qr(url)
-        assert client.send({"type": "screen", "state": "connected", "url": url, "qr": qr})
-        assert screens.get(timeout=2) == ("connected", {"url": url, "qr": qr})
+        assert client.send({"type": "screen", "state": "connected", "url": url, "qr": qr, "name": "robot.local"})
+        assert screens.get(timeout=2) == ("connected", {"url": url, "qr": qr, "name": "robot.local"})
         close_button.set()
         assert received.get(timeout=2) == {"type": "close"}
 

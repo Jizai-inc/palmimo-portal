@@ -692,7 +692,7 @@ class FrameClient:
 
 FONT_WIDTH = 6
 FONT_HEIGHT = 10
-QR_RECT = (39, 40, 129, 130)
+QR_RECT = (43, 48, 125, 130)
 CLOSE_RECT = (50, 132, 118, 149)
 
 
@@ -847,10 +847,10 @@ def state_screen(state: str, fields: dict[str, Any]) -> bytes:
     if len(pixels) != 168 * 168 * 2:
         raise ValueError("Invalid state screen asset")
     if state == "connected":
-        url = fields.get("url", "")
         capacity = 168 // FONT_WIDTH
-        text = url if len(url) <= capacity else url[: capacity - 1] + "…"
-        draw_ascii(pixels, 168, 168, text, (168 - len(text) * FONT_WIDTH) // 2, 26)
+        for line, (value, color) in enumerate(((fields.get("url", ""), 0xFFFF), (fields.get("name", ""), 0xBDF7))):
+            text = value if len(value) <= capacity else value[: capacity - 1] + "…"
+            draw_ascii(pixels, 168, 168, text, (168 - len(text) * FONT_WIDTH) // 2, 24 + line * 11, color=color)
         qr = fields.get("qr")
         if qr is not None:
             if not valid_qr(qr):
@@ -1211,15 +1211,16 @@ class Reader:
                 return
             fields["reason"] = reason
         elif state == "connected":
-            url, qr = message.get("url"), message.get("qr")
+            url, qr, name = message.get("url"), message.get("qr"), message.get("name", "")
             if (
                 not isinstance(url, str)
                 or not url
-                or not all(32 <= ord(character) <= 126 for character in url)
+                or not isinstance(name, str)
+                or not all(32 <= ord(character) <= 126 for character in url + name)
                 or not valid_qr(qr)
             ):
                 return
-            fields.update(url=url, qr=qr)
+            fields.update(url=url, qr=qr, name=name)
         elif state == "connecting":
             key = "ssid"
             value = message.get(key)

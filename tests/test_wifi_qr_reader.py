@@ -326,7 +326,7 @@ def test_checking_returns_to_scanning_after_fifteen_seconds_without_screen(harne
         ("rejected", {"reason": "not_wifi"}),
         ("connecting", {"ssid": "home"}),
         ("failed", {"reason": "connect_failed"}),
-        ("connected", {"url": "http://palmimo.local", "qr": {"size": 2, "rows": ["10", "01"]}}),
+        ("connected", {"url": "http://192.0.2.1", "qr": {"size": 2, "rows": ["10", "01"]}, "name": "palmimo.local"}),
     ],
 )
 def test_socket_screen_updates_display(harness: Harness, state: str, fields: dict[str, Any]) -> None:

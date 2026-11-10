@@ -208,7 +208,7 @@ def test_setup_accepts_connection_to_a_different_lan(rig: Rig) -> None:
     rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTED, "another-network", "192.0.2.1")
     rig.setup.tick()
     assert rig.setup.status().screen == "connected"
-    assert rig.reader.messages[-1]["url"] == "http://robot.local"
+    assert rig.reader.messages[-1]["url"] == "http://192.0.2.1"
     assert "ssid" not in rig.reader.messages[-1]
 
 
@@ -466,7 +466,7 @@ def test_setup_completes_qr_flow_over_unix_socket(
         rig.setup.tick()
         connected = reader.receive()
         assert connected["state"] == "connected"
-        assert connected["url"] == "http://robot.local"
+        assert connected["url"] == "http://192.0.2.1"
         rig.advance(300)
         assert rig.setup.status().mode == "idle"
     assert "secret-password" not in caplog.text
@@ -841,32 +841,32 @@ def test_setup_diagnostics_do_not_log_qr_or_password(
 
 
 def test_setup_connected_screen_contains_url_and_reference_qr(rig: Rig) -> None:
-    # Reference independently decoded with ZXing-C++: http://robot.local, ECC M, no border.
-    rows = """1111111011000010001111111
-1000001010111100101000001
-1011101011110101101011101
-1011101001100010101011101
-1011101010111010101011101
-1000001000010000001000001
+    # Reference independently decoded with ZXing-C++: http://192.0.2.1, ECC M, no border.
+    rows = """1111111011001010001111111
+1000001001110000001000001
+1011101001110101101011101
+1011101010101011101011101
+1011101011000110001011101
+1000001011110110101000001
 1111111010101010101111111
-0000000000110111000000000
-1001111111010101110010111
-0010110000010111000111110
-0110011111011101111101001
-1011100101011101010111111
-1101111001011100101100001
-1101100011000111100010010
-1100101000111101110111111
-1001010011110000010010101
-1010011101100010111110110
-0000000010011110100010010
-1111111011110000101011001
-1000001010101011100010000
-1011101010101111111111001
-1011101010100010011101011
-1011101001101010100110111
-1000001000100010001110111
-1111111011000111111001001""".splitlines()
+0000000011111011100000000
+1000101110010110111111001
+0110010101111001010111010
+1101011110001111110101100
+1010110100110100011010110
+1000001100101101001001111
+1110100110100111000110010
+0010101111100001101101100
+0001000001001010111001110
+1111111101010110111111100
+0000000010101001100010100
+1111111010111110101011000
+1000001001010101100011110
+1011101011101100111110101
+1011101001000110101001111
+1011101000100000001000010
+1000001001101011010111110
+1111111011110110001000111""".splitlines()
     rig.active()
     rig.setup.on_message({"type": "qr", "text": "WIFI:S:home;P:password;;"})
     rig.adapters.network.status = WifiStatus(ConnectionState.CONNECTED, "home", "192.0.2.1")
@@ -874,8 +874,9 @@ def test_setup_connected_screen_contains_url_and_reference_qr(rig: Rig) -> None:
     assert rig.reader.messages[-1] == {
         "type": "screen",
         "state": "connected",
-        "url": "http://robot.local",
+        "url": "http://192.0.2.1",
         "qr": {"size": 25, "rows": rows},
+        "name": "robot.local",
     }
 
 

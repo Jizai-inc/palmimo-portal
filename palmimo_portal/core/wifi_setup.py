@@ -600,6 +600,7 @@ class WifiSetup:
             elapsed = min(2.0, max(0.0, now - self._last_poll)) if self._last_poll is not None else 0.0
             self._last_poll = now
         lan = ap = known = non_lan = False
+        lan_ip: str | None = None
         observed = False
         try:
             network = self.network.get_status()
@@ -609,6 +610,7 @@ class WifiSetup:
                 and bool(network.ip_address)
                 and self.profiles.device_status().state == 100
             )
+            lan_ip = network.ip_address if lan else None
             ap = network.state is ConnectionState.UNPROVISIONED
             non_lan = network.state in {ConnectionState.CONNECTING, ConnectionState.UNPROVISIONED}
             observed = True
@@ -721,10 +723,12 @@ class WifiSetup:
         with self._condition:
             if self._mode != "active":
                 return
-            if lan and self._pending is not None:
+            if lan_ip is not None and self._pending is not None:
                 self._pending = None
-                url = f"http://{self._hostname}.local"
-                self._show_locked("connected", url=url, qr=make_url_qr(url))
+                # Android Chrome does not resolve mDNS .local names, so the QR links to the LAN IP;
+                # the stable .local name is shown as text for browsers that resolve it.
+                url = f"http://{lan_ip}"
+                self._show_locked("connected", url=url, qr=make_url_qr(url), name=f"{self._hostname}.local")
             elif lan and self._screen != "connected":
                 should_stop = True
             elif (

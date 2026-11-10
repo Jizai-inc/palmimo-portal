@@ -538,25 +538,12 @@ class ReleaseSource(Protocol):
 
 @dataclass(frozen=True)
 class CatalogEnvSpec:
-    """One catalog app's declared ``[env.*]`` entry -- the subset the release workflow publishes (design doc 4.1)."""
+    """One public catalog app's declared environment variable."""
 
     required: bool
     description: str
-    #: ``None`` if absent or not a plain ``http(s)://`` URL -- see
-    #: :func:`~palmimo_portal.adapters.catalog._parse_env`.
+    #: ``None`` if absent or not a plain ``http(s)://`` URL.
     help_url: str | None = None
-
-
-@dataclass(frozen=True)
-class CatalogApp:
-    """One official app, as listed in the devkit release's catalog asset (design doc 4.1)."""
-
-    name: str
-    description: str
-    source: AppSource
-    env: dict[str, CatalogEnvSpec]
-    devices: tuple[str, ...]
-    translations: dict[str, dict[str, str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -596,63 +583,6 @@ class PublicCatalogSourceError(Exception):
 
 class PublicCatalogSource(Protocol):
     def fetch(self) -> PublicCatalogAsset: ...
-
-
-@dataclass(frozen=True)
-class CatalogAsset:
-    """One fetched, verified, and schema-validated catalog release."""
-
-    tag: str
-    apps: tuple[CatalogApp, ...]
-
-
-class CatalogSourceError(Exception):
-    """Raised by :meth:`CatalogSource.fetch` when the release, asset, or its shape is unusable.
-
-    ``code``, when set, is a :class:`ReleaseSourceError`'s own ``code``
-    propagated through -- currently only ``"rate_limited"``, which
-    :class:`~palmimo_portal.core.catalog.CatalogCache` maps onto its own
-    ``reason`` instead of the generic ``"offline"``.
-    """
-
-    def __init__(self, message: str, *, code: str | None = None) -> None:
-        self.code = code
-        super().__init__(message)
-
-
-class CatalogSource(Protocol):
-    """Fetches and validates the official app catalog. See :class:`~palmimo_portal.adapters.catalog.GitHubCatalogSource`.
-
-    One call does the whole pipeline (find the selected devkit examples release,
-    download the catalog asset and its ``.sha256``, verify, parse, and
-    validate) -- unlike :class:`PlatformBundleSource`, there is no
-    multi-step job to report progress for.
-    """
-
-    def fetch(self) -> CatalogAsset:
-        """Return the latest official catalog.
-
-        Raises:
-            CatalogSourceError: the release/asset could not be fetched, the
-                checksum did not match, or the asset's shape is invalid
-                (wrong ``schema``, an app missing a required field).
-        """
-        ...
-
-
-@dataclass(frozen=True)
-class CatalogCacheState:
-    """The last-known-good catalog, persisted so a restart does not lose it (design doc 4.1/3.6).
-
-    ``fetched_at`` is a wall-clock ``time.time()`` reading -- display only,
-    never compared against for interval/staleness logic (design doc 3.3);
-    :class:`~palmimo_portal.core.catalog.CatalogCache` tracks its own
-    monotonic age separately, in memory only.
-    """
-
-    tag: str | None
-    apps: tuple[CatalogApp, ...]
-    fetched_at: float | None
 
 
 class UpdateStepError(Exception):
@@ -951,20 +881,6 @@ class StateStore(Protocol):
     def read_public_catalog_cache(self) -> PublicCatalogCacheState: ...
 
     def write_public_catalog_cache(self, state: PublicCatalogCacheState) -> None: ...
-
-    def read_catalog_cache(self) -> CatalogCacheState:
-        """Return the last successfully fetched official catalog, or an empty state if none yet.
-
-        Tolerant read, same contract as :meth:`read_platform_update_state`:
-        a missing or unparseable ``catalog_cache.json`` is logged and
-        treated as "never fetched" rather than raised -- this cache is a
-        staleness fallback, not security- or ledger-bearing.
-        """
-        ...
-
-    def write_catalog_cache(self, state: CatalogCacheState) -> None:
-        """Persist the last successfully fetched official catalog, replacing whatever was stored before."""
-        ...
 
 
 class AppsLockTimeoutError(Exception):

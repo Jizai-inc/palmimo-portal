@@ -255,6 +255,18 @@
       "app_id": "019a3f2c-0000-7000-8000-000000000045",
       "reason": "trailing whitespace in commit",
       "rule": "shape"
+    },
+    {
+      "index": 46,
+      "app_id": "019a3f2c-0000-7000-8000-000000000047",
+      "reason": "bad-env-name",
+      "rule": "shape"
+    },
+    {
+      "index": 47,
+      "app_id": "019a3f2c-0000-7000-8000-000000000048",
+      "reason": "reserved-env-name",
+      "rule": "shape"
     }
   ],
   "downgraded_official": [

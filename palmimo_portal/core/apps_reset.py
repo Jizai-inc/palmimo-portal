@@ -84,7 +84,7 @@ def reset_platform(
 ) -> ResetResult:
     """Stop every active app, then erase the contents of ``apps/``/``uv-cache/``, every run dir, secrets, and the ledger.
 
-    ``catalog_cache.json`` and ``public_catalog_cache.json`` are deliberately untouched -- design doc 3.2:
+    ``public_catalog_cache.json`` is deliberately untouched -- design doc 3.2:
     reset returns the app platform to its initial state, not to "never
     fetched an app catalog". The caller (``api/apps.py``) already guarantees no
     platform-bundle update job is running before calling this, so

@@ -14,7 +14,6 @@ import threading
 from dataclasses import dataclass
 from functools import partial
 
-from palmimo_portal.adapters.catalog import GitHubCatalogSource
 from palmimo_portal.adapters.clock import SystemClockPort
 from palmimo_portal.adapters.comitup import ComitupNetworkPort
 from palmimo_portal.adapters.disk import OsDiskPort
@@ -44,7 +43,6 @@ from palmimo_portal.adapters.wifi_qr_socket import WifiQrSocketClient
 from palmimo_portal.core.wifi_attempt_manager import WifiAttemptManager, connect_legacy
 from palmimo_portal.ports import (
     AppUnitPort,
-    CatalogSource,
     ClockPort,
     ComitupServicePort,
     DiskPort,
@@ -73,7 +71,6 @@ from palmimo_portal.ports import (
 from palmimo_portal.settings import Settings
 from palmimo_portal.testing.fakes import (
     FakeAppUnitPort,
-    FakeCatalogSource,
     FakeClockPort,
     FakeComitupServicePort,
     FakeDiskPort,
@@ -102,7 +99,6 @@ from palmimo_portal.testing.fakes import (
 
 
 # GitHub exposes one releases/latest per repository; devkit mixes SDK and examples releases.
-CATALOG_RELEASE_TAG_PREFIX = "examples-v"
 
 
 @dataclass(frozen=True)
@@ -135,7 +131,6 @@ class AdapterBundle:
     platform_bundle: PlatformBundleSource
     platform_releases: ReleaseSource
     clock: ClockPort
-    catalog: CatalogSource
     public_catalog: PublicCatalogSource
 
 
@@ -199,7 +194,6 @@ def build_adapters(settings: Settings) -> AdapterBundle:
             platform_bundle=FakePlatformBundleSource(),
             platform_releases=FakeReleaseSource(),
             clock=FakeClockPort(),
-            catalog=FakeCatalogSource(),
             public_catalog=FakePublicCatalogSource(),
         )
     preflight_state_dir(settings.state_dir)
@@ -247,12 +241,4 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         platform_releases=GitHubReleaseSource(repo=settings.platform_repo, channel=settings.update_channel),
         clock=SystemClockPort(),
         public_catalog=HttpPublicCatalogSource(public_catalog_url=settings.public_catalog_url),
-        catalog=GitHubCatalogSource(
-            catalog_repo=settings.catalog_repo,
-            release_source=GitHubReleaseSource(
-                repo=settings.catalog_repo,
-                channel=settings.update_channel,
-                tag_prefix=CATALOG_RELEASE_TAG_PREFIX,
-            ),
-        ),
     )

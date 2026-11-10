@@ -233,13 +233,13 @@ def test_reset_platform_empties_the_app_ledger(ctx: AppsJobContext) -> None:
     assert state.read_apps_state().apps == {}
 
 
-def test_reset_platform_leaves_the_catalog_cache_untouched(ctx: AppsJobContext) -> None:
-    from palmimo_portal.ports import CatalogCacheState
+def test_reset_platform_leaves_the_public_catalog_cache_untouched(ctx: AppsJobContext) -> None:
+    from palmimo_portal.ports import PublicCatalogCacheState
 
     state = FakeStateStore()
-    cache = CatalogCacheState(tag="v1.0.0", apps=(), fetched_at=1.0)
-    state.write_catalog_cache(cache)
+    cache = PublicCatalogCacheState(fetched_at=1.0)
+    state.write_public_catalog_cache(cache)
 
     reset_platform(state, ctx, FakeAppUnitPort(), FakeRunDirPort(), FakeSecretsStore())
 
-    assert state.read_catalog_cache() == cache
+    assert state.read_public_catalog_cache() == cache

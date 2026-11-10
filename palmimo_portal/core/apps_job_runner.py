@@ -161,7 +161,7 @@ class AppsJobRunner:
         """
         lock_cm = self._acquire_lock()
         started = time.time()
-        namespace = apps_core.app_namespace(prepared.source.type, prepared.source.url, self._ctx.catalog_repo)
+        namespace = apps_core.app_namespace(prepared.source.type, prepared.source.url)
         name = ""
         job: AppJob | None = None
         try:

@@ -527,7 +527,7 @@ function SourceSection({
   const isGit = app.source.type === "git";
   const isPublic = Boolean(app.source.public_app_id || app.source.legacy_official);
   const unavailable = app.public_app_available === false;
-  const isOfficialTag = isPublic ? app.source.official !== false : app.source.official && app.source.ref_kind === "tag";
+  const isOfficialTag = isPublic && app.source.official !== false;
   const needsPublicRepair = isPublic && !unavailable && (app.status === "broken" || app.status === "needs_repair");
   const repairWouldUpdate = Boolean(app.latest_source?.commit && app.latest_source.commit !== app.source.commit);
   const repairChangesVersion = repairing && target !== null && target.commit !== app.source.commit;

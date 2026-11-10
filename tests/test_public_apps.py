@@ -967,3 +967,28 @@ def test_legacy_update_failure_preserves_source_and_files(
     assert adapters.secrets.read_bindings(APP_ID) == bindings
     assert (root / "keep.txt").read_text() == "previous"
     assert list(app.state.apps_job_context.staging_dir.glob("*")) == []
+
+
+@pytest.mark.parametrize("ref_kind, ref", [("branch", "main"), ("tag", "custom-v1")])
+def test_github_install_uses_owner_namespace_without_official_status(
+    client: TestClient, public_app: PublicCatalogApp, ref_kind: str, ref: str
+) -> None:
+    source = {
+        "type": "git",
+        "url": "https://github.com/Jizai-inc/palmimo-devkit",
+        "ref_kind": ref_kind,
+        "ref": ref,
+        "subdir": public_app.source.subdir,
+    }
+    preview = client.post("/api/v1/apps/preview", json={"source": source}, headers=HEADERS)
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["namespace"] == "jizai-inc"
+    response = client.post("/api/v1/apps/install", json={"source": source}, headers=HEADERS)
+    assert response.status_code == 202, response.text
+    assert response.json()["job"]["state"] == "done", response.text
+    app_id = response.json()["job"]["app_id"]
+    assert app_id == "jizai-inc.display-name"
+    for body in (client.get("/api/v1/apps").json()["apps"][0], client.get(f"/api/v1/apps/{app_id}").json()):
+        assert body["source"]["official"] is False
+    changed = client.put(f"/api/v1/apps/{app_id}/source", json={"ref_kind": "tag", "ref": "custom-v2"}, headers=HEADERS)
+    assert changed.status_code == 200, changed.text

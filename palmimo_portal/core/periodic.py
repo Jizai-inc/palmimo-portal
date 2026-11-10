@@ -23,7 +23,6 @@ from dataclasses import dataclass, replace
 from palmimo_portal.core import apps_jobs
 from palmimo_portal.core.apps import host_owner_from_url
 from palmimo_portal.core.apps_jobs import AppsJobContext
-from palmimo_portal.core.catalog import CatalogCache
 from palmimo_portal.core.platform import PlatformLatestCache
 from palmimo_portal.core.public_catalog import PublicCatalogCache, is_public_source
 from palmimo_portal.ports import AppRecord, AppsLockTimeoutError, AppsState, ClockPort, GitCommandError, StateStore
@@ -35,7 +34,7 @@ logger = logging.getLogger("palmimo_portal")
 #: the same 5-minute interval design doc 3.2 gives `POST .../update/check`.
 GIT_CHECK_INTERVAL_SECONDS = 300.0
 
-#: How often the official catalog and the platform-bundle "latest release" cache refresh
+#: How often the public catalog and the platform-bundle "latest release" cache refresh
 #: (design doc 4.1/2.8's 1-hour cadence).
 CATALOG_AND_PLATFORM_INTERVAL_SECONDS = 3600.0
 
@@ -213,21 +212,19 @@ def build_scheduler(
     clock: ClockPort,
     apps_job_context: AppsJobContext,
     state_store: StateStore,
-    catalog_cache: CatalogCache,
     platform_latest_cache: PlatformLatestCache,
     public_catalog_cache: PublicCatalogCache | None = None,
 ) -> PeriodicScheduler:
     """Build the one scheduler ``api/app.py`` runs for the process's lifetime."""
 
-    def _catalog_and_platform() -> None:
-        catalog_cache.refresh(ntp_synchronized=True)
+    def _platform() -> None:
         platform_latest_cache.get(ntp_synchronized=True, force=True)
 
     tasks = [
         PeriodicTask(
             "git_check", GIT_CHECK_INTERVAL_SECONDS, lambda: run_git_check_sweep(apps_job_context, state_store)
         ),
-        PeriodicTask("catalog_and_platform", CATALOG_AND_PLATFORM_INTERVAL_SECONDS, _catalog_and_platform),
+        PeriodicTask("platform", CATALOG_AND_PLATFORM_INTERVAL_SECONDS, _platform),
     ]
     if public_catalog_cache is not None:
         tasks.append(

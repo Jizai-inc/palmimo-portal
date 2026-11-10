@@ -49,16 +49,13 @@ def normalize_namespace(value: str) -> str:
     return value or "git"
 
 
-def app_namespace(source_type: str, url: str | None, catalog_repo: str | None) -> str:
+def app_namespace(source_type: str, url: str | None) -> str:
     if source_type == "zip":
         return "zip"
     normalized = normalize_git_url(url or "")
     if normalized is None:
         return "git"
     host, owner, _repo = normalized
-    catalog = normalize_git_url(f"https://github.com/{catalog_repo}") if catalog_repo else None
-    if catalog == normalized:
-        return "palmimo"
     if host == "github.com":
         namespace = normalize_namespace(owner)
         return f"{namespace}-gh" if namespace in _RESERVED_GITHUB_NAMESPACES else namespace

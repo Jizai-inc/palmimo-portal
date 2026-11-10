@@ -30,7 +30,6 @@ from palmimo_portal.ports import (
     IDENTITY_UNAVAILABLE,
     AppRefKind,
     AppsLockTimeoutError,
-    AppSource,
     AppsState,
     AppsStateFileState,
     AppUnitPort,
@@ -38,11 +37,6 @@ from palmimo_portal.ports import (
     AuthFileState,
     AuthLockTimeoutError,
     AuthState,
-    CatalogApp,
-    CatalogAsset,
-    CatalogCacheState,
-    CatalogSource,
-    CatalogSourceError,
     ClockPort,
     ComitupServicePort,
     ConnectionState,
@@ -377,9 +371,6 @@ class FakeStateStore(StateStore):
     _platform_update_state: PlatformUpdateState = field(default_factory=lambda: IDLE_PLATFORM_STATE)
     _platform_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _public_catalog_cache: PublicCatalogCacheState = field(default_factory=PublicCatalogCacheState)
-    _catalog_cache: CatalogCacheState = field(
-        default_factory=lambda: CatalogCacheState(tag=None, apps=(), fetched_at=None)
-    )
 
     def read_auth(self) -> AuthState | None:
         if self.auth_corrupt:
@@ -525,12 +516,6 @@ class FakeStateStore(StateStore):
 
     def write_public_catalog_cache(self, state: PublicCatalogCacheState) -> None:
         self._public_catalog_cache = state
-
-    def read_catalog_cache(self) -> CatalogCacheState:
-        return self._catalog_cache
-
-    def write_catalog_cache(self, state: CatalogCacheState) -> None:
-        self._catalog_cache = state
 
 
 @dataclass
@@ -1030,44 +1015,6 @@ class FakePublicCatalogSource(PublicCatalogSource):
         return self.asset
 
 
-@dataclass
-class FakeCatalogSource(CatalogSource):
-    """Scriptable :class:`CatalogSource`. Reports no catalog (``CatalogSourceError``) by default."""
-
-    asset: CatalogAsset | None = None
-    raise_on_fetch: Exception | None = None
-    fetch_calls: int = field(default=0, init=False, repr=False)
-
-    def fetch(self) -> CatalogAsset:
-        self.fetch_calls += 1
-        if self.raise_on_fetch is not None:
-            raise self.raise_on_fetch
-        if self.asset is None:
-            raise CatalogSourceError("fake catalog source has no configured asset")
-        return self.asset
-
-
-def make_catalog_app(
-    name: str = "palmimo-teleop", *, manifest: str | None = None, commit: str = "deadbeef", subdir: str | None = None
-) -> CatalogApp:
-    """Build a minimal, valid :class:`CatalogApp` for scripting :class:`FakeCatalogSource`."""
-    return CatalogApp(
-        name=name,
-        description="A teleop app.",
-        source=AppSource(
-            type="git",
-            url="https://github.com/Jizai-inc/palmimo-devkit",
-            ref_kind="tag",
-            ref="v1.0.0",
-            commit=commit,
-            manifest=manifest,
-            subdir=subdir,
-        ),
-        env={},
-        devices=("camera",),
-    )
-
-
 def make_wifi_attempt(ssid: str, result: str) -> WifiAttempt:
     """Build a :class:`WifiAttempt` timestamped at call time."""
     return WifiAttempt(ssid=ssid, result=result, timestamp=time.time())
@@ -1245,7 +1192,6 @@ class FakeAdapterBundle:
     platform_bundle: FakePlatformBundleSource
     platform_releases: FakeReleaseSource
     clock: FakeClockPort
-    catalog: FakeCatalogSource
     public_catalog: FakePublicCatalogSource
 
 

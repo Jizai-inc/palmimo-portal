@@ -176,15 +176,15 @@ def test_reset_stops_running_apps_removes_them_and_empties_secrets(
     assert client.get("/api/v1/secrets").json()["secrets"] == []
 
 
-def test_reset_leaves_the_catalog_cache(client: TestClient, adapters: FakeAdapterBundle) -> None:
+def test_reset_leaves_the_public_catalog_cache(client: TestClient, adapters: FakeAdapterBundle) -> None:
     client = _authenticated_client(client, adapters)
-    from palmimo_portal.ports import CatalogCacheState
+    from palmimo_portal.ports import PublicCatalogCacheState
 
-    adapters.state.write_catalog_cache(CatalogCacheState(tag="v1.0.0", apps=(), fetched_at=1.0))
+    adapters.state.write_public_catalog_cache(PublicCatalogCacheState(fetched_at=1.0))
 
     client.post("/api/v1/apps/reset", headers=CSRF_HEADERS)
 
-    assert adapters.state.read_catalog_cache().tag == "v1.0.0"
+    assert adapters.state.read_public_catalog_cache().fetched_at == 1.0
 
 
 def test_reset_returns_409_while_an_apps_job_is_running(client: TestClient, adapters: FakeAdapterBundle) -> None:

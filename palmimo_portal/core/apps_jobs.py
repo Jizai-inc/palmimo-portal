@@ -47,13 +47,11 @@ from palmimo_portal.core.app_translations import MAX_TRANSLATIONS_BYTES, parse_t
 from palmimo_portal.core.apps import (
     app_namespace,
     host_owner_from_url,
-    normalize_git_url,
     resolve_subdir,
     suggest_app_name,
 )
 from palmimo_portal.core.apps_layout import LayoutPaths, resolve_layout
 from palmimo_portal.core.apps_zip import UPLOAD_MAX_BYTES, extract_zip_to_staging
-from palmimo_portal.core.catalog import CatalogCache
 from palmimo_portal.core.manifest import (
     DEFAULT_MANIFEST_FILENAME,
     Manifest,
@@ -82,7 +80,6 @@ from palmimo_portal.ports import (
     AppUnitPort,
     DiskFullError,
     DiskPort,
-    GitCommandError,
     GitPort,
     InvalidManifestSourceError,
     JournalPort,
@@ -140,12 +137,6 @@ class AppsJobContext:
     #: Only needed by :func:`purge_app_files` to remove a deleted app's run directory --
     #: ``None`` in tests that never exercise delete skips that cleanup.
     run_dir: RunDirPort | None = None
-    #: Only needed by :func:`check_git_update`'s tag path, to compare a tag-pinned official-devkit
-    #: app against the latest release tag (design doc 3.2) -- ``None`` skips that comparison.
-    catalog_cache: CatalogCache | None = None
-    #: ``owner/repo`` :func:`check_git_update` treats as "the official devkit repo" (design doc
-    #: 4.1) -- the same value the catalog itself is fetched from (``Settings.catalog_repo``).
-    catalog_repo: str | None = None
     public_catalog_cache: PublicCatalogCache | None = None
     public_catalog_url: str | None = None
 
@@ -421,44 +412,6 @@ def _read_translations(project_dir: Path, manifest_filename: str) -> dict[str, d
         return {}
 
 
-def _catalog_commit_for_source(
-    ctx: AppsJobContext, *, url: str, ref: str, ref_kind: AppRefKind, subdir: str | None, manifest: str | None
-) -> str | None:
-    """Return the pinned catalog commit for exactly this official source.
-
-    A URL that merely happens to point to the official repository is not a
-    catalog install: it must also match an advertised source tuple.  This
-    keeps user-selected refs on the normal git-source path while making the
-    catalog's signed commit pin authoritative for its own entries.
-    """
-    if ref_kind != "tag" or ctx.catalog_repo is None or not _is_official_devkit_source(url, ctx.catalog_repo):
-        return None
-    if ctx.catalog_cache is None:
-        raise GitCommandError("official catalog is unavailable", reason="catalog_unavailable")
-    requested_url = normalize_git_url(url)
-    for app in ctx.catalog_cache.peek().apps:
-        source = app.source
-        if (
-            source.type == "git"
-            and normalize_git_url(source.url or "") == requested_url
-            and source.ref == ref
-            and source.ref_kind == ref_kind
-            and source.subdir == subdir
-            and source.manifest == manifest
-        ):
-            if not isinstance(source.commit, str) or not source.commit:
-                raise GitCommandError("official catalog source has no commit pin", reason="git_commit_mismatch")
-            return source.commit
-    raise GitCommandError("official source is absent from the catalog", reason="catalog_unavailable")
-
-
-def _verify_catalog_commit(expected: str | None, actual: str) -> None:
-    if expected is not None and actual != expected:
-        raise GitCommandError(
-            f"official catalog commit mismatch: expected {expected}, got {actual}", reason="git_commit_mismatch"
-        )
-
-
 def _fetch_git_source(
     ctx: AppsJobContext,
     *,
@@ -469,32 +422,7 @@ def _fetch_git_source(
     manifest: str | None,
     dest: Path,
 ) -> str:
-    """Clone ``url``@``ref`` into ``dest``, the one fetch path every git-source pipeline shares.
-
-    Uses the blobless sparse clone for exactly the source tuples the official
-    catalog advertises (design doc 3.10), and verifies the resulting ``HEAD``
-    against the catalog's pinned commit either way -- a preview, an install,
-    and an update must all reject the same force-moved tag, not just two of
-    the three.
-
-    Raises:
-        GitCommandError: ``ctx.catalog_cache`` pins a commit for this source
-            and the clone's ``HEAD`` does not match it.
-    """
-    expected_commit = _catalog_commit_for_source(
-        ctx, url=url, ref=ref, ref_kind=ref_kind, subdir=subdir, manifest=manifest
-    )
-    commit = ctx.git.clone_shallow(
-        url,
-        ref,
-        ref_kind,
-        dest,
-        env=git_env(ctx, url),
-        blobless=expected_commit is not None,
-        sparse_subdir=subdir if expected_commit is not None else None,
-    )
-    _verify_catalog_commit(expected_commit, commit)
-    return commit
+    return ctx.git.clone_shallow(url, ref, ref_kind, dest, env=git_env(ctx, url))
 
 
 def _manifest_filename_for(source: AppSource) -> str:
@@ -917,7 +845,7 @@ def commit_install(
     if app_id is None and prepared.public_app is not None:
         app_id = apps_core.app_id_from_public_catalog(prepared.public_app, state)
     if app_id is None:
-        namespace = app_namespace(prepared.source.type, prepared.source.url, ctx.catalog_repo)
+        namespace = app_namespace(prepared.source.type, prepared.source.url)
         app_id = f"{namespace}.{suggest_app_name(namespace, prepared.manifest.name, state)}"
     if app_id in state.apps:
         raise AppExistsError(app_id)
@@ -1050,7 +978,7 @@ def update_git(
         staging_container = prepared.staging_container
         target_source = prepared.source
     else:
-        target_source = replace(record.source, ref=_official_catalog_target_ref(ctx, record.source))
+        target_source = record.source
     uncontained = False
     try:
         on_step("fetch")
@@ -1225,72 +1153,13 @@ def _purge_uv_cache(ctx: AppsJobContext, name: str) -> str | None:
     return leftover
 
 
-def _is_official_devkit_source(url: str | None, catalog_repo: str) -> bool:
-    return app_namespace("git", url, catalog_repo) == "palmimo"
-
-
-def _official_catalog_source(ctx: AppsJobContext, source: AppSource) -> AppSource | None:
-    """Return the catalog entry matching an official app's repository location.
-
-    Both availability detection and fetching use this entry's ``ref`` and
-    ``commit``. Any other source (a community fork or a non-catalog tag)
-    keeps its own pinned ref because it has no catalog entry to follow.
-    """
-    if (
-        ctx.catalog_cache is None
-        or ctx.catalog_repo is None
-        or source.ref_kind != "tag"
-        or not _is_official_devkit_source(source.url, ctx.catalog_repo)
-    ):
-        return None
-    requested_url = normalize_git_url(source.url or "")
-    for app in ctx.catalog_cache.peek().apps:
-        candidate = app.source
-        if (
-            candidate.type == "git"
-            and normalize_git_url(candidate.url or "") == requested_url
-            and candidate.subdir == source.subdir
-            and candidate.manifest == source.manifest
-        ):
-            return candidate
-    return None
-
-
-def _official_catalog_target_ref(ctx: AppsJobContext, source: AppSource) -> str:
-    assert source.ref is not None
-    candidate = _official_catalog_source(ctx, source)
-    return candidate.ref if candidate is not None and candidate.ref is not None else source.ref
-
-
 def check_git_update(ctx: AppsJobContext, record: AppRecord) -> tuple[bool, str | None]:
-    """Report whether a git-sourced app has a new version upstream (design doc 3.2).
-
-    Public apps compare commits against the public catalog cache.
-    Other branch-pinned apps are checked with a live ``git ls-remote``. A
-    tag-pinned app is checked only when its source is the official devkit
-    repo (:attr:`AppsJobContext.catalog_repo`) -- its pin is compared with
-    the matching cached catalog entry, never fetched here. Any other tag-pinned app (a
-    community fork, a private tag-locked repo) has no catalog entry to
-    compare against, so it always reports no update available; raising its
-    pin is a manual ``PUT /apps/{id}/source`` instead.
-    """
+    """Compare public catalog commits or check a branch with live git; other tags stay pinned."""
     if is_public_source(record.source):
         status = public_app_status(ctx.public_catalog_cache, record.source)
         return status.update_available is True, status.latest_commit
     if record.source.type != "git":
         return False, None
-    if record.source.ref_kind == "tag":
-        if ctx.catalog_cache is None or ctx.catalog_repo is None:
-            return False, None
-        if not _is_official_devkit_source(record.source.url, ctx.catalog_repo):
-            return False, None
-        candidate = _official_catalog_source(ctx, record.source)
-        if candidate is None or candidate.ref is None:
-            return False, None
-        return (
-            candidate.ref != record.source.ref or candidate.commit != record.source.commit,
-            candidate.commit,
-        )
     if record.source.ref_kind != "branch":
         return False, None
     assert record.source.url is not None and record.source.ref is not None

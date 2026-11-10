@@ -38,7 +38,6 @@ DEFAULT_RUN_DIR = Path("/run/palmimo/apps")
 DEFAULT_UV_CACHE_DIR = Path("/var/lib/palmimo/uv-cache")
 DEFAULT_PLATFORM_REPO = "Jizai-inc/palmimo-image"
 DEFAULT_PUBLIC_CATALOG_URL = "https://apps.palmimo.dev/v1/catalog.json"
-DEFAULT_CATALOG_REPO = "Jizai-inc/palmimo-devkit"
 DEFAULT_REQUIRED_PLATFORM_VERSION = 1
 DEFAULT_SUDO_BIN = "sudo"
 DEFAULT_PLATFORM_DIR = Path("/var/lib/palmimo/platform")
@@ -106,9 +105,6 @@ class Settings:
     #: owner/repo GET /platform checks for the realtime platform bundle (design doc 2.8).
     #: Env PALMIMO_PLATFORM_REPO.
     platform_repo: str = DEFAULT_PLATFORM_REPO
-    #: owner/repo GET /catalog reads the official app catalog asset from (design doc 4.1).
-    #: Env PALMIMO_CATALOG_REPO.
-    catalog_repo: str = DEFAULT_CATALOG_REPO
     public_catalog_url: str = DEFAULT_PUBLIC_CATALOG_URL
     #: The platform bundle version this Portal build requires (design doc 2.8) -- below this,
     #: install/start refuse with 409 platform_not_ready. Env PALMIMO_REQUIRED_PLATFORM_VERSION.
@@ -176,7 +172,6 @@ def get_settings() -> Settings:
     run_dir = Path(os.environ.get("PALMIMO_RUN_DIR", str(DEFAULT_RUN_DIR)))
     uv_cache_dir = Path(os.environ.get("PALMIMO_UV_CACHE_DIR", str(DEFAULT_UV_CACHE_DIR)))
     platform_repo = os.environ.get("PALMIMO_PLATFORM_REPO", DEFAULT_PLATFORM_REPO)
-    catalog_repo = os.environ.get("PALMIMO_CATALOG_REPO", DEFAULT_CATALOG_REPO)
     required_platform_version_raw = os.environ.get(
         "PALMIMO_REQUIRED_PLATFORM_VERSION", str(DEFAULT_REQUIRED_PLATFORM_VERSION)
     )
@@ -207,7 +202,6 @@ def get_settings() -> Settings:
         run_dir=run_dir,
         uv_cache_dir=uv_cache_dir,
         platform_repo=platform_repo,
-        catalog_repo=catalog_repo,
         public_catalog_url=os.environ.get("PALMIMO_PUBLIC_CATALOG_URL", DEFAULT_PUBLIC_CATALOG_URL),
         required_platform_version=required_platform_version,
         sudo_bin=sudo_bin,

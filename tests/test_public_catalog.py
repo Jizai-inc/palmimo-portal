@@ -180,7 +180,7 @@ def test_catalog_app_id_uses_public_namespace_and_existing_collision_rule(occupi
 
 
 def test_cloud_namespace_is_reserved_for_github_sources() -> None:
-    assert app_namespace("git", "https://github.com/cloud/dance", None) == "cloud-gh"
+    assert app_namespace("git", "https://github.com/cloud/dance") == "cloud-gh"
 
 
 def test_public_catalog_url_is_configurable(monkeypatch: pytest.MonkeyPatch) -> None:

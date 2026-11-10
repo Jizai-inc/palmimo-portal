@@ -45,7 +45,6 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 
 from palmimo_portal.api import apps as apps_api
 from palmimo_portal.api import auth as auth_api
-from palmimo_portal.api import catalog as catalog_api
 from palmimo_portal.api import platform as platform_api
 from palmimo_portal.api import public_catalog as public_catalog_api
 from palmimo_portal.api import secrets as secrets_api
@@ -70,7 +69,6 @@ from palmimo_portal.core.apps_start import (
     start_app,
 )
 from palmimo_portal.core.auth import SESSION_COOKIE_NAME, LoginRateLimiter, ResetRateLimiter, decode_session
-from palmimo_portal.core.catalog import CatalogCache
 from palmimo_portal.core.display_firmware import restore_preempted_app, run_display_firmware
 from palmimo_portal.core.periodic import build_scheduler
 from palmimo_portal.core.platform import (
@@ -689,9 +687,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         restart_delay_seconds=float(settings.update_restart_delay_seconds),
         alive=app.state.update_runner_alive,
     )
-    # Built before AppsJobContext (below) so check_git_update's tag path can read it without
-    # a network call of its own -- the periodic task and GET /catalog keep it warm.
-    app.state.catalog_cache = CatalogCache(adapters.catalog, adapters.state)
     app.state.public_catalog_cache = PublicCatalogCache(
         adapters.public_catalog, adapters.state, monotonic=adapters.clock.monotonic
     )
@@ -709,10 +704,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app_unit=adapters.app_unit,
         state=adapters.state,
         run_dir=adapters.run_dir,
-        catalog_cache=app.state.catalog_cache,
         public_catalog_cache=app.state.public_catalog_cache,
         public_catalog_url=settings.public_catalog_url,
-        catalog_repo=settings.catalog_repo,
     )
     app.state.apps_job_runner = AppsJobRunner(
         adapters.state, app.state.apps_job_context, adapters.app_unit, run_in_thread=bool(settings.apps_run_in_thread)
@@ -742,7 +735,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         clock=adapters.clock,
         apps_job_context=app.state.apps_job_context,
         state_store=adapters.state,
-        catalog_cache=app.state.catalog_cache,
         public_catalog_cache=app.state.public_catalog_cache,
         platform_latest_cache=app.state.platform_latest_cache,
     )
@@ -802,7 +794,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(apps_api.router)
     app.include_router(platform_api.router)
     app.include_router(secrets_api.router)
-    app.include_router(catalog_api.router)
     app.include_router(public_catalog_api.router)
 
     _mount_frontend(app, settings.static_dir)

@@ -94,6 +94,8 @@ def _parse_item(raw: Any, index: int) -> PublicCatalogApp:
         raise ValueError("invalid devices")
     env: dict[str, CatalogEnvSpec] = {}
     for name, raw_spec in _object(item["env"]).items():
+        if not _matches(name, r"[A-Z][A-Z0-9_]{0,63}") or name.startswith("PALMIMO_"):
+            raise ValueError("invalid environment variable name")
         spec = _object(raw_spec)
         if type(spec["required"]) is not bool or not isinstance(spec["description"], str):
             raise ValueError("invalid env")

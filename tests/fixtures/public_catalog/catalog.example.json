@@ -1619,6 +1619,74 @@
         "namespace": "bob",
         "official": false
       }
+    },
+    {
+      "name": "bad-env-name",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本",
+          "env.API_KEY": "APIキー"
+        }
+      },
+      "env": {
+        "bad-key": {
+          "required": true,
+          "description": "Example"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "future_source": true
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000047",
+        "namespace": "alice",
+        "official": false,
+        "future_public": true
+      },
+      "future_item": true
+    },
+    {
+      "name": "reserved-env-name",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本",
+          "env.API_KEY": "APIキー"
+        }
+      },
+      "env": {
+        "PALMIMO_TOKEN": {
+          "required": true,
+          "description": "Example"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "future_source": true
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000048",
+        "namespace": "alice",
+        "official": false,
+        "future_public": true
+      },
+      "future_item": true
     }
   ]
 }

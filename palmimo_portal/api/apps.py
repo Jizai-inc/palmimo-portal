@@ -238,12 +238,8 @@ def _raise_for_git_error(error: GitCommandError, status_code: int) -> NoReturn:
         raise PortalError(status_code, "git_credential_rejected", detail=str(error)) from error
     if error.reason == "git_not_found":
         raise PortalError(status_code, "git_not_found", detail=str(error)) from error
-    if error.reason == "git_commit_mismatch":
-        raise PortalError(status_code, "git_commit_mismatch", detail=str(error)) from error
     if error.reason == "git_ref_kind_mismatch":
         raise PortalError(status_code, "git_ref_kind_mismatch", detail=str(error)) from error
-    if error.reason == "catalog_unavailable":
-        raise PortalError(status_code, "catalog_unavailable", detail=str(error)) from error
     if error.reason == "git_network_unreachable":
         raise PortalError(status_code, "git_network_unreachable", detail=str(error)) from error
     raise PortalError(status_code, "git_unknown", detail=str(error)) from error
@@ -623,7 +619,6 @@ def _app_id_for_job(state: AppsState, job: AppJob) -> str | None:
 
 def _source_info(
     record: AppRecord,
-    catalog_repo: str | None,
     public_cache: PublicCatalogCache | None = None,
     catalog_url: str | None = None,
 ) -> AppSourceInfo:
@@ -638,9 +633,7 @@ def _source_info(
         commit=record.source.commit,
         manifest=record.source.manifest,
         official=(
-            public_app_status(public_cache, record.source).official
-            if is_public_source(record.source)
-            else app_namespace(record.source.type, record.source.url, catalog_repo) == "palmimo"
+            public_app_status(public_cache, record.source).official if is_public_source(record.source) else False
         ),
         legacy_official=("retired" if legacy.name is None else "migrating") if legacy else None,
         public_app_id=source.public_app_id or ("" if record.source.public_app_id == "" else None),
@@ -710,7 +703,6 @@ def _update_status(record: AppRecord, ctx: AppsJobContext) -> dict[str, Any]:
             "latest_source": PublicUpdateSourceInfo(
                 **_source_info(
                     replace(record, source=replace(candidate.source, public_app_id=source.public_app_id)),
-                    ctx.catalog_repo,
                     ctx.public_catalog_cache,
                     ctx.public_catalog_url,
                 ).model_dump(),
@@ -737,7 +729,6 @@ def _summary(
         label=record.label,
         source=_source_info(
             record,
-            deps.apps_job_ctx.catalog_repo,
             deps.apps_job_ctx.public_catalog_cache,
             deps.apps_job_ctx.public_catalog_url,
         ),
@@ -832,7 +823,7 @@ def _detail(
         name=record.name,
         id=record.id,
         label=record.label,
-        source=_source_info(record, ctx.catalog_repo, ctx.public_catalog_cache, ctx.public_catalog_url),
+        source=_source_info(record, ctx.public_catalog_cache, ctx.public_catalog_url),
         installed_at=record.installed_at,
         autostart=record.autostart,
         status=status,
@@ -999,9 +990,7 @@ async def preview(
     finally:
         if upload is not None:
             upload.unlink(missing_ok=True)
-    namespace = app_namespace(
-        "zip" if upload is not None else "git", git_source.url if git_source else None, ctx.catalog_repo
-    )
+    namespace = app_namespace("zip" if upload is not None else "git", git_source.url if git_source else None)
     state = state_store.read_apps_state()
     suggested_name = requested_name or suggest_app_name(namespace, manifest.name, state)
     return ManifestPreviewResponse(
@@ -1619,14 +1608,6 @@ def put_source(
         raise PortalError(409, "official_tag_ref_managed")
     if record.source.type != "git":
         raise PortalError(409, "source_update_git_only")
-    if (
-        not record.source.public_app_id
-        and app_namespace(record.source.type, record.source.url, ctx.catalog_repo) == "palmimo"
-        and record.source.ref_kind == "tag"
-        and body.ref_kind == "tag"
-        and body.ref != record.source.ref
-    ):
-        raise PortalError(409, "official_tag_ref_managed")
 
     def update(current: AppsState) -> AppsState:
         latest = current.apps.get(name)

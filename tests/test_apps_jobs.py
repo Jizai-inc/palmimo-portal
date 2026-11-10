@@ -18,25 +18,20 @@ from palmimo_portal.core.apps_jobs import (
     delete_from_ledger,
     install_git,
     install_zip,
-    prepare_install_git,
     prepare_install_zip,
-    preview_git,
     purge_app_files,
     purge_path,
     sweep_orphan_app_dirs,
     sync_unit_name,
     update_git,
 )
-from palmimo_portal.core.catalog import CatalogCache
 from palmimo_portal.core.manifest import ManifestValidationError
 from palmimo_portal.ports import (
     AppNotFoundError,
     AppRecord,
     AppSource,
     AppsState,
-    CatalogAsset,
     DiskFullError,
-    GitCommandError,
     InvalidManifestSourceError,
     JournalEntry,
     SyncFailedError,
@@ -44,7 +39,6 @@ from palmimo_portal.ports import (
 )
 from palmimo_portal.testing.fakes import (
     FakeAppUnitPort,
-    FakeCatalogSource,
     FakeDiskPort,
     FakeGitPort,
     FakeJournalPort,
@@ -52,7 +46,6 @@ from palmimo_portal.testing.fakes import (
     FakeStateStore,
     FakeSyncUnitPort,
     FakeUvPort,
-    make_catalog_app,
 )
 
 
@@ -544,48 +537,6 @@ def test_update_git_registers_the_new_record_before_purging_the_old_tree(
     assert registered[-1].source.commit == "v2"
 
 
-def test_update_git_follows_the_catalog_entries_ref_for_an_official_devkit_app(harness: Harness) -> None:
-    old_source = AppSource(
-        type="git",
-        url="https://github.com/Jizai-inc/palmimo-devkit",
-        ref="examples-v0.1.0",
-        ref_kind="tag",
-        commit="old-commit",
-        subdir="examples/teleop",
-    )
-    record = AppRecord(
-        id="palmimo.teleop",
-        name="palmimo-teleop",
-        source=old_source,
-        installed_at=1.0,
-        params={},
-        autostart=False,
-        last_job=None,
-    )
-    state = AppsState(apps={record.id: record})
-    (harness.ctx.apps_dir / record.id).mkdir(parents=True)
-
-    latest_app = replace(
-        make_catalog_app(subdir="examples/teleop", commit="new-commit"),
-        source=replace(make_catalog_app(subdir="examples/teleop", commit="new-commit").source, ref="examples-v0.1.1"),
-    )
-    catalog = CatalogCache(
-        FakeCatalogSource(asset=CatalogAsset(tag="different-catalog-release", apps=(latest_app,))), FakeStateStore()
-    )
-    catalog.get(ntp_synchronized=True)
-    ctx = replace(harness.ctx, catalog_cache=catalog, catalog_repo="Jizai-inc/palmimo-devkit")
-    harness.git.remote_commits[("https://github.com/Jizai-inc/palmimo-devkit", "examples-v0.1.1", "tag")] = "new-commit"
-    harness.git.on_clone = lambda dest, *_: _seed_git_clone(dest / "examples" / "teleop", "palmimo-teleop")
-
-    _, new_record = update_git(ctx, state, record.id)
-
-    assert new_record.source.ref == "examples-v0.1.1"
-    assert new_record.source.commit == "new-commit"
-
-    available, _ = check_git_update(ctx, new_record)
-    assert available is False
-
-
 def test_update_git_accepts_a_manifest_name_change_and_keeps_the_id(harness: Harness) -> None:
     # silently reassigned a new id, breaking every binding/param/autostart flag the id owns.
     harness.git.on_clone = lambda dest, url, ref, ref_kind: _seed_git_clone(dest, "palmimo-teleop")
@@ -669,81 +620,6 @@ def test_install_git_rejects_a_dangling_symlink_in_the_staging_tree_before_the_s
         install_git(harness.ctx, AppsState(), url="https://example.com/repo", ref="main", ref_kind="branch")
 
     assert not (harness.ctx.apps_dir / "palmimo-teleop").exists()
-
-
-def test_prepare_install_git_rejects_an_official_catalog_tag_at_the_wrong_commit(harness: Harness) -> None:
-    """A moved tag must not replace the commit that the signed catalog advertised."""
-    expected = "catalog-commit"
-    catalog = CatalogCache(
-        FakeCatalogSource(asset=CatalogAsset(tag="v1.0.0", apps=(make_catalog_app(commit=expected),))), FakeStateStore()
-    )
-    catalog.get(ntp_synchronized=True)
-    ctx = replace(harness.ctx, catalog_cache=catalog, catalog_repo="Jizai-inc/palmimo-devkit")
-    harness.git.next_commit = "moved-tag-commit"
-    harness.git.on_clone = lambda dest, *_: _seed_git_clone(dest, "palmimo-teleop")
-
-    with pytest.raises(GitCommandError) as excinfo:
-        prepare_install_git(
-            ctx,
-            url="https://github.com/Jizai-inc/palmimo-devkit",
-            ref="v1.0.0",
-            ref_kind="tag",
-        )
-
-    assert excinfo.value.reason == "git_commit_mismatch"
-
-
-def test_prepare_install_git_rejects_an_official_tag_when_the_catalog_is_unavailable(harness: Harness) -> None:
-    ctx = replace(harness.ctx, catalog_repo="Jizai-inc/palmimo-devkit")
-
-    with pytest.raises(GitCommandError, match="catalog") as excinfo:
-        prepare_install_git(
-            ctx,
-            url="https://github.com/Jizai-inc/palmimo-devkit",
-            ref="v1.0.0",
-            ref_kind="tag",
-        )
-
-    assert excinfo.value.reason == "catalog_unavailable"
-
-
-def test_preview_git_rejects_an_official_catalog_tag_at_the_wrong_commit(harness: Harness) -> None:
-    expected = "catalog-commit"
-    catalog = CatalogCache(
-        FakeCatalogSource(asset=CatalogAsset(tag="v1.0.0", apps=(make_catalog_app(commit=expected),))), FakeStateStore()
-    )
-    catalog.get(ntp_synchronized=True)
-    ctx = replace(harness.ctx, catalog_cache=catalog, catalog_repo="Jizai-inc/palmimo-devkit")
-    harness.git.next_commit = "moved-tag-commit"
-    harness.git.on_clone = lambda dest, *_: _seed_git_clone(dest, "palmimo-teleop")
-
-    with pytest.raises(GitCommandError) as excinfo:
-        preview_git(ctx, url="https://github.com/Jizai-inc/palmimo-devkit", ref="v1.0.0", ref_kind="tag")
-
-    assert excinfo.value.reason == "git_commit_mismatch"
-
-
-def test_prepare_install_git_uses_blobless_sparse_clone_for_an_official_catalog_subdir(harness: Harness) -> None:
-    catalog = CatalogCache(
-        FakeCatalogSource(asset=CatalogAsset(tag="v1.0.0", apps=(make_catalog_app(subdir="examples/teleop"),))),
-        FakeStateStore(),
-    )
-    catalog.get(ntp_synchronized=True)
-    ctx = replace(harness.ctx, catalog_cache=catalog, catalog_repo="Jizai-inc/palmimo-devkit")
-
-    def seed(dest: Path, *_: object) -> None:
-        _seed_git_clone(dest / "examples" / "teleop", "palmimo-teleop")
-
-    harness.git.on_clone = seed
-    prepare_install_git(
-        ctx,
-        url="https://github.com/Jizai-inc/palmimo-devkit",
-        ref="v1.0.0",
-        ref_kind="tag",
-        subdir="examples/teleop",
-    )
-
-    assert harness.git.clone_options == [(True, "examples/teleop")]
 
 
 def test_install_git_leaves_an_unwritten_symlink_outside_the_app_subdir_alone(harness: Harness) -> None:
@@ -931,32 +807,9 @@ def _tag_record(url: str, ref: str) -> AppRecord:
     )
 
 
-def test_check_git_update_reports_update_available_for_an_official_devkit_tag_behind_the_catalog(
-    harness: Harness,
-) -> None:
-    catalog_app = replace(
-        make_catalog_app(commit="entry-commit"),
-        source=replace(make_catalog_app(commit="entry-commit").source, ref="v0.3.0"),
-    )
-    catalog = CatalogCache(
-        FakeCatalogSource(asset=CatalogAsset(tag="unrelated-release", apps=(catalog_app,))), FakeStateStore()
-    )
-    catalog.get(ntp_synchronized=True)
-    ctx = replace(harness.ctx, catalog_cache=catalog, catalog_repo="Jizai-inc/palmimo-devkit")
-    record = _tag_record("https://github.com/Jizai-inc/palmimo-devkit", "v0.2.0")
-    record = replace(record, source=replace(record.source, commit="old-commit"))
-
-    available, latest = check_git_update(ctx, record)
-
-    assert (available, latest) == (True, "entry-commit")
-
-
 def test_check_git_update_reports_no_update_for_a_tag_pinned_app_from_a_non_official_repo(harness: Harness) -> None:
-    catalog = CatalogCache(FakeCatalogSource(asset=CatalogAsset(tag="v0.3.0", apps=())), FakeStateStore())
-    catalog.get(ntp_synchronized=True)
-    ctx = replace(harness.ctx, catalog_cache=catalog, catalog_repo="Jizai-inc/palmimo-devkit")
     record = _tag_record("https://github.com/someone-else/fork", "v0.2.0")
 
-    available, latest = check_git_update(ctx, record)
+    available, latest = check_git_update(harness.ctx, record)
 
     assert (available, latest) == (False, None)

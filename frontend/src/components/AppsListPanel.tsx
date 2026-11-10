@@ -1,3 +1,5 @@
+import { AppOfficialBadge } from "@/components/AppOfficialBadge";
+import { refreshAppQueries } from "@/lib/refreshAppQueries";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Info, Loader2, Package } from "lucide-react";
@@ -176,7 +178,7 @@ export function AppsListPanel() {
         jobId={repairJob?.jobId ?? null}
         title={t("apps.jobDialogTitle", { name: repairJob?.name ?? "" })}
         onClose={() => setRepairJob(null)}
-        onDone={invalidateList}
+        onDone={() => { void refreshAppQueries(queryClient); }}
       />
       <AlertDialog
         open={resetDialogOpen}
@@ -262,14 +264,15 @@ function AppRow({
             {busy ? <Loader2 className="size-3 animate-spin" /> : null}
             {appStatusLabel(t, app.status, app.exit_code)}
           </Badge>
-          {app.source.official ? <Badge>{t("appAdd.catalogOfficialBadge")}</Badge> : null}
+          <AppOfficialBadge official={app.source.official} publicAppId={app.source.public_app_id} />
           {isDefault ? <Badge variant="outline">{t("apps.defaultBadge")}</Badge> : null}
           {app.missing_env && app.missing_env.length > 0 ? (
             <Link to="/apps/$id" params={{ id: app.id }}>
               <Badge variant="destructive">{t("apps.missingKeysBadge")}</Badge>
             </Link>
           ) : null}
-          {app.update_available ? <Badge variant="outline">{t("apps.updateAvailableChip")}</Badge> : null}
+          {app.public_app_available === false ? <Badge variant="outline">{t(app.source.legacy_official === "retired" ? "apps.officialRetired" : "apps.publicAppUnavailable")}</Badge> : null}
+          {app.public_app_available !== false && app.update_available ? <Badge variant="outline">{t("apps.updateAvailableChip")}</Badge> : null}
           {app.credential_rejected ? <Badge variant="destructive">{t("apps.credentialRejectedBadge")}</Badge> : null}
         </div>
         {app.label ? <AppIdLabel id={app.id} className="truncate font-mono text-xs" /> : null}
@@ -296,8 +299,8 @@ function AppRow({
             {t("apps.startButton")}
           </Button>
         ) : needsRepair ? (
-          app.source.type === "git" ? (
-            <Button variant="outline" onClick={onRepair} disabled={disabledForPlatform}>
+          app.source.type === "git" && app.public_app_available !== false ? (
+            (app.source.public_app_id || app.source.legacy_official) ? <Button variant="outline" asChild><Link to="/apps/$id" params={{ id: app.id }}>{t("apps.repairButton")}</Link></Button> : <Button variant="outline" onClick={onRepair} disabled={disabledForPlatform}>
               {t("apps.repairButton")}
             </Button>
           ) : (

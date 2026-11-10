@@ -18,7 +18,7 @@ import { chooseOption, selectedOptionIndex } from "@/test/select";
 import { server } from "@/test/server";
 
 function detail(overrides: Partial<AppDetailResponse> = {}): AppDetailResponse {
-  return {
+  const result: AppDetailResponse = {
     autostart: false,
     bindings: {},
     broken_reason: null,
@@ -45,6 +45,10 @@ function detail(overrides: Partial<AppDetailResponse> = {}): AppDetailResponse {
     status: "stopped",
     ...overrides,
   };
+  if (result.source.public_app_id && result.latest_commit && !result.latest_source) {
+    result.latest_source = { ...result.source, commit: result.latest_commit, devices: result.devices, env: result.env };
+  }
+  return result;
 }
 
 function summary(overrides: Partial<AppSummary> = {}): AppSummary {
@@ -636,5 +640,182 @@ it("switches app descriptions without losing unsaved parameter values", async ()
     expect(input).toHaveValue(9000);
   } finally {
     await act(() => i18n.changeLanguage("en"));
+  }
+});
+
+it.each([true, false])("uses API update state for a public app with availability %s and links its page", async (available) => {
+  const publicId = "019a3f2c-0000-7000-8000-000000000001";
+  const record = detail({ update_available: true, latest_commit: "b".repeat(40), public_app_available: available, source: { ...detail().source, public_app_id: publicId, public_page_url: `https://apps.palmimo.dev/apps/${publicId}` } });
+  server.use(getGetAppApiV1AppsNameGetMockHandler(record), getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }), getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }));
+  renderWithRouter(<AppDetailPanel id={record.id} />);
+  expect(await screen.findByRole("link", { name: i18n.t("appAdd.publicPageLink") })).toHaveAttribute("href", `https://apps.palmimo.dev/apps/${publicId}`);
+  if (available) expect(screen.getByRole("button", { name: i18n.t("appDetail.updateButton") })).toBeInTheDocument();
+  else {
+    expect(screen.getByText(i18n.t("apps.publicAppUnavailable"))).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: i18n.t("appDetail.updateButton") })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: i18n.t("appDetail.checkForUpdatesButton") })).not.toBeInTheDocument();
+  }
+});
+
+it("refreshes installed apps and public catalog after updating", async () => {
+  let updated = false;
+  let listGets = 0;
+  let catalogGets = 0;
+  const record = detail({ update_available: true, latest_commit: "b".repeat(40), public_app_available: true, source: { ...detail().source, public_app_id: "019a3f2c-0000-7000-8000-000000000001" } });
+  const done = { id: "update-public", app_id: record.id, kind: "update", state: "done", step: "register", error: null, started_at: 1, finished_at: 2, lock_generated: false, dropped_bindings: [], dropped_params: [] };
+  server.use(
+    http.get("*/api/v1/apps/palmimo.teleop", () => HttpResponse.json({ ...record, update_available: !updated })),
+    http.get("*/api/v1/apps", () => { listGets++; return HttpResponse.json({ apps: [summary({ update_available: !updated })], default_app: null, autostart_conflict: [] }); }),
+    http.get("*/api/v1/catalog/public", () => { catalogGets++; return HttpResponse.json({ generated_at: "2026-11-09T00:00:00Z", apps: [], fetched_at: 1, stale: false, reason: null }); }),
+    getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }), getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }),
+    http.post("*/api/v1/apps/palmimo.teleop/update", () => { updated = true; return HttpResponse.json({ job: done }, { status: 202 }); }),
+    http.get("*/api/v1/apps/jobs/update-public", () => HttpResponse.json(done)),
+  );
+  const user = userEvent.setup();
+  const { queryClient } = renderWithRouter(<AppDetailPanel id={record.id} />);
+  await queryClient.fetchQuery({ queryKey: ["/api/v1/catalog/public"], queryFn: () => fetch("/api/v1/catalog/public").then((response) => response.json()) });
+  await user.click(await screen.findByRole("button", { name: i18n.t("appDetail.updateButton") }));
+  await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: i18n.t("appDetail.updateButton") }));
+  await waitFor(() => { expect(listGets).toBeGreaterThan(1); expect(catalogGets).toBeGreaterThan(1); });
+  await waitFor(() => expect(screen.queryByRole("button", { name: i18n.t("appDetail.updateButton") })).not.toBeInTheDocument());
+});
+
+it("hides previous app detail after a failed refetch", async () => {
+  server.use(getGetAppApiV1AppsNameGetMockHandler(detail()), getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }), getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }));
+  const { queryClient } = renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
+  await screen.findByText(detail().description);
+  server.use(http.get("*/api/v1/apps/palmimo.teleop", () => HttpResponse.json({ error: { code: "public_catalog_unavailable", params: {} } }, { status: 503 })));
+  await act(() => queryClient.refetchQueries());
+  expect(await screen.findByRole("alert")).toBeInTheDocument();
+  expect(screen.queryByText(detail().description)).not.toBeInTheDocument();
+});
+
+it("does not show a ledger update flag for a non-public app before checking", async () => {
+  server.use(getGetAppApiV1AppsNameGetMockHandler(detail({ update_available: true })), getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }), getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }));
+  renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
+  await screen.findByRole("button", { name: i18n.t("appDetail.checkForUpdatesButton") });
+  expect(screen.queryByRole("button", { name: i18n.t("appDetail.updateButton") })).not.toBeInTheDocument();
+});
+
+it.each(["tag", "branch"])("does not allow ref edits for an official public %s app", async (kind) => {
+  const record = detail({ source: { ...detail().source, public_app_id: "public-id", official: true, ref_kind: kind } });
+  server.use(getGetAppApiV1AppsNameGetMockHandler(record), getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }), getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }));
+  renderWithRouter(<AppDetailPanel id={record.id} />);
+  await screen.findByText(record.description);
+  expect(screen.queryByRole("button", { name: i18n.t("appDetail.sourceEditRefButton") })).not.toBeInTheDocument();
+});
+
+it("confirms the displayed public update commit and changed source", async () => {
+  const source = { ...detail().source, public_app_id: "public-id" };
+  const target = { ...source, url: "https://github.com/new-owner/new-app", commit: "b".repeat(40), devices: [], env: [] };
+  const posted = vi.fn();
+  const record = detail({ source, latest_source: target, latest_commit: target.commit, update_available: true, public_app_available: true });
+  server.use(getGetAppApiV1AppsNameGetMockHandler(record), getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }), getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }), http.post("*/api/v1/apps/palmimo.teleop/update", async ({ request }) => { posted(await request.json()); return HttpResponse.json({ error: { code: "public_app_changed", params: {} } }, { status: 409 }); }));
+  const user = userEvent.setup();
+  renderWithRouter(<AppDetailPanel id={record.id} />);
+  await user.click(await screen.findByRole("button", { name: i18n.t("appDetail.updateButton") }));
+  const dialog = within(screen.getByRole("alertdialog"));
+  expect(dialog.getByRole("link", { name: target.url })).toHaveAttribute("href", target.url);
+  expect(posted).not.toHaveBeenCalled();
+  await user.click(dialog.getByRole("button", { name: i18n.t("appDetail.updateButton") }));
+  await waitFor(() => expect(posted).toHaveBeenCalledWith({ commit: target.commit }));
+});
+
+it("preserves the last known official badge while public catalog state is unknown", async () => {
+  const known = detail({ update_available: false, public_app_available: true, source: { ...detail().source, public_app_id: "public-id", official: true } });
+  server.use(getGetAppApiV1AppsNameGetMockHandler(known), getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }), getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }));
+  const { queryClient } = renderWithRouter(<AppDetailPanel id={known.id} />);
+  await screen.findByText(i18n.t("appAdd.catalogOfficialBadge"));
+  server.use(getGetAppApiV1AppsNameGetMockHandler({ ...known, update_available: null, public_app_available: null, source: { ...known.source, official: null } }));
+  await act(() => queryClient.refetchQueries());
+  expect(screen.getByText(i18n.t("appAdd.catalogOfficialBadge"))).toBeInTheDocument();
+  expect(screen.queryByText(i18n.t("apps.publicAppUnavailable"))).not.toBeInTheDocument();
+});
+
+it("warns that saving a community ref opts out of catalog updates", async () => {
+  const record = detail({ source: { ...detail().source, public_app_id: "public-id" } });
+  server.use(getGetAppApiV1AppsNameGetMockHandler(record), getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }), getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }));
+  const user = userEvent.setup();
+  renderWithRouter(<AppDetailPanel id={record.id} />);
+  await user.click(await screen.findByRole("button", { name: i18n.t("appDetail.sourceEditRefButton") }));
+  expect(screen.getByRole("note")).toHaveTextContent(i18n.t("appDetail.publicRefOptOut"));
+});
+
+it.each([
+  ["broken", false],
+  ["needs_repair", false],
+  ["broken", true],
+  ["needs_repair", true],
+] as const)("confirms public repair from %s with a changed version %s", async (status, changesVersion) => {
+  const source = { ...detail().source, public_app_id: "public-id" };
+  const commit = changesVersion ? "b".repeat(40) : source.commit;
+  const latest = { ...source, commit, devices: changesVersion ? ["camera"] : [], env: changesVersion ? [...detail().env, { name: "REPAIR_TOKEN", required: true, description: "Token", help_url: null }] : detail().env };
+  const record = detail({ source, status, broken_reason: "venv_missing", update_available: changesVersion, public_app_available: true, latest_commit: commit, latest_source: latest });
+  const posted = vi.fn();
+  server.use(getGetAppApiV1AppsNameGetMockHandler(record), getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }), getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }), http.post("*/api/v1/apps/palmimo.teleop/update", async ({ request }) => { posted(await request.json()); return HttpResponse.json({ error: { code: "public_app_changed", params: {} } }, { status: 409 }); }));
+  const user = userEvent.setup();
+  renderWithRouter(<AppDetailPanel id={record.id} />);
+  const action = i18n.t(changesVersion ? "appDetail.updateAndRepair" : "apps.repairButton");
+  await user.click(await screen.findByRole("button", { name: action }));
+  const dialog = within(screen.getByRole("alertdialog"));
+  expect(dialog.getByRole("heading", { name: i18n.t(changesVersion ? "appDetail.updateAndRepair" : "appDetail.confirmPublicRepair") })).toBeInTheDocument();
+  if (changesVersion) {
+    expect(dialog.getByRole("note")).toHaveTextContent(i18n.t("appDetail.repairVersionChange", { current: source.commit, target: commit }));
+    expect(within(dialog.getByRole("list", { name: i18n.t("appDetail.addedDevices") })).getByText(i18n.t("devices.camera"))).toBeInTheDocument();
+    expect(within(dialog.getByRole("list", { name: i18n.t("appDetail.addedRequiredEnv") })).getByText("REPAIR_TOKEN")).toBeInTheDocument();
+  } else {
+    expect(dialog.queryByRole("note")).not.toBeInTheDocument();
+  }
+  expect(posted).not.toHaveBeenCalled();
+  await user.click(dialog.getByRole("button", { name: action }));
+  await waitFor(() => expect(posted).toHaveBeenCalledWith({ commit }));
+});
+
+it("shows added device and required environment requirements before confirming", async () => {
+  const source = { ...detail().source, public_app_id: "public-id" };
+  const latest = { ...source, commit: "b".repeat(40), devices: ["audio", "camera"], env: [{ name: "NEW_TOKEN", required: true, description: "Token", help_url: null }, { name: "OPTIONAL", required: false, description: "Optional", help_url: null }] };
+  const record = detail({ source, devices: ["audio"], env: [], update_available: true, latest_commit: latest.commit, public_app_available: true, latest_source: latest });
+  server.use(getGetAppApiV1AppsNameGetMockHandler(record), getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }), getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }));
+  const user = userEvent.setup();
+  renderWithRouter(<AppDetailPanel id={record.id} />);
+  await user.click(await screen.findByRole("button", { name: i18n.t("appDetail.updateButton") }));
+  const dialog = within(screen.getByRole("alertdialog"));
+  const devices = within(dialog.getByRole("list", { name: i18n.t("appDetail.addedDevices") }));
+  expect(devices.getByText(i18n.t("devices.camera"))).toBeInTheDocument();
+  expect(devices.queryByText(i18n.t("devices.audio"))).not.toBeInTheDocument();
+  const env = within(dialog.getByRole("list", { name: i18n.t("appDetail.addedRequiredEnv") }));
+  expect(env.getByText("NEW_TOKEN")).toBeInTheDocument();
+  expect(env.queryByText("OPTIONAL")).not.toBeInTheDocument();
+});
+
+it("explains that unknown public catalog state prevents ref editing", async () => {
+  const record = detail({ source: { ...detail().source, public_app_id: "public-id", official: null }, update_available: null, public_app_available: null });
+  server.use(getGetAppApiV1AppsNameGetMockHandler(record), getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }), getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }));
+  renderWithRouter(<AppDetailPanel id={record.id} />);
+  expect(await screen.findByRole("note")).toHaveTextContent(i18n.t("appDetail.sourceCatalogUnknown"));
+  expect(screen.queryByText(i18n.t("appDetail.sourceOfficialTagManaged"))).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: i18n.t("appDetail.sourceEditRefButton") })).not.toBeInTheDocument();
+});
+
+it.each(["stopped", "broken", "needs_repair"] as const)("offers retired official repair only when needed (%s)", async (status) => {
+  const posted = vi.fn();
+  const record = detail({ status, source: { ...detail().source, official: true, legacy_official: "retired" }, public_app_available: false, update_available: false });
+  server.use(getGetAppApiV1AppsNameGetMockHandler(record), getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }), getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }), http.post("*/api/v1/apps/palmimo.teleop/update", async ({ request }) => {
+    posted(await request.text());
+    return HttpResponse.json({ error: { code: "git_not_found", params: {} } }, { status: 422 });
+  }));
+  renderWithRouter(<AppDetailPanel id={record.id} />);
+  expect(await screen.findByRole("status")).toHaveTextContent(i18n.t("apps.officialRetired"));
+  expect(screen.getByText(i18n.t("appAdd.catalogOfficialBadge"))).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: i18n.t("appDetail.updateButton") })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: i18n.t("appDetail.checkForUpdatesButton") })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: i18n.t("appDetail.sourceEditRefButton") })).not.toBeInTheDocument();
+  const repair = screen.queryByRole("button", { name: i18n.t("apps.repairButton") });
+  if (status === "stopped") {
+    expect(repair).not.toBeInTheDocument();
+  } else {
+    expect(repair).toBeEnabled();
+    await userEvent.click(repair!);
+    await waitFor(() => expect(posted).toHaveBeenCalledWith(""));
   }
 });

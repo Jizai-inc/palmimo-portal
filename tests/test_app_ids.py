@@ -16,8 +16,8 @@ from palmimo_portal.ports import AppsState
         "https://GITHUB.COM/JIZAI-INC/palmimo-devkit/",
     ],
 )
-def test_app_namespace_recognizes_normalized_official_sources(url: str) -> None:
-    assert app_namespace("git", url, "Jizai-inc/palmimo-devkit") == "palmimo"
+def test_app_namespace_of_the_devkit_repository_is_the_lowercased_owner(url: str) -> None:
+    assert app_namespace("git", url) == "jizai-inc"
 
 
 @pytest.mark.parametrize(
@@ -30,7 +30,7 @@ def test_app_namespace_recognizes_normalized_official_sources(url: str) -> None:
     ],
 )
 def test_app_namespace_derives_source_namespace(url: str, expected: str) -> None:
-    assert app_namespace("git", url, "Jizai-inc/palmimo-devkit") == expected
+    assert app_namespace("git", url) == expected
 
 
 @pytest.mark.parametrize(

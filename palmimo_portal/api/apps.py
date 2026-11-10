@@ -45,7 +45,17 @@ from typing import Any, Literal, NoReturn, cast
 import anyio.to_thread
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import PlainTextResponse
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    GetJsonSchemaHandler,
+    SerializerFunctionWrapHandler,
+    ValidationError,
+    field_validator,
+    model_serializer,
+)
+from pydantic.json_schema import JsonSchemaValue
+from pydantic_core import CoreSchema
 
 from palmimo_portal.api.deps import (
     get_app_unit_port,
@@ -105,6 +115,7 @@ from palmimo_portal.core.apps_start import (
     with_default_app,
 )
 from palmimo_portal.core.apps_zip import UPLOAD_MAX_BYTES
+from palmimo_portal.core.legacy_official import is_retired_official, legacy_official
 from palmimo_portal.core.manifest import (
     InvalidManifestFilenameError,
     Manifest,
@@ -114,6 +125,19 @@ from palmimo_portal.core.manifest import (
     validate_param_values,
 )
 from palmimo_portal.core.platform import compute_status
+from palmimo_portal.core.public_catalog import (
+    PublicAppChangedError,
+    PublicAppInstalledError,
+    PublicAppMismatchError,
+    PublicAppUnavailableError,
+    PublicCatalogCache,
+    effective_public_source,
+    find_public_app,
+    installed_public_app,
+    is_public_source,
+    public_app_status,
+    public_page_url,
+)
 from palmimo_portal.core.secrets import collect_registered_secret_values, mask_known_values
 from palmimo_portal.ports import (
     AdapterUnavailableError,
@@ -206,18 +230,16 @@ def _raise_for_git_error(error: GitCommandError, status_code: int) -> NoReturn:
     `tests/test_i18n_parity.py`'s static scan of `PortalError(...)` call
     sites can find it -- see `_raise_for_start_error`.
     """
+    if error.reason == "public_commit_unavailable":
+        raise PortalError(status_code, "public_commit_unavailable") from error
     if error.reason == "git_credential_missing":
         raise PortalError(status_code, "git_credential_missing", detail=str(error)) from error
     if error.reason == "git_credential_rejected":
         raise PortalError(status_code, "git_credential_rejected", detail=str(error)) from error
     if error.reason == "git_not_found":
         raise PortalError(status_code, "git_not_found", detail=str(error)) from error
-    if error.reason == "git_commit_mismatch":
-        raise PortalError(status_code, "git_commit_mismatch", detail=str(error)) from error
     if error.reason == "git_ref_kind_mismatch":
         raise PortalError(status_code, "git_ref_kind_mismatch", detail=str(error)) from error
-    if error.reason == "catalog_unavailable":
-        raise PortalError(status_code, "catalog_unavailable", detail=str(error)) from error
     if error.reason == "git_network_unreachable":
         raise PortalError(status_code, "git_network_unreachable", detail=str(error)) from error
     raise PortalError(status_code, "git_unknown", detail=str(error)) from error
@@ -251,10 +273,12 @@ class AppSourceInfo(BaseModel):
     subdir: str | None
     commit: str | None
     manifest: str | None
-    #: True iff this source normalizes to the official devkit repo (``app_namespace(...) ==
-    #: "palmimo"``, design doc 3.9) -- the "official" badge must key off source, not the app id's
-    #: namespace segment, so a UI never has to re-derive the normalization rule itself.
-    official: bool
+    official: bool | None
+    legacy_official: Literal["migrating", "retired"] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    public_app_id: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    public_page_url: str | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class AppJobInfo(BaseModel):
@@ -278,7 +302,23 @@ class AppJobAcceptedResponse(BaseModel):
     job: AppJobInfo
 
 
-class AppSummary(BaseModel):
+class PublicAvailabilityResponse(BaseModel):
+    @model_serializer(mode="wrap")
+    def serialize_availability(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        if data.get("update_available") is None:
+            data["public_app_available"] = None
+        return data
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema: CoreSchema, handler: GetJsonSchemaHandler) -> JsonSchemaValue:
+        # Keep the declared response fields instead of the serializer's generic dictionary schema.
+        schema = dict(core_schema)
+        schema.pop("serialization", None)
+        return handler(cast(CoreSchema, schema))
+
+
+class AppSummary(PublicAvailabilityResponse):
     """One app's ledger entry plus a coarse status.
 
     ``status`` is one of ``stopped``/``broken`` (ledger-derived) or
@@ -296,8 +336,10 @@ class AppSummary(BaseModel):
     status: AppStatus
     broken_reason: str | None
     credential_rejected: bool
-    update_available: bool
+    update_available: bool | None
     latest_commit: str | None
+    public_app_available: bool | None = Field(default=None, exclude_if=lambda value: value is None)
+    latest_source: PublicUpdateSourceInfo | None = Field(default=None, exclude_if=lambda value: value is None)
     last_job: AppJobInfo | None
     exit_code: int | None = None
     reason: str | None = None
@@ -328,6 +370,11 @@ class EnvSpecInfo(BaseModel):
     help_url: str | None
 
 
+class PublicUpdateSourceInfo(AppSourceInfo):
+    devices: list[str]
+    env: list[EnvSpecInfo]
+
+
 class ParamSpecInfo(BaseModel):
     """One declared ``[params.*]`` entry's shape -- not its current stored value (see ``params``)."""
 
@@ -350,7 +397,11 @@ class AppManifestInfo(BaseModel):
     devices: list[str]
 
 
-class AppDetailResponse(BaseModel):
+class AppDetailResponse(PublicAvailabilityResponse):
+    update_available: bool | None = False
+    latest_commit: str | None = None
+    public_app_available: bool | None = Field(default=None, exclude_if=lambda value: value is None)
+    latest_source: PublicUpdateSourceInfo | None = Field(default=None, exclude_if=lambda value: value is None)
     translations: dict[str, dict[str, str]] = Field(default_factory=dict)
     name: str
     id: str
@@ -398,6 +449,15 @@ class GitSourceRequest(BaseModel):
     _validate_manifest = field_validator("manifest")(validate_manifest_filename)
 
 
+class PublicUpdateRequest(BaseModel):
+    commit: str | None = None
+
+
+class PublicInstallRequest(BaseModel):
+    public_app_id: str
+    commit: str
+
+
 class GitInstallRequest(BaseModel):
     source: GitSourceRequest
     name: str | None = None
@@ -422,8 +482,10 @@ class BindingsRequest(BaseModel):
     bindings: dict[str, str]
 
 
-class UpdateCheckResponse(BaseModel):
-    update_available: bool
+class UpdateCheckResponse(PublicAvailabilityResponse):
+    public_app_available: bool | None = Field(default=None, exclude_if=lambda value: value is None)
+    latest_source: PublicUpdateSourceInfo | None = Field(default=None, exclude_if=lambda value: value is None)
+    update_available: bool | None
     remote_commit: str | None
 
 
@@ -555,7 +617,13 @@ def _app_id_for_job(state: AppsState, job: AppJob) -> str | None:
     return None
 
 
-def _source_info(record: AppRecord, catalog_repo: str | None) -> AppSourceInfo:
+def _source_info(
+    record: AppRecord,
+    public_cache: PublicCatalogCache | None = None,
+    catalog_url: str | None = None,
+) -> AppSourceInfo:
+    legacy = legacy_official(record)
+    source = effective_public_source(public_cache, record)
     return AppSourceInfo(
         type=record.source.type,
         url=record.source.url,
@@ -564,7 +632,10 @@ def _source_info(record: AppRecord, catalog_repo: str | None) -> AppSourceInfo:
         subdir=record.source.subdir,
         commit=record.source.commit,
         manifest=record.source.manifest,
-        official=app_namespace(record.source.type, record.source.url, catalog_repo) == "palmimo",
+        official=(public_app_status(public_cache, record).official if is_public_source(record) else False),
+        legacy_official=("retired" if legacy.name is None else "migrating") if legacy else None,
+        public_app_id=source.public_app_id or ("" if record.source.public_app_id == "" else None),
+        public_page_url=public_page_url(catalog_url, source.public_app_id) if source.public_app_id else None,
     )
 
 
@@ -618,6 +689,33 @@ def _snapshot_manifest(record: AppRecord) -> Manifest | None:
         return None
 
 
+def _update_status(record: AppRecord, ctx: AppsJobContext) -> dict[str, Any]:
+    if is_public_source(record):
+        source = effective_public_source(ctx.public_catalog_cache, record)
+        status = public_app_status(ctx.public_catalog_cache, record)
+        candidate = find_public_app(ctx.public_catalog_cache, source.public_app_id or "")
+        return {
+            "update_available": status.update_available,
+            "latest_commit": status.latest_commit,
+            "public_app_available": status.available,
+            "latest_source": PublicUpdateSourceInfo(
+                **_source_info(
+                    replace(record, source=replace(candidate.source, public_app_id=source.public_app_id)),
+                    ctx.public_catalog_cache,
+                    ctx.public_catalog_url,
+                ).model_dump(),
+                devices=list(candidate.devices),
+                env=[
+                    EnvSpecInfo(name=name, required=spec.required, description=spec.description, help_url=spec.help_url)
+                    for name, spec in sorted(candidate.env.items())
+                ],
+            )
+            if candidate
+            else None,
+        }
+    return {"update_available": record.update_available, "latest_commit": record.latest_commit}
+
+
 def _summary(
     record: AppRecord, state: AppsState, app_unit: AppUnitPort, deps: StartDeps, host: str, registered: set[str]
 ) -> AppSummary:
@@ -627,14 +725,17 @@ def _summary(
         name=record.name,
         id=record.id,
         label=record.label,
-        source=_source_info(record, deps.apps_job_ctx.catalog_repo),
+        source=_source_info(
+            record,
+            deps.apps_job_ctx.public_catalog_cache,
+            deps.apps_job_ctx.public_catalog_url,
+        ),
         installed_at=record.installed_at,
         autostart=record.autostart,
         status=status,
         broken_reason=record.broken_reason,
         credential_rejected=record.credential_rejected,
-        update_available=record.update_available,
-        latest_commit=record.latest_commit,
+        **_update_status(record, deps.apps_job_ctx),
         last_job=_job_info(record.last_job, record.id) if record.last_job is not None else None,
         exit_code=exit_code,
         reason=reason,
@@ -716,10 +817,11 @@ def _detail(
     status, exit_code, reason = _run_status(record, state, app_unit, deps.run_dir, deps.state)
     url = resolve_running_url(deps, record, host=host) if status == "running" else None
     return AppDetailResponse(
+        **_update_status(record, ctx),
         name=record.name,
         id=record.id,
         label=record.label,
-        source=_source_info(record, ctx.catalog_repo),
+        source=_source_info(record, ctx.public_catalog_cache, ctx.public_catalog_url),
         installed_at=record.installed_at,
         autostart=record.autostart,
         status=status,
@@ -886,9 +988,7 @@ async def preview(
     finally:
         if upload is not None:
             upload.unlink(missing_ok=True)
-    namespace = app_namespace(
-        "zip" if upload is not None else "git", git_source.url if git_source else None, ctx.catalog_repo
-    )
+    namespace = app_namespace("zip" if upload is not None else "git", git_source.url if git_source else None)
     state = state_store.read_apps_state()
     suggested_name = requested_name or suggest_app_name(namespace, manifest.name, state)
     return ManifestPreviewResponse(
@@ -979,6 +1079,62 @@ async def install(
     except AppStartError as error:
         shutil.rmtree(prepared.staging_container, ignore_errors=True)
         _raise_for_start_error(error)
+    return AppJobAcceptedResponse(job=_job_info(job, _app_id_for_job(state_store.read_apps_state(), job)))
+
+
+@router.post("/install-public", status_code=202)
+def install_public(
+    body: PublicInstallRequest,
+    request: Request,
+    state_store: StateStore = Depends(get_state_store),
+    ctx: AppsJobContext = Depends(get_apps_job_context),
+    runner: AppsJobRunner = Depends(get_apps_job_runner),
+    deps: StartDeps = Depends(get_start_deps),
+) -> AppJobAcceptedResponse:
+    """Install only if the selected public app still advertises the displayed commit."""
+    _ensure_not_corrupt(state_store)
+    _ensure_no_portal_update_in_progress(state_store)
+    _ensure_no_platform_update_in_progress(state_store)
+    _ensure_platform_ready(deps)
+    cache = ctx.public_catalog_cache
+    snapshot = cache.get(ntp_synchronized=request.app.state.adapters.clock.ntp_synchronized()) if cache else None
+    if snapshot is None or snapshot.generated_at is None:
+        raise PortalError(503, "public_catalog_unavailable", reason=snapshot.reason if snapshot else None)
+    app = find_public_app(cache, body.public_app_id)
+    if app is None:
+        raise PortalError(404, "public_app_not_found")
+    existing = installed_public_app(state_store.read_apps_state(), cache, body.public_app_id)
+    if existing is not None:
+        raise PortalError(409, "public_app_installed", app_id=existing)
+    if app.source.commit != body.commit:
+        raise PortalError(409, "public_app_changed")
+    try:
+        prepared = apps_jobs.prepare_install_public(ctx, app)
+    except PublicAppMismatchError as error:
+        raise PortalError(422, "public_app_mismatch") from error
+    except ManifestValidationError as error:
+        raise PortalError(422, "manifest_invalid", errors=error.errors) from error
+    except DiskFullError as error:
+        raise PortalError(507, "disk_full") from error
+    except AppsDirUnavailableError as error:
+        raise PortalError(503, "platform_not_ready") from error
+    except InvalidManifestSourceError as error:
+        raise PortalError(422, "install_failed", detail=str(error)) from error
+    except GitCommandError as error:
+        _raise_for_git_error(error, 422)
+    try:
+        job = runner.start_install(prepared)
+    except BaseException as error:
+        apps_jobs.purge_path(ctx, prepared.staging_container)
+        if isinstance(error, PublicAppInstalledError):
+            raise PortalError(409, "public_app_installed", app_id=error.app_id) from error
+        if isinstance(error, AppExistsError):
+            raise PortalError(409, "app_exists") from error
+        if isinstance(error, AppsLockTimeoutError):
+            raise PortalError(409, "app_job_in_progress") from error
+        if isinstance(error, AppStartError):
+            _raise_for_start_error(error)
+        raise
     return AppJobAcceptedResponse(job=_job_info(job, _app_id_for_job(state_store.read_apps_state(), job)))
 
 
@@ -1121,37 +1277,92 @@ def put_bindings(
 @router.post("/{name}/update", status_code=202)
 def update_app(
     name: str,
+    request: Request,
+    body: PublicUpdateRequest | None = None,
+    ctx: AppsJobContext = Depends(get_apps_job_context),
     state_store: StateStore = Depends(get_state_store),
     runner: AppsJobRunner = Depends(get_apps_job_runner),
     deps: StartDeps = Depends(get_start_deps),
 ) -> AppJobAcceptedResponse:
-    """Start re-fetching a git-sourced app at its pinned ref and swapping it in.
+    """Refuse busy devices before fetching; recheck under the job lock before accepting.
 
-    Raises:
-        PortalError: 404 ``app_not_found``; 409 ``update_in_progress`` /
-            409 ``app_job_in_progress`` / 409 ``platform_not_ready`` / 409
-            ``app_running`` (the app must be stopped first). A failure
-            after the job starts (bad manifest, disk full, sync failure)
-            surfaces on the app's ``last_job``, not here.
+    Public updates require the displayed commit and validate their fetched manifest before
+    returning 202: unavailable/changed catalog entries return 409, unknown catalogs return 503,
+    manifest/requirement/clone failures return 422, and disk shortages return 507.
+    Legacy sources fetch in the job. All dependency-sync/swap failures remain job failures.
     """
     _ensure_not_corrupt(state_store)
     _ensure_no_portal_update_in_progress(state_store)
     _ensure_no_platform_update_in_progress(state_store)
     _ensure_platform_ready(deps)
     try:
-        job = runner.start_update(name)
+        runner.preflight_update(name)
     except AppNotFoundError as error:
         raise PortalError(404, "app_not_found") from error
     except AppsLockTimeoutError as error:
         raise PortalError(409, "app_job_in_progress") from error
+    except PolkitDeniedError as error:
+        raise PortalError(503, "polkit_denied") from error
     except AppStartError as error:
         _raise_for_start_error(error)
+    record = state_store.read_apps_state().apps.get(name)
+    prepared = None
+    if record is not None and is_public_source(record) and not is_retired_official(record):
+        snapshot = (
+            ctx.public_catalog_cache.get(ntp_synchronized=request.app.state.adapters.clock.ntp_synchronized())
+            if ctx.public_catalog_cache
+            else None
+        )
+        if snapshot is None or snapshot.generated_at is None:
+            raise PortalError(503, "public_catalog_unavailable", reason=snapshot.reason if snapshot else None)
+        source = effective_public_source(ctx.public_catalog_cache, record)
+        candidate = find_public_app(ctx.public_catalog_cache, source.public_app_id or "")
+        if candidate is None:
+            raise PortalError(409, "public_app_unavailable")
+        if body is None or body.commit != candidate.source.commit:
+            raise PortalError(409, "public_app_changed")
+        try:
+            prepared = apps_jobs.prepare_install_public(ctx, candidate)
+        except PublicAppMismatchError as error:
+            raise PortalError(422, "public_app_mismatch") from error
+        except ManifestValidationError as error:
+            raise PortalError(422, "manifest_invalid", errors=error.errors) from error
+        except InvalidManifestSourceError as error:
+            raise PortalError(422, "install_failed", detail=str(error)) from error
+        except GitCommandError as error:
+            _raise_for_git_error(error, 422)
+        except DiskFullError as error:
+            raise PortalError(507, "disk_full") from error
+        except AppsDirUnavailableError as error:
+            raise PortalError(503, "platform_not_ready") from error
+    accepted = False
+    try:
+        job = runner.start_update(name, prepared=prepared) if prepared is not None else runner.start_update(name)
+        accepted = True
+    except PublicAppChangedError as error:
+        raise PortalError(409, "public_app_changed") from error
+    except PublicAppUnavailableError as error:
+        raise PortalError(409, "public_app_unavailable") from error
+    except AppNotFoundError as error:
+        raise PortalError(404, "app_not_found") from error
+    except AppsLockTimeoutError as error:
+        raise PortalError(409, "app_job_in_progress") from error
+    except PolkitDeniedError as error:
+        raise PortalError(503, "polkit_denied") from error
+    except AppStartError as error:
+        _raise_for_start_error(error)
+    finally:
+        if prepared is not None and not accepted:
+            apps_jobs.purge_path(ctx, prepared.staging_container)
     return AppJobAcceptedResponse(job=_job_info(job, name))
 
 
 @router.post("/{name}/update/check")
 def update_check(
-    name: str, state_store: StateStore = Depends(get_state_store), ctx: AppsJobContext = Depends(get_apps_job_context)
+    name: str,
+    request: Request,
+    state_store: StateStore = Depends(get_state_store),
+    ctx: AppsJobContext = Depends(get_apps_job_context),
 ) -> UpdateCheckResponse:
     """Check a git-sourced app for a new commit/tag upstream (design doc 3.2).
 
@@ -1172,15 +1383,28 @@ def update_check(
     record = state.apps.get(name)
     if record is None:
         raise PortalError(404, "app_not_found")
+    if is_public_source(record) and ctx.public_catalog_cache is not None:
+        ctx.public_catalog_cache.get(ntp_synchronized=request.app.state.adapters.clock.ntp_synchronized())
     try:
         available, remote_commit = apps_jobs.check_git_update(ctx, record)
     except GitCommandError as error:
         _raise_for_git_error(error, 502)
-    if record.source.ref_kind == "branch" and record.source.url is not None:
+    if not is_public_source(record) and record.source.ref_kind == "branch" and record.source.url is not None:
         host_owner = host_owner_from_url(record.source.url)
         if host_owner is not None:
             state_store.update_apps_state(lambda state: clear_credential_rejected(state, host_owner))
-    return UpdateCheckResponse(update_available=available, remote_commit=remote_commit)
+    return UpdateCheckResponse(
+        update_available=(
+            public_app_status(ctx.public_catalog_cache, record).update_available
+            if is_public_source(record)
+            else available
+        ),
+        remote_commit=remote_commit,
+        latest_source=_update_status(record, ctx).get("latest_source") if is_public_source(record) else None,
+        public_app_available=(
+            public_app_status(ctx.public_catalog_cache, record).available if is_public_source(record) else None
+        ),
+    )
 
 
 @router.post("/{name}/start", status_code=202)
@@ -1370,26 +1594,43 @@ def put_source(
     if record is None:
         raise PortalError(404, "app_not_found")
     _ensure_no_app_job_in_progress(state, name)
+    if legacy_official(record) is not None:
+        raise PortalError(409, "official_tag_ref_managed")
+    if record.source.public_app_id:
+        snapshot = (
+            ctx.public_catalog_cache.get(ntp_synchronized=request.app.state.adapters.clock.ntp_synchronized())
+            if ctx.public_catalog_cache
+            else None
+        )
+        if snapshot is None or snapshot.generated_at is None:
+            raise PortalError(503, "public_catalog_unavailable", reason=snapshot.reason if snapshot else None)
+    if record.source.public_app_id and public_app_status(ctx.public_catalog_cache, record).official:
+        raise PortalError(409, "official_tag_ref_managed")
     if record.source.type != "git":
         raise PortalError(409, "source_update_git_only")
-    if (
-        app_namespace(record.source.type, record.source.url, ctx.catalog_repo) == "palmimo"
-        and record.source.ref_kind == "tag"
-        and body.ref_kind == "tag"
-        and body.ref != record.source.ref
-    ):
-        raise PortalError(409, "official_tag_ref_managed")
 
     def update(current: AppsState) -> AppsState:
         latest = current.apps.get(name)
         if latest is None:
             raise PortalError(404, "app_not_found")
         _ensure_no_app_job_in_progress(current, name)
+        if legacy_official(latest) is not None:
+            raise PortalError(409, "official_tag_ref_managed")
+        if latest.source.public_app_id and public_app_status(ctx.public_catalog_cache, latest).official:
+            raise PortalError(409, "official_tag_ref_managed")
         return replace(
             current,
             apps={
                 **current.apps,
-                name: replace(latest, source=replace(latest.source, ref=body.ref, ref_kind=body.ref_kind)),
+                name: replace(
+                    latest,
+                    source=replace(
+                        latest.source,
+                        ref=body.ref,
+                        ref_kind=body.ref_kind,
+                        public_app_id="" if latest.source.public_app_id is not None else None,
+                    ),
+                ),
             },
         )
 

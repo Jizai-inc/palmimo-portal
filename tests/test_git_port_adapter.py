@@ -179,3 +179,11 @@ def test_clone_shallow_classifies_operator_recoverable_failures(stderr: str, rea
         port.clone_shallow("https://example.com/repo", "main", "branch", tmp_path / "dest")
 
     assert excinfo.value.reason == reason
+
+
+def test_clone_commit_shallow_reports_an_unreachable_commit(tmp_path: Path) -> None:
+    bare = tmp_path / "origin.git"
+    _run_git(["init", "--bare", str(bare)])
+    with pytest.raises(GitCommandError) as error:
+        SubprocessGitPort().clone_commit_shallow(bare.as_uri(), "f" * 40, tmp_path / "clone")
+    assert error.value.reason == "public_commit_unavailable"

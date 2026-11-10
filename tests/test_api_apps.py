@@ -583,39 +583,6 @@ def test_put_params_rejects_value_outside_declared_range(client: TestClient, ada
 
 # namespace segment instead of the source field the design explicitly calls for, silently
 # breaking the moment id-derivation and the official check diverge.
-def test_list_apps_marks_official_only_for_the_devkit_repo_source(
-    client: TestClient, adapters: FakeAdapterBundle
-) -> None:
-    client = _authenticated_client(client, adapters)
-
-    def seed(dest: Path, url: str, ref: str, ref_kind: str) -> None:
-        dest.mkdir(parents=True, exist_ok=True)
-        (dest / "palmimo.toml").write_text('schema = 1\nname = "app"\ndescription = "d"\ncommand=["run"]\n')
-        (dest / "pyproject.toml").write_text("[project]\nname='app'\nversion='0'\n")
-
-    adapters.git.on_clone = seed
-    client.post(
-        "/api/v1/apps/install",
-        json={
-            "source": {
-                "type": "git",
-                "url": "https://github.com/Jizai-inc/palmimo-devkit",
-                "ref": "main",
-                "ref_kind": "branch",
-            }
-        },
-        headers=CSRF_HEADERS,
-    )
-    client.post(
-        "/api/v1/apps/install",
-        json={"source": {"type": "git", "url": "https://example.com/repo", "ref": "main", "ref_kind": "branch"}},
-        headers=CSRF_HEADERS,
-    )
-
-    response = client.get("/api/v1/apps")
-
-    official = {app["id"]: app["source"]["official"] for app in response.json()["apps"]}
-    assert official == {"palmimo.app": True, "git.app": False}
 
 
 def test_put_bindings_to_unregistered_secret_returns_422(client: TestClient, adapters: FakeAdapterBundle) -> None:
@@ -1263,32 +1230,6 @@ def test_put_source_updates_ref_for_a_git_sourced_app(client: TestClient, adapte
     record = adapters.state.read_apps_state().apps["git.palmimo-git-app"]
     assert record.source.ref == "v2"
     assert record.source.ref_kind == "tag"
-
-
-def test_put_source_rejects_a_tag_change_for_an_official_app(client: TestClient, adapters: FakeAdapterBundle) -> None:
-    client = _authenticated_client(client, adapters)
-    record = AppRecord(
-        id="palmimo.teleop",
-        name="teleop",
-        source=AppSource(
-            type="git",
-            url="https://github.com/Jizai-inc/palmimo-devkit",
-            ref="v1.0.0",
-            ref_kind="tag",
-        ),
-        installed_at=1.0,
-        params={},
-        autostart=False,
-        last_job=None,
-    )
-    adapters.state.write_apps_state(AppsState(apps={record.id: record}))
-
-    response = client.put(
-        "/api/v1/apps/palmimo.teleop/source", json={"ref": "v2.0.0", "ref_kind": "tag"}, headers=CSRF_HEADERS
-    )
-
-    assert response.status_code == 409
-    assert response.json()["error"]["code"] == "official_tag_ref_managed"
 
 
 def test_put_source_rejects_a_ref_that_looks_like_a_git_option(client: TestClient, adapters: FakeAdapterBundle) -> None:

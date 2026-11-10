@@ -1,0 +1,449 @@
+{
+  "kept": [
+    {
+      "index": 0,
+      "app_id": "019a3f2c-0000-7000-8000-000000000001"
+    },
+    {
+      "index": 1,
+      "app_id": "019a3f2c-0000-7000-8000-000000000002"
+    },
+    {
+      "index": 2,
+      "app_id": "019a3f2c-0000-7000-8000-000000000003"
+    },
+    {
+      "index": 14,
+      "app_id": "019a3f2c-0000-7000-8000-000000000015"
+    },
+    {
+      "index": 28,
+      "app_id": "019a3f2c-0000-7000-8000-000000000029"
+    },
+    {
+      "index": 29,
+      "app_id": "019a3f2c-0000-7000-8000-000000000030"
+    },
+    {
+      "index": 34,
+      "app_id": "019a3f2c-0000-7000-8000-000000000035"
+    },
+    {
+      "index": 35,
+      "app_id": "019a3f2c-0000-7000-8000-000000000036"
+    },
+    {
+      "index": 36,
+      "app_id": "019a3f2c-0000-7000-8000-000000000037"
+    },
+    {
+      "index": 37,
+      "app_id": "019a3f2c-0000-7000-8000-000000000038"
+    },
+    {
+      "index": 45,
+      "app_id": "019a3f2c-0000-7000-8000-000000000046"
+    }
+  ],
+  "discarded": [
+    {
+      "index": 3,
+      "app_id": "019a3f2c-0000-7000-8000-000000000004",
+      "reason": "invalid app name",
+      "rule": "shape"
+    },
+    {
+      "index": 4,
+      "app_id": "019a3f2c-0000-7000-8000-000000000005",
+      "reason": "invalid namespace",
+      "rule": "shape"
+    },
+    {
+      "index": 5,
+      "app_id": "019a3f2c-0000-7000-8000-000000000006",
+      "reason": "short commit",
+      "rule": "shape"
+    },
+    {
+      "index": 6,
+      "app_id": "019a3f2c-0000-7000-8000-000000000007",
+      "reason": "uppercase commit",
+      "rule": "shape"
+    },
+    {
+      "index": 7,
+      "app_id": "019a3f2c-0000-7000-8000-000000000008",
+      "reason": "invalid ref",
+      "rule": "shape"
+    },
+    {
+      "index": 8,
+      "app_id": "019a3f2c-0000-7000-8000-000000000009",
+      "reason": "parent subdir",
+      "rule": "shape"
+    },
+    {
+      "index": 9,
+      "app_id": "019a3f2c-0000-7000-8000-000000000010",
+      "reason": "absolute subdir",
+      "rule": "shape"
+    },
+    {
+      "index": 10,
+      "app_id": "019a3f2c-0000-7000-8000-000000000011",
+      "reason": "trailing slash subdir",
+      "rule": "shape"
+    },
+    {
+      "index": 11,
+      "app_id": "019a3f2c-0000-7000-8000-000000000012",
+      "reason": "empty subdir",
+      "rule": "shape"
+    },
+    {
+      "index": 12,
+      "app_id": "019a3f2c-0000-7000-8000-000000000013",
+      "reason": "noncanonical manifest",
+      "rule": "shape"
+    },
+    {
+      "index": 13,
+      "app_id": "019a3f2c-0000-7000-8000-000000000014",
+      "reason": "invalid manifest",
+      "rule": "shape"
+    },
+    {
+      "index": 15,
+      "app_id": "019a3f2c-0000-7000-8000-000000000016",
+      "reason": "unknown device",
+      "rule": "shape"
+    },
+    {
+      "index": 16,
+      "app_id": "not-a-uuid",
+      "reason": "invalid app ID",
+      "rule": "shape"
+    },
+    {
+      "index": 17,
+      "app_id": "019a3f2c-0000-7000-8000-000000000018",
+      "reason": "unknown source type",
+      "rule": "shape"
+    },
+    {
+      "index": 18,
+      "app_id": "019a3f2c-0000-7000-8000-000000000019",
+      "reason": "non-GitHub source",
+      "rule": "shape"
+    },
+    {
+      "index": 19,
+      "app_id": "019a3f2c-0000-7000-8000-000000000020",
+      "reason": "noncanonical git suffix",
+      "rule": "shape"
+    },
+    {
+      "index": 20,
+      "app_id": "019a3f2c-0000-7000-8000-000000000021",
+      "reason": "invalid ref kind",
+      "rule": "shape"
+    },
+    {
+      "index": 21,
+      "app_id": null,
+      "reason": "missing public",
+      "rule": "shape"
+    },
+    {
+      "index": 22,
+      "app_id": "019a3f2c-0000-7000-8000-000000000023",
+      "reason": "invalid description",
+      "rule": "shape"
+    },
+    {
+      "index": 23,
+      "app_id": "019a3f2c-0000-7000-8000-000000000024",
+      "reason": "duplicate app ID",
+      "rule": "cross_item"
+    },
+    {
+      "index": 24,
+      "app_id": "019a3f2c-0000-7000-8000-000000000025",
+      "reason": "duplicate namespace and name",
+      "rule": "cross_item"
+    },
+    {
+      "index": 25,
+      "app_id": "019a3f2c-0000-7000-8000-000000000026",
+      "reason": "reserved namespace",
+      "rule": "trust"
+    },
+    {
+      "index": 26,
+      "app_id": "019a3f2c-0000-7000-8000-000000000027",
+      "reason": "reserved namespace",
+      "rule": "trust"
+    },
+    {
+      "index": 27,
+      "app_id": "019a3f2c-0000-7000-8000-000000000028",
+      "reason": "reserved namespace",
+      "rule": "trust"
+    },
+    {
+      "index": 30,
+      "app_id": "019a3f2c-0000-7000-8000-000000000031",
+      "reason": "untrusted official source",
+      "rule": "trust"
+    },
+    {
+      "index": 31,
+      "app_id": "019a3f2c-0000-7000-8000-000000000032",
+      "reason": "palmimo requires official true",
+      "rule": "trust"
+    },
+    {
+      "index": 32,
+      "app_id": "019a3f2c-0000-7000-8000-000000000024",
+      "reason": "duplicate app ID",
+      "rule": "cross_item"
+    },
+    {
+      "index": 33,
+      "app_id": "019a3f2c-0000-7000-8000-000000000034",
+      "reason": "duplicate namespace and name",
+      "rule": "cross_item"
+    },
+    {
+      "index": 38,
+      "app_id": "019a3f2c-0000-7000-8000-000000000039",
+      "reason": "trailing whitespace in name",
+      "rule": "shape"
+    },
+    {
+      "index": 39,
+      "app_id": "019a3f2c-0000-7000-8000-000000000040",
+      "reason": "trailing whitespace in namespace",
+      "rule": "shape"
+    },
+    {
+      "index": 40,
+      "app_id": "019a3f2c-0000-7000-8000-000000000041",
+      "reason": "trailing whitespace in url",
+      "rule": "shape"
+    },
+    {
+      "index": 41,
+      "app_id": "019a3f2c-0000-7000-8000-000000000042",
+      "reason": "trailing whitespace in ref",
+      "rule": "shape"
+    },
+    {
+      "index": 42,
+      "app_id": "019a3f2c-0000-7000-8000-000000000043",
+      "reason": "trailing whitespace in subdir",
+      "rule": "shape"
+    },
+    {
+      "index": 43,
+      "app_id": "019a3f2c-0000-7000-8000-000000000044",
+      "reason": "trailing whitespace in manifest",
+      "rule": "shape"
+    },
+    {
+      "index": 44,
+      "app_id": "019a3f2c-0000-7000-8000-000000000045",
+      "reason": "trailing whitespace in commit",
+      "rule": "shape"
+    },
+    {
+      "index": 46,
+      "app_id": "019a3f2c-0000-7000-8000-000000000047",
+      "reason": "bad-env-name",
+      "rule": "shape"
+    },
+    {
+      "index": 47,
+      "app_id": "019a3f2c-0000-7000-8000-000000000048",
+      "reason": "reserved-env-name",
+      "rule": "shape"
+    }
+  ],
+  "downgraded_official": [
+    {
+      "index": 28,
+      "app_id": "019a3f2c-0000-7000-8000-000000000029"
+    },
+    {
+      "index": 29,
+      "app_id": "019a3f2c-0000-7000-8000-000000000030"
+    },
+    {
+      "index": 36,
+      "app_id": "019a3f2c-0000-7000-8000-000000000037"
+    }
+  ],
+  "dropped_fields": [
+    {
+      "index": 14,
+      "app_id": "019a3f2c-0000-7000-8000-000000000015",
+      "path": "env.API_KEY.help_url"
+    },
+    {
+      "index": 34,
+      "app_id": "019a3f2c-0000-7000-8000-000000000035",
+      "path": "translations.JA"
+    },
+    {
+      "index": 34,
+      "app_id": "019a3f2c-0000-7000-8000-000000000035",
+      "path": "translations.de"
+    },
+    {
+      "index": 34,
+      "app_id": "019a3f2c-0000-7000-8000-000000000035",
+      "path": "translations.ja.env.API_KEY"
+    },
+    {
+      "index": 34,
+      "app_id": "019a3f2c-0000-7000-8000-000000000035",
+      "path": "translations.ja.params.speed"
+    },
+    {
+      "index": 34,
+      "app_id": "019a3f2c-0000-7000-8000-000000000035",
+      "path": "translations.ja.unknown"
+    },
+    {
+      "index": 34,
+      "app_id": "019a3f2c-0000-7000-8000-000000000035",
+      "path": "translations.ja.env.TOO_LONG"
+    },
+    {
+      "index": 35,
+      "app_id": "019a3f2c-0000-7000-8000-000000000036",
+      "path": "translations"
+    }
+  ],
+  "normalized_translations": [
+    {
+      "index": 34,
+      "app_id": "019a3f2c-0000-7000-8000-000000000035",
+      "value": {
+        "ja": {
+          "description": "有効な説明",
+          "params.mode": "Auto",
+          "env.LIMIT200": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "params.x": "1"
+        }
+      }
+    },
+    {
+      "index": 35,
+      "app_id": "019a3f2c-0000-7000-8000-000000000036",
+      "value": {}
+    },
+    {
+      "index": 45,
+      "app_id": "019a3f2c-0000-7000-8000-000000000046",
+      "value": {
+        "aa": {
+          "description": "Language"
+        },
+        "ab": {
+          "description": "Language"
+        },
+        "ac": {
+          "description": "Language"
+        },
+        "ad": {
+          "description": "Language"
+        },
+        "ae": {
+          "description": "Language"
+        },
+        "af": {
+          "description": "Language"
+        },
+        "ag": {
+          "description": "Language"
+        },
+        "ah": {
+          "description": "Language"
+        },
+        "ai": {
+          "description": "Language"
+        },
+        "aj": {
+          "description": "Language"
+        },
+        "ak": {
+          "description": "Language"
+        },
+        "al": {
+          "description": "Language"
+        },
+        "am": {
+          "description": "Language"
+        },
+        "an": {
+          "description": "Language"
+        },
+        "ao": {
+          "description": "Language"
+        },
+        "ap": {
+          "description": "Language"
+        },
+        "aq": {
+          "description": "Language"
+        },
+        "ar": {
+          "description": "Language"
+        },
+        "as": {
+          "description": "Language"
+        },
+        "at": {
+          "description": "Language"
+        },
+        "au": {
+          "description": "Language"
+        },
+        "av": {
+          "description": "Language"
+        },
+        "aw": {
+          "description": "Language"
+        },
+        "ax": {
+          "description": "Language"
+        },
+        "ay": {
+          "description": "Language"
+        },
+        "az": {
+          "description": "Language"
+        },
+        "ba": {
+          "description": "Language"
+        },
+        "bb": {
+          "description": "Language"
+        },
+        "bc": {
+          "description": "Language"
+        },
+        "bd": {
+          "description": "Language"
+        },
+        "be": {
+          "description": "Language"
+        },
+        "bf": {
+          "description": "Language"
+        }
+      }
+    }
+  ]
+}

@@ -66,6 +66,33 @@ def _parse_http_status(stderr: str) -> int | None:
 class SubprocessGitPort(GitPort):
     runner: object = field(default=subprocess.run)
 
+    def clone_commit_shallow(self, url: str, sha: str, dest: Path) -> str:
+        if re.fullmatch(r"[0-9a-f]{40}", sha) is None:
+            raise GitCommandError("invalid commit SHA")
+        env = {"GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "/bin/true"}
+        self._run(["git", "init", "--", str(dest)], cwd=None, timeout=CLONE_TIMEOUT_SECONDS, env=env)
+        for args in (
+            ["remote", "add", "origin", "--", url],
+            ["fetch", "--depth", "1", "origin", sha],
+            ["checkout", "FETCH_HEAD"],
+        ):
+            try:
+                self._run(["git", *args], cwd=dest, timeout=CLONE_TIMEOUT_SECONDS, env=env)
+            except GitCommandError as error:
+                if args[0] == "fetch" and any(
+                    marker in str(error).lower()
+                    for marker in (
+                        "not our ref",
+                        "unadvertised object",
+                        "couldn't find remote ref",
+                    )
+                ):
+                    raise GitCommandError(
+                        "the catalog commit is unavailable", reason="public_commit_unavailable"
+                    ) from error
+                raise
+        return self._rev_parse(dest, env=env)
+
     def clone_shallow(
         self,
         url: str,

@@ -24,11 +24,12 @@ from palmimo_portal.ports import (
     AppsState,
     InvalidHostOwnerError,
     InvalidManifestSourceError,
+    PublicCatalogApp,
 )
 
 
 APP_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}\.[a-z][a-z0-9-]{0,39}$")
-_RESERVED_GITHUB_NAMESPACES = frozenset({"palmimo", "zip", "git"})
+_RESERVED_GITHUB_NAMESPACES = frozenset({"palmimo", "zip", "git", "cloud"})
 
 
 def normalize_git_url(url: str) -> tuple[str, str, str] | None:
@@ -48,16 +49,13 @@ def normalize_namespace(value: str) -> str:
     return value or "git"
 
 
-def app_namespace(source_type: str, url: str | None, catalog_repo: str | None) -> str:
+def app_namespace(source_type: str, url: str | None) -> str:
     if source_type == "zip":
         return "zip"
     normalized = normalize_git_url(url or "")
     if normalized is None:
         return "git"
     host, owner, _repo = normalized
-    catalog = normalize_git_url(f"https://github.com/{catalog_repo}") if catalog_repo else None
-    if catalog == normalized:
-        return "palmimo"
     if host == "github.com":
         namespace = normalize_namespace(owner)
         return f"{namespace}-gh" if namespace in _RESERVED_GITHUB_NAMESPACES else namespace
@@ -76,6 +74,11 @@ def suggest_app_name(namespace: str, requested_name: str, state: AppsState) -> s
         if f"{namespace}.{candidate}" not in occupied:
             return candidate
     raise RuntimeError("no app id available")
+
+
+def app_id_from_public_catalog(app: PublicCatalogApp, state: AppsState) -> str:
+    namespace = app.public.namespace
+    return f"{namespace}.{suggest_app_name(namespace, app.name, state)}"
 
 
 def new_job_id() -> str:

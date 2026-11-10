@@ -39,6 +39,8 @@ import type {
   ManifestPreviewResponse,
   PalmimoPortalApiAppsResetResponse,
   ParamsRequest,
+  PublicInstallRequest,
+  PublicUpdateRequest,
   SourceUpdateRequest,
   StartResponse,
   StopResponse,
@@ -328,6 +330,77 @@ export const useInstallApiV1AppsInstallPost = <TError = unknown,
         TContext
       > => {
       return useMutation(getInstallApiV1AppsInstallPostMutationOptions(options), queryClient);
+    }
+    export const getInstallPublicApiV1AppsInstallPublicPostUrl = () => {
+
+
+
+
+  return `/api/v1/apps/install-public`
+}
+
+/**
+ * Install only if the selected public app still advertises the displayed commit.
+ * @summary Install Public
+ */
+export const installPublicApiV1AppsInstallPublicPost = async (publicInstallRequest: PublicInstallRequest, options?: RequestInit): Promise<AppJobAcceptedResponse> => {
+
+  return customFetch<AppJobAcceptedResponse>(getInstallPublicApiV1AppsInstallPublicPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(publicInstallRequest)
+  }
+);}
+
+
+
+
+
+export const getInstallPublicApiV1AppsInstallPublicPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof installPublicApiV1AppsInstallPublicPost>>, TError,{data: PublicInstallRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof installPublicApiV1AppsInstallPublicPost>>, TError,{data: PublicInstallRequest}, TContext> => {
+
+const mutationKey = ['installPublicApiV1AppsInstallPublicPost'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof installPublicApiV1AppsInstallPublicPost>>, {data: PublicInstallRequest}> = (props) => {
+          const {data} = props ?? {};
+
+          return  installPublicApiV1AppsInstallPublicPost(data,)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type InstallPublicApiV1AppsInstallPublicPostMutationResult = NonNullable<Awaited<ReturnType<typeof installPublicApiV1AppsInstallPublicPost>>>
+    export type InstallPublicApiV1AppsInstallPublicPostMutationBody = PublicInstallRequest
+    export type InstallPublicApiV1AppsInstallPublicPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Install Public
+ */
+export const useInstallPublicApiV1AppsInstallPublicPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof installPublicApiV1AppsInstallPublicPost>>, TError,{data: PublicInstallRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof installPublicApiV1AppsInstallPublicPost>>,
+        TError,
+        {data: PublicInstallRequest},
+        TContext
+      > => {
+      return useMutation(getInstallPublicApiV1AppsInstallPublicPostMutationOptions(options), queryClient);
     }
     export const getGetJobApiV1AppsJobsJobIdGetUrl = (jobId: string,) => {
 
@@ -1552,24 +1625,23 @@ export const useStopAppEndpointApiV1AppsNameStopPost = <TError = HTTPValidationE
 }
 
 /**
- * Start re-fetching a git-sourced app at its pinned ref and swapping it in.
+ * Refuse busy devices before fetching; recheck under the job lock before accepting.
  *
- * Raises:
- *     PortalError: 404 ``app_not_found``; 409 ``update_in_progress`` /
- *         409 ``app_job_in_progress`` / 409 ``platform_not_ready`` / 409
- *         ``app_running`` (the app must be stopped first). A failure
- *         after the job starts (bad manifest, disk full, sync failure)
- *         surfaces on the app's ``last_job``, not here.
+ * Public updates require the displayed commit and validate their fetched manifest before
+ * returning 202: unavailable/changed catalog entries return 409, unknown catalogs return 503,
+ * manifest/requirement/clone failures return 422, and disk shortages return 507.
+ * Legacy sources fetch in the job. All dependency-sync/swap failures remain job failures.
  * @summary Update App
  */
-export const updateAppApiV1AppsNameUpdatePost = async (name: string, options?: RequestInit): Promise<AppJobAcceptedResponse> => {
+export const updateAppApiV1AppsNameUpdatePost = async (name: string,
+    publicUpdateRequestNull?: PublicUpdateRequest | null, options?: RequestInit): Promise<AppJobAcceptedResponse> => {
 
   return customFetch<AppJobAcceptedResponse>(getUpdateAppApiV1AppsNameUpdatePostUrl(name),
   {
     ...options,
-    method: 'POST'
-
-
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(publicUpdateRequestNull)
   }
 );}
 
@@ -1578,8 +1650,8 @@ export const updateAppApiV1AppsNameUpdatePost = async (name: string, options?: R
 
 
 export const getUpdateAppApiV1AppsNameUpdatePostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>, TError,{name: string}, TContext>, }
-): UseMutationOptions<Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>, TError,{name: string}, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>, TError,{name: string;data?: PublicUpdateRequest | null}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>, TError,{name: string;data?: PublicUpdateRequest | null}, TContext> => {
 
 const mutationKey = ['updateAppApiV1AppsNameUpdatePost'];
 const {mutation: mutationOptions} = options ?
@@ -1591,10 +1663,10 @@ const {mutation: mutationOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>, {name: string}> = (props) => {
-          const {name} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>, {name: string;data?: PublicUpdateRequest | null}> = (props) => {
+          const {name,data} = props ?? {};
 
-          return  updateAppApiV1AppsNameUpdatePost(name,)
+          return  updateAppApiV1AppsNameUpdatePost(name,data,)
         }
 
 
@@ -1605,18 +1677,18 @@ const {mutation: mutationOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type UpdateAppApiV1AppsNameUpdatePostMutationResult = NonNullable<Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>>
-
+    export type UpdateAppApiV1AppsNameUpdatePostMutationBody = PublicUpdateRequest | null | undefined
     export type UpdateAppApiV1AppsNameUpdatePostMutationError = HTTPValidationError
 
     /**
  * @summary Update App
  */
 export const useUpdateAppApiV1AppsNameUpdatePost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>, TError,{name: string}, TContext>, }
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>, TError,{name: string;data?: PublicUpdateRequest | null}, TContext>, }
  , queryClient?: QueryClient): UseMutationResult<
         Awaited<ReturnType<typeof updateAppApiV1AppsNameUpdatePost>>,
         TError,
-        {name: string},
+        {name: string;data?: PublicUpdateRequest | null},
         TContext
       > => {
       return useMutation(getUpdateAppApiV1AppsNameUpdatePostMutationOptions(options), queryClient);

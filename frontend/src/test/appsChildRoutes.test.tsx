@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { getGetAppApiV1AppsNameGetMockHandler, getGetLogsApiV1AppsNameLogsGetMockHandler, getListAppsApiV1AppsGetMockHandler } from "@/api/generated/apps/apps.msw";
-import { getGetCatalogApiV1CatalogGetMockHandler } from "@/api/generated/catalog/catalog.msw";
+import { getGetPublicCatalogApiV1CatalogPublicGetMockHandler } from "@/api/generated/catalog/catalog.msw";
 import type { AppDetailResponse } from "@/api/generated/models";
 import { getGetPlatformApiV1PlatformGetMockHandler } from "@/api/generated/platform/platform.msw";
 import { getListSecretsApiV1SecretsGetMockHandler } from "@/api/generated/secrets/secrets.msw";
@@ -55,7 +55,7 @@ function stubAppsPage() {
     getGetStatusApiV1WifiStatusGetMockHandler({ ssid: "Home", ip_address: null, state: "connected" }),
     getListAppsApiV1AppsGetMockHandler({ apps: [] }),
     getGetPlatformApiV1PlatformGetMockHandler(),
-    getGetCatalogApiV1CatalogGetMockHandler({ tag: "v1.0.0", fetched_at: null, stale: false, reason: null, apps: [CATALOG_APP] }),
+    getGetPublicCatalogApiV1CatalogPublicGetMockHandler({ generated_at: "2026-11-09T00:00:00Z", fetched_at: null, stale: false, reason: null, apps: [{ ...CATALOG_APP, public_page_url: null, translations: {}, public: { app_id: "019a3f2c-0000-7000-8000-000000000001", namespace: "palmimo", official: true } }] }),
     getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
   );
 }
@@ -203,7 +203,7 @@ describe("apps child routes through the real route tree", () => {
     expect(await screen.findByText(/No apps installed yet\./)).toBeInTheDocument();
   });
 
-  it("switches to Discover and shows the official catalog", async () => {
+  it("switches to Discover and shows official entries from the public catalog", async () => {
     stubAppsPage();
     const router = renderAt("/apps");
     const user = userEvent.setup();

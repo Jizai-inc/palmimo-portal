@@ -30,7 +30,6 @@ from palmimo_portal.ports import (
     IDENTITY_UNAVAILABLE,
     AppRefKind,
     AppsLockTimeoutError,
-    AppSource,
     AppsState,
     AppsStateFileState,
     AppUnitPort,
@@ -38,11 +37,6 @@ from palmimo_portal.ports import (
     AuthFileState,
     AuthLockTimeoutError,
     AuthState,
-    CatalogApp,
-    CatalogAsset,
-    CatalogCacheState,
-    CatalogSource,
-    CatalogSourceError,
     ClockPort,
     ComitupServicePort,
     ConnectionState,
@@ -75,6 +69,10 @@ from palmimo_portal.ports import (
     PlatformUpdateState,
     PlatformVerifyDiff,
     PreemptedApp,
+    PublicCatalogAsset,
+    PublicCatalogCacheState,
+    PublicCatalogSource,
+    PublicCatalogSourceError,
     Release,
     ReleaseSource,
     ReleaseSourceError,
@@ -372,9 +370,7 @@ class FakeStateStore(StateStore):
     _run_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _platform_update_state: PlatformUpdateState = field(default_factory=lambda: IDLE_PLATFORM_STATE)
     _platform_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
-    _catalog_cache: CatalogCacheState = field(
-        default_factory=lambda: CatalogCacheState(tag=None, apps=(), fetched_at=None)
-    )
+    _public_catalog_cache: PublicCatalogCacheState = field(default_factory=PublicCatalogCacheState)
 
     def read_auth(self) -> AuthState | None:
         if self.auth_corrupt:
@@ -515,11 +511,11 @@ class FakeStateStore(StateStore):
         finally:
             self._platform_lock.release()
 
-    def read_catalog_cache(self) -> CatalogCacheState:
-        return self._catalog_cache
+    def read_public_catalog_cache(self) -> PublicCatalogCacheState:
+        return self._public_catalog_cache
 
-    def write_catalog_cache(self, state: CatalogCacheState) -> None:
-        self._catalog_cache = state
+    def write_public_catalog_cache(self, state: PublicCatalogCacheState) -> None:
+        self._public_catalog_cache = state
 
 
 @dataclass
@@ -823,6 +819,16 @@ class FakeGitPort(GitPort):
     #: cloned tree's palmimo.toml/pyproject.toml without a real git binary.
     on_clone: Callable[[Path, str, str, str], None] | None = None
 
+    clone_commit_calls: list[tuple[str, str]] = field(default_factory=list)
+
+    def clone_commit_shallow(self, url: str, sha: str, dest: Path) -> str:
+        self.clone_commit_calls.append((url, sha))
+        if self.raise_on_clone is not None:
+            raise self.raise_on_clone
+        if self.on_clone is not None:
+            self.on_clone(dest, url, sha, "commit")
+        return sha
+
     def clone_shallow(
         self,
         url: str,
@@ -995,41 +1001,18 @@ class FakeClockPort(ClockPort):
 
 
 @dataclass
-class FakeCatalogSource(CatalogSource):
-    """Scriptable :class:`CatalogSource`. Reports no catalog (``CatalogSourceError``) by default."""
-
-    asset: CatalogAsset | None = None
+class FakePublicCatalogSource(PublicCatalogSource):
+    asset: PublicCatalogAsset | None = None
     raise_on_fetch: Exception | None = None
-    fetch_calls: int = field(default=0, init=False, repr=False)
+    fetch_calls: int = field(default=0, init=False)
 
-    def fetch(self) -> CatalogAsset:
+    def fetch(self) -> PublicCatalogAsset:
         self.fetch_calls += 1
         if self.raise_on_fetch is not None:
             raise self.raise_on_fetch
         if self.asset is None:
-            raise CatalogSourceError("fake catalog source has no configured asset")
+            raise PublicCatalogSourceError("fake public catalog has no configured asset")
         return self.asset
-
-
-def make_catalog_app(
-    name: str = "palmimo-teleop", *, manifest: str | None = None, commit: str = "deadbeef", subdir: str | None = None
-) -> CatalogApp:
-    """Build a minimal, valid :class:`CatalogApp` for scripting :class:`FakeCatalogSource`."""
-    return CatalogApp(
-        name=name,
-        description="A teleop app.",
-        source=AppSource(
-            type="git",
-            url="https://github.com/Jizai-inc/palmimo-devkit",
-            ref_kind="tag",
-            ref="v1.0.0",
-            commit=commit,
-            manifest=manifest,
-            subdir=subdir,
-        ),
-        env={},
-        devices=("camera",),
-    )
 
 
 def make_wifi_attempt(ssid: str, result: str) -> WifiAttempt:
@@ -1084,6 +1067,10 @@ class FakeAppUnitPort(AppUnitPort):
         self.statuses[name] = UnitStatus(
             active_state="inactive", sub_state="dead", result="success", exec_main_status=0
         )
+
+    def reset_failed(self, name: str) -> None:
+        if self.status(name).active_state == "failed":
+            self.statuses[name] = UnitStatus("inactive", "dead", "success", 0)
 
     def status(self, name: str) -> UnitStatus:
         return self.statuses.get(name, self.default_status)
@@ -1209,7 +1196,7 @@ class FakeAdapterBundle:
     platform_bundle: FakePlatformBundleSource
     platform_releases: FakeReleaseSource
     clock: FakeClockPort
-    catalog: FakeCatalogSource
+    public_catalog: FakePublicCatalogSource
 
 
 @dataclass

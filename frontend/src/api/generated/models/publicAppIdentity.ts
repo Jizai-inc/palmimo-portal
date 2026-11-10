@@ -5,4 +5,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type CatalogAppInfoTranslations = {[key: string]: {[key: string]: string}};
+export interface PublicAppIdentity {
+  app_id: string;
+  namespace: string;
+  official: boolean;
+}

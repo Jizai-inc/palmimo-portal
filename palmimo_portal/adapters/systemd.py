@@ -315,14 +315,16 @@ class SystemdAppUnitPort(AppUnitPort):
         verb: str,
         reraise_dbus_errors: frozenset[str] = frozenset(),
     ) -> Any:
-        interface, bus = await self._connect()
-        method = getattr(interface, f"call_{member}")
+        bus: MessageBus | None = None
         try:
+            interface, bus = await self._connect()
+            method = getattr(interface, f"call_{member}")
             return await asyncio.wait_for(method(*args), timeout=CALL_TIMEOUT_SECONDS)
         except TimeoutError as error:
             raise AdapterUnavailableError(_ADAPTER_ERROR_CODE, f"systemd1 {member}() timed out") from error
         except DBusError as error:
-            await self._disconnect(bus)
+            if bus is not None:
+                await self._disconnect(bus)
             if error.type in reraise_dbus_errors:
                 raise
             if error.type in _POLKIT_DENIED_DBUS_ERRORS:
@@ -330,16 +332,20 @@ class SystemdAppUnitPort(AppUnitPort):
                 raise PolkitDeniedError(unit, verb) from error
             raise AdapterUnavailableError(_ADAPTER_ERROR_CODE, f"systemd1 {member}() failed: {error}") from error
         except Exception as error:
-            await self._disconnect(bus)
+            if bus is not None:
+                await self._disconnect(bus)
             raise AdapterUnavailableError(_ADAPTER_ERROR_CODE, f"systemd1 {member}() failed: {error}") from error
 
     def _call_sync(
         self, member: str, *args: Any, unit: str, verb: str, reraise_dbus_errors: frozenset[str] = frozenset()
     ) -> Any:
-        return self._loop_thread.run(
-            self._call(member, args, unit=unit, verb=verb, reraise_dbus_errors=reraise_dbus_errors),
-            timeout=CALL_TIMEOUT_SECONDS + 1.0,
-        )
+        try:
+            return self._loop_thread.run(
+                self._call(member, args, unit=unit, verb=verb, reraise_dbus_errors=reraise_dbus_errors),
+                timeout=CALL_TIMEOUT_SECONDS + 1.0,
+            )
+        except TimeoutError as error:
+            raise AdapterUnavailableError(_ADAPTER_ERROR_CODE, f"systemd1 {member}() timed out") from error
 
     def set_device_allow(self, name: str, specs: list[str]) -> None:
         unit = app_unit_name(name)
@@ -361,6 +367,20 @@ class SystemdAppUnitPort(AppUnitPort):
 
     def stop(self, name: str) -> None:
         self._stop_unit(app_unit_name(name))
+
+    def reset_failed(self, name: str) -> None:
+        unit = app_unit_name(name)
+        try:
+            self._call_sync(
+                "reset_failed_unit",
+                unit,
+                unit=unit,
+                verb="reset-failed",
+                reraise_dbus_errors=_UNIT_NOT_LOADED_DBUS_ERRORS,
+            )
+        except DBusError as error:
+            if error.type not in _UNIT_NOT_LOADED_DBUS_ERRORS:
+                raise
 
     def status(self, name: str) -> UnitStatus:
         return self._status_for_unit(app_unit_name(name))

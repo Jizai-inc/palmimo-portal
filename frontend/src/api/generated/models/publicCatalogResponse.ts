@@ -4,12 +4,12 @@
  * Palmimo Portal
  * OpenAPI spec version: 0.1.0
  */
-import type { CatalogAppInfo } from './catalogAppInfo';
+import type { PublicCatalogAppInfo } from './publicCatalogAppInfo';
 
-export interface CatalogResponse {
-  apps: CatalogAppInfo[];
+export interface PublicCatalogResponse {
+  apps: PublicCatalogAppInfo[];
   fetched_at: number | null;
+  generated_at: string | null;
   reason: string | null;
   stale: boolean;
-  tag: string | null;
 }

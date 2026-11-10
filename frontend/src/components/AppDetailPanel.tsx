@@ -1,3 +1,5 @@
+import { AppOfficialBadge } from "@/components/AppOfficialBadge";
+import { refreshAppQueries } from "@/lib/refreshAppQueries";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Loader2 } from "lucide-react";
@@ -22,7 +24,7 @@ import {
 } from "@/api/generated/apps/apps";
 import { useListSecretsApiV1SecretsGet } from "@/api/generated/secrets/secrets";
 import { getGetStatusApiV1SystemStatusGetQueryKey } from "@/api/generated/system/system";
-import type { AppDetailResponse, ParamSpecInfo, SourceUpdateRequestRefKind } from "@/api/generated/models";
+import type { PublicUpdateSourceInfo, AppDetailResponse, ParamSpecInfo, SourceUpdateRequestRefKind } from "@/api/generated/models";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { appIdNamePart } from "@/components/AppIdLabel";
 import { AppJobDialog } from "@/components/AppJobDialog";
@@ -101,9 +103,11 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
   const startApp = useStartAppEndpointApiV1AppsNameStartPost({ mutation: { onSuccess: invalidateWithStatus } });
   const stopApp = useStopAppEndpointApiV1AppsNameStopPost({ mutation: { onSuccess: invalidateWithStatus } });
   const updateApp = useUpdateAppApiV1AppsNameUpdatePost({
-    mutation: { onSuccess: (data) => setJob({ id: data.job.id, kind: "update" }) },
+    mutation: { onSuccess: (data) => setJob({ id: data.job.id, kind: "update" }),
+      onError: (failure) => { if (failure instanceof PortalApiError && failure.code === "public_app_changed") void refreshAppQueries(queryClient, id); } },
   });
-  const { data: appsData } = useListAppsApiV1AppsGet();
+  const { data: appsResponse, error: appsError } = useListAppsApiV1AppsGet();
+  const appsData = appsError ? undefined : appsResponse;
   const deleteApp = useDeleteAppApiV1AppsNameDelete({
     mutation: {
       onSuccess: (data) => {
@@ -142,7 +146,7 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
             {busy ? <Loader2 className="size-3 animate-spin" /> : null}
             {appStatusLabel(t, app.status, app.exit_code)}
           </Badge>
-          {app.source.official ? <Badge>{t("appAdd.catalogOfficialBadge")}</Badge> : null}
+          <AppOfficialBadge official={app.source.official} publicAppId={app.source.public_app_id} />
           {appsData?.default_app === app.id ? <Badge variant="outline">{t("apps.defaultBadge")}</Badge> : null}
           <div className="ml-auto flex gap-2">
             {app.status === "running" && app.url ? (
@@ -191,7 +195,7 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
       ) : null}
 
       <DefaultAppSection app={app} onSaved={invalidate} />
-      <SourceSection app={app} onUpdate={() => updateApp.mutate({ name: id })} updatePending={updateApp.isPending} updateCompleted={updateCompleted} appRunning={appRunning} />
+      <SourceSection app={app} onUpdate={(commit) => updateApp.mutate({ name: id, data: commit ? { commit } : undefined })} updatePending={updateApp.isPending} updateCompleted={updateCompleted} appRunning={appRunning} />
 
       <Section title={t("appDetail.dangerZoneTitle")}>
         <Button variant="destructive" className="w-fit" onClick={() => setDeleteOpen(true)}>
@@ -229,8 +233,7 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
             setDeleteOutcome("done");
           } else {
             setJob(null);
-            invalidate();
-            void queryClient.invalidateQueries({ queryKey: getListAppsApiV1AppsGetQueryKey() });
+            void refreshAppQueries(queryClient, id);
             setUpdateCompleted((value) => value + 1);
           }
         }}
@@ -465,7 +468,8 @@ function LogsSection({ id, status }: { id: string; status: string }) {
 function DefaultAppSection({ app, onSaved }: { app: AppDetailResponse; onSaved: () => void }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const { data: appsData } = useListAppsApiV1AppsGet();
+  const { data: appsResponse, error: appsError } = useListAppsApiV1AppsGet();
+  const appsData = appsError ? undefined : appsResponse;
   const isDefault = appsData?.default_app === app.id;
   const putDefault = usePutDefaultAppApiV1AppsDefaultPut({
     mutation: {
@@ -499,17 +503,21 @@ function SourceSection({
   appRunning,
 }: {
   app: AppDetailResponse;
-  onUpdate: () => void;
+  onUpdate: (commit?: string) => void;
   updatePending: boolean;
   updateCompleted: number;
   appRunning: boolean;
 }) {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
+  const [target, setTarget] = useState<PublicUpdateSourceInfo | null>(null);
+  const [repairing, setRepairing] = useState(false);
   const [editingRef, setEditingRef] = useState(false);
   const [refKind, setRefKind] = useState<SourceUpdateRequestRefKind>("branch");
   const [ref, setRef] = useState("");
   const putSource = usePutSourceApiV1AppsNameSourcePut();
-  const updateCheck = useUpdateCheckApiV1AppsNameUpdateCheckPost();
+  const refresh = () => { void queryClient.invalidateQueries({ queryKey: getGetAppApiV1AppsNameGetQueryKey(app.id) }); void queryClient.invalidateQueries({ queryKey: getListAppsApiV1AppsGetQueryKey() }); };
+  const updateCheck = useUpdateCheckApiV1AppsNameUpdateCheckPost({ mutation: { onSuccess: refresh } });
   const { reset: resetUpdateCheck } = updateCheck;
 
   useEffect(() => {
@@ -517,11 +525,23 @@ function SourceSection({
   }, [resetUpdateCheck, updateCompleted]);
 
   const isGit = app.source.type === "git";
-  const isOfficialTag = app.source.official && app.source.ref_kind === "tag";
-  const updateAvailable = updateCheck.data?.update_available === true;
+  const isPublic = Boolean(app.source.public_app_id || app.source.legacy_official);
+  const unavailable = app.public_app_available === false;
+  const isOfficialTag = isPublic && app.source.official !== false;
+  const retired = app.source.legacy_official === "retired";
+  const needsRepair = app.status === "broken" || app.status === "needs_repair";
+  const needsPublicRepair = isPublic && !unavailable && needsRepair;
+  const repairWouldUpdate = Boolean(app.latest_source?.commit && app.latest_source.commit !== app.source.commit);
+  const repairChangesVersion = repairing && target !== null && target.commit !== app.source.commit;
+  const addedDevices = target?.devices.filter((device) => !app.devices.includes(device)) ?? [];
+  const currentRequired = new Set(app.env.filter((entry) => entry.required).map((entry) => entry.name));
+  const addedRequiredEnv = target?.env.filter((entry) => entry.required && !currentRequired.has(entry.name)) ?? [];
+  const updateAvailable = !unavailable && (isPublic ? app.update_available === true : updateCheck.data?.update_available === true);
 
   return (
     <Section title={t("appDetail.sourceTitle")}>
+      {app.source.public_page_url ? <a href={app.source.public_page_url} target="_blank" rel="noreferrer" className="text-sm underline">{t("appAdd.publicPageLink")}</a> : null}
+      {unavailable ? <p role="status" className="text-sm text-muted-foreground">{t(retired ? "apps.officialRetired" : "apps.publicAppUnavailable")}</p> : null}
       <dl className="flex flex-col gap-1 text-sm">
         <KvRow label={t("appDetail.sourceTypeLabel")} value={app.source.type} />
         {app.source.url ? <KvRow label={t("appDetail.sourceRepoLabel")} value={app.source.url} /> : null}
@@ -534,8 +554,13 @@ function SourceSection({
       {isGit ? (
         <div className="flex flex-wrap items-center gap-2">
           {!isOfficialTag ? <Button variant="outline" size="sm" onClick={() => setEditingRef((value) => !value)}>{t("appDetail.sourceEditRefButton")}</Button> : null}
-          {updateAvailable ? (
-            <Button size="sm" onClick={onUpdate} disabled={updatePending || appRunning} title={appRunning ? t("appDetail.updateDisabledAppRunning") : undefined}>
+          {retired && needsRepair ? <Button disabled={updatePending || appRunning || !app.source.commit} onClick={() => onUpdate()}>{t("apps.repairButton")}</Button> : null}
+          {needsPublicRepair ? <Button disabled={updatePending || appRunning || !app.latest_source?.commit} onClick={() => { if (app.latest_source) { setRepairing(true); setTarget(app.latest_source); } }}>{repairWouldUpdate ? t("appDetail.updateAndRepair") : t("apps.repairButton")}</Button> : null}
+          {unavailable || (needsPublicRepair && app.latest_source?.commit) ? null : updateAvailable ? (
+            <Button size="sm" onClick={() => {
+              if (!isPublic) onUpdate();
+              else if (app.latest_source) { setRepairing(false); setTarget(app.latest_source); }
+            }} disabled={updatePending || appRunning || (isPublic && !app.latest_source?.commit)} title={appRunning ? t("appDetail.updateDisabledAppRunning") : undefined}>
               {t("appDetail.updateButton")}
             </Button>
           ) : (
@@ -548,18 +573,19 @@ function SourceSection({
               {t("appDetail.checkForUpdatesButton")}
             </Button>
           )}
-          {updateAvailable ? (
+          {unavailable ? null : updateAvailable ? (
             <p className="text-sm">{appRunning ? t("appDetail.updateDisabledAppRunning") : t("apps.updateAvailableChip")}</p>
-          ) : updateCheck.data ? (
+          ) : !unavailable && updateCheck.data ? (
             <p className="text-sm text-muted-foreground">{t("appDetail.checkForUpdatesUpToDate")}</p>
           ) : null}
         </div>
       ) : null}
-      {isOfficialTag ? <p className="text-sm text-muted-foreground">{t("appDetail.sourceOfficialTagManaged")}</p> : null}
+      {isPublic && app.source.official === null ? <p role="note" className="text-sm text-muted-foreground">{t("appDetail.sourceCatalogUnknown")}</p> : isOfficialTag ? <p className="text-sm text-muted-foreground">{t("appDetail.sourceOfficialTagManaged")}</p> : null}
       <ApiErrorAlert error={updateCheck.error} />
       {editingRef && !isOfficialTag ? (
         <div className="flex flex-col gap-2">
           <p className="text-sm font-medium">{t("appDetail.sourceEditRefTitle")}</p>
+          {isPublic ? <p role="note" className="text-sm">{t("appDetail.publicRefOptOut")}</p> : null}
           <div className="flex flex-wrap items-end gap-2">
           <div className="flex flex-col gap-1">
             <Label htmlFor="source-ref-kind">{t("appAdd.githubRefKindLabel")}</Label>
@@ -578,7 +604,7 @@ function SourceSection({
             <Input id="source-ref" value={ref} onChange={(event) => setRef(event.target.value)} />
           </div>
           <Button
-            onClick={() => putSource.mutate({ name: app.id, data: { ref, ref_kind: refKind } }, { onSuccess: () => setEditingRef(false) })}
+            onClick={() => putSource.mutate({ name: app.id, data: { ref, ref_kind: refKind } }, { onSuccess: () => { setEditingRef(false); refresh(); } })}
             disabled={putSource.isPending || !ref}
           >
             {t("appDetail.sourceSaveButton")}
@@ -587,6 +613,26 @@ function SourceSection({
         </div>
       ) : null}
       <ApiErrorAlert error={putSource.error} />
+      <AlertDialog open={target !== null} onOpenChange={(open) => { if (!open) setTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader><AlertDialogTitle>{repairChangesVersion ? t("appDetail.updateAndRepair") : repairing ? t("appDetail.confirmPublicRepair") : t("appDetail.confirmPublicUpdate")}</AlertDialogTitle></AlertDialogHeader>
+          {repairChangesVersion ? <p role="note" className="text-sm [overflow-wrap:anywhere]">{t("appDetail.repairVersionChange", { current: app.source.commit, target: target.commit })}</p> : null}
+          {target?.url && target.url !== app.source.url ? <p>{t("appDetail.publicUpdateSource")} <a className="underline [overflow-wrap:anywhere]" href={target.url} target="_blank" rel="noreferrer">{target.url}</a></p> : null}
+          {target?.ref ? <p>{target.ref}</p> : null}
+          {target ? <div className="flex flex-col gap-2 text-sm">
+            <p className="font-medium">{t("appDetail.targetDevices")}</p>
+            <ul aria-label={t("appDetail.targetDevices")}>{target.devices.map((device) => <li key={device}>{deviceLabel(t, device)}</li>)}</ul>
+            <p className="font-medium">{t("appDetail.targetEnv")}</p>
+            <ul aria-label={t("appDetail.targetEnv")}>{target.env.map((entry) => <li key={entry.name}><code>{entry.name}</code> <Badge variant={entry.required ? "destructive" : "outline"}>{entry.required ? t("appAdd.envRequiredBadge") : t("appAdd.envOptionalBadge")}</Badge></li>)}</ul>
+            {addedDevices.length ? <><p className="font-medium">{t("appDetail.addedDevices")}</p><ul aria-label={t("appDetail.addedDevices")}>{addedDevices.map((device) => <li key={device}>{deviceLabel(t, device)}</li>)}</ul></> : null}
+            {addedRequiredEnv.length ? <><p className="font-medium">{t("appDetail.addedRequiredEnv")}</p><ul aria-label={t("appDetail.addedRequiredEnv")}>{addedRequiredEnv.map((entry) => <li key={entry.name}><code>{entry.name}</code></li>)}</ul></> : null}
+          </div> : null}
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <Button onClick={() => { const commit = target?.commit; setTarget(null); if (commit) onUpdate(commit); }}>{repairChangesVersion ? t("appDetail.updateAndRepair") : repairing ? t("apps.repairButton") : t("appDetail.updateButton")}</Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Section>
   );
 }

@@ -14,7 +14,6 @@ import threading
 from dataclasses import dataclass
 from functools import partial
 
-from palmimo_portal.adapters.catalog import GitHubCatalogSource
 from palmimo_portal.adapters.clock import SystemClockPort
 from palmimo_portal.adapters.comitup import ComitupNetworkPort
 from palmimo_portal.adapters.disk import OsDiskPort
@@ -26,6 +25,7 @@ from palmimo_portal.adapters.journal import JournalctlPort
 from palmimo_portal.adapters.local_address import SocketLocalAddressPort
 from palmimo_portal.adapters.networkmanager import NetworkManagerSavedNetworkPort
 from palmimo_portal.adapters.platform import GitHubPlatformBundleSource, SudoPlatformPort
+from palmimo_portal.adapters.public_catalog import HttpPublicCatalogSource
 from palmimo_portal.adapters.rundir import TmpfsRunDirPort
 from palmimo_portal.adapters.secrets import JsonSecretsStore
 from palmimo_portal.adapters.ssh_keys import AuthorizedKeysSshKeyPort
@@ -43,7 +43,6 @@ from palmimo_portal.adapters.wifi_qr_socket import WifiQrSocketClient
 from palmimo_portal.core.wifi_attempt_manager import WifiAttemptManager, connect_legacy
 from palmimo_portal.ports import (
     AppUnitPort,
-    CatalogSource,
     ClockPort,
     ComitupServicePort,
     DiskPort,
@@ -54,6 +53,7 @@ from palmimo_portal.ports import (
     NetworkPort,
     PlatformBundleSource,
     PlatformPort,
+    PublicCatalogSource,
     ReleaseSource,
     RunDirPort,
     SavedNetworkPort,
@@ -71,7 +71,6 @@ from palmimo_portal.ports import (
 from palmimo_portal.settings import Settings
 from palmimo_portal.testing.fakes import (
     FakeAppUnitPort,
-    FakeCatalogSource,
     FakeClockPort,
     FakeComitupServicePort,
     FakeDiskPort,
@@ -82,6 +81,7 @@ from palmimo_portal.testing.fakes import (
     FakeNetworkPort,
     FakePlatformBundleSource,
     FakePlatformPort,
+    FakePublicCatalogSource,
     FakeReleaseSource,
     FakeRunDirPort,
     FakeSavedNetworkPort,
@@ -99,7 +99,6 @@ from palmimo_portal.testing.fakes import (
 
 
 # GitHub exposes one releases/latest per repository; devkit mixes SDK and examples releases.
-CATALOG_RELEASE_TAG_PREFIX = "examples-v"
 
 
 @dataclass(frozen=True)
@@ -132,7 +131,7 @@ class AdapterBundle:
     platform_bundle: PlatformBundleSource
     platform_releases: ReleaseSource
     clock: ClockPort
-    catalog: CatalogSource
+    public_catalog: PublicCatalogSource
 
 
 def build_adapters(settings: Settings) -> AdapterBundle:
@@ -195,7 +194,7 @@ def build_adapters(settings: Settings) -> AdapterBundle:
             platform_bundle=FakePlatformBundleSource(),
             platform_releases=FakeReleaseSource(),
             clock=FakeClockPort(),
-            catalog=FakeCatalogSource(),
+            public_catalog=FakePublicCatalogSource(),
         )
     preflight_state_dir(settings.state_dir)
     real_state = JsonFileStateStore(settings.state_dir)
@@ -241,12 +240,5 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         platform_bundle=GitHubPlatformBundleSource(platform_repo=settings.platform_repo),
         platform_releases=GitHubReleaseSource(repo=settings.platform_repo, channel=settings.update_channel),
         clock=SystemClockPort(),
-        catalog=GitHubCatalogSource(
-            catalog_repo=settings.catalog_repo,
-            release_source=GitHubReleaseSource(
-                repo=settings.catalog_repo,
-                channel=settings.update_channel,
-                tag_prefix=CATALOG_RELEASE_TAG_PREFIX,
-            ),
-        ),
+        public_catalog=HttpPublicCatalogSource(public_catalog_url=settings.public_catalog_url),
     )

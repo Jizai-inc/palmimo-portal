@@ -5,14 +5,17 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AppSourceInfo } from './appSourceInfo';
-import type { CatalogAppInfoTranslations } from './catalogAppInfoTranslations';
 import type { EnvSpecInfo } from './envSpecInfo';
+import type { PublicAppIdentity } from './publicAppIdentity';
+import type { PublicCatalogAppInfoTranslations } from './publicCatalogAppInfoTranslations';
 
-export interface CatalogAppInfo {
+export interface PublicCatalogAppInfo {
   description: string;
   devices: string[];
   env: EnvSpecInfo[];
   name: string;
+  public: PublicAppIdentity;
+  public_page_url: string | null;
   source: AppSourceInfo;
-  translations?: CatalogAppInfoTranslations;
+  translations: PublicCatalogAppInfoTranslations;
 }

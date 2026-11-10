@@ -49,16 +49,29 @@ from palmimo_portal.core.apps_jobs import (
     purge_path,
     update_git,
 )
-from palmimo_portal.core.apps_start import RUNNING_ACTIVE_STATES, AppRunningError
+from palmimo_portal.core.apps_start import RUNNING_ACTIVE_STATES, AppRunningError, derive_run_status
+from palmimo_portal.core.legacy_official import is_retired_official
+from palmimo_portal.core.public_catalog import (
+    PublicAppChangedError,
+    PublicAppInstalledError,
+    PublicAppUnavailableError,
+    effective_public_source,
+    installed_public_app,
+    is_public_source,
+    public_update_source,
+)
 from palmimo_portal.core.secrets import mask_authorization_lines
 from palmimo_portal.ports import (
+    AdapterUnavailableError,
     AppExistsError,
     AppJob,
     AppNotFoundError,
     AppRecord,
+    AppsLockTimeoutError,
     AppsState,
     AppUnitPort,
     GitCommandError,
+    PolkitDeniedError,
     StateStore,
 )
 
@@ -78,6 +91,8 @@ _ADAPTER_ERROR_CODE = "sync_unit_uncontained"
 
 
 def _job_error_code(error: Exception) -> str | None:
+    if isinstance(error, PublicAppUnavailableError):
+        return "public_app_unavailable"
     if isinstance(error, GitCommandError):
         return error.reason
     if isinstance(error, SyncUnitContainmentError):
@@ -149,7 +164,7 @@ class AppsJobRunner:
         """
         lock_cm = self._acquire_lock()
         started = time.time()
-        namespace = apps_core.app_namespace(prepared.source.type, prepared.source.url, self._ctx.catalog_repo)
+        namespace = apps_core.app_namespace(prepared.source.type, prepared.source.url)
         name = ""
         job: AppJob | None = None
         try:
@@ -159,8 +174,18 @@ class AppsJobRunner:
 
             def begin(state: AppsState) -> AppsState:
                 nonlocal name, job, prepared
-                desired_name = requested_name or apps_core.suggest_app_name(namespace, prepared.manifest.name, state)
-                name = f"{namespace}.{desired_name}"
+                if prepared.public_app is not None:
+                    existing = installed_public_app(
+                        state, self._ctx.public_catalog_cache, prepared.public_app.public.app_id
+                    )
+                    if existing is not None:
+                        raise PublicAppInstalledError(existing)
+                    name = apps_core.app_id_from_public_catalog(prepared.public_app, state)
+                else:
+                    desired_name = requested_name or apps_core.suggest_app_name(
+                        namespace, prepared.manifest.name, state
+                    )
+                    name = f"{namespace}.{desired_name}"
                 prepared = replace(prepared, app_id=name)
                 if name in state.apps:
                     raise AppExistsError(name)
@@ -192,6 +217,7 @@ class AppsJobRunner:
                 try:
                     _new_state, record = commit_install(self._ctx, latest, prepared, started, on_step)
                     self._write_own_record(name, record)
+                    self._finish_registration(name)
                     finished = record.last_job or job
                     result["job"] = finished
                     logger.info(
@@ -223,7 +249,18 @@ class AppsJobRunner:
         self._spawn(run, lock_cm)
         return result.get("job", job)
 
-    def start_update(self, name: str) -> AppJob:
+    def preflight_update(self, name: str) -> None:
+        with self._state.lock_apps():
+            state = self._state.read_apps_state()
+            if state.current_job is not None:
+                raise AppsLockTimeoutError("an app job is already in progress")
+            active = self._app_unit.list_active_app_units()
+            if active:
+                raise AppRunningError(active[0])
+            if name not in state.apps:
+                raise AppNotFoundError(name)
+
+    def start_update(self, name: str, *, prepared: PreparedInstall | None = None) -> AppJob:
         """Start updating a git-sourced app.
 
         Raises:
@@ -231,7 +268,7 @@ class AppsJobRunner:
             AppNotFoundError: no app named ``name`` is installed.
         """
         lock_cm = self._acquire_lock()
-        job_id = apps_core.new_job_id()
+        job_id = prepared.job_id if prepared is not None else apps_core.new_job_id()
         started = time.time()
         try:
             active = self._app_unit.list_active_app_units()
@@ -250,9 +287,27 @@ class AppsJobRunner:
 
             def begin(state: AppsState) -> AppsState:
                 nonlocal job
-                if name not in state.apps:
+                record = state.apps.get(name)
+                if record is None:
                     raise AppNotFoundError(name)
-                job = replace(job, display_name=state.apps[name].name)
+                if (
+                    prepared is not None
+                    and prepared.source.public_app_id
+                    != effective_public_source(self._ctx.public_catalog_cache, record).public_app_id
+                ):
+                    raise PublicAppChangedError("public_app_changed")
+                if is_retired_official(record):
+                    if record.broken_reason is None:
+                        status = derive_run_status(self._app_unit.status(name))
+                        if status.status != "needs_repair":
+                            raise PublicAppUnavailableError("public_app_unavailable")
+                    if record.source.commit is None:
+                        raise PublicAppUnavailableError("public_app_unavailable")
+                elif is_public_source(record):
+                    target = public_update_source(self._ctx.public_catalog_cache, record)
+                    if prepared is None or prepared.public_app is None or prepared.source != target:
+                        raise PublicAppChangedError("public_app_changed")
+                job = replace(job, display_name=record.name)
                 return replace(state, current_job=job, current_job_app=name)
 
             self._state.update_apps_state(begin)
@@ -281,10 +336,12 @@ class AppsJobRunner:
                         job_id=job_id,
                         started=started,
                         on_step=on_step,
+                        prepared=prepared,
                         on_registered=lambda updated: self._write_own_record(
-                            name, updated, clear_credential_for_host_owner=True
+                            name, updated, clear_credential_for_host_owner=not is_public_source(updated)
                         ),
                     )
+                    self._finish_registration(name)
                     result["job"] = record.last_job or job
                 except Exception as error:
                     logger.warning(
@@ -402,6 +459,14 @@ class AppsJobRunner:
         self._spawn(run, lock_cm)
         return result.get("job", job)
 
+    def _finish_registration(self, name: str) -> None:
+        """Keep job polling in progress until the unit's failure state has been handled."""
+        try:
+            self._app_unit.reset_failed(name)
+        except (AdapterUnavailableError, PolkitDeniedError) as error:
+            logger.warning("apps: could not reset failed unit name=%s: %s", name, error)
+        self._state.update_apps_state(lambda final: AppsState(apps=final.apps))
+
     def _write_own_record(self, name: str, record: AppRecord, *, clear_credential_for_host_owner: bool = False) -> None:
         """Merge ``record`` into a freshly re-read ledger, rather than writing back the
         possibly-stale ``apps`` dict a job read before its unbounded step ran -- see the
@@ -426,7 +491,7 @@ class AppsJobRunner:
                 host_owner = apps_core.host_owner_from_url(merged.source.url)
                 if host_owner is not None:
                     apps = apps_core.clear_credential_rejected(replace(final, apps=apps), host_owner).apps
-            return AppsState(apps=apps, current_job=None, current_job_app=None)
+            return replace(final, apps=apps)
 
         self._state.update_apps_state(write)
 

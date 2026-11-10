@@ -525,7 +525,7 @@ function SourceSection({
   }, [resetUpdateCheck, updateCompleted]);
 
   const isGit = app.source.type === "git";
-  const isPublic = Boolean(app.source.public_app_id);
+  const isPublic = Boolean(app.source.public_app_id || app.source.legacy_official);
   const unavailable = app.public_app_available === false;
   const isOfficialTag = isPublic ? app.source.official !== false : app.source.official && app.source.ref_kind === "tag";
   const needsPublicRepair = isPublic && !unavailable && (app.status === "broken" || app.status === "needs_repair");
@@ -539,7 +539,7 @@ function SourceSection({
   return (
     <Section title={t("appDetail.sourceTitle")}>
       {app.source.public_page_url ? <a href={app.source.public_page_url} target="_blank" rel="noreferrer" className="text-sm underline">{t("appAdd.publicPageLink")}</a> : null}
-      {unavailable ? <p role="status" className="text-sm text-muted-foreground">{t("apps.publicAppUnavailable")}</p> : null}
+      {unavailable ? <p role="status" className="text-sm text-muted-foreground">{t(app.source.legacy_official === "retired" ? "apps.officialRetired" : "apps.publicAppUnavailable")}</p> : null}
       <dl className="flex flex-col gap-1 text-sm">
         <KvRow label={t("appDetail.sourceTypeLabel")} value={app.source.type} />
         {app.source.url ? <KvRow label={t("appDetail.sourceRepoLabel")} value={app.source.url} /> : null}

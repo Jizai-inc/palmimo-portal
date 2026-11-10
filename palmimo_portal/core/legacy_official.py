@@ -1,0 +1,28 @@
+from dataclasses import dataclass
+
+from palmimo_portal.ports import AppSource
+
+
+@dataclass(frozen=True)
+class LegacyOfficial:
+    name: str | None
+
+
+_OFFICIAL_APPS = {
+    ("examples/agents/companion", "palmimo.realtime.toml"): LegacyOfficial("companion-realtime"),
+    ("examples/teleop", "palmimo.toml"): LegacyOfficial("teleop"),
+    ("examples/agents/companion", "palmimo.toml"): LegacyOfficial(None),
+    ("examples/agents/wakeword", "palmimo.toml"): LegacyOfficial(None),
+}
+
+
+def legacy_official(source: AppSource) -> LegacyOfficial | None:
+    if (
+        source.public_app_id is not None
+        or source.type != "git"
+        or source.ref_kind != "tag"
+        or not (source.ref or "").startswith("examples-v")
+        or (source.url or "").lower().rstrip("/").removesuffix(".git") != "https://github.com/jizai-inc/palmimo-devkit"
+    ):
+        return None
+    return _OFFICIAL_APPS.get((source.subdir or "", source.manifest or "palmimo.toml"))

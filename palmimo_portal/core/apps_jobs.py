@@ -63,7 +63,12 @@ from palmimo_portal.core.manifest import (
     validate_manifest_filename,
 )
 from palmimo_portal.core.os_group import apps_gid
-from palmimo_portal.core.public_catalog import PublicAppMismatchError, PublicCatalogCache, public_app_status
+from palmimo_portal.core.public_catalog import (
+    PublicAppMismatchError,
+    PublicCatalogCache,
+    is_public_source,
+    public_app_status,
+)
 from palmimo_portal.core.secrets import mask_authorization_lines
 from palmimo_portal.ports import (
     AppExistsError,
@@ -1039,7 +1044,7 @@ def update_git(
     job_id = job_id or ctx.new_id()
     started = started if started is not None else ctx.now()
     staging_container = ctx.staging_dir / job_id
-    if record.source.public_app_id and prepared is None:
+    if is_public_source(record.source) and prepared is None:
         raise ValueError("public updates require a confirmed prepared source")
     if prepared is not None:
         staging_container = prepared.staging_container
@@ -1269,7 +1274,7 @@ def check_git_update(ctx: AppsJobContext, record: AppRecord) -> tuple[bool, str 
     compare against, so it always reports no update available; raising its
     pin is a manual ``PUT /apps/{id}/source`` instead.
     """
-    if record.source.public_app_id:
+    if is_public_source(record.source):
         status = public_app_status(ctx.public_catalog_cache, record.source)
         return status.update_available is True, status.latest_commit
     if record.source.type != "git":

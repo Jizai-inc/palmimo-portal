@@ -50,7 +50,15 @@ from palmimo_portal.core.apps_jobs import (
     update_git,
 )
 from palmimo_portal.core.apps_start import RUNNING_ACTIVE_STATES, AppRunningError
-from palmimo_portal.core.public_catalog import PublicAppChangedError, PublicAppUnavailableError, public_update_source
+from palmimo_portal.core.public_catalog import (
+    PublicAppChangedError,
+    PublicAppInstalledError,
+    PublicAppUnavailableError,
+    effective_public_source,
+    installed_public_app,
+    is_public_source,
+    public_update_source,
+)
 from palmimo_portal.core.secrets import mask_authorization_lines
 from palmimo_portal.ports import (
     AppExistsError,
@@ -164,6 +172,11 @@ class AppsJobRunner:
             def begin(state: AppsState) -> AppsState:
                 nonlocal name, job, prepared
                 if prepared.public_app is not None:
+                    existing = installed_public_app(
+                        state, self._ctx.public_catalog_cache, prepared.public_app.public.app_id
+                    )
+                    if existing is not None:
+                        raise PublicAppInstalledError(existing)
                     name = apps_core.app_id_from_public_catalog(prepared.public_app, state)
                 else:
                     desired_name = requested_name or apps_core.suggest_app_name(
@@ -272,9 +285,13 @@ class AppsJobRunner:
                 nonlocal job
                 if name not in state.apps:
                     raise AppNotFoundError(name)
-                if prepared is not None and prepared.source.public_app_id != state.apps[name].source.public_app_id:
+                if (
+                    prepared is not None
+                    and prepared.source.public_app_id
+                    != effective_public_source(self._ctx.public_catalog_cache, state.apps[name].source).public_app_id
+                ):
                     raise PublicAppChangedError("public_app_changed")
-                if state.apps[name].source.public_app_id:
+                if is_public_source(state.apps[name].source):
                     target = public_update_source(self._ctx.public_catalog_cache, state.apps[name].source)
                     if prepared is None or prepared.public_app is None or prepared.source != target:
                         raise PublicAppChangedError("public_app_changed")

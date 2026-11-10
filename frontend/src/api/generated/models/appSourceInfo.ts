@@ -4,9 +4,11 @@
  * Palmimo Portal
  * OpenAPI spec version: 0.1.0
  */
+import type { AppSourceInfoLegacyOfficial } from './appSourceInfoLegacyOfficial';
 
 export interface AppSourceInfo {
   commit: string | null;
+  legacy_official?: AppSourceInfoLegacyOfficial;
   manifest: string | null;
   official: boolean | null;
   public_app_id?: string | null;

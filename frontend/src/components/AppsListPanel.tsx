@@ -271,7 +271,7 @@ function AppRow({
               <Badge variant="destructive">{t("apps.missingKeysBadge")}</Badge>
             </Link>
           ) : null}
-          {app.public_app_available === false ? <Badge variant="outline">{t("apps.publicAppUnavailable")}</Badge> : null}
+          {app.public_app_available === false ? <Badge variant="outline">{t(app.source.legacy_official === "retired" ? "apps.officialRetired" : "apps.publicAppUnavailable")}</Badge> : null}
           {app.public_app_available !== false && app.update_available ? <Badge variant="outline">{t("apps.updateAvailableChip")}</Badge> : null}
           {app.credential_rejected ? <Badge variant="destructive">{t("apps.credentialRejectedBadge")}</Badge> : null}
         </div>
@@ -300,7 +300,7 @@ function AppRow({
           </Button>
         ) : needsRepair ? (
           app.source.type === "git" && app.public_app_available !== false ? (
-            app.source.public_app_id ? <Button variant="outline" asChild><Link to="/apps/$id" params={{ id: app.id }}>{t("apps.repairButton")}</Link></Button> : <Button variant="outline" onClick={onRepair} disabled={disabledForPlatform}>
+            (app.source.public_app_id || app.source.legacy_official) ? <Button variant="outline" asChild><Link to="/apps/$id" params={{ id: app.id }}>{t("apps.repairButton")}</Link></Button> : <Button variant="outline" onClick={onRepair} disabled={disabledForPlatform}>
               {t("apps.repairButton")}
             </Button>
           ) : (

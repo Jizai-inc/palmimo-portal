@@ -61,7 +61,7 @@ describe("DiscoverPanel", () => {
     await waitFor(() => expect(onInstalled).toHaveBeenCalledWith(JOB.app_id));
   });
 
-  it.each([[409, "public_app_changed"], [404, "public_app_not_found"], [503, "public_catalog_unavailable"]])("reports install error %s and refreshes a changed catalog", async (status, code) => {
+  it.each([[409, "public_app_changed"], [404, "public_app_not_found"], [503, "public_catalog_unavailable"], [409, "public_app_installed"]])("reports install error %s and refreshes a changed catalog", async (status, code) => {
     handlers();
     let catalogGets = 0;
     server.use(http.get("*/api/v1/catalog/public", () => { catalogGets++; return HttpResponse.json(CATALOG); }), http.post("*/api/v1/apps/install-public", () => HttpResponse.json({ error: { code, params: {} } }, { status })));
@@ -71,7 +71,7 @@ describe("DiscoverPanel", () => {
     await user.click(screen.getByRole("button", { name: i18n.t("appAdd.installButton") }));
     await user.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: i18n.t("appAdd.installButton") }));
     expect(await screen.findByRole("alert")).toHaveTextContent(i18n.t(`errors.${code}`));
-    if (status === 409) await waitFor(() => expect(catalogGets).toBeGreaterThan(1));
+    if (code === "public_app_changed") await waitFor(() => expect(catalogGets).toBeGreaterThan(1));
   });
 
   it.each([true, false])("shows stale state with a previous fetch %s", async (fetched) => {
@@ -142,4 +142,23 @@ it("uses the public page URL supplied by the backend", async () => {
   handlers({ ...CATALOG, apps: [{ ...OFFICIAL, public_page_url: "https://catalog.example/apps/official-id" }] });
   renderWithProviders(<DiscoverPanel />);
   expect(await screen.findByRole("link", { name: i18n.t("appAdd.publicPageLink") })).toHaveAttribute("href", "https://catalog.example/apps/official-id");
+});
+
+it("opens the existing app instead of installing the same public identity", async () => {
+  handlers();
+  const onInstalled = vi.fn();
+  const posted = vi.fn();
+  let appGets = 0;
+  server.use(
+    http.get("*/api/v1/apps", () => HttpResponse.json({ apps: [{ id: "palmimo.old-name", status: "stopped", source: { public_app_id: ++appGets > 1 ? OFFICIAL.public.app_id : undefined } }], default_app: null, autostart_conflict: [] })),
+    http.post("*/api/v1/apps/install-public", () => { posted(); return HttpResponse.json({ job: JOB }, { status: 202 }); }),
+  );
+  const user = userEvent.setup();
+  renderWithProviders(<DiscoverPanel onInstalled={onInstalled} />);
+  await user.click(await screen.findByRole("button", { name: i18n.t("appAdd.openInstalledButton") }));
+  expect(onInstalled).toHaveBeenCalledWith("palmimo.old-name");
+  expect(screen.getByText(i18n.t("appAdd.installedBadge"))).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: i18n.t("appAdd.installButton") })).not.toBeInTheDocument();
+  expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+  expect(posted).not.toHaveBeenCalled();
 });

@@ -5,11 +5,13 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { EnvSpecInfo } from './envSpecInfo';
+import type { PublicUpdateSourceInfoLegacyOfficial } from './publicUpdateSourceInfoLegacyOfficial';
 
 export interface PublicUpdateSourceInfo {
   commit: string | null;
   devices: string[];
   env: EnvSpecInfo[];
+  legacy_official?: PublicUpdateSourceInfoLegacyOfficial;
   manifest: string | null;
   official: boolean | null;
   public_app_id?: string | null;

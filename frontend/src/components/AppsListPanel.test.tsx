@@ -284,13 +284,13 @@ describe("AppsListPanel", () => {
   });
 });
 
-it("shows public unavailability instead of an update badge", async () => {
+it.each([false, true])("shows public unavailability or retirement instead of an update badge, retired %s", async (retired) => {
   server.use(
-    getListAppsApiV1AppsGetMockHandler({ apps: [app({ public_app_available: false, update_available: true })], default_app: null, autostart_conflict: [] }),
+    getListAppsApiV1AppsGetMockHandler({ apps: [app({ public_app_available: false, update_available: true, ...(retired ? { source: { ...app({}).source, official: true, legacy_official: "retired" as const } } : {}) })], default_app: null, autostart_conflict: [] }),
     getGetPlatformApiV1PlatformGetMockHandler(READY_PLATFORM),
   );
   renderWithRouter(<AppsListPanel />);
-  expect(await screen.findByText(i18n.t("apps.publicAppUnavailable"))).toBeInTheDocument();
+  expect(await screen.findByText(i18n.t(retired ? "apps.officialRetired" : "apps.publicAppUnavailable"))).toBeInTheDocument();
   expect(screen.queryByText(i18n.t("apps.updateAvailableChip"))).not.toBeInTheDocument();
 });
 

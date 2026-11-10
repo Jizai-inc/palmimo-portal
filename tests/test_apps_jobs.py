@@ -544,14 +544,14 @@ def test_update_git_registers_the_new_record_before_purging_the_old_tree(
     assert registered[-1].source.commit == "v2"
 
 
-def test_update_git_follows_the_catalog_entries_ref_for_an_official_devkit_app(harness: Harness) -> None:
+def test_update_git_follows_the_catalog_entries_ref_for_an_unmapped_official_devkit_app(harness: Harness) -> None:
     old_source = AppSource(
         type="git",
         url="https://github.com/Jizai-inc/palmimo-devkit",
         ref="examples-v0.1.0",
         ref_kind="tag",
         commit="old-commit",
-        subdir="examples/teleop",
+        subdir="examples/other-official",
     )
     record = AppRecord(
         id="palmimo.teleop",
@@ -566,8 +566,10 @@ def test_update_git_follows_the_catalog_entries_ref_for_an_official_devkit_app(h
     (harness.ctx.apps_dir / record.id).mkdir(parents=True)
 
     latest_app = replace(
-        make_catalog_app(subdir="examples/teleop", commit="new-commit"),
-        source=replace(make_catalog_app(subdir="examples/teleop", commit="new-commit").source, ref="examples-v0.1.1"),
+        make_catalog_app(subdir="examples/other-official", commit="new-commit"),
+        source=replace(
+            make_catalog_app(subdir="examples/other-official", commit="new-commit").source, ref="examples-v0.1.1"
+        ),
     )
     catalog = CatalogCache(
         FakeCatalogSource(asset=CatalogAsset(tag="different-catalog-release", apps=(latest_app,))), FakeStateStore()
@@ -575,7 +577,7 @@ def test_update_git_follows_the_catalog_entries_ref_for_an_official_devkit_app(h
     catalog.get(ntp_synchronized=True)
     ctx = replace(harness.ctx, catalog_cache=catalog, catalog_repo="Jizai-inc/palmimo-devkit")
     harness.git.remote_commits[("https://github.com/Jizai-inc/palmimo-devkit", "examples-v0.1.1", "tag")] = "new-commit"
-    harness.git.on_clone = lambda dest, *_: _seed_git_clone(dest / "examples" / "teleop", "palmimo-teleop")
+    harness.git.on_clone = lambda dest, *_: _seed_git_clone(dest / "examples" / "other-official", "palmimo-teleop")
 
     _, new_record = update_git(ctx, state, record.id)
 

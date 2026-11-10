@@ -12,6 +12,7 @@ from starlette.testclient import TestClient
 from palmimo_portal.adapters.public_catalog import parse_public_catalog
 from palmimo_portal.core.periodic import run_git_check_sweep
 from palmimo_portal.ports import (
+    AppRecord,
     GitCommandError,
     PublicCatalogApp,
     PublicCatalogAsset,
@@ -383,14 +384,16 @@ def test_install_public_uses_cached_success_during_catalog_outage(
 
 
 def test_public_install_chooses_unused_id_under_catalog_namespace(
-    client: TestClient, adapters: FakeAdapterBundle, public_app: PublicCatalogApp
+    client: TestClient, app: FastAPI, adapters: FakeAdapterBundle, public_app: PublicCatalogApp
 ) -> None:
     install(client, public_app)
     previous = adapters.state.read_apps_state().apps[APP_ID]
-    install(client, public_app)
+    other = replace(public_app, public=replace(public_app.public, app_id="019a3f2c-0000-7000-8000-000000000099"))
+    refresh(app, adapters, other)
+    install(client, other)
     state = adapters.state.read_apps_state()
     assert state.apps[APP_ID] == previous
-    assert state.apps[f"{APP_ID}-2"].source.public_app_id == public_app.public.app_id
+    assert state.apps[f"{APP_ID}-2"].source.public_app_id == other.public.app_id
 
 
 @pytest.mark.parametrize("method, path", [("GET", "/api/v1/catalog/public"), ("POST", "/api/v1/apps/install-public")])
@@ -733,3 +736,234 @@ def test_public_repair_reinstalls_the_current_catalog_commit(
     assert repaired.broken_reason is None
     assert (project / ".venv/bin/python").is_file()
     assert len(adapters.git.clone_commit_calls) == 2
+
+
+@pytest.fixture
+def legacy_record(client: TestClient, adapters: FakeAdapterBundle, public_app: PublicCatalogApp) -> AppRecord:
+    original_seed = adapters.git.on_clone
+    assert original_seed is not None
+
+    def seed(dest: Path, url: str, ref: str, kind: str) -> None:
+        original_seed(dest, url, ref, kind)
+        manifest = dest / (public_app.source.subdir or "") / (public_app.source.manifest or "palmimo.toml")
+        with manifest.open("a") as stream:
+            stream.write('\n[params.port]\ntype="int"\ndefault=8000\ndescription="Port"\n')
+
+    adapters.git.on_clone = seed
+    install(client, public_app)
+    state = adapters.state.read_apps_state()
+    record = state.apps[APP_ID]
+    record = replace(
+        record,
+        autostart=True,
+        params={"port": 9000},
+        source=replace(
+            record.source,
+            public_app_id=None,
+            url="https://github.com/Jizai-inc/palmimo-devkit",
+            ref="examples-v0.1.0",
+            ref_kind="tag",
+            subdir="examples/teleop",
+            commit="0" * 40,
+        ),
+    )
+    adapters.state.write_apps_state(replace(state, apps={APP_ID: record}))
+    adapters.secrets.set_secret("LEGACY_KEY", "secret")
+    adapters.secrets.write_bindings(APP_ID, dict.fromkeys(public_app.env, "LEGACY_KEY"))
+    return record
+
+
+def official_target(public_app: PublicCatalogApp) -> PublicCatalogApp:
+    return replace(
+        public_app,
+        name="teleop",
+        public=replace(public_app.public, namespace="palmimo", official=True),
+        source=replace(public_app.source, url="https://github.com/Jizai-inc/palmimo-apps"),
+    )
+
+
+def test_legacy_official_migrates_on_confirmed_update(
+    client: TestClient,
+    app: FastAPI,
+    adapters: FakeAdapterBundle,
+    public_app: PublicCatalogApp,
+    legacy_record: AppRecord,
+) -> None:
+    target = official_target(public_app)
+    refresh(app, adapters, target)
+    before = adapters.state.read_apps_state()
+    for body in (client.get("/api/v1/apps").json()["apps"][0], client.get(f"/api/v1/apps/{APP_ID}").json()):
+        assert body["update_available"] is True
+        assert body["source"]["official"] is True
+        assert body["source"]["public_app_id"] == target.public.app_id
+        assert body["source"]["public_page_url"].endswith(target.public.app_id)
+        assert body["latest_commit"] == target.source.commit
+    check = client.post(f"/api/v1/apps/{APP_ID}/update/check", headers=HEADERS)
+    assert check.json()["update_available"] is True
+    assert check.json()["latest_source"]["url"] == target.source.url
+    assert adapters.state.read_apps_state() == before
+    run_git_check_sweep(app.state.apps_job_context, adapters.state)
+    assert adapters.git.fetch_commit_calls == []
+    response = client.post(f"/api/v1/apps/{APP_ID}/update", json={"commit": target.source.commit}, headers=HEADERS)
+    assert response.status_code == 202, response.text
+    assert response.json()["job"]["state"] == "done", response.text
+    record = adapters.state.read_apps_state().apps[APP_ID]
+    assert record.id == legacy_record.id
+    assert record.params == legacy_record.params
+    assert record.autostart is True
+    assert adapters.secrets.read_bindings(APP_ID) == dict.fromkeys(public_app.env, "LEGACY_KEY")
+    assert client.get("/api/v1/apps").json()["default_app"] == APP_ID
+    assert record.source == replace(target.source, public_app_id=target.public.app_id)
+    assert adapters.git.clone_commit_calls[-1] == (target.source.url, target.source.commit)
+
+
+@pytest.mark.parametrize("condition", ["unknown", "missing", "unofficial", "wrong_namespace", "wrong_name", "retired"])
+def test_legacy_official_status_without_a_target(
+    client: TestClient,
+    app: FastAPI,
+    adapters: FakeAdapterBundle,
+    public_app: PublicCatalogApp,
+    legacy_record: AppRecord,
+    condition: str,
+) -> None:
+    from palmimo_portal.core.public_catalog import PublicCatalogCache
+    from palmimo_portal.ports import PublicCatalogCacheState
+
+    if condition == "unknown":
+        adapters.state.write_public_catalog_cache(PublicCatalogCacheState())
+        cache = PublicCatalogCache(adapters.public_catalog, adapters.state)
+        app.state.public_catalog_cache = cache
+        app.state.apps_job_context.public_catalog_cache = cache
+        adapters.public_catalog.raise_on_fetch = PublicCatalogSourceError("offline")
+    else:
+        target = official_target(public_app)
+        if condition == "retired":
+            state = adapters.state.read_apps_state()
+            adapters.state.write_apps_state(
+                replace(
+                    state,
+                    apps={
+                        APP_ID: replace(
+                            legacy_record, source=replace(legacy_record.source, subdir="examples/agents/wakeword")
+                        )
+                    },
+                )
+            )
+        elif condition == "unofficial":
+            target = replace(target, public=replace(target.public, official=False))
+        elif condition == "wrong_namespace":
+            target = replace(target, public=replace(target.public, namespace="alice"))
+        elif condition == "wrong_name":
+            target = replace(target, name="Teleop")
+        refresh(app, adapters, *(() if condition == "missing" else (target,)))
+    for body in (
+        client.get("/api/v1/apps").json()["apps"][0],
+        client.get(f"/api/v1/apps/{APP_ID}").json(),
+        client.post(f"/api/v1/apps/{APP_ID}/update/check", headers=HEADERS).json(),
+    ):
+        assert body["update_available"] is (None if condition == "unknown" else False)
+        assert body["public_app_available"] is (None if condition == "unknown" else False)
+        if "source" in body:
+            assert body["source"]["official"] is True
+            assert body["source"]["legacy_official"] == ("retired" if condition == "retired" else "migrating")
+    response = client.post(f"/api/v1/apps/{APP_ID}/update", headers=HEADERS)
+    assert response.status_code == (503 if condition == "unknown" else 409)
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("during_fetch", [False, True])
+def test_public_install_refuses_an_existing_identity(
+    client: TestClient,
+    app: FastAPI,
+    adapters: FakeAdapterBundle,
+    public_app: PublicCatalogApp,
+    legacy_record: AppRecord,
+    legacy: bool,
+    during_fetch: bool,
+) -> None:
+    target = official_target(public_app)
+    if not legacy:
+        state = adapters.state.read_apps_state()
+        adapters.state.write_apps_state(
+            replace(
+                state,
+                apps={
+                    APP_ID: replace(legacy_record, source=replace(target.source, public_app_id=target.public.app_id))
+                },
+            )
+        )
+    refresh(app, adapters, target)
+    before = adapters.state.read_apps_state()
+    clones = list(adapters.git.clone_commit_calls)
+    if during_fetch:
+        adapters.state.write_apps_state(replace(before, apps={}))
+        original_seed = adapters.git.on_clone
+        assert original_seed is not None
+
+        def seed(dest: Path, url: str, ref: str, kind: str) -> None:
+            original_seed(dest, url, ref, kind)
+            adapters.state.write_apps_state(before)
+
+        adapters.git.on_clone = seed
+    response = client.post(
+        "/api/v1/apps/install-public",
+        json={"public_app_id": target.public.app_id, "commit": target.source.commit},
+        headers=HEADERS,
+    )
+    assert response.status_code == 409
+    assert response.json()["error"] == {"code": "public_app_installed", "params": {"app_id": APP_ID}}
+    assert adapters.state.read_apps_state() == before
+    assert len(adapters.git.clone_commit_calls) == len(clones) + int(during_fetch)
+    assert list(app.state.apps_job_context.staging_dir.glob("*")) == []
+
+
+@pytest.mark.parametrize("retired", [False, True])
+def test_legacy_official_ref_cannot_be_edited(
+    client: TestClient, adapters: FakeAdapterBundle, legacy_record: AppRecord, retired: bool
+) -> None:
+    if retired:
+        state = adapters.state.read_apps_state()
+        adapters.state.write_apps_state(
+            replace(
+                state,
+                apps={
+                    APP_ID: replace(
+                        legacy_record, source=replace(legacy_record.source, subdir="examples/agents/companion")
+                    )
+                },
+            )
+        )
+    response = client.put(f"/api/v1/apps/{APP_ID}/source", json={"ref": "main", "ref_kind": "branch"}, headers=HEADERS)
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "official_tag_ref_managed"
+
+
+@pytest.mark.parametrize("failure", ["fetch", "sync"])
+def test_legacy_update_failure_preserves_source_and_files(
+    client: TestClient,
+    app: FastAPI,
+    adapters: FakeAdapterBundle,
+    public_app: PublicCatalogApp,
+    legacy_record: AppRecord,
+    failure: str,
+) -> None:
+    target = official_target(public_app)
+    refresh(app, adapters, target)
+    root = app.state.apps_job_context.app_dir(APP_ID)
+    (root / "keep.txt").write_text("previous")
+    bindings = adapters.secrets.read_bindings(APP_ID)
+    if failure == "fetch":
+        adapters.git.raise_on_clone = GitCommandError("unreachable commit")
+    else:
+        adapters.sync_unit.default_status = UnitStatus("failed", "failed", "exit-code", 1)
+    response = client.post(f"/api/v1/apps/{APP_ID}/update", json={"commit": target.source.commit}, headers=HEADERS)
+    assert response.status_code == (422 if failure == "fetch" else 202)
+    if failure == "sync":
+        assert response.json()["job"]["state"] == "failed"
+    record = adapters.state.read_apps_state().apps[APP_ID]
+    assert record.source == legacy_record.source
+    assert record.params == legacy_record.params
+    assert record.autostart is True
+    assert adapters.secrets.read_bindings(APP_ID) == bindings
+    assert (root / "keep.txt").read_text() == "previous"
+    assert list(app.state.apps_job_context.staging_dir.glob("*")) == []

@@ -429,6 +429,21 @@
             ],
             "title": "Commit"
           },
+          "legacy_official": {
+            "anyOf": [
+              {
+                "enum": [
+                  "migrating",
+                  "retired"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legacy Official"
+          },
           "manifest": {
             "anyOf": [
               {
@@ -2081,6 +2096,21 @@
             },
             "title": "Env",
             "type": "array"
+          },
+          "legacy_official": {
+            "anyOf": [
+              {
+                "enum": [
+                  "migrating",
+                  "retired"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legacy Official"
           },
           "manifest": {
             "anyOf": [

@@ -6,8 +6,10 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from urllib.parse import quote, urlsplit, urlunsplit
 
+from palmimo_portal.core.legacy_official import legacy_official
 from palmimo_portal.ports import (
     AppSource,
+    AppsState,
     PublicCatalogApp,
     PublicCatalogCacheState,
     PublicCatalogSource,
@@ -121,6 +123,46 @@ def find_public_app(cache: PublicCatalogCache | None, public_app_id: str) -> Pub
     return next((app for app in cache.peek().apps if app.public.app_id == public_app_id), None)
 
 
+def is_public_source(source: AppSource) -> bool:
+    return bool(source.public_app_id) or legacy_official(source) is not None
+
+
+def effective_public_source(cache: PublicCatalogCache | None, source: AppSource) -> AppSource:
+    legacy = legacy_official(source)
+    if legacy is None:
+        return source
+    candidate = (
+        next(
+            (
+                app
+                for app in cache.peek().apps
+                if app.public.official and app.public.namespace == "palmimo" and app.name == legacy.name
+            ),
+            None,
+        )
+        if cache is not None and legacy.name is not None
+        else None
+    )
+    return replace(source, public_app_id=candidate.public.app_id if candidate else None)
+
+
+def installed_public_app(state: AppsState, cache: PublicCatalogCache | None, public_app_id: str) -> str | None:
+    return next(
+        (
+            record.id
+            for record in state.apps.values()
+            if effective_public_source(cache, record.source).public_app_id == public_app_id
+        ),
+        None,
+    )
+
+
+class PublicAppInstalledError(Exception):
+    def __init__(self, app_id: str) -> None:
+        self.app_id = app_id
+        super().__init__(app_id)
+
+
 @dataclass(frozen=True)
 class PublicAppStatus:
     available: bool | None
@@ -130,15 +172,20 @@ class PublicAppStatus:
 
 
 def public_app_status(cache: PublicCatalogCache | None, source: AppSource) -> PublicAppStatus:
+    legacy = legacy_official(source)
+    if legacy is not None and legacy.name is None:
+        return PublicAppStatus(False, False, None, True)
+    source = effective_public_source(cache, source)
     if cache is None or cache.peek().generated_at is None:
-        return PublicAppStatus(None, None, None, None)
+        return PublicAppStatus(None, None, None, True if legacy else None)
     app = find_public_app(cache, source.public_app_id or "")
     if app is None:
-        return PublicAppStatus(False, False, None, False)
+        return PublicAppStatus(False, False, None, bool(legacy))
     return PublicAppStatus(True, source.commit != app.source.commit, app.source.commit, app.public.official)
 
 
 def public_update_source(cache: PublicCatalogCache | None, source: AppSource) -> AppSource:
+    source = effective_public_source(cache, source)
     app = find_public_app(cache, source.public_app_id or "")
     if app is None:
         raise PublicAppUnavailableError("public_app_unavailable")

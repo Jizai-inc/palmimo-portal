@@ -5,10 +5,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { PortalApiError } from "@/api/client";
-import { useInstallPublicApiV1AppsInstallPublicPost, useListAppsApiV1AppsGet } from "@/api/generated/apps/apps";
+import { getListAppsApiV1AppsGetQueryKey, useInstallPublicApiV1AppsInstallPublicPost, useListAppsApiV1AppsGet } from "@/api/generated/apps/apps";
 import { getGetPublicCatalogApiV1CatalogPublicGetQueryKey, useGetPublicCatalogApiV1CatalogPublicGet } from "@/api/generated/catalog/catalog";
 import { useListSecretsApiV1SecretsGet } from "@/api/generated/secrets/secrets";
-import type { AppJobInfo, PublicCatalogAppInfo, ManifestPreviewResponse } from "@/api/generated/models";
+import type { AppJobInfo, AppSummary, PublicCatalogAppInfo, ManifestPreviewResponse } from "@/api/generated/models";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { AppJobDialog } from "@/components/AppJobDialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -99,7 +99,7 @@ export function AddAppPanel({
         </div>
       ) : null}
 
-      {tab === "catalog" ? <CatalogTab {...flow} /> : tab === "github" ? <GithubTab {...flow} /> : <ZipTab {...flow} />}
+      {tab === "catalog" ? <CatalogTab {...flow} installedApps={appsError ? [] : appsData?.apps ?? []} onOpenInstalled={onInstalled} /> : tab === "github" ? <GithubTab {...flow} /> : <ZipTab {...flow} />}
 
       <AppJobDialog
         jobId={installJob?.jobId ?? null}
@@ -322,7 +322,7 @@ function catalogAppTitle(app: PublicCatalogAppInfo): string {
   return app.public.official ? app.name : `${app.public.namespace}/${app.name}`;
 }
 
-function CatalogTab({ onInstalled, appRunning }: FlowProps) {
+function CatalogTab({ onInstalled, appRunning, installedApps, onOpenInstalled }: FlowProps & { installedApps: AppSummary[]; onOpenInstalled: (appId: string) => void }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { data, error, isLoading } = useGetPublicCatalogApiV1CatalogPublicGet();
@@ -344,6 +344,9 @@ function CatalogTab({ onInstalled, appRunning }: FlowProps) {
     },
   } });
   useEffect(() => { if (error) setSelected(null); }, [error]);
+  useEffect(() => {
+    if (data) void queryClient.invalidateQueries({ queryKey: getListAppsApiV1AppsGetQueryKey() });
+  }, [data, queryClient]);
   const catalog = error ? undefined : data;
   const apps = (catalog?.apps ?? []).filter((app) => app.public.official === (kind === "official"));
 
@@ -374,20 +377,24 @@ function CatalogTab({ onInstalled, appRunning }: FlowProps) {
         <p className="text-sm text-muted-foreground">{t("appAdd.catalogEmptyState")}</p>
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          {apps.map((app) => (
-            <div key={app.public.app_id} className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <h3 className="font-semibold">{catalogAppTitle(app)}</h3>
-                {app.public.official ? <Badge>{t("appAdd.catalogOfficialBadge")}</Badge> : null}
-                {app.source.ref ? <Badge variant="outline">{app.source.ref}</Badge> : null}
+          {apps.map((app) => {
+            const installed = installedApps.find((record) => record.source.public_app_id === app.public.app_id);
+            return (
+              <div key={app.public.app_id} className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h3 className="font-semibold">{catalogAppTitle(app)}</h3>
+                  {installed ? <Badge variant="outline">{t("appAdd.installedBadge")}</Badge> : null}
+                  {app.public.official ? <Badge>{t("appAdd.catalogOfficialBadge")}</Badge> : null}
+                  {app.source.ref ? <Badge variant="outline">{app.source.ref}</Badge> : null}
+                </div>
+                <CatalogAppDetails app={app} />
+                {installed ? <Button className="mt-auto w-fit" onClick={() => onOpenInstalled(installed.id)}>{t("appAdd.openInstalledButton")}</Button> : <Button className="mt-auto w-fit" disabled={appRunning || !app.source.commit} onClick={() => { setInstallError(null); setSelected(app); }}>
+                  <Download className="size-4" aria-hidden />{t("appAdd.installButton")}
+                </Button>}
+                {appRunning && !installed ? <p className="text-sm text-muted-foreground">{t("appAdd.installDisabledAppRunning")}</p> : null}
               </div>
-              <CatalogAppDetails app={app} />
-              <Button className="mt-auto w-fit" disabled={appRunning || !app.source.commit} onClick={() => { setInstallError(null); setSelected(app); }}>
-                <Download className="size-4" aria-hidden />{t("appAdd.installButton")}
-              </Button>
-              {appRunning ? <p className="text-sm text-muted-foreground">{t("appAdd.installDisabledAppRunning")}</p> : null}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
       <AlertDialog open={selected !== null && !error} onOpenChange={(open) => { if (!open && !install.isPending) setSelected(null); }}>

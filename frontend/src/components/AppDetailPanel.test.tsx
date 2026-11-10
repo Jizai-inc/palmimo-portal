@@ -796,3 +796,13 @@ it("explains that unknown public catalog state prevents ref editing", async () =
   expect(screen.queryByText(i18n.t("appDetail.sourceOfficialTagManaged"))).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: i18n.t("appDetail.sourceEditRefButton") })).not.toBeInTheDocument();
 });
+
+it("shows retired official apps without repair or update actions", async () => {
+  const record = detail({ source: { ...detail().source, official: true, legacy_official: "retired" }, public_app_available: false, update_available: false });
+  server.use(getGetAppApiV1AppsNameGetMockHandler(record), getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }), getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }));
+  renderWithRouter(<AppDetailPanel id={record.id} />);
+  expect(await screen.findByRole("status")).toHaveTextContent(i18n.t("apps.officialRetired"));
+  expect(screen.getByText(i18n.t("appAdd.catalogOfficialBadge"))).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: i18n.t("appDetail.updateButton") })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: i18n.t("apps.repairButton") })).not.toBeInTheDocument();
+});

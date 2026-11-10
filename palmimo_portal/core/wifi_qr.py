@@ -46,7 +46,7 @@ def parse_wifi_qr(text: str) -> WifiCredential | Rejection:
         else:
             chunk.append(char)
     security = fields.get("T", "")
-    if security not in {"", "WPA", "WPA2", "nopass"}:
+    if security not in {"", "WPA", "WPA2", "SAE", "nopass"}:
         return Rejection("unsupported_security")
     if fields.get("H") == "true":
         return Rejection("hidden_network")

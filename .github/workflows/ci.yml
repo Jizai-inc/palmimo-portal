@@ -49,8 +49,10 @@ jobs:
       - run: uv sync --dev
       - run: uv run mypy
 
+  # pyproject.toml restricts uv to the system Python, so the runner image
+  # must ship python3.12 itself. ubuntu-latest (26.04) does not; 24.04 does.
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:

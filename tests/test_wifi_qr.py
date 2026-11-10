@@ -16,7 +16,7 @@ def test_parse_wifi_qr_accepts_phone_samples(text: str) -> None:
     assert parse_wifi_qr(text) == WifiCredential("QR;テスト:”1”", 'p@ss;w,rd:"x"\\ 100%')
 
 
-@pytest.mark.parametrize("security", ["WPA", "WPA2", ""])
+@pytest.mark.parametrize("security", ["WPA", "WPA2", "SAE", ""])
 def test_parse_wifi_qr_accepts_supported_security(security: str) -> None:
     field = f"T:{security};" if security else ""
     assert parse_wifi_qr(f"WIFI:{field}S:home;P:password;;") == WifiCredential("home", "password")
@@ -26,7 +26,7 @@ def test_parse_wifi_qr_accepts_supported_security(security: str) -> None:
     "text,expected",
     [
         ("https://example.com", "not_wifi"),
-        *[(f"WIFI:T:{t};S:home;P:password;;", "unsupported_security") for t in ["SAE", "WPA3", "WEP", "WPA2-EAP"]],
+        *[(f"WIFI:T:{t};S:home;P:password;;", "unsupported_security") for t in ["WPA3", "WEP", "WPA2-EAP"]],
         ("WIFI:S:home;P:password;H:true;;", "hidden_network"),
         ("WIFI:S:;P:password;;", "invalid_ssid"),
         ("WIFI:P:password;;", "invalid_ssid"),

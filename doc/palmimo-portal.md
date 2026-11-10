@@ -35,6 +35,10 @@ restarts the Portal's own systemd unit; the frontend build itself is not
 committed to the checkout — it ships as a separate GitHub Release asset that
 the updater downloads and swaps into place (see [Releasing](releasing.md)).
 
+## App repair
+
+Retired official apps offer repair only when the manifest or virtual environment is missing, or when launcher exit code 78 marks the app as needing repair.
+
 ## See also
 
 - [Palmimo Portal source](../palmimo_portal/)

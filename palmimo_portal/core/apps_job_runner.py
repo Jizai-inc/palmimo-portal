@@ -62,6 +62,7 @@ from palmimo_portal.core.public_catalog import (
 )
 from palmimo_portal.core.secrets import mask_authorization_lines
 from palmimo_portal.ports import (
+    AdapterUnavailableError,
     AppExistsError,
     AppJob,
     AppNotFoundError,
@@ -70,6 +71,7 @@ from palmimo_portal.ports import (
     AppsState,
     AppUnitPort,
     GitCommandError,
+    PolkitDeniedError,
     StateStore,
 )
 
@@ -215,6 +217,7 @@ class AppsJobRunner:
                 try:
                     _new_state, record = commit_install(self._ctx, latest, prepared, started, on_step)
                     self._write_own_record(name, record)
+                    self._finish_registration(name)
                     finished = record.last_job or job
                     result["job"] = finished
                     logger.info(
@@ -295,7 +298,7 @@ class AppsJobRunner:
                     raise PublicAppChangedError("public_app_changed")
                 if is_retired_official(record):
                     if record.broken_reason is None:
-                        status = derive_run_status(self._app_unit.status(name), installed_at=record.installed_at)
+                        status = derive_run_status(self._app_unit.status(name))
                         if status.status != "needs_repair":
                             raise PublicAppUnavailableError("public_app_unavailable")
                     if record.source.commit is None:
@@ -338,6 +341,7 @@ class AppsJobRunner:
                             name, updated, clear_credential_for_host_owner=not is_public_source(updated)
                         ),
                     )
+                    self._finish_registration(name)
                     result["job"] = record.last_job or job
                 except Exception as error:
                     logger.warning(
@@ -455,6 +459,14 @@ class AppsJobRunner:
         self._spawn(run, lock_cm)
         return result.get("job", job)
 
+    def _finish_registration(self, name: str) -> None:
+        """Keep job polling in progress until the unit's failure state has been handled."""
+        try:
+            self._app_unit.reset_failed(name)
+        except (AdapterUnavailableError, PolkitDeniedError) as error:
+            logger.warning("apps: could not reset failed unit name=%s: %s", name, error)
+        self._state.update_apps_state(lambda final: AppsState(apps=final.apps))
+
     def _write_own_record(self, name: str, record: AppRecord, *, clear_credential_for_host_owner: bool = False) -> None:
         """Merge ``record`` into a freshly re-read ledger, rather than writing back the
         possibly-stale ``apps`` dict a job read before its unbounded step ran -- see the
@@ -479,7 +491,7 @@ class AppsJobRunner:
                 host_owner = apps_core.host_owner_from_url(merged.source.url)
                 if host_owner is not None:
                     apps = apps_core.clear_credential_rejected(replace(final, apps=apps), host_owner).apps
-            return AppsState(apps=apps, current_job=None, current_job_app=None)
+            return replace(final, apps=apps)
 
         self._state.update_apps_state(write)
 

@@ -1068,6 +1068,10 @@ class FakeAppUnitPort(AppUnitPort):
             active_state="inactive", sub_state="dead", result="success", exec_main_status=0
         )
 
+    def reset_failed(self, name: str) -> None:
+        if self.status(name).active_state == "failed":
+            self.statuses[name] = UnitStatus("inactive", "dead", "success", 0)
+
     def status(self, name: str) -> UnitStatus:
         return self.statuses.get(name, self.default_status)
 

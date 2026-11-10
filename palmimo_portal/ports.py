@@ -1424,6 +1424,10 @@ class AppUnitPort(Protocol):
         """Ask systemd to stop ``name``'s unit and wait for the stop job to finish."""
         ...
 
+    def reset_failed(self, name: str) -> None:
+        """Clear the unit's failed state and start rate limit if it is loaded."""
+        ...
+
     def status(self, name: str) -> UnitStatus:
         """Read ``name``'s current ``ActiveState``/``SubState``/``Result``/``ExecMainStatus``."""
         ...

@@ -12,8 +12,10 @@ from starlette.testclient import TestClient
 from palmimo_portal.adapters.public_catalog import parse_public_catalog
 from palmimo_portal.core.periodic import run_git_check_sweep
 from palmimo_portal.ports import (
+    AdapterUnavailableError,
     AppRecord,
     GitCommandError,
+    PolkitDeniedError,
     PublicCatalogApp,
     PublicCatalogAsset,
     PublicCatalogSourceError,
@@ -888,11 +890,11 @@ def test_retired_official_repairs_the_installed_commit(
 ) -> None:
     app_id = f"palmimo.{name}"
     source = replace(legacy_record.source, subdir=f"examples/agents/{name}", manifest="palmimo.toml")
-    record = replace(legacy_record, id=app_id, source=source, broken_reason=broken_reason, installed_at=1.0)
+    record = replace(legacy_record, id=app_id, source=source, broken_reason=broken_reason)
     state = adapters.state.read_apps_state()
     adapters.state.write_apps_state(replace(state, apps={app_id: record}))
     if broken_reason is None:
-        adapters.app_unit.statuses[app_id] = UnitStatus("failed", "failed", "exit-code", 78, 2_000_000)
+        adapters.app_unit.statuses[app_id] = UnitStatus("failed", "failed", "exit-code", 78)
     expected_status = "needs_repair" if broken_reason is None else "broken"
     assert client.get(f"/api/v1/apps/{app_id}").json()["status"] == expected_status
     bindings = adapters.secrets.read_bindings(LEGACY_ID)
@@ -926,6 +928,70 @@ def test_retired_official_repairs_the_installed_commit(
     assert (app.state.apps_job_context.app_dir(app_id) / subdir / ".venv/bin/python").is_file()
     assert adapters.git.clone_commit_calls[-1] == (source.url, source.commit)
     assert adapters.public_catalog.fetch_calls == fetch_calls
+
+
+@pytest.mark.parametrize(
+    "reset_error",
+    [
+        None,
+        AdapterUnavailableError("systemd_backend_unavailable", "offline"),
+        PolkitDeniedError(APP_ID, "reset-failed"),
+    ],
+)
+def test_install_succeeds_and_clears_stale_unit_failure_when_possible(
+    client: TestClient,
+    adapters: FakeAdapterBundle,
+    public_app: PublicCatalogApp,
+    monkeypatch: pytest.MonkeyPatch,
+    reset_error: Exception | None,
+) -> None:
+    adapters.app_unit.statuses[APP_ID] = UnitStatus("failed", "failed", "exit-code", 78)
+    observed: list[tuple[str, str]] = []
+    original_reset = adapters.app_unit.reset_failed
+
+    def reset_failed(name: str) -> None:
+        detail = client.get(f"/api/v1/apps/{name}").json()
+        job = client.get(f"/api/v1/apps/jobs/{detail['last_job']['id']}").json()
+        observed.append((detail["status"], job["state"]))
+        if reset_error is not None:
+            raise reset_error
+        original_reset(name)
+
+    monkeypatch.setattr(adapters.app_unit, "reset_failed", reset_failed)
+    install(client, public_app)
+    detail = client.get(f"/api/v1/apps/{APP_ID}").json()
+    assert detail["status"] == ("stopped" if reset_error is None else "needs_repair")
+    assert observed == [("installing", "running")]
+
+
+@pytest.mark.parametrize(
+    "status_error, error_code",
+    [
+        (AdapterUnavailableError("systemd_backend_unavailable", "offline"), "systemd_backend_unavailable"),
+        (PolkitDeniedError(LEGACY_ID, "status"), "polkit_denied"),
+    ],
+)
+def test_retired_official_repair_returns_503_when_unit_status_is_unreadable(
+    client: TestClient,
+    adapters: FakeAdapterBundle,
+    legacy_record: AppRecord,
+    monkeypatch: pytest.MonkeyPatch,
+    status_error: Exception,
+    error_code: str,
+) -> None:
+    source = replace(legacy_record.source, subdir="examples/agents/wakeword")
+    record = replace(legacy_record, source=source)
+    state = replace(adapters.state.read_apps_state(), apps={LEGACY_ID: record})
+    adapters.state.write_apps_state(state)
+
+    def status(name: str) -> UnitStatus:
+        raise status_error
+
+    monkeypatch.setattr(adapters.app_unit, "status", status)
+    response = client.post(f"/api/v1/apps/{LEGACY_ID}/update", headers=HEADERS)
+    assert response.status_code == 503, response.text
+    assert response.json()["error"]["code"] == error_code
+    assert adapters.state.read_apps_state() == state
 
 
 @pytest.mark.parametrize("legacy", [False, True])

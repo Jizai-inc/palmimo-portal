@@ -417,6 +417,33 @@ def test_stop_calls_stop_unit_with_replace_mode() -> None:
     assert port.calls == [("stop_unit", ("palmimo-app@teleop.service", "replace"))]
 
 
+def test_reset_failed_calls_systemd_for_the_app_unit() -> None:
+    port = _StubbedAppUnitPort({"reset_failed_unit": None})
+
+    port.reset_failed("palmimo.teleop")
+
+    assert port.calls == [("reset_failed_unit", ("palmimo-app@palmimo.teleop.service",))]
+
+
+def test_reset_failed_accepts_a_unit_that_systemd_no_longer_has_loaded() -> None:
+    port = _DBusErrorAppUnitPort("reset_failed_unit", DBusError("org.freedesktop.systemd1.NoSuchUnit", "missing"))
+
+    port.reset_failed("palmimo.teleop")
+
+
+def test_app_status_reports_backend_unavailable_when_system_bus_connection_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    port = SystemdAppUnitPort()
+
+    async def connect() -> None:
+        raise FileNotFoundError("system bus socket is missing")
+
+    monkeypatch.setattr(port, "_connect", connect)
+    with pytest.raises(AdapterUnavailableError):
+        port.status("palmimo.teleop")
+
+
 def test_start_raises_polkit_denied_when_systemd_refuses_access() -> None:
     port = _DBusErrorAppUnitPort("start_unit", DBusError("org.freedesktop.DBus.Error.AccessDenied", "nope"))
 

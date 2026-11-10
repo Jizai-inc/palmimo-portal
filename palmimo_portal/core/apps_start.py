@@ -416,7 +416,7 @@ class AppRunStatus:
     reason: str | None = None
 
 
-def derive_run_status(unit_status: UnitStatus, *, installed_at: float | None = None) -> AppRunStatus:
+def derive_run_status(unit_status: UnitStatus) -> AppRunStatus:
     """Map systemd's `ActiveState`/`Result`/`ExecMainStatus` onto the design doc 3.5 status table."""
     if unit_status.active_state == "active":
         return AppRunStatus("running")
@@ -427,9 +427,6 @@ def derive_run_status(unit_status: UnitStatus, *, installed_at: float | None = N
     if unit_status.active_state == "failed":
         if unit_status.result == "exit-code":
             if unit_status.exec_main_status == 78:
-                started_at = unit_status.exec_main_start_timestamp / 1_000_000
-                if installed_at is not None and 0 < started_at < installed_at:
-                    return AppRunStatus("stopped")
                 return AppRunStatus("needs_repair")
             return AppRunStatus("failed", exit_code=unit_status.exec_main_status)
         if unit_status.result == "resources":

@@ -663,7 +663,7 @@ def _run_status(
                 run_dir.remove(record.id)
         except RunLockTimeoutError:
             pass
-    run_status = derive_run_status(unit_status, installed_at=record.installed_at)
+    run_status = derive_run_status(unit_status)
     return cast(AppStatus, run_status.status), run_status.exit_code, run_status.reason
 
 
@@ -1301,6 +1301,8 @@ def update_app(
         raise PortalError(404, "app_not_found") from error
     except AppsLockTimeoutError as error:
         raise PortalError(409, "app_job_in_progress") from error
+    except PolkitDeniedError as error:
+        raise PortalError(503, "polkit_denied") from error
     except AppStartError as error:
         _raise_for_start_error(error)
     record = state_store.read_apps_state().apps.get(name)
@@ -1345,6 +1347,8 @@ def update_app(
         raise PortalError(404, "app_not_found") from error
     except AppsLockTimeoutError as error:
         raise PortalError(409, "app_job_in_progress") from error
+    except PolkitDeniedError as error:
+        raise PortalError(503, "polkit_denied") from error
     except AppStartError as error:
         _raise_for_start_error(error)
     finally:

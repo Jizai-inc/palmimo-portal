@@ -740,7 +740,9 @@ def test_public_repair_reinstalls_the_current_catalog_commit(
 
 
 @pytest.fixture
-def legacy_record(client: TestClient, adapters: FakeAdapterBundle, public_app: PublicCatalogApp) -> AppRecord:
+def legacy_record(
+    client: TestClient, app: FastAPI, adapters: FakeAdapterBundle, public_app: PublicCatalogApp
+) -> AppRecord:
     original_seed = adapters.git.on_clone
     assert original_seed is not None
 
@@ -769,7 +771,7 @@ def legacy_record(client: TestClient, adapters: FakeAdapterBundle, public_app: P
             commit="0" * 40,
         ),
     )
-    ctx = client.app.state.apps_job_context
+    ctx = app.state.apps_job_context
     ctx.app_dir(APP_ID).rename(ctx.app_dir(LEGACY_ID))
     adapters.state.write_apps_state(replace(state, apps={LEGACY_ID: record}))
     adapters.secrets.set_secret("LEGACY_KEY", "secret")
@@ -872,6 +874,58 @@ def test_legacy_official_status_without_a_target(
             assert body["source"]["legacy_official"] == ("retired" if condition == "retired" else "migrating")
     response = client.post(f"/api/v1/apps/{LEGACY_ID}/update", headers=HEADERS)
     assert response.status_code == (503 if condition == "unknown" else 409)
+
+
+@pytest.mark.parametrize("name, broken_reason", [("companion", "venv_missing"), ("wakeword", None)])
+def test_retired_official_repairs_the_installed_commit(
+    client: TestClient,
+    app: FastAPI,
+    adapters: FakeAdapterBundle,
+    public_app: PublicCatalogApp,
+    legacy_record: AppRecord,
+    name: str,
+    broken_reason: str | None,
+) -> None:
+    app_id = f"palmimo.{name}"
+    source = replace(legacy_record.source, subdir=f"examples/agents/{name}", manifest="palmimo.toml")
+    record = replace(legacy_record, id=app_id, source=source, broken_reason=broken_reason, installed_at=1.0)
+    state = adapters.state.read_apps_state()
+    adapters.state.write_apps_state(replace(state, apps={app_id: record}))
+    if broken_reason is None:
+        adapters.app_unit.statuses[app_id] = UnitStatus("failed", "failed", "exit-code", 78, 2_000_000)
+    expected_status = "needs_repair" if broken_reason is None else "broken"
+    assert client.get(f"/api/v1/apps/{app_id}").json()["status"] == expected_status
+    bindings = adapters.secrets.read_bindings(LEGACY_ID)
+    adapters.secrets.write_bindings(app_id, bindings)
+
+    original_seed = adapters.git.on_clone
+    assert original_seed is not None and source.subdir is not None and public_app.source.subdir is not None
+    subdir = source.subdir
+    seed_subdir = public_app.source.subdir
+
+    def seed(dest: Path, url: str, ref: str, kind: str) -> None:
+        original_seed(dest, url, ref, kind)
+        project = dest / subdir
+        project.parent.mkdir(parents=True)
+        (dest / seed_subdir).rename(project)
+
+    adapters.git.on_clone = seed
+    adapters.public_catalog.raise_on_fetch = PublicCatalogSourceError("offline")
+    fetch_calls = adapters.public_catalog.fetch_calls
+    response = client.post(f"/api/v1/apps/{app_id}/update", headers=HEADERS)
+    assert response.status_code == 202, response.text
+    assert response.json()["job"]["state"] == "done", response.text
+    repaired = adapters.state.read_apps_state().apps[app_id]
+    assert repaired.source == source
+    assert repaired.broken_reason is None
+    assert client.get(f"/api/v1/apps/{app_id}").json()["status"] == "stopped"
+    assert client.post(f"/api/v1/apps/{app_id}/update", headers=HEADERS).status_code == 409
+    assert repaired.params == record.params
+    assert repaired.autostart is True
+    assert adapters.secrets.read_bindings(app_id) == bindings
+    assert (app.state.apps_job_context.app_dir(app_id) / subdir / ".venv/bin/python").is_file()
+    assert adapters.git.clone_commit_calls[-1] == (source.url, source.commit)
+    assert adapters.public_catalog.fetch_calls == fetch_calls
 
 
 @pytest.mark.parametrize("legacy", [False, True])

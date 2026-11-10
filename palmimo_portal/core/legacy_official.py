@@ -28,3 +28,8 @@ def legacy_official(record: AppRecord) -> LegacyOfficial | None:
     ):
         return None
     return _OFFICIAL_APPS.get((source.subdir or "", source.manifest or "palmimo.toml"))
+
+
+def is_retired_official(record: AppRecord) -> bool:
+    legacy = legacy_official(record)
+    return legacy is not None and legacy.name is None

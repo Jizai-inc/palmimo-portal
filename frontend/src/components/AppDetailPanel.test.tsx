@@ -797,12 +797,25 @@ it("explains that unknown public catalog state prevents ref editing", async () =
   expect(screen.queryByRole("button", { name: i18n.t("appDetail.sourceEditRefButton") })).not.toBeInTheDocument();
 });
 
-it("shows retired official apps without repair or update actions", async () => {
-  const record = detail({ source: { ...detail().source, official: true, legacy_official: "retired" }, public_app_available: false, update_available: false });
-  server.use(getGetAppApiV1AppsNameGetMockHandler(record), getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }), getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }));
+it.each(["stopped", "broken", "needs_repair"] as const)("offers retired official repair only when needed (%s)", async (status) => {
+  const posted = vi.fn();
+  const record = detail({ status, source: { ...detail().source, official: true, legacy_official: "retired" }, public_app_available: false, update_available: false });
+  server.use(getGetAppApiV1AppsNameGetMockHandler(record), getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }), getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }), http.post("*/api/v1/apps/palmimo.teleop/update", async ({ request }) => {
+    posted(await request.text());
+    return HttpResponse.json({ error: { code: "git_not_found", params: {} } }, { status: 422 });
+  }));
   renderWithRouter(<AppDetailPanel id={record.id} />);
   expect(await screen.findByRole("status")).toHaveTextContent(i18n.t("apps.officialRetired"));
   expect(screen.getByText(i18n.t("appAdd.catalogOfficialBadge"))).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: i18n.t("appDetail.updateButton") })).not.toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: i18n.t("apps.repairButton") })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: i18n.t("appDetail.checkForUpdatesButton") })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: i18n.t("appDetail.sourceEditRefButton") })).not.toBeInTheDocument();
+  const repair = screen.queryByRole("button", { name: i18n.t("apps.repairButton") });
+  if (status === "stopped") {
+    expect(repair).not.toBeInTheDocument();
+  } else {
+    expect(repair).toBeEnabled();
+    await userEvent.click(repair!);
+    await waitFor(() => expect(posted).toHaveBeenCalledWith(""));
+  }
 });

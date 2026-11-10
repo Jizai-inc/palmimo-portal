@@ -115,7 +115,7 @@ from palmimo_portal.core.apps_start import (
     with_default_app,
 )
 from palmimo_portal.core.apps_zip import UPLOAD_MAX_BYTES
-from palmimo_portal.core.legacy_official import legacy_official
+from palmimo_portal.core.legacy_official import is_retired_official, legacy_official
 from palmimo_portal.core.manifest import (
     InvalidManifestFilenameError,
     Manifest,
@@ -663,7 +663,7 @@ def _run_status(
                 run_dir.remove(record.id)
         except RunLockTimeoutError:
             pass
-    run_status = derive_run_status(unit_status)
+    run_status = derive_run_status(unit_status, installed_at=record.installed_at)
     return cast(AppStatus, run_status.status), run_status.exit_code, run_status.reason
 
 
@@ -1305,7 +1305,7 @@ def update_app(
         _raise_for_start_error(error)
     record = state_store.read_apps_state().apps.get(name)
     prepared = None
-    if record is not None and is_public_source(record):
+    if record is not None and is_public_source(record) and not is_retired_official(record):
         snapshot = (
             ctx.public_catalog_cache.get(ntp_synchronized=request.app.state.adapters.clock.ntp_synchronized())
             if ctx.public_catalog_cache

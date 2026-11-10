@@ -528,7 +528,9 @@ function SourceSection({
   const isPublic = Boolean(app.source.public_app_id || app.source.legacy_official);
   const unavailable = app.public_app_available === false;
   const isOfficialTag = isPublic && app.source.official !== false;
-  const needsPublicRepair = isPublic && !unavailable && (app.status === "broken" || app.status === "needs_repair");
+  const retired = app.source.legacy_official === "retired";
+  const needsRepair = app.status === "broken" || app.status === "needs_repair";
+  const needsPublicRepair = isPublic && !unavailable && needsRepair;
   const repairWouldUpdate = Boolean(app.latest_source?.commit && app.latest_source.commit !== app.source.commit);
   const repairChangesVersion = repairing && target !== null && target.commit !== app.source.commit;
   const addedDevices = target?.devices.filter((device) => !app.devices.includes(device)) ?? [];
@@ -539,7 +541,7 @@ function SourceSection({
   return (
     <Section title={t("appDetail.sourceTitle")}>
       {app.source.public_page_url ? <a href={app.source.public_page_url} target="_blank" rel="noreferrer" className="text-sm underline">{t("appAdd.publicPageLink")}</a> : null}
-      {unavailable ? <p role="status" className="text-sm text-muted-foreground">{t(app.source.legacy_official === "retired" ? "apps.officialRetired" : "apps.publicAppUnavailable")}</p> : null}
+      {unavailable ? <p role="status" className="text-sm text-muted-foreground">{t(retired ? "apps.officialRetired" : "apps.publicAppUnavailable")}</p> : null}
       <dl className="flex flex-col gap-1 text-sm">
         <KvRow label={t("appDetail.sourceTypeLabel")} value={app.source.type} />
         {app.source.url ? <KvRow label={t("appDetail.sourceRepoLabel")} value={app.source.url} /> : null}
@@ -552,6 +554,7 @@ function SourceSection({
       {isGit ? (
         <div className="flex flex-wrap items-center gap-2">
           {!isOfficialTag ? <Button variant="outline" size="sm" onClick={() => setEditingRef((value) => !value)}>{t("appDetail.sourceEditRefButton")}</Button> : null}
+          {retired && needsRepair ? <Button disabled={updatePending || appRunning || !app.source.commit} onClick={() => onUpdate()}>{t("apps.repairButton")}</Button> : null}
           {needsPublicRepair ? <Button disabled={updatePending || appRunning || !app.latest_source?.commit} onClick={() => { if (app.latest_source) { setRepairing(true); setTarget(app.latest_source); } }}>{repairWouldUpdate ? t("appDetail.updateAndRepair") : t("apps.repairButton")}</Button> : null}
           {unavailable || (needsPublicRepair && app.latest_source?.commit) ? null : updateAvailable ? (
             <Button size="sm" onClick={() => {

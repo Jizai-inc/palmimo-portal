@@ -52,6 +52,7 @@ from palmimo_portal.core.apps import (
 )
 from palmimo_portal.core.apps_layout import LayoutPaths, resolve_layout
 from palmimo_portal.core.apps_zip import UPLOAD_MAX_BYTES, extract_zip_to_staging
+from palmimo_portal.core.legacy_official import is_retired_official
 from palmimo_portal.core.manifest import (
     DEFAULT_MANIFEST_FILENAME,
     Manifest,
@@ -972,7 +973,8 @@ def update_git(
     job_id = job_id or ctx.new_id()
     started = started if started is not None else ctx.now()
     staging_container = ctx.staging_dir / job_id
-    if is_public_source(record) and prepared is None:
+    retired = is_retired_official(record)
+    if is_public_source(record) and not retired and prepared is None:
         raise ValueError("public updates require a confirmed prepared source")
     if prepared is not None:
         staging_container = prepared.staging_container
@@ -982,7 +984,14 @@ def update_git(
     uncontained = False
     try:
         on_step("fetch")
-        commit = prepared.commit if prepared is not None else _clone_app_source(ctx, target_source, staging_container)
+        if prepared is not None:
+            commit = prepared.commit
+        elif retired:
+            if target_source.commit is None:
+                raise InvalidManifestSourceError(f"app {name!r} has no recorded commit")
+            commit = ctx.git.clone_commit_shallow(record.source.url, target_source.commit, staging_container)
+        else:
+            commit = _clone_app_source(ctx, target_source, staging_container)
         on_step("validate")
         project_dir = resolve_subdir(staging_container, target_source.subdir)
         manifest = _read_manifest(project_dir, _manifest_filename_for(target_source))

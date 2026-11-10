@@ -49,7 +49,8 @@ from palmimo_portal.core.apps_jobs import (
     purge_path,
     update_git,
 )
-from palmimo_portal.core.apps_start import RUNNING_ACTIVE_STATES, AppRunningError
+from palmimo_portal.core.apps_start import RUNNING_ACTIVE_STATES, AppRunningError, derive_run_status
+from palmimo_portal.core.legacy_official import is_retired_official
 from palmimo_portal.core.public_catalog import (
     PublicAppChangedError,
     PublicAppInstalledError,
@@ -283,19 +284,27 @@ class AppsJobRunner:
 
             def begin(state: AppsState) -> AppsState:
                 nonlocal job
-                if name not in state.apps:
+                record = state.apps.get(name)
+                if record is None:
                     raise AppNotFoundError(name)
                 if (
                     prepared is not None
                     and prepared.source.public_app_id
-                    != effective_public_source(self._ctx.public_catalog_cache, state.apps[name]).public_app_id
+                    != effective_public_source(self._ctx.public_catalog_cache, record).public_app_id
                 ):
                     raise PublicAppChangedError("public_app_changed")
-                if is_public_source(state.apps[name]):
-                    target = public_update_source(self._ctx.public_catalog_cache, state.apps[name])
+                if is_retired_official(record):
+                    if record.broken_reason is None:
+                        status = derive_run_status(self._app_unit.status(name), installed_at=record.installed_at)
+                        if status.status != "needs_repair":
+                            raise PublicAppUnavailableError("public_app_unavailable")
+                    if record.source.commit is None:
+                        raise PublicAppUnavailableError("public_app_unavailable")
+                elif is_public_source(record):
+                    target = public_update_source(self._ctx.public_catalog_cache, record)
                     if prepared is None or prepared.public_app is None or prepared.source != target:
                         raise PublicAppChangedError("public_app_changed")
-                job = replace(job, display_name=state.apps[name].name)
+                job = replace(job, display_name=record.name)
                 return replace(state, current_job=job, current_job_app=name)
 
             self._state.update_apps_state(begin)
@@ -326,7 +335,7 @@ class AppsJobRunner:
                         on_step=on_step,
                         prepared=prepared,
                         on_registered=lambda updated: self._write_own_record(
-                            name, updated, clear_credential_for_host_owner=not bool(updated.source.public_app_id)
+                            name, updated, clear_credential_for_host_owner=not is_public_source(updated)
                         ),
                     )
                     result["job"] = record.last_job or job

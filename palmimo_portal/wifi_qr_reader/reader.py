@@ -708,12 +708,15 @@ def probe_protocol(port: Any, clock: Callable[[], float] = time.monotonic) -> in
             partial.clear()
             if line.startswith(b"EVT ") or not line:
                 continue
+            if not (line.startswith(b"OK HELLO ") and b"proto=2" in line.split()[2:]):
+                # The v1 path logs the firmware from VERSION once it initializes.
+                return 1
             LOG.info(
                 "Display HELLO: %s",
                 line.decode(errors="replace"),
                 extra={"display_firmware": line.decode(errors="replace")},
             )
-            return 2 if line.startswith(b"OK HELLO ") and b"proto=2" in line.split()[2:] else 1
+            return 2
     return 1
 
 

@@ -66,6 +66,7 @@ from palmimo_portal.ports import (
     AuthLockTimeoutError,
     AuthState,
     DisplayFirmwareResult,
+    DisplaySyncPending,
     PlatformJob,
     PlatformLockTimeoutError,
     PlatformUpdateState,
@@ -94,6 +95,7 @@ RUN_LOCK_FILENAME = "run.lock"
 PLATFORM_UPDATE_STATE_FILENAME = "platform_update.json"
 PLATFORM_LOCK_FILENAME = "platform.lock"
 HOME_FILENAME = "home.json"
+DISPLAY_SYNC_FILENAME = "display_sync.json"
 
 _LEGACY_APP_NAME_RE = re.compile(r"^[a-z][a-z0-9-]{0,39}$")
 
@@ -287,6 +289,36 @@ class JsonFileStateStore(StateStore):
                 fcntl.flock(fd, fcntl.LOCK_UN)
         finally:
             os.close(fd)
+
+    def read_display_sync(self) -> DisplaySyncPending | None:
+        path = self._state_dir / DISPLAY_SYNC_FILENAME
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if (
+                not isinstance(data, dict)
+                or type(data.get("schema")) is not int
+                or data["schema"] != 1
+                or type(data.get("pending")) is not bool
+            ):
+                raise ValueError("invalid display sync record")
+            for key in ("reason", "boot_id"):
+                if data.get(key) is not None and not isinstance(data[key], str):
+                    raise ValueError(f"invalid display sync {key}")
+            return DisplaySyncPending(data["pending"], data.get("reason"), data.get("boot_id"))
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError, TypeError) as error:
+            logger.warning("cannot read display sync record: %s", error)
+            return None
+
+    def write_display_sync(self, pending: DisplaySyncPending | None) -> None:
+        path = self._state_dir / DISPLAY_SYNC_FILENAME
+        if pending is None:
+            path.unlink(missing_ok=True)
+            if path.parent.exists():
+                fsync_dir(path.parent)
+        else:
+            atomic_write_text(path, json.dumps({"schema": 1, **asdict(pending)}))
 
     def read_preempted_app(self) -> PreemptedApp | None:
         try:
@@ -771,7 +803,7 @@ class JsonFileStateStore(StateStore):
         job_id, kind, job_state = data["id"], data["kind"], data["state"]
         if not all(isinstance(value, str) for value in (job_id, kind, job_state)):
             raise TypeError(f"{field_prefix}.id/kind/state must be strings")
-        for name in ("step", "error"):
+        for name in ("step", "error", "boot_id", "warning"):
             _require_optional_type(data.get(name), str, f"{field_prefix}.{name}")
         _require_optional_type(data.get("display_name"), str, f"{field_prefix}.display_name")
         for name in ("started_at", "finished_at"):
@@ -790,6 +822,8 @@ class JsonFileStateStore(StateStore):
             lock_generated=bool(data.get("lock_generated", False)),
             dropped_bindings=dropped_bindings,
             dropped_params=dropped_params,
+            boot_id=data.get("boot_id"),
+            warning=data.get("warning"),
         )
 
     @staticmethod
@@ -827,6 +861,8 @@ class JsonFileStateStore(StateStore):
             "lock_generated": job.lock_generated,
             "dropped_bindings": list(job.dropped_bindings),
             "dropped_params": list(job.dropped_params),
+            "boot_id": job.boot_id,
+            "warning": job.warning,
         }
 
     @classmethod
@@ -876,6 +912,9 @@ class JsonFileStateStore(StateStore):
                 raise TypeError(f"apps.json apps.{name}.params must be an object")
             requires_python = entry.get("requires_python")
             _require_optional_type(requires_python, str, f"apps.json apps.{name}.requires_python")
+            display_firmware = entry.get("display_firmware")
+            if display_firmware is not None and display_firmware not in ("1", "2", "none"):
+                raise ValueError(f"apps.json apps.{name}.display_firmware is invalid")
             label = entry.get("label")
             _require_optional_type(label, str, f"apps.json apps.{name}.label")
             try:
@@ -897,6 +936,7 @@ class JsonFileStateStore(StateStore):
                 requires_python=requires_python,
                 id=name,
                 label=label,
+                display_firmware=display_firmware,
             )
         current_job_data = data.get("current_job")
         current_job = (
@@ -1000,6 +1040,7 @@ class JsonFileStateStore(StateStore):
                     "manifest": record.manifest,
                     "requires_python": record.requires_python,
                     "label": record.label,
+                    "display_firmware": record.display_firmware,
                 }
                 for name, record in state.apps.items()
             },

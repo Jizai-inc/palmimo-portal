@@ -537,6 +537,7 @@ def test_dead_display_firmware_job_does_not_block_recovery(
 
 
 def test_manual_display_firmware_refuses_missing_tool(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    adapters.platform.display_firmware_available = False
     client = _authenticated_client(client, adapters)
     response = client.post("/api/v1/platform/display-firmware", headers=CSRF_HEADERS)
     assert response.status_code == 409

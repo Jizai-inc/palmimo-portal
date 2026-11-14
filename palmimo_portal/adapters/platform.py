@@ -30,7 +30,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Literal
 
 from palmimo_portal.adapters.static_asset import (
     Opener,
@@ -41,8 +41,13 @@ from palmimo_portal.adapters.static_asset import (
     verify_checksum,
 )
 from palmimo_portal.ports import (
+    DisplayAssetsStatus,
+    DisplayDesireResult,
     DisplayFirmwareResult,
+    DisplayFirmwareSelection,
     DisplayFirmwareState,
+    DisplayProtocol,
+    DisplaySyncResult,
     PlatformBundleFetchError,
     PlatformCommandError,
     PlatformInstalled,
@@ -143,6 +148,29 @@ class SudoPlatformPort(PlatformPort):
     boot_id_path: Path = Path("/proc/sys/kernel/random/boot_id")
     display_firmware_tool: Path = Path("/usr/local/libexec/palmimo/palmimo-display-firmware")
     display_firmware_state_path: Path = Path("/var/lib/palmimo/display-firmware/state.json")
+
+    def read_display_firmware_selection(self) -> DisplayFirmwareSelection | None:
+        raise NotImplementedError
+
+    def desire_display_firmware(
+        self, protocol: DisplayProtocol, by: Literal["app-start", "initial"]
+    ) -> DisplayDesireResult:
+        raise NotImplementedError
+
+    def sync_display_assets(self, app_id: str | None) -> DisplaySyncResult:
+        raise NotImplementedError
+
+    def replace_display_assets(self, app_id: str, directory: Path) -> None:
+        raise NotImplementedError
+
+    def uninstall_display_assets(self, app_id: str) -> None:
+        raise NotImplementedError
+
+    def override_display_asset(self, name: str, bin_path: Path | None) -> None:
+        raise NotImplementedError
+
+    def display_assets_status(self) -> DisplayAssetsStatus:
+        raise NotImplementedError
 
     def read_boot_id(self) -> str | None:
         try:

@@ -18,7 +18,7 @@ import uuid as uuid_module
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from palmimo_portal.core.auth import AUTH_LOCK_TIMEOUT_SECONDS
 from palmimo_portal.core.platform_update import IDLE_PLATFORM_STATE
@@ -28,6 +28,7 @@ from palmimo_portal.core.update import IDLE_UPDATE_STATE
 from palmimo_portal.core.wifi_attempt_manager import WifiAttemptManager
 from palmimo_portal.ports import (
     IDENTITY_UNAVAILABLE,
+    AppEnvironmentPort,
     AppRefKind,
     AppsLockTimeoutError,
     AppsState,
@@ -41,8 +42,17 @@ from palmimo_portal.ports import (
     ComitupServicePort,
     ConnectionState,
     DiskPort,
+    DisplayAssetConversion,
+    DisplayAssetConverterPort,
+    DisplayAssetsStatus,
+    DisplayDesireResult,
+    DisplayFirmwareNeed,
     DisplayFirmwareResult,
+    DisplayFirmwareSelection,
     DisplayFirmwareState,
+    DisplayProtocol,
+    DisplaySyncPending,
+    DisplaySyncResult,
     DuplicateKeyError,
     GitCommandError,
     GitCredentialRecord,
@@ -89,6 +99,7 @@ from palmimo_portal.ports import (
     SecretsStore,
     SshKey,
     SshKeyPort,
+    StandardAssetsPort,
     StateStore,
     SyncUnitPort,
     SystemPort,
@@ -487,6 +498,14 @@ class FakeStateStore(StateStore):
         finally:
             self._run_lock.release()
 
+    _display_sync: DisplaySyncPending | None = None
+
+    def read_display_sync(self) -> DisplaySyncPending | None:
+        return self._display_sync
+
+    def write_display_sync(self, pending: DisplaySyncPending | None) -> None:
+        self._display_sync = pending
+
     _preempted_app: PreemptedApp | None = None
 
     def read_preempted_app(self) -> PreemptedApp | None:
@@ -610,12 +629,64 @@ class FakePlatformPort(PlatformPort):
     next_version: int | None = None
 
     boot_id: str | None = None
-    display_firmware_available: bool = False
+    display_firmware_available: bool = True
     display_firmware_result: DisplayFirmwareResult = field(
         default_factory=lambda: DisplayFirmwareResult(result="current")
     )
     display_firmware_state: DisplayFirmwareState | None = None
     display_firmware_calls: int = 0
+
+    display_firmware_selection: DisplayFirmwareSelection | None = None
+    desire_display_firmware_calls: list[tuple[DisplayProtocol, str]] = field(default_factory=list)
+    display_sync_result: DisplaySyncResult = field(default_factory=lambda: DisplaySyncResult("synced", (), (), None))
+    sync_display_assets_calls: list[str | None] = field(default_factory=list)
+    display_assets: DisplayAssetsStatus = field(default_factory=lambda: DisplayAssetsStatus(6_275_072, (), {}, ()))
+    replace_display_assets_calls: list[tuple[str, Path]] = field(default_factory=list)
+    uninstall_display_assets_calls: list[str] = field(default_factory=list)
+    override_display_asset_calls: list[tuple[str, Path | None]] = field(default_factory=list)
+    display_assets_status_calls: int = 0
+    display_error: Exception | None = None
+
+    def read_display_firmware_selection(self) -> DisplayFirmwareSelection | None:
+        return self.display_firmware_selection
+
+    def desire_display_firmware(
+        self, protocol: DisplayProtocol, by: Literal["app-start", "initial"]
+    ) -> DisplayDesireResult:
+        self.desire_display_firmware_calls.append((protocol, by))
+        if self.display_error is not None:
+            raise self.display_error
+        selection = DisplayFirmwareSelection(protocol, by)
+        changed = selection != self.display_firmware_selection
+        self.display_firmware_selection = selection
+        return DisplayDesireResult(protocol, changed)
+
+    def sync_display_assets(self, app_id: str | None) -> DisplaySyncResult:
+        self.sync_display_assets_calls.append(app_id)
+        if self.display_error is not None:
+            raise self.display_error
+        return self.display_sync_result
+
+    def replace_display_assets(self, app_id: str, directory: Path) -> None:
+        self.replace_display_assets_calls.append((app_id, directory))
+        if self.display_error is not None:
+            raise self.display_error
+
+    def uninstall_display_assets(self, app_id: str) -> None:
+        self.uninstall_display_assets_calls.append(app_id)
+        if self.display_error is not None:
+            raise self.display_error
+
+    def override_display_asset(self, name: str, bin_path: Path | None) -> None:
+        self.override_display_asset_calls.append((name, bin_path))
+        if self.display_error is not None:
+            raise self.display_error
+
+    def display_assets_status(self) -> DisplayAssetsStatus:
+        self.display_assets_status_calls += 1
+        if self.display_error is not None:
+            raise self.display_error
+        return self.display_assets
 
     def read_boot_id(self) -> str | None:
         return self.boot_id
@@ -653,6 +724,54 @@ class FakePlatformPort(PlatformPort):
         self.installed = PlatformInstalled(
             version=self.next_version or 0, installed_at="2026-01-01T00:00:00Z", bundle_sha256=sha
         )
+
+
+@dataclass
+class FakeAppEnvironmentPort(AppEnvironmentPort):
+    display_firmware_need: DisplayFirmwareNeed = "none"
+    needs: dict[Path, DisplayFirmwareNeed] = field(default_factory=dict)
+    calls: list[Path] = field(default_factory=list)
+
+    def read_display_firmware_need(self, venv: Path) -> DisplayFirmwareNeed:
+        self.calls.append(venv)
+        return self.needs.get(venv, self.display_firmware_need)
+
+
+@dataclass
+class FakeDisplayAssetConverterPort(DisplayAssetConverterPort):
+    result: DisplayAssetConversion = field(
+        default_factory=lambda: DisplayAssetConversion(True, "vector", 0, "00000000", {}, (), ())
+    )
+    content: bytes = b""
+    convert_calls: list[tuple[Path, Path]] = field(default_factory=list)
+    inspect_calls: list[Path] = field(default_factory=list)
+    error: Exception | None = None
+
+    def convert(self, src: Path, dst: Path) -> DisplayAssetConversion:
+        self.convert_calls.append((src, dst))
+        if self.error is not None:
+            raise self.error
+        if self.result.ok:
+            dst.write_bytes(self.content)
+        return self.result
+
+    def inspect(self, path: Path) -> DisplayAssetConversion:
+        self.inspect_calls.append(path)
+        if self.error is not None:
+            raise self.error
+        return self.result
+
+
+@dataclass
+class FakeStandardAssetsPort(StandardAssetsPort):
+    names: tuple[str, ...] = ()
+    catalog: dict[str, Any] = field(default_factory=dict)
+
+    def list_standard_names(self) -> tuple[str, ...]:
+        return self.names
+
+    def read_catalog(self) -> dict[str, Any]:
+        return self.catalog
 
 
 @dataclass
@@ -1109,10 +1228,13 @@ class FakeRunDirPort(RunDirPort):
         cwd: str,
         project: str,
         python: str | None = None,
+        assets: str | None = None,
     ) -> None:
         if self.raise_on_write is not None:
             raise self.raise_on_write
         self.written[name] = {"env": dict(env), "argv": list(argv), "cwd": cwd, "project": project, "python": python}
+        if assets is not None:
+            self.written[name]["assets"] = assets
 
     def remove(self, name: str) -> None:
         self.written.pop(name, None)

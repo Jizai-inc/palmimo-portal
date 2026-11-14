@@ -119,6 +119,9 @@ class Settings:
     #: default) or inline before the triggering request returns. A test seam, not read from the
     #: environment -- mirrors update_run_in_thread.
     apps_run_in_thread: bool = True
+    #: Test seams for StartJobRunner and the startup sequence; not read from the environment.
+    start_run_in_thread: bool = True
+    startup_run_in_thread: bool = True
     #: Whether startup finalize starts an `autostart: true` app (design doc 2.5). A test seam,
     #: not read from the environment -- default True so a real device always attempts it.
     autostart_enabled: bool = True

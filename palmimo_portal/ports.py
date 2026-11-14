@@ -15,7 +15,7 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 
 
 class LocalAddressPort(Protocol):
@@ -669,6 +669,14 @@ class StateStore(Protocol):
     Backed by JSON files under ``PALMIMO_STATE_DIR`` (:mod:`palmimo_portal.adapters.state`).
     """
 
+    def read_display_sync(self) -> DisplaySyncPending | None:
+        """Return None when the pending-sync record is absent or unreadable."""
+        ...
+
+    def write_display_sync(self, pending: DisplaySyncPending | None) -> None:
+        """None clears the pending-sync record."""
+        ...
+
     def read_auth(self) -> AuthState | None:
         """Return the stored auth material, or ``None`` if absent or corrupt.
 
@@ -906,7 +914,8 @@ class AppsStateFileState(StrEnum):
 
 AppSourceType = Literal["zip", "git"]
 AppRefKind = Literal["branch", "tag"]
-AppJobKind = Literal["install", "update", "delete"]
+AppJobKind = Literal["install", "update", "delete", "start"]
+StartOrigin = Literal["api", "autostart", "resume", "restore"]
 AppJobState = Literal["running", "done", "failed"]
 
 
@@ -930,7 +939,7 @@ class AppSource:
 
 @dataclass(frozen=True)
 class AppJob:
-    """One install/update/delete attempt against a single app, persisted on :class:`AppRecord`."""
+    """One app lifecycle job, persisted in the app ledger."""
 
     id: str
     kind: AppJobKind
@@ -952,6 +961,8 @@ class AppJob:
     #: after this job (manifest changed) -- see design doc 3.4's "register" step.
     dropped_bindings: tuple[str, ...] = ()
     dropped_params: tuple[str, ...] = ()
+    boot_id: str | None = None
+    warning: str | None = None
 
 
 @dataclass(frozen=True)
@@ -984,6 +995,8 @@ class AppRecord:
     id: str = ""
     #: Owner-chosen title shown instead of ``id``; ``None`` shows ``id``. Display only.
     label: str | None = None
+    #: None marks a record whose installed environment has not been inspected yet.
+    display_firmware: DisplayFirmwareNeed | None = None
 
 
 @dataclass(frozen=True)
@@ -1452,6 +1465,7 @@ class RunDirPort(Protocol):
         cwd: str,
         project: str,
         python: str | None = None,
+        assets: str | None = None,
     ) -> None:
         """Recreate ``name``'s run directory (removing any leftover first) and write ``env``/``argv.json`` into it.
 
@@ -1461,6 +1475,7 @@ class RunDirPort(Protocol):
         ``app-launch`` running as the app's own uid). Group ownership is
         set to ``palmimo-apps`` when that group resolves on this host,
         skipped silently otherwise (a dev machine with no such group).
+        Non-None ``assets`` is written verbatim as ``assets.json`` with the same permissions as ``argv.json``.
         """
         ...
 
@@ -1569,8 +1584,197 @@ class PlatformCommandError(Exception):
         super().__init__(f"{step}: {message}")
 
 
+DisplayProtocol = Literal[1, 2]
+DisplayFirmwareNeed = Literal["1", "2", "none"]
+
+
+@dataclass(frozen=True)
+class DisplayFirmwareSelection:
+    protocol: DisplayProtocol
+    by: Literal["app-start", "initial"]
+
+
+@dataclass(frozen=True)
+class DisplayDesireResult:
+    protocol: DisplayProtocol
+    changed: bool
+
+
+DisplaySyncOutcome = Literal["synced", "busy", "skipped", "failed"]
+
+
+def _display_strings(value: object) -> tuple[str, ...]:
+    if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+        raise ValueError("invalid display string list")
+    return tuple(value)
+
+
+def _display_bytes(value: object) -> int:
+    if type(value) is not int or value < 0:
+        raise ValueError("invalid display byte count")
+    return value
+
+
+def _display_kind(value: object) -> Literal["vector", "image", "gif"]:
+    if not isinstance(value, str) or value not in {"vector", "image", "gif"}:
+        raise ValueError("invalid display asset kind")
+    return cast(Literal["vector", "image", "gif"], value)
+
+
+@dataclass(frozen=True)
+class DisplaySyncResult:
+    """put and deleted contain asset IDs in <owner>/<name> form."""
+
+    result: DisplaySyncOutcome
+    put: tuple[str, ...]
+    deleted: tuple[str, ...]
+    reason: str | None
+
+    @classmethod
+    def from_payload(cls, payload: object) -> DisplaySyncResult:
+        if (
+            not isinstance(payload, dict)
+            or not isinstance(payload.get("result"), str)
+            or payload["result"] not in {"synced", "busy", "skipped", "failed"}
+        ):
+            raise ValueError("invalid display sync result")
+        reason = payload.get("reason")
+        if reason is not None and not isinstance(reason, str):
+            raise ValueError("invalid display sync reason")
+        return cls(
+            payload["result"],
+            _display_strings(payload.get("put", [])),
+            _display_strings(payload.get("deleted", [])),
+            reason,
+        )
+
+
+@dataclass(frozen=True)
+class DisplayAssetMessage:
+    code: str
+    message: str
+    path: str | None = None
+
+
+@dataclass(frozen=True)
+class DisplayAssetConversion:
+    ok: bool
+    kind: Literal["vector", "image", "gif"] | None
+    bytes: int | None
+    crc32: str | None
+    params: dict[str, int]
+    warnings: tuple[DisplayAssetMessage, ...]
+    errors: tuple[DisplayAssetMessage, ...]
+
+
+@dataclass(frozen=True)
+class StandardAssetStatus:
+    name: str
+    bytes: int
+    kind: Literal["vector", "image", "gif"]
+    params: tuple[str, ...]
+    overridden: bool
+    default_bytes: int
+    default_kind: Literal["vector", "image", "gif"]
+    default_params: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class AppAssetsStatus:
+    """Occupied bytes, rounded up to 4 KiB for each asset."""
+
+    bytes: int
+    largest: int
+    names: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class DisplayAssetsStatus:
+    capacity: int
+    standard: tuple[StandardAssetStatus, ...]
+    apps: dict[str, AppAssetsStatus]
+    orphan_overrides: tuple[str, ...]
+
+    @classmethod
+    def from_payload(cls, payload: object) -> DisplayAssetsStatus:
+        if not isinstance(payload, dict):
+            raise ValueError("invalid display assets status")
+        try:
+            capacity = _display_bytes(payload["capacity"])
+            if not isinstance(payload["standard"], list) or not isinstance(payload["apps"], dict):
+                raise ValueError("invalid display assets collections")
+            standard = []
+            for entry in payload["standard"]:
+                if (
+                    not isinstance(entry, dict)
+                    or not isinstance(entry.get("name"), str)
+                    or type(entry.get("overridden")) is not bool
+                ):
+                    raise ValueError("invalid standard asset status")
+                standard.append(
+                    StandardAssetStatus(
+                        entry["name"],
+                        _display_bytes(entry["bytes"]),
+                        _display_kind(entry["kind"]),
+                        _display_strings(entry["params"]),
+                        entry["overridden"],
+                        _display_bytes(entry["default_bytes"]),
+                        _display_kind(entry["default_kind"]),
+                        _display_strings(entry["default_params"]),
+                    )
+                )
+            apps = {}
+            for app_id, entry in payload["apps"].items():
+                if not isinstance(app_id, str) or not isinstance(entry, dict):
+                    raise ValueError("invalid app asset status")
+                apps[app_id] = AppAssetsStatus(
+                    _display_bytes(entry["bytes"]), _display_bytes(entry["largest"]), _display_strings(entry["names"])
+                )
+            return cls(capacity, tuple(standard), apps, _display_strings(payload["orphan_overrides"]))
+        except KeyError as error:
+            raise ValueError("incomplete display assets status") from error
+
+
+@dataclass(frozen=True)
+class DisplaySyncPending:
+    pending: bool
+    reason: str | None
+    boot_id: str | None
+
+
+class DisplayBusyError(Exception):
+    """The display or asset store lock is held by another operation."""
+
+
+class DisplayToolError(Exception):
+    def __init__(self, reason: str, short_by: int | None = None) -> None:
+        self.reason = reason
+        self.short_by = short_by
+        super().__init__(reason)
+
+
+class DisplayAssetConverterPort(Protocol):
+    def convert(self, src: Path, dst: Path) -> DisplayAssetConversion: ...
+
+    def inspect(self, path: Path) -> DisplayAssetConversion: ...
+
+
+class AppEnvironmentPort(Protocol):
+    def read_display_firmware_need(self, venv: Path) -> DisplayFirmwareNeed:
+        """Fall back to protocol 1 when the installed environment cannot be read."""
+        ...
+
+
+class StandardAssetsPort(Protocol):
+    def list_standard_names(self) -> tuple[str, ...]:
+        """List every bundled .bin without following symlinks or filtering by the catalog."""
+        ...
+
+    def read_catalog(self) -> dict[str, Any]: ...
+
+
 DisplayFirmwareOutcome = Literal[
-    "updated", "current", "absent", "undeclared", "skipped", "busy", "failed", "interrupted"
+    "updated", "current", "absent", "undeclared", "undesired", "skipped", "busy", "failed", "interrupted"
 ]
 
 
@@ -1593,6 +1797,7 @@ class DisplayFirmwareResult:
                 "current",
                 "absent",
                 "undeclared",
+                "undesired",
                 "skipped",
                 "busy",
                 "failed",
@@ -1637,6 +1842,26 @@ class PlatformPort(Protocol):
     ``sudo`` -- :attr:`~palmimo_portal.settings.Settings.sudo_bin` is
     referenced nowhere else in this tree (``tests/test_platform_sudo_contract.py``).
     """
+
+    def read_display_firmware_selection(self) -> DisplayFirmwareSelection | None:
+        """Return None when the root-owned selection is absent or unreadable."""
+        ...
+
+    def desire_display_firmware(
+        self, protocol: DisplayProtocol, by: Literal["app-start", "initial"]
+    ) -> DisplayDesireResult: ...
+
+    def sync_display_assets(self, app_id: str | None) -> DisplaySyncResult:
+        """Return busy and failed outcomes as values, rather than exceptions."""
+        ...
+
+    def replace_display_assets(self, app_id: str, directory: Path) -> None: ...
+
+    def uninstall_display_assets(self, app_id: str) -> None: ...
+
+    def override_display_asset(self, name: str, bin_path: Path | None) -> None: ...
+
+    def display_assets_status(self) -> DisplayAssetsStatus: ...
 
     def read_boot_id(self) -> str | None:
         """Return the kernel boot ID, or None when unavailable."""

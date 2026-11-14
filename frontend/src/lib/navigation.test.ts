@@ -24,9 +24,10 @@ describe("NAV_ITEMS", () => {
 });
 
 describe("SETTINGS_ITEMS", () => {
-  it("lists Network, Secrets, Software update, Device and Developer, in that order", () => {
+  it("keeps device settings in navigation order", () => {
     expect(SETTINGS_ITEMS.map((item) => item.to)).toEqual([
       "/settings/network",
+      "/settings/display",
       "/settings/secrets",
       "/settings/update",
       "/settings/device",

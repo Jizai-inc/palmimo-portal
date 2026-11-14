@@ -803,7 +803,7 @@ class JsonFileStateStore(StateStore):
         job_id, kind, job_state = data["id"], data["kind"], data["state"]
         if not all(isinstance(value, str) for value in (job_id, kind, job_state)):
             raise TypeError(f"{field_prefix}.id/kind/state must be strings")
-        for name in ("step", "error", "boot_id", "warning"):
+        for name in ("step", "error", "error_code", "boot_id", "warning"):
             _require_optional_type(data.get(name), str, f"{field_prefix}.{name}")
         _require_optional_type(data.get("display_name"), str, f"{field_prefix}.display_name")
         for name in ("started_at", "finished_at"):
@@ -822,6 +822,7 @@ class JsonFileStateStore(StateStore):
             lock_generated=bool(data.get("lock_generated", False)),
             dropped_bindings=dropped_bindings,
             dropped_params=dropped_params,
+            error_code=data.get("error_code"),
             boot_id=data.get("boot_id"),
             warning=data.get("warning"),
         )
@@ -861,6 +862,7 @@ class JsonFileStateStore(StateStore):
             "lock_generated": job.lock_generated,
             "dropped_bindings": list(job.dropped_bindings),
             "dropped_params": list(job.dropped_params),
+            "error_code": job.error_code,
             "boot_id": job.boot_id,
             "warning": job.warning,
         }

@@ -1312,6 +1312,8 @@ class FakeAdapterBundle:
     sync_unit: FakeSyncUnitPort
     disk: FakeDiskPort
     app_unit: FakeAppUnitPort
+    app_environment: FakeAppEnvironmentPort
+    asset_converter: FakeDisplayAssetConverterPort
     run_dir: FakeRunDirPort
     journal: FakeJournalPort
     platform: FakePlatformPort

@@ -17,6 +17,7 @@ from functools import partial
 from palmimo_portal.adapters.clock import SystemClockPort
 from palmimo_portal.adapters.comitup import ComitupNetworkPort
 from palmimo_portal.adapters.disk import OsDiskPort
+from palmimo_portal.adapters.display_assets import AppEnvironment, DisplayAssetConverter
 from palmimo_portal.adapters.git_port import SubprocessGitPort
 from palmimo_portal.adapters.git_uv_updater import GitUvUpdater
 from palmimo_portal.adapters.github_releases import GitHubReleaseSource
@@ -42,10 +43,12 @@ from palmimo_portal.adapters.uv_port import SubprocessUvPort
 from palmimo_portal.adapters.wifi_qr_socket import WifiQrSocketClient
 from palmimo_portal.core.wifi_attempt_manager import WifiAttemptManager, connect_legacy
 from palmimo_portal.ports import (
+    AppEnvironmentPort,
     AppUnitPort,
     ClockPort,
     ComitupServicePort,
     DiskPort,
+    DisplayAssetConverterPort,
     GitPort,
     IdentityStore,
     JournalPort,
@@ -70,10 +73,12 @@ from palmimo_portal.ports import (
 )
 from palmimo_portal.settings import Settings
 from palmimo_portal.testing.fakes import (
+    FakeAppEnvironmentPort,
     FakeAppUnitPort,
     FakeClockPort,
     FakeComitupServicePort,
     FakeDiskPort,
+    FakeDisplayAssetConverterPort,
     FakeGitPort,
     FakeIdentityStore,
     FakeJournalPort,
@@ -125,6 +130,8 @@ class AdapterBundle:
     sync_unit: SyncUnitPort
     disk: DiskPort
     app_unit: AppUnitPort
+    app_environment: AppEnvironmentPort
+    asset_converter: DisplayAssetConverterPort
     run_dir: RunDirPort
     journal: JournalPort
     platform: PlatformPort
@@ -188,6 +195,8 @@ def build_adapters(settings: Settings) -> AdapterBundle:
             sync_unit=FakeSyncUnitPort(),
             disk=FakeDiskPort(),
             app_unit=FakeAppUnitPort(),
+            app_environment=FakeAppEnvironmentPort(),
+            asset_converter=FakeDisplayAssetConverterPort(),
             run_dir=FakeRunDirPort(),
             journal=FakeJournalPort(),
             platform=FakePlatformPort(),
@@ -234,6 +243,8 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         sync_unit=SystemdSyncUnitPort(),
         disk=OsDiskPort(),
         app_unit=SystemdAppUnitPort(),
+        app_environment=AppEnvironment(),
+        asset_converter=DisplayAssetConverter(),
         run_dir=TmpfsRunDirPort(settings.run_dir),
         journal=JournalctlPort(),
         platform=SudoPlatformPort(installed_path=settings.platform_dir / "installed.json", sudo_bin=settings.sudo_bin),

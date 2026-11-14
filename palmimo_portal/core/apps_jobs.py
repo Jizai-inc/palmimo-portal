@@ -50,6 +50,7 @@ from palmimo_portal.core.apps import (
     resolve_subdir,
     suggest_app_name,
 )
+from palmimo_portal.core.apps_assets import ASSETS_LOCK_TIMEOUT_SECONDS, stage_display_assets
 from palmimo_portal.core.apps_layout import LayoutPaths, resolve_layout
 from palmimo_portal.core.apps_zip import UPLOAD_MAX_BYTES, extract_zip_to_staging
 from palmimo_portal.core.legacy_official import is_retired_official
@@ -72,6 +73,7 @@ from palmimo_portal.core.public_catalog import (
 )
 from palmimo_portal.core.secrets import mask_authorization_lines
 from palmimo_portal.ports import (
+    AppEnvironmentPort,
     AppExistsError,
     AppJob,
     AppNotFoundError,
@@ -83,9 +85,11 @@ from palmimo_portal.ports import (
     AppUnitPort,
     DiskFullError,
     DiskPort,
+    DisplayAssetConverterPort,
     GitPort,
     InvalidManifestSourceError,
     JournalPort,
+    PlatformPort,
     PublicCatalogApp,
     RunDirPort,
     SecretsStore,
@@ -142,6 +146,9 @@ class AppsJobContext:
     run_dir: RunDirPort | None = None
     public_catalog_cache: PublicCatalogCache | None = None
     public_catalog_url: str | None = None
+    app_environment: AppEnvironmentPort | None = None
+    asset_converter: DisplayAssetConverterPort | None = None
+    platform: PlatformPort | None = None
 
     @property
     def staging_dir(self) -> Path:
@@ -895,6 +902,15 @@ def commit_install(
         prepared.install_root,
         prepared.requires_python,
     )
+    need = stage_display_assets(
+        ctx,
+        prepared.manifest,
+        app_id,
+        prepared.project_dir,
+        prepared.staging_container,
+        had_assets=False,
+        on_step=on_step,
+    )
     on_step("swap")
     dest = ctx.app_dir(app_id)
     prepared.install_root.rename(dest)
@@ -920,6 +936,7 @@ def commit_install(
         manifest=manifest_snapshot(prepared.manifest),
         requires_python=prepared.requires_python,
         id=app_id,
+        display_firmware=need,
     )
     new_state = AppsState(apps={**state.apps, app_id: record})
     return new_state, record
@@ -1034,6 +1051,16 @@ def update_git(
             ctx, job_id, record.id, staging_container, layout, staging_container, requires_python
         )
 
+        need = stage_display_assets(
+            ctx,
+            manifest,
+            name,
+            project_dir,
+            staging_container,
+            had_assets=bool(record.manifest and record.manifest.get("assets")),
+            on_step=on_step,
+        )
+
         # Computed before the swap (the dropped set depends on the new manifest, fetched
         # above) but only ever written at "register", after a successful swap -- a failed
         # swap must leave the existing bindings completely intact, not partially dropped
@@ -1085,6 +1112,7 @@ def update_git(
             manifest=manifest_snapshot(manifest),
             requires_python=requires_python,
             id=record.id,
+            display_firmware=need,
         )
         on_registered(new_record)
         leftover = purge_path(ctx, trash)
@@ -1156,6 +1184,12 @@ def purge_app_files(ctx: AppsJobContext, name: str, on_step: Callable[[str], Non
             dest.rename(trash)
         finally:
             swap_lock.__exit__(None, None, None)
+    if ctx.platform is not None and ctx.state is not None:
+        try:
+            with ctx.state.lock_run(timeout_s=ASSETS_LOCK_TIMEOUT_SECONDS):
+                ctx.platform.uninstall_display_assets(name)
+        except Exception as error:
+            logger.warning("apps: could not uninstall display assets app=%s: %s", name, error)
     ctx.secrets.delete_bindings(name)
     if ctx.run_dir is not None:
         ctx.run_dir.remove(name)

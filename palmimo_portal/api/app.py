@@ -706,6 +706,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         run_dir=adapters.run_dir,
         public_catalog_cache=app.state.public_catalog_cache,
         public_catalog_url=settings.public_catalog_url,
+        app_environment=adapters.app_environment,
+        asset_converter=adapters.asset_converter,
+        platform=adapters.platform,
     )
     app.state.apps_job_runner = AppsJobRunner(
         adapters.state, app.state.apps_job_context, adapters.app_unit, run_in_thread=bool(settings.apps_run_in_thread)

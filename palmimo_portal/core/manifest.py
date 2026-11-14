@@ -258,9 +258,11 @@ def _validate_manifest_dict(raw: dict[str, Any], *, read_include: Callable[[str]
         errors.append(f"unknown top-level key: {key!r}")
 
     schema = raw.get("schema")
-    if type(schema) is not int or schema not in (1, 2):
+    if type(schema) is int and schema > 2:
         raise ManifestSchemaUnsupportedError(schema)
-    if schema == 1 and "assets" in raw:
+    if type(schema) is not int or schema not in (1, 2):
+        errors.append(f"schema must be 1 or 2, got {schema!r}")
+    if type(schema) is int and schema == 1 and "assets" in raw:
         errors.append("assets require schema 2")
 
     name = raw.get("name")
@@ -302,7 +304,7 @@ def _validate_manifest_dict(raw: dict[str, Any], *, read_include: Callable[[str]
         raise ManifestValidationError(errors)
 
     return Manifest(
-        schema=schema,
+        schema=cast(int, schema),
         name=cast(str, name),
         description=cast(str, description),
         command=tuple(command),

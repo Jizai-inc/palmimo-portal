@@ -513,9 +513,26 @@ def test_manifest_loading_rejects_symlink_asset_files(tmp_path: Path, included: 
         _read_manifest(tmp_path)
 
 
-@pytest.mark.parametrize("schema", [True, 1.0, "2", None])
-def test_manifest_rejects_non_integer_schema(schema: object) -> None:
+@pytest.mark.parametrize(
+    "schema_fields",
+    [
+        {},
+        {"schema": True},
+        {"schema": False},
+        {"schema": 1.0},
+        {"schema": 2.0},
+        {"schema": "2"},
+        {"schema": None},
+        {"schema": 0},
+        {"schema": -1},
+    ],
+)
+def test_manifest_collects_invalid_schema_with_other_validation_errors(schema_fields: dict[str, object]) -> None:
     snapshot = manifest_snapshot(parse_manifest(ASSET_MANIFEST))
-    snapshot["schema"] = schema
-    with pytest.raises(ManifestValidationError):
+    snapshot.pop("schema")
+    snapshot.update(schema_fields)
+    snapshot.update(name="INVALID", command=[])
+    with pytest.raises(ManifestValidationError) as caught:
         manifest_from_snapshot(snapshot)
+    assert type(caught.value) is ManifestValidationError
+    assert len(caught.value.errors) == 3

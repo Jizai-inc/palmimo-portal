@@ -377,3 +377,22 @@ def test_start_launch_write_failure_removes_partial_run_directory(
         start_app(deps, APP_ID, host="robot")
     assert APP_ID not in adapters.run_dir.written
     assert not adapters.app_unit.start_calls
+
+
+def test_start_job_records_safe_failure_when_secret_collection_is_unavailable(
+    env: tuple[StartDeps, FakeAdapterBundle], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from palmimo_portal.core.apps_start_job import StartJobRunner
+    from palmimo_portal.ports import SecretRecord
+
+    deps, adapters = env
+    adapters.app_unit.raise_on_start = RuntimeError("sensitive exception detail")
+
+    def unavailable() -> list[SecretRecord]:
+        raise OSError("secret metadata unavailable")
+
+    monkeypatch.setattr(adapters.secrets, "list_secrets", unavailable)
+    job = StartJobRunner(deps, run_in_thread=False).start(APP_ID, host="robot", origin="api")
+    assert job.state == "failed" and job.error_code == "start_failed"
+    assert job.error == "start_failed"
+    assert adapters.state.read_apps_state().current_job is None

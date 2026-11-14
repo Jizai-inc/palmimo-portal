@@ -106,16 +106,20 @@ class StartJobRunner:
                 if isinstance(error, PolkitDeniedError)
                 else "start_failed"
             )
-            detail = str(error)
-            if isinstance(error, AppStartError):
-                detail += f": {json.dumps(error.params)}"
-            elif not isinstance(error, PolkitDeniedError) and deps.apps_job_ctx.journal.can_read():
-                try:
-                    page = deps.apps_job_ctx.journal.read(app_unit_name(name), cursor=None, lines=20)
-                    detail += "\n" + "\n".join(entry.message for entry in page.entries)
-                except Exception:
-                    logger.exception("app start journal could not be read app=%s", name)
-            detail = mask_known_values(detail, collect_registered_secret_values(deps.apps_job_ctx.secrets))
+            try:
+                detail = str(error)
+                if isinstance(error, AppStartError):
+                    detail += f": {json.dumps(error.params)}"
+                elif not isinstance(error, PolkitDeniedError) and deps.apps_job_ctx.journal.can_read():
+                    try:
+                        page = deps.apps_job_ctx.journal.read(app_unit_name(name), cursor=None, lines=20)
+                        detail += "\n" + "\n".join(entry.message for entry in page.entries)
+                    except Exception:
+                        logger.warning("app start journal could not be read app=%s", name)
+                detail = mask_known_values(detail, collect_registered_secret_values(deps.apps_job_ctx.secrets))
+            except Exception:
+                logger.warning("app start diagnostic details unavailable app=%s", name)
+                detail = code
             return replace(result, state="failed", error=detail, error_code=code, finished_at=deps.now())
 
         def run() -> None:

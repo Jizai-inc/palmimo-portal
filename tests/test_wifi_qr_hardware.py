@@ -795,7 +795,7 @@ class StreamSerial(Serial):
             return len(line)
         if line == b"HELLO\n":
             self.writes.append(line)
-            self.incoming.append(b"OK HELLO proto=2 fw=test caps=stream\n")
+            self.incoming.append(b"OK HELLO proto=2 fw=test caps=asset\n")
         elif line == b"STAT\n":
             self.writes.append(line)
             self.incoming.append(f"STAT proto=2 power={self.power}\n".encode())
@@ -900,7 +900,7 @@ def test_stream_failure_reconnects_once_and_reprobes(module: Any, failure: str, 
             second.on_data = second.incoming.clear
     pixels = bytes(168 * 168 * 2)
     if twice:
-        with pytest.raises(module.DeviceUnavailableError):
+        with pytest.raises(module.DisplayProtocolError):
             client.send_frame(pixels, 168, 168, "RGB565")
     else:
         assert client.send_frame(pixels, 168, 168, "RGB565")
@@ -909,6 +909,79 @@ def test_stream_failure_reconnects_once_and_reprobes(module: Any, failure: str, 
         assert second.power == "OFF"
     assert first.closed
     assert second.writes[:2] == [b"\n", b"HELLO\n"]
+    assert not ports
+
+
+def test_v2_display_reports_communication_failure_after_two_failed_transfers(module: Any) -> None:
+    clock = Clock()
+    first, second = StreamSerial(clock), StreamSerial(clock, failure="ack")
+    ports = deque([first, second])
+    display = module.Display(port_factory=ports.popleft, clock=clock)
+    first.failure = "ack"
+    try:
+        display.screen("checking", {})
+        display.thread.join(2)
+        assert not display.thread.is_alive()
+        with pytest.raises(module.ReaderOperationError) as caught:
+            display.check()
+        assert not isinstance(caught.value, module.DeviceUnavailableError)
+    finally:
+        display.close()
+    assert first.closed and second.closed
+
+
+def test_stream_reports_unavailable_when_reconnect_cannot_open_port(module: Any) -> None:
+    serial = StreamSerial(Clock())
+
+    def unavailable() -> Any:
+        raise module.DeviceUnavailableError("Face display unavailable")
+
+    client = module.StreamClient(serial, port_factory=unavailable, clock=serial.clock)
+    client.initialize()
+    serial.failure = "ack"
+    with pytest.raises(module.DeviceUnavailableError):
+        client.send_frame(bytes(168 * 168 * 2), 168, 168, "RGB565")
+    assert serial.closed
+
+
+def test_stream_can_restore_after_oversized_response(module: Any) -> None:
+    serial = StreamSerial(Clock())
+    client = module.StreamClient(serial, port_factory=lambda: serial, clock=serial.clock)
+    client.initialize()
+    serial.incoming.append(b"x" * 1025 + b"\n")
+    with pytest.raises(module.DisplayProtocolError):
+        client.poll()
+    client.restore()
+    assert serial.writes[-1] == b"STOP\n"
+
+
+@pytest.mark.parametrize("restore_fails", [False, True])
+def test_v2_display_restores_power_off_after_two_failed_transfers(module: Any, restore_fails: bool) -> None:
+    clock = Clock()
+    first = StreamSerial(clock, power="OFF")
+    second, third = StreamSerial(clock, failure="ack"), StreamSerial(clock)
+    original = third.write
+
+    def write(line: bytes) -> int:
+        result = original(line)
+        if restore_fails and line == b"POWER OFF\n":
+            third.incoming.clear()
+        return result
+
+    third.write = write  # type: ignore[method-assign]
+    ports = deque([first, second, third])
+    display = module.Display(port_factory=ports.popleft, clock=clock)
+    first.failure = "ack"
+    try:
+        display.screen("checking", {})
+        display.thread.join(2)
+        assert not display.thread.is_alive()
+    finally:
+        display.close()
+    assert b"POWER ON\n" in first.writes
+    assert b"POWER OFF\n" in third.writes
+    assert third.power == "OFF"
+    assert first.closed and second.closed and third.closed
     assert not ports
 
 

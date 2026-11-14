@@ -111,10 +111,13 @@ screen change or termination waits for the current frame to finish.
 
 On a transfer error, unexpected acknowledgement, or two-second response timeout,
 the reader closes the port to drop DTR, reconnects, probes HELLO, and retries the
-frame once. A second failure makes the display unavailable. Closing the port is
-required after a transfer stall because the firmware discards all input until
+frame once. A second transfer failure ends the reader with a communication error
+(exit 1); failure to reopen the port reports device unavailability (exit 78).
+Closing the port is required after a transfer stall because the firmware discards all input until
 DTR drops. Normal termination sends STOP if the face was initially on or POWER
-OFF if it was off, then closes the port even if restoration fails.
+OFF if it was off, then closes the port even if restoration fails. After two
+transfer failures, an initially powered-off face gets one reconnect attempt to
+send POWER OFF.
 
 | Exit code | Meaning | Portal response |
 | --- | --- | --- |

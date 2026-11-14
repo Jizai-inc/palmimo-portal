@@ -708,6 +708,11 @@ def probe_protocol(port: Any, clock: Callable[[], float] = time.monotonic) -> in
             partial.clear()
             if line.startswith(b"EVT ") or not line:
                 continue
+            LOG.info(
+                "Display HELLO: %s",
+                line.decode(errors="replace"),
+                extra={"display_firmware": line.decode(errors="replace")},
+            )
             return 2 if line.startswith(b"OK HELLO ") and b"proto=2" in line.split()[2:] else 1
     return 1
 
@@ -738,6 +743,7 @@ class StreamClient:
     def _read(self) -> bytes | None:
         self.partial.extend(self.port.read_until(b"\n", 1024))
         if len(self.partial) > 1024:
+            self.partial.clear()
             raise DisplayProtocolError("Display response too long")
         if not self.partial.endswith(b"\n"):
             return None
@@ -830,7 +836,10 @@ class StreamClient:
                 with suppress(Exception):
                     self.port.close()
                 if attempt:
-                    raise DeviceUnavailableError("Face display stream failed", error=error) from None
+                    if isinstance(error, DeviceUnavailableError):
+                        raise
+                    raise DisplayProtocolError("Display stream failed") from error
+                log_failure("Display stream retrying after reconnect", error)
         return False
 
     def poll(self) -> None:
@@ -842,6 +851,14 @@ class StreamClient:
         self._expect(b"PONG")
 
     def restore(self) -> None:
+        if not self.usable and self.original_power is False:
+            self.port = self.port_factory()
+            self.partial.clear()
+            if probe_protocol(self.port, self.clock) != 2:
+                raise DisplayProtocolError("Display did not answer HELLO after reconnect")
+            self._command(b"POWER OFF")
+            return
+        # DTR loss restores idle on a powered-on face (display protocol, Transport).
         if self.usable and self.original_power is not None:
             self._command(b"STOP" if self.original_power else b"POWER OFF")
 

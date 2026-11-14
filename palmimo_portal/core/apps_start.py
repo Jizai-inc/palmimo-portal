@@ -414,6 +414,9 @@ def _continue_start_locked(
     deps: StartDeps, plan: _StartPlan, *, on_step: Callable[[str], None] = _no_step, origin: StartOrigin
 ) -> str | None:
     name = plan.record.id
+    if origin == "resume" and deps.app_unit.status(name).active_state in RUNNING_ACTIVE_STATES:
+        on_step("launch")
+        return None
     if plan.record.display_firmware != plan.need:
         deps.state.update_apps_state(
             lambda state: replace(
@@ -437,8 +440,6 @@ def _continue_start_locked(
             "app restore display maintenance failed app=%s code=%s params=%s", name, error.code, error.params
         )
     on_step("launch")
-    if origin == "resume" and deps.app_unit.status(name).active_state in RUNNING_ACTIVE_STATES:
-        return warning
     device_specs = [spec for device in plan.devices for spec in DEVICE_ALLOW_SPECS[device]]
     try:
         deps.run_dir.write(

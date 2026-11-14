@@ -396,3 +396,27 @@ def test_start_job_records_safe_failure_when_secret_collection_is_unavailable(
     assert job.state == "failed" and job.error_code == "start_failed"
     assert job.error == "start_failed"
     assert adapters.state.read_apps_state().current_job is None
+
+
+@pytest.mark.parametrize("active_state", ["active", "activating", "deactivating"])
+def test_resume_of_running_unit_finishes_without_display_or_launch(
+    env: tuple[StartDeps, FakeAdapterBundle], active_state: str
+) -> None:
+    from palmimo_portal.core.apps_start_job import StartJobRunner
+    from palmimo_portal.ports import UnitStatus
+
+    deps, adapters = env
+    adapters.app_unit.statuses[APP_ID] = UnitStatus(active_state, "running", "success", 0)
+    adapters.platform.display_sync_result = DisplaySyncResult("busy", (), (), "app owns display")
+    pending = DisplaySyncPending(True, "old", "old-boot")
+    adapters.state.write_display_sync(pending)
+    job = StartJobRunner(deps, run_in_thread=False).start(APP_ID, host="robot", origin="resume")
+    assert job.state == "done" and job.step == "launch"
+    assert job.warning is None and job.error_code is None
+    assert not adapters.platform.desire_display_firmware_calls
+    assert adapters.platform.display_firmware_calls == 0
+    assert not adapters.platform.sync_display_assets_calls
+    assert not adapters.app_unit.start_calls
+    assert APP_ID not in adapters.run_dir.written
+    assert adapters.state.read_display_sync() == pending
+    assert adapters.state.read_apps_state().current_job is None

@@ -6,12 +6,13 @@ import { useTranslation } from "react-i18next";
 import {
   getGetAppApiV1AppsNameGetQueryKey,
   getListAppsApiV1AppsGetQueryKey,
-  useStartAppEndpointApiV1AppsNameStartPost,
   useStopAppEndpointApiV1AppsNameStopPost,
 } from "@/api/generated/apps/apps";
 import type { RunningAppInfo } from "@/api/generated/models";
 import { RunningAppInfoState } from "@/api/generated/models";
 import { getGetStatusApiV1SystemStatusGetQueryKey } from "@/api/generated/system/system";
+import { AppStartDialogs } from "@/components/AppStartDialogs";
+import { useAppStart, type StartableApp } from "@/lib/useAppStart";
 import { Button } from "@/components/ui/button";
 import { apiErrorMessage } from "@/lib/apiErrorMessage";
 import { cn } from "@/lib/utils";
@@ -24,13 +25,15 @@ function ErrorAnnouncement({ message }: { message: string | null }) {
   ) : null;
 }
 
-/** The running app's name with Stop; when idle, the default app's name with Start, or a link to Apps when there is none. The names are labels, not links, so only the action is clickable. */
-export function RunningAppControl({
-  runningApp,
-  defaultApp,
-}: {
+export function RunningAppControl(props: { runningApp: RunningAppInfo | null | undefined; defaultApp?: StartableApp | null }) {
+  const startApp = useAppStart(props.defaultApp ? [props.defaultApp] : []);
+  return <><RunningAppActions {...props} startApp={startApp} /><AppStartDialogs start={startApp} /></>;
+}
+
+function RunningAppActions({ runningApp, defaultApp, startApp }: {
   runningApp: RunningAppInfo | null | undefined;
-  defaultApp?: { id: string; name: string } | null;
+  defaultApp?: StartableApp | null;
+  startApp: ReturnType<typeof useAppStart>;
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -40,7 +43,6 @@ export function RunningAppControl({
     void queryClient.invalidateQueries({ queryKey: getGetAppApiV1AppsNameGetQueryKey(name) });
   };
   const stopApp = useStopAppEndpointApiV1AppsNameStopPost({ mutation: { onSettled: refresh } });
-  const startApp = useStartAppEndpointApiV1AppsNameStartPost({ mutation: { onSettled: refresh } });
 
   if (!runningApp && defaultApp) {
     const startError = startApp.error ? apiErrorMessage(t, startApp.error) : null;
@@ -58,7 +60,7 @@ export function RunningAppControl({
           disabled={startApp.isPending}
           title={startError ?? undefined}
           aria-label={t("header.startApp", { name: defaultApp.name })}
-          onClick={() => startApp.mutate({ name: defaultApp.id })}
+          onClick={() => startApp.request(defaultApp)}
         >
           {startApp.isPending ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Play className="size-3.5" aria-hidden />}
           <span className="sr-only sm:not-sr-only">{t("header.startAppShort")}</span>

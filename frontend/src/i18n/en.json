@@ -548,7 +548,17 @@
     "jobCompleted": "Completed",
     "defaultBadge": "Default",
     "missingKeysBadge": "Needs API key",
-    "emptyStateBody": "Start with an official app, or add your own from a GitHub repository or zip file."
+    "emptyStateBody": "Start with an official app, or add your own from a GitHub repository or zip file.",
+    "start": {
+      "confirmTitle": "Start {{name}}?",
+      "unknownFirmware": "Updating the face display firmware may take about 3 minutes. Once writing begins, it cannot be stopped.",
+      "switchFirmware": "The face display firmware will be rewritten. This takes about 3 minutes and cannot be stopped once writing begins.",
+      "confirm": "Start app",
+      "jobTitle": "Starting {{name}}",
+      "stepFirmware": "Checking or rewriting face display firmware (about 3 minutes when switching)",
+      "stepAssets": "Transferring face assets",
+      "stepLaunch": "Starting app"
+    }
   },
   "appAdd": {
     "continueButton": "Continue",
@@ -728,5 +738,15 @@
   },
   "developer": {
     "pageDescription": "SSH access and Git credentials for private apps"
+  },
+  "display": {
+    "firmware": {
+      "legacy": "This app uses older face display firmware. Starting it may rewrite the firmware (about 3 minutes).",
+      "unavailable": "The face display was not found, so its firmware could not be checked.",
+      "syncPending": "Face asset synchronization is pending (display in use).",
+      "syncRunning": "Synchronizing face assets…",
+      "syncNow": "Sync now",
+      "syncBusy": "The display is still in use. Face asset synchronization remains pending."
+    }
   }
 }

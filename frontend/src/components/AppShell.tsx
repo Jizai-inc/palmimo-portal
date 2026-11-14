@@ -8,6 +8,7 @@ import { useGetStatusApiV1WifiStatusGet } from "@/api/generated/wifi/wifi";
 import { useGetPlatformApiV1PlatformGet } from "@/api/generated/platform/platform";
 import { useGetStatusApiV1SystemStatusGet } from "@/api/generated/system/system";
 import { useGetStatusApiV1UpdateStatusGet } from "@/api/generated/update/update";
+import { DisplaySyncBanner } from "@/components/DisplaySyncBanner";
 import { AppHeader } from "@/components/AppHeader";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { DeviceMenu } from "@/components/HeaderMenus";
@@ -24,7 +25,7 @@ const UPDATE_BADGE_REFETCH_INTERVAL_MS = 5 * 60 * 1000;
 
 /** Fast while the running app is starting or stopping so the header settles; slow otherwise, to notice an app that exits on its own. */
 const RUNNING_APP_SETTLING_POLL_MS = 2_000;
-const RUNNING_APP_IDLE_POLL_MS = 15_000;
+const RUNNING_APP_IDLE_POLL_MS = 10_000;
 
 /** Tailwind's `md` breakpoint -- the same width at which the desktop sidebar replaces the mobile drawer in the markup below. */
 const DESKTOP_QUERY = "(min-width: 768px)";
@@ -208,6 +209,7 @@ export function AppShell({
             unbreakable line (`truncate` does not shrink that), widening every page past a phone's viewport. */}
         <main className={cn("min-w-0 flex-1 px-5 py-6 md:px-12 md:py-10", fitViewport && "flex min-h-0 flex-col overflow-y-auto")}>
           <div className={cn("mx-auto flex w-full max-w-[1040px] flex-col gap-7", fitViewport && "min-h-0 flex-1")}>
+            <DisplaySyncBanner status={systemStatus?.display_sync} />
             {title || breadcrumbs ? (
               <div className={cn("flex flex-col gap-2", fitViewport && "shrink-0")}>
                 {breadcrumbs ? <Breadcrumbs items={breadcrumbs} label={t("common.breadcrumb")} /> : null}

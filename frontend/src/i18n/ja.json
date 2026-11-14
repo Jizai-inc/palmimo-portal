@@ -548,7 +548,17 @@
     "jobCompleted": "完了しました",
     "defaultBadge": "デフォルト",
     "missingKeysBadge": "API キーが必要",
-    "emptyStateBody": "公式アプリから始めるか、GitHub リポジトリや zip ファイルから自分のアプリを追加しましょう。"
+    "emptyStateBody": "公式アプリから始めるか、GitHub リポジトリや zip ファイルから自分のアプリを追加しましょう。",
+    "start": {
+      "confirmTitle": "{{name}}を起動しますか？",
+      "unknownFirmware": "顔ディスプレイの FW の書き換えに約 3 分かかることがあります。書き込みが始まると停止できません。",
+      "switchFirmware": "顔ディスプレイの FW を書き換えます。約 3 分かかり、書き込みが始まると停止できません。",
+      "confirm": "起動する",
+      "jobTitle": "{{name}}を起動中",
+      "stepFirmware": "顔ディスプレイの FW を確認・書き換え中（切り替え時は約 3 分）",
+      "stepAssets": "顔のアセットを転送中",
+      "stepLaunch": "起動中"
+    }
   },
   "appAdd": {
     "continueButton": "次へ",
@@ -728,5 +738,15 @@
   },
   "developer": {
     "pageDescription": "SSH アクセスと、非公開アプリ用の Git 認証情報"
+  },
+  "display": {
+    "firmware": {
+      "legacy": "古い顔ディスプレイ FW を使うアプリです。起動時に FW を書き換えます（約 3 分）。",
+      "unavailable": "顔ディスプレイが見つからないため FW は確認できませんでした。",
+      "syncPending": "顔のアセットの同期を保留中（ディスプレイが使用中）",
+      "syncRunning": "顔のアセットを同期中",
+      "syncNow": "今すぐ同期",
+      "syncBusy": "ディスプレイが引き続き使用中のため、顔のアセットの同期を保留しています。"
+    }
   }
 }

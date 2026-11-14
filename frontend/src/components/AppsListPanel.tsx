@@ -10,7 +10,6 @@ import {
   getListAppsApiV1AppsGetQueryKey,
   useListAppsApiV1AppsGet,
   useResetAppsApiV1AppsResetPost,
-  useStartAppEndpointApiV1AppsNameStartPost,
   useStopAppEndpointApiV1AppsNameStopPost,
   useUpdateAppApiV1AppsNameUpdatePost,
 } from "@/api/generated/apps/apps";
@@ -20,6 +19,9 @@ import { PortalApiError } from "@/api/client";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { AppIdLabel, appIdNamePart } from "@/components/AppIdLabel";
 import { AppTitle } from "@/components/AppTitle";
+import { AppStartDialogs } from "@/components/AppStartDialogs";
+import { DisplayFirmwareAlert } from "@/components/DisplayFirmwareAlert";
+import { useAppStart } from "@/lib/useAppStart";
 import { AppJobDialog } from "@/components/AppJobDialog";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -62,7 +64,7 @@ export function AppsListPanel() {
     void queryClient.invalidateQueries({ queryKey: getGetStatusApiV1SystemStatusGetQueryKey() });
   };
 
-  const startApp = useStartAppEndpointApiV1AppsNameStartPost({ mutation: { onSuccess: invalidateListAndStatus } });
+  const startApp = useAppStart(data?.apps ?? []);
   const stopApp = useStopAppEndpointApiV1AppsNameStopPost({ mutation: { onSuccess: invalidateListAndStatus } });
   const repairApp = useUpdateAppApiV1AppsNameUpdatePost();
   const resetApps = useResetAppsApiV1AppsResetPost({
@@ -152,8 +154,8 @@ export function AppsListPanel() {
               app={app}
               isDefault={data?.default_app === app.id}
               disabledForPlatform={!ready}
-              disabledForJob={jobInProgress}
-              onStart={() => startApp.mutate({ name: app.id })}
+              disabledForJob={jobInProgress || startApp.isPending}
+              onStart={() => startApp.request(app)}
               onStop={() => stopApp.mutate({ name: app.id })}
               onRepair={() =>
                 app.source.type === "git"
@@ -174,6 +176,7 @@ export function AppsListPanel() {
         </ul>
       )}
 
+      <AppStartDialogs start={startApp} />
       <AppJobDialog
         jobId={repairJob?.jobId ?? null}
         title={t("apps.jobDialogTitle", { name: repairJob?.name ?? "" })}
@@ -278,6 +281,7 @@ function AppRow({
         {app.label ? <AppIdLabel id={app.id} className="truncate font-mono text-xs" /> : null}
         {app.name !== appIdNamePart(app.id) ? <p className="truncate text-xs text-muted-foreground">{app.name}</p> : null}
         <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{formatSourceSummary(app.source)}</p>
+        <DisplayFirmwareAlert firmware={app.display_firmware} />
         <ApiErrorAlert error={rowError} />
       </div>
       <div className="flex shrink-0 flex-wrap gap-2" title={startDisabledTitle}>

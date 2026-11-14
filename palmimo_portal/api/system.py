@@ -7,7 +7,7 @@ import time
 from typing import Literal, cast
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from palmimo_portal.api.deps import (
     get_app_unit_port,
@@ -68,6 +68,12 @@ class WifiSetupInfo(BaseModel):
     reason: str | None = None
 
 
+class DisplaySyncInfo(BaseModel):
+    pending: bool
+    running: bool
+    reason: str | None
+
+
 class SystemStatus(BaseModel):
     state: str
     hostname: str
@@ -81,6 +87,9 @@ class SystemStatus(BaseModel):
     disk_free_bytes: int
     running_app: RunningAppInfo | None = None
     wifi_setup: WifiSetupInfo | None = None
+    display_sync: DisplaySyncInfo = Field(
+        default_factory=lambda: DisplaySyncInfo(pending=False, running=False, reason=None)
+    )
 
 
 def _running_app_for(request: Request, app_unit: AppUnitPort, state: StateStore) -> RunningAppInfo | None:
@@ -156,6 +165,8 @@ def get_status(
     last_attempt = state.read_last_wifi_attempt()
     settings: Settings = request.app.state.settings
     wifi_setup = request.app.state.wifi_setup.status()
+    pending = state.read_display_sync()
+    display_sync = getattr(request.app.state, "display_sync_service", None) or request.app.state.adapters.display_sync
     return SystemStatus(
         state=wifi_status.state.value,
         hostname=socket.gethostname(),
@@ -178,6 +189,11 @@ def get_status(
         disk_free_bytes=disk.free_bytes(settings.state_dir),
         running_app=_running_app_for(request, app_unit, state),
         wifi_setup=WifiSetupInfo(mode=wifi_setup.mode, screen=wifi_setup.screen, reason=wifi_setup.reason),
+        display_sync=DisplaySyncInfo(
+            pending=pending.pending if pending is not None else False,
+            reason=pending.reason if pending is not None else None,
+            running=display_sync.running if display_sync is not None else False,
+        ),
     )
 
 

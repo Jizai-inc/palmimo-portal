@@ -475,7 +475,16 @@
     "wifi_saved_active": "Palmimo is connected to that network. Use “Forget this network” to remove it.",
     "wifi_saved_order_mismatch": "The saved networks changed. Reload and try again.",
     "display_firmware_unavailable": "Face firmware repair is unavailable on this platform.",
-    "display_recovery_pending": "Face firmware recovery is not complete. Restart Palmimo, then try starting the app again."
+    "display_recovery_pending": "Face firmware recovery is not complete. Restart Palmimo, then try starting the app again.",
+    "display_busy": "The face display is busy. Try again after the current operation finishes.",
+    "display_firmware_failed": "The face firmware could not be prepared. Try again.",
+    "display_sync_failed": "The face assets could not be synchronized. Try again.",
+    "display_asset_invalid": "That face asset could not be converted. Check the reported errors.",
+    "display_assets_require_v2": "Face assets require display firmware 2 and access to the face display.",
+    "display_capacity_exceeded": "These face assets exceed the display's storage capacity. Use smaller assets.",
+    "display_asset_preview_expired": "That preview has expired. Upload the file again.",
+    "manifest_schema_unsupported": "This app uses an unsupported manifest schema. Update Palmimo Portal.",
+    "display_asset_unknown": "That standard face asset is no longer available. Reload the list."
   },
   "apps": {
     "tabsLabel": "App sections",

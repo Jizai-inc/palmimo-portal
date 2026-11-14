@@ -118,6 +118,7 @@ from palmimo_portal.core.legacy_official import is_retired_official, legacy_offi
 from palmimo_portal.core.manifest import (
     InvalidManifestFilenameError,
     Manifest,
+    ManifestSchemaUnsupportedError,
     ManifestValidationError,
     manifest_from_snapshot,
     validate_manifest_filename,
@@ -212,6 +213,12 @@ def _raise_for_start_error(error: Exception) -> NoReturn:
     if isinstance(error, PlatformNotReadyError):
         raise PortalError(409, "platform_not_ready") from error
     raise error
+
+
+def _raise_for_manifest_error(error: ManifestValidationError) -> NoReturn:
+    if isinstance(error, ManifestSchemaUnsupportedError):
+        raise PortalError(422, "manifest_schema_unsupported", schema=error.schema) from error
+    raise PortalError(422, "manifest_invalid", errors=error.errors) from error
 
 
 def _raise_for_git_error(error: GitCommandError, status_code: int) -> NoReturn:
@@ -983,7 +990,7 @@ async def preview(
                 )
             )
     except ManifestValidationError as error:
-        raise PortalError(422, "manifest_invalid", errors=error.errors) from error
+        _raise_for_manifest_error(error)
     except InvalidManifestSourceError as error:
         raise PortalError(422, "preview_failed", detail=str(error)) from error
     except GitCommandError as error:
@@ -1056,7 +1063,7 @@ async def install(
                 )
             )
     except ManifestValidationError as error:
-        raise PortalError(422, "manifest_invalid", errors=error.errors) from error
+        _raise_for_manifest_error(error)
     except DiskFullError as error:
         raise PortalError(507, "disk_full") from error
     except AppsDirUnavailableError as error:
@@ -1116,7 +1123,7 @@ def install_public(
     except PublicAppMismatchError as error:
         raise PortalError(422, "public_app_mismatch") from error
     except ManifestValidationError as error:
-        raise PortalError(422, "manifest_invalid", errors=error.errors) from error
+        _raise_for_manifest_error(error)
     except DiskFullError as error:
         raise PortalError(507, "disk_full") from error
     except AppsDirUnavailableError as error:

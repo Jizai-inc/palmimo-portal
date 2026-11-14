@@ -1638,3 +1638,44 @@ def test_start_job_exposes_firmware_progress_and_blocks_power_until_finished(
     job = client.get(f"/api/v1/apps/jobs/{job_id}").json()
     assert job["state"] == "done" and job["warning"] == "absent"
     assert client.post("/api/v1/system/reboot", headers=CSRF_HEADERS).status_code == 200
+
+
+@pytest.mark.parametrize("endpoint", ["preview", "install"])
+def test_unsupported_manifest_schema_is_reported_to_api_clients(
+    client: TestClient, adapters: FakeAdapterBundle, endpoint: str
+) -> None:
+    client = _authenticated_client(client, adapters)
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("palmimo.toml", 'schema = 3\nname = "palmimo-teleop"\ndescription = "d"\ncommand = ["run"]\n')
+        archive.writestr("pyproject.toml", "[project]\nname='app'\nversion='0'\n")
+
+    response = client.post(
+        f"/api/v1/apps/{endpoint}", files={"file": ("app.zip", buffer.getvalue())}, headers=CSRF_HEADERS
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "manifest_schema_unsupported"
+
+
+def test_update_job_reports_unsupported_manifest_schema(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+    assert _install_zip(client).status_code == 202
+    state = adapters.state.read_apps_state()
+    record = state.apps[ZIP_TELEOP_ID]
+    record = replace(
+        record, source=replace(record.source, type="git", url="https://example.com/repo", ref="main", ref_kind="branch")
+    )
+    adapters.state.write_apps_state(replace(state, apps={ZIP_TELEOP_ID: record}))
+
+    def seed(dest: Path, url: str, ref: str, ref_kind: str) -> None:
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "palmimo.toml").write_text('schema=3\nname="palmimo-teleop"\ndescription="d"\ncommand=["run"]\n')
+        (dest / "pyproject.toml").write_text("[project]\nname='app'\nversion='0'\n")
+
+    adapters.git.on_clone = seed
+    response = client.post(f"/api/v1/apps/{ZIP_TELEOP_ID}/update", headers=CSRF_HEADERS)
+
+    assert response.status_code == 202
+    assert response.json()["job"]["state"] == "failed"
+    assert response.json()["job"]["error_code"] == "manifest_schema_unsupported"

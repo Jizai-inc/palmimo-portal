@@ -34,7 +34,7 @@ type Confirmation =
 export function DisplayAssetsPanel() {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
-  const list = useListStandardAssetsApiV1DisplayAssetsStandardGet();
+  const list = useListStandardAssetsApiV1DisplayAssetsStandardGet({ query: { staleTime: 60_000, refetchOnWindowFocus: false } });
   const [confirmation, setConfirmation] = useState<Confirmation>(null);
   const [outcome, setOutcome] = useState<DisplaySyncResult | null>(null);
   const [fileError, setFileError] = useState(false);
@@ -101,7 +101,7 @@ export function DisplayAssetsPanel() {
       </ul>}
       {fileError && <Alert variant="destructive"><AlertDescription>{t("settings.display.fileTooLarge")}</AlertDescription></Alert>}
       <ApiErrorAlert error={list.error} />
-      {list.error ? null : list.isLoading ? <p className="text-sm text-muted-foreground">{t("common.loading")}</p> : <>
+      {list.data ? <>
         <section className="flex flex-col gap-3">
           <SectionHeader title={t("settings.display.standard")} description={t("settings.display.fileHint")} />
           {list.data?.standard.length === 0 ? <p className="text-sm text-muted-foreground">{t("settings.display.empty")}</p> :
@@ -139,7 +139,7 @@ export function DisplayAssetsPanel() {
             </li>)}
           </ul>
         </section>}
-      </>}
+      </> : list.isLoading ? <p className="text-sm text-muted-foreground">{t("common.loading")}</p> : null}
       <AlertDialog open={confirmation !== null} onOpenChange={(open) => { if (!open && !busy) setConfirmation(null); }}>
         <AlertDialogContent className="max-h-[85dvh] w-[calc(100%_-_2rem)] max-w-lg overflow-y-auto">
           <AlertDialogHeader>

@@ -769,7 +769,7 @@
       "confirmDescription": "Review the converted asset and its effect on display storage before saving.",
       "converted": "Converted asset",
       "sizeChange": "Size change",
-      "size": "{{kb}} KB",
+      "size": "{{kb}} KiB",
       "vector": "Vector animation",
       "image": "Image",
       "gif": "GIF",

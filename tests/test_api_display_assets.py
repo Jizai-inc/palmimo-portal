@@ -17,6 +17,7 @@ from palmimo_portal.ports import (
     DisplaySyncPending,
     DisplaySyncResult,
     DisplayToolError,
+    PlatformCommandError,
     StandardAssetStatus,
 )
 from palmimo_portal.settings import Settings
@@ -66,6 +67,38 @@ def _preview(client: TestClient, name: str = "happy") -> dict:
     response = client.post(f"{BASE}/standard/{name}/preview", files={"file": ("face.gif", b"source")}, headers=HEADERS)
     assert response.status_code == 200, response.text
     return response.json()
+
+
+@pytest.mark.parametrize("operation", ["put", "delete"])
+@pytest.mark.parametrize(
+    "failure", [PlatformCommandError("display-assets", "timeout"), DisplayToolError("invalid output")]
+)
+def test_saved_override_reports_sync_exception_and_leaves_pending_retry(
+    client: TestClient, adapters: FakeAdapterBundle, monkeypatch: pytest.MonkeyPatch, operation: str, failure: Exception
+) -> None:
+    token = _preview(client)["token"] if operation == "put" else None
+
+    def fail_sync(app_id: str | None) -> DisplaySyncResult:
+        raise failure
+
+    monkeypatch.setattr(adapters.platform, "sync_display_assets", fail_sync)
+    if operation == "put":
+        response = client.put(f"{BASE}/standard/happy", json={"token": token}, headers=HEADERS)
+    else:
+        response = client.delete(f"{BASE}/standard/happy", headers=HEADERS)
+
+    assert response.status_code == 200
+    assert response.json()["sync"]["result"] == "failed"
+    assert len(adapters.platform.override_display_asset_calls) == 1
+    status = client.get("/api/v1/system/status").json()["display_sync"]
+    assert status["pending"] is True
+    assert status["reason"] == response.json()["sync"]["reason"]
+    assert status["running"] is False
+    if operation == "put":
+        repeated = client.put(f"{BASE}/standard/happy", json={"token": token}, headers=HEADERS)
+        assert repeated.status_code == 409
+        assert repeated.json()["error"]["code"] == "display_asset_preview_expired"
+        assert len(adapters.platform.override_display_asset_calls) == 1
 
 
 def test_standard_list_preserves_catalog_translations_and_includes_uncatalogued_assets(

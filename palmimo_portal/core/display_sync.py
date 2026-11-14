@@ -5,16 +5,31 @@ from __future__ import annotations
 import logging
 import threading
 
-from palmimo_portal.ports import DisplaySyncPending, DisplaySyncResult, PlatformPort, RunLockTimeoutError, StateStore
+from palmimo_portal.ports import (
+    DisplaySyncPending,
+    DisplaySyncResult,
+    DisplayToolError,
+    PlatformCommandError,
+    PlatformPort,
+    RunLockTimeoutError,
+    StateStore,
+)
 
 
 logger = logging.getLogger("palmimo_portal")
 
 
 def record_display_sync(state: StateStore, platform: PlatformPort, result: DisplaySyncResult) -> None:
-    if result.result not in {"synced", "busy"}:
+    if result.result == "synced":
+        pending = None
+    elif result.result == "busy" or (result.result == "failed" and result.deleted):
+        pending = DisplaySyncPending(True, result.reason, platform.read_boot_id())
+    else:
         return
-    pending = DisplaySyncPending(True, result.reason, platform.read_boot_id()) if result.result == "busy" else None
+    _write_display_sync(state, pending)
+
+
+def _write_display_sync(state: StateStore, pending: DisplaySyncPending | None) -> None:
     try:
         state.write_display_sync(pending)
     except OSError:
@@ -35,7 +50,11 @@ class DisplaySyncService:
         """The caller must hold run.lock."""
         self._running.set()
         try:
-            result = self._platform.sync_display_assets(app_id)
+            try:
+                result = self._platform.sync_display_assets(app_id)
+            except (PlatformCommandError, DisplayToolError) as error:
+                _write_display_sync(self._state, DisplaySyncPending(True, str(error), self._platform.read_boot_id()))
+                raise
             record_display_sync(self._state, self._platform, result)
             return result
         finally:

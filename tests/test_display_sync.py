@@ -7,7 +7,15 @@ from palmimo_portal.api.app import create_app
 from palmimo_portal.core.apps_start import stop_app
 from palmimo_portal.core.display_sync import DisplaySyncService
 from palmimo_portal.core.periodic import PeriodicScheduler, PeriodicTask
-from palmimo_portal.ports import AppRecord, AppSource, AppsState, DisplaySyncPending, DisplaySyncResult
+from palmimo_portal.ports import (
+    AppRecord,
+    AppSource,
+    AppsState,
+    DisplaySyncPending,
+    DisplaySyncResult,
+    DisplayToolError,
+    PlatformCommandError,
+)
 from palmimo_portal.settings import Settings
 from palmimo_portal.testing.fakes import FakeAdapterBundle, FakeClockPort, FakePlatformPort, FakeStateStore
 
@@ -143,3 +151,38 @@ def test_retry_pending_does_not_sync_without_pending_work() -> None:
     platform = FakePlatformPort()
     DisplaySyncService(state, platform).retry_pending()
     assert platform.sync_display_assets_calls == []
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        DisplaySyncResult("failed", (), ("palmimo/system.idle",), "transfer failed"),
+        PlatformCommandError("display_assets", "timeout"),
+        DisplayToolError("invalid output"),
+    ],
+)
+def test_destructive_sync_failure_is_retried_by_periodic_task(
+    tmp_path: Path, failure: DisplaySyncResult | Exception
+) -> None:
+    app = create_app(Settings(apps_dir=tmp_path, periodic_enabled=False, autostart_enabled=False))
+    adapters: FakeAdapterBundle = app.state.adapters
+    adapters.platform.boot_id = "boot"
+    reason: str | None
+    if isinstance(failure, Exception):
+        adapters.platform.display_error = failure
+        with pytest.raises(type(failure)):
+            app.state.display_sync.sync("zip.face")
+        reason = str(failure)
+    else:
+        adapters.platform.display_sync_result = failure
+        assert app.state.display_sync.sync("zip.face") == failure
+        reason = failure.reason
+
+    assert adapters.state.read_display_sync() == DisplaySyncPending(True, reason, "boot")
+    assert not app.state.display_sync.running
+    adapters.platform.display_error = None
+    adapters.platform.display_sync_result = DisplaySyncResult("synced", ("palmimo/system.idle",), (), None)
+    adapters.clock.monotonic_value += 60
+    app.state.periodic_scheduler.tick()
+    assert adapters.platform.sync_display_assets_calls == ["zip.face", None]
+    assert adapters.state.read_display_sync() is None

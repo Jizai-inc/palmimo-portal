@@ -448,11 +448,16 @@ def test_restore_keeps_preempted_app_on_display_busy(prepared: tuple[StartDeps, 
     assert adapters.state.read_preempted_app() == pending
 
 
-@pytest.mark.parametrize("failure", ["result", "exception"])
+@pytest.mark.parametrize("failure", ["result", "exception", "deleted"])
 def test_asset_sync_failure_does_not_overwrite_firmware_outcome(
     prepared: tuple[StartDeps, FakeAdapterBundle], monkeypatch: pytest.MonkeyPatch, failure: str
 ) -> None:
-    from palmimo_portal.ports import DisplayFirmwareSelection, DisplaySyncResult, PlatformCommandError
+    from palmimo_portal.ports import (
+        DisplayFirmwareSelection,
+        DisplaySyncPending,
+        DisplaySyncResult,
+        PlatformCommandError,
+    )
 
     deps, adapters = prepared
     adapters.app_unit.statuses.clear()
@@ -461,7 +466,15 @@ def test_asset_sync_failure_does_not_overwrite_firmware_outcome(
     def sync(app_id: str | None) -> DisplaySyncResult:
         if failure == "exception":
             raise PlatformCommandError("display_assets", "invalid response")
-        return DisplaySyncResult("failed", (), (), "unavailable")
+        return DisplaySyncResult("failed", (), ("palmimo/system.idle",) if failure == "deleted" else (), "unavailable")
 
     monkeypatch.setattr(adapters.platform, "sync_display_assets", sync)
     assert run_display_firmware(deps, adapters.platform).result == "current"
+    pending = adapters.state.read_display_sync()
+    if failure == "result":
+        assert pending is None
+    else:
+        reason = (
+            str(PlatformCommandError("display_assets", "invalid response")) if failure == "exception" else "unavailable"
+        )
+        assert pending == DisplaySyncPending(True, reason, adapters.platform.boot_id)

@@ -105,14 +105,19 @@ def test_start_handles_firmware_results(
     assert bool(adapters.platform.sync_display_assets_calls) == (outcome in {"updated", "current"})
 
 
-@pytest.mark.parametrize("outcome", ["synced", "skipped", "busy", "failed"])
-def test_start_sync_updates_pending_only_for_synced_or_busy(
-    env: tuple[StartDeps, FakeAdapterBundle], outcome: str
+@pytest.mark.parametrize(
+    ("outcome", "deleted"),
+    [("synced", ()), ("skipped", ()), ("busy", ()), ("failed", ()), ("failed", ("palmimo/system.idle",))],
+)
+def test_start_sync_records_pending_for_busy_or_destructive_failure(
+    env: tuple[StartDeps, FakeAdapterBundle], outcome: str, deleted: tuple[str, ...]
 ) -> None:
     deps, adapters = env
     pending = DisplaySyncPending(True, "old", "old-boot")
     adapters.state.write_display_sync(pending)
-    adapters.platform.display_sync_result = DisplaySyncResult.from_payload({"result": outcome, "reason": "new"})
+    adapters.platform.display_sync_result = DisplaySyncResult.from_payload(
+        {"result": outcome, "reason": "new", "deleted": list(deleted)}
+    )
     if outcome in {"busy", "failed"}:
         with pytest.raises(AppStartError) as caught:
             start_app(deps, APP_ID, host="robot")
@@ -120,7 +125,11 @@ def test_start_sync_updates_pending_only_for_synced_or_busy(
     else:
         start_app(deps, APP_ID, host="robot")
     expected = (
-        None if outcome == "synced" else DisplaySyncPending(True, "new", "boot-a") if outcome == "busy" else pending
+        None
+        if outcome == "synced"
+        else DisplaySyncPending(True, "new", "boot-a")
+        if outcome == "busy" or (outcome == "failed" and deleted)
+        else pending
     )
     assert adapters.state.read_display_sync() == expected
 

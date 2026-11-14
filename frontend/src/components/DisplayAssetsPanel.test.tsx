@@ -198,3 +198,28 @@ it("uses catalog translations and preserves unknown asset names", async () => {
     await i18n.changeLanguage("en");
   }
 });
+
+it("retains the loaded list with an error when the post-save refetch is busy", async () => {
+  let lists = 0;
+  server.use(
+    http.get("*/api/v1/display-assets/standard", () => {
+      lists++;
+      return lists === 1
+        ? HttpResponse.json({ standard: [asset], orphan_overrides: ["retired"] })
+        : HttpResponse.json({ error: { code: "app_busy", params: {} } }, { status: 409 });
+    }),
+    http.post("*/api/v1/display-assets/standard/happy/preview", () => HttpResponse.json(preview)),
+    http.put("*/api/v1/display-assets/standard/happy", () => HttpResponse.json({ sync: { result: "busy", put: [], deleted: [], reason: "occupied" } })),
+  );
+  renderWithProviders(<DisplayAssetsPanel />);
+  const user = userEvent.setup();
+  const dialog = await upload(user);
+  await user.click(within(dialog).getByRole("button", { name: text("settings.display.save") }));
+
+  expect(await screen.findByText(text("settings.display.syncBusy"))).toBeVisible();
+  expect(await screen.findByRole("alert")).toBeVisible();
+  expect(lists).toBe(2);
+  expect(screen.getByRole("heading", { name: text("settings.display.names.happy") })).toBeVisible();
+  expect(screen.getByLabelText(i18n.t("settings.display.chooseFile", { name: text("settings.display.names.happy") }))).toBeVisible();
+  expect(screen.getByText("retired")).toBeVisible();
+});

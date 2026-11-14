@@ -93,14 +93,35 @@ of startup. While checking, 15 seconds without a Portal command returns it
 to scanning. If no camera frame arrives within 15 seconds of STREAMON, the
 reader exits abnormally with 1, even if the Portal changes screens. These deadlines
 use a monotonic clock. While displaying frames, including waiting and camera
-preparation, it sends a display PING every 2 seconds. SIGTERM restores the face to its power state from startup (`IDLE` if it was on, `EXPR SLEEPING` if it was off) and releases devices.
+preparation, it sends a display PING every 2 seconds. SIGTERM restores the
+face using the firmware-specific commands below and releases devices.
+
+## Face display transport
+
+The reader probes HELLO after opening the port. A proto=2 reply selects STREAM;
+an error, unknown reply, or no reply within two seconds selects the v1 FRAME
+path. The v1 path probes VERSION and FRAME support, sends base64 frame chunks,
+and restores IDLE if the face was on or EXPR SLEEPING if it was off.
+
+The v2 path reads STAT and turns an initially powered-off face on before drawing.
+It converts GRAY8 previews to little-endian RGB565 and sends each frame with its
+CRC-32. Raw bytes stay within 16 KiB of the last acknowledged byte count; success
+requires the final OK STREAM. Events are handled between transfer replies. A
+screen change or termination waits for the current frame to finish.
+
+On a transfer error, unexpected acknowledgement, or two-second response timeout,
+the reader closes the port to drop DTR, reconnects, probes HELLO, and retries the
+frame once. A second failure makes the display unavailable. Closing the port is
+required after a transfer stall because the firmware discards all input until
+DTR drops. Normal termination sends STOP if the face was initially on or POWER
+OFF if it was off, then closes the port even if restoration fails.
 
 | Exit code | Meaning | Portal response |
 | --- | --- | --- |
 | 0 | Normal disconnect, termination, or client wait expiry | Normal completion |
 | 69 | Required decoding dependencies unavailable | Disable until the Portal restarts |
 | 75 | Camera or display reservation unavailable | Retry after 30 seconds |
-| 76 | Face firmware does not support FRAME | Disable until the Portal restarts; expose firmware_too_old in setup status |
+| 76 | v1 face firmware does not support FRAME | Disable until the Portal restarts; expose firmware_too_old in setup status |
 | 78 | Camera or face display unavailable: missing, not answering, or the reservation directory is missing or unsafe | Retry after one hour |
 | Other | Abnormal termination | Retry after 30 seconds, doubling to at most 10 minutes |
 

@@ -20,6 +20,7 @@ import struct
 import tempfile
 import threading
 import time
+import zlib
 from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager, suppress
 from datetime import UTC, datetime
@@ -690,6 +691,161 @@ class FrameClient:
             self.command(b"IDLE" if self.original_power else b"EXPR SLEEPING")
 
 
+def probe_protocol(port: Any, clock: Callable[[], float] = time.monotonic) -> int:
+    port.write(b"\n")
+    deadline = clock() + 0.2
+    while clock() < deadline:
+        port.read_until(b"\n", 1024)
+    port.write(b"HELLO\n")
+    deadline = clock() + 2
+    partial = bytearray()
+    while clock() < deadline:
+        partial.extend(port.read_until(b"\n", 1024))
+        if len(partial) > 1024:
+            return 1
+        if partial.endswith(b"\n"):
+            line = bytes(partial).strip()
+            partial.clear()
+            if line.startswith(b"EVT ") or not line:
+                continue
+            return 2 if line.startswith(b"OK HELLO ") and b"proto=2" in line.split()[2:] else 1
+    return 1
+
+
+class StreamClient:
+    def __init__(
+        self,
+        port: Any,
+        *,
+        port_factory: Callable[[], Any],
+        clock: Callable[[], float] = time.monotonic,
+        gate: Any = None,
+        on_tap: Callable[[int, int], None] = lambda x, y: None,
+    ) -> None:
+        self.port = port
+        self.port_factory = port_factory
+        self.clock = clock
+        self.gate = gate if gate is not None else threading.RLock()
+        self.on_tap = on_tap
+        self.partial = bytearray()
+        self.original_power: bool | None = None
+        self.usable = True
+
+    def _write(self, payload: bytes) -> None:
+        if self.port.write(payload) != len(payload):
+            raise DisplayProtocolError("Incomplete display write")
+
+    def _read(self) -> bytes | None:
+        self.partial.extend(self.port.read_until(b"\n", 1024))
+        if len(self.partial) > 1024:
+            raise DisplayProtocolError("Display response too long")
+        if not self.partial.endswith(b"\n"):
+            return None
+        line = bytes(self.partial).strip()
+        self.partial.clear()
+        if line.startswith(b"EVT TAP "):
+            fields = line.split()
+            if len(fields) == 4:
+                try:
+                    x, y = int(fields[2]), int(fields[3])
+                except ValueError:
+                    pass
+                else:
+                    self.on_tap(x, y)
+        return line
+
+    def _response(self) -> bytes:
+        deadline = self.clock() + 2
+        while self.clock() < deadline:
+            line = self._read()
+            if line and not line.startswith(b"EVT "):
+                return line
+        raise DisplayProtocolError("Display response timed out")
+
+    def _expect(self, expected: bytes) -> None:
+        if self._response() != expected:
+            raise DisplayProtocolError("Unexpected display response")
+
+    def _command(self, command: bytes) -> None:
+        self._write(command + b"\n")
+        self._expect(b"OK " + command)
+
+    def _power_on(self) -> None:
+        self._write(b"STAT\n")
+        power = parse_power(self._response())
+        if self.original_power is None:
+            self.original_power = power
+        if not power:
+            self._command(b"POWER ON")
+
+    def initialize(self) -> None:
+        try:
+            self._power_on()
+            self.send_frame(state_screen("waiting", {}), 168, 168, "RGB565")
+        except DisplayProtocolError as error:
+            raise DeviceUnavailableError("Face display did not initialize", error=error) from None
+
+    def send_frame(
+        self,
+        pixels: bytes,
+        width: int,
+        height: int,
+        format_: str,
+        *,
+        cancelled: Callable[[], bool] = lambda: False,
+    ) -> bool:
+        """Once a body starts, finish it even if the requested screen changes."""
+        if format_ not in {"GRAY8", "RGB565"} or not 1 <= width <= 169 or not 1 <= height <= 169:
+            raise ValueError("Invalid display frame format or dimensions")
+        if len(pixels) != width * height * (1 if format_ == "GRAY8" else 2):
+            raise ValueError("Invalid display frame size")
+        if format_ == "GRAY8":
+            pixels = b"".join(struct.pack("<H", (g >> 3) << 11 | (g >> 2) << 5 | (g >> 3)) for g in pixels)
+        with self.gate:
+            if cancelled():
+                return False
+        for attempt in range(2):
+            try:
+                if attempt:
+                    self.port = self.port_factory()
+                    self.partial.clear()
+                    if probe_protocol(self.port, self.clock) != 2:
+                        raise DisplayProtocolError("Display protocol changed")
+                    self._power_on()
+                    self.usable = True
+                self._write(f"STREAM {width} {height} RGB565 {zlib.crc32(pixels):08x}\n".encode())
+                self._expect(f"OK XFER BEGIN {len(pixels)} ACK=4096".encode())
+                sent = ack = 0
+                while sent < len(pixels):
+                    end = min(sent + 16384, len(pixels))
+                    self._write(pixels[sent:end])
+                    sent = end
+                    while ack < sent:
+                        ack = min(ack + 4096, len(pixels))
+                        self._expect(f"ACK {ack}".encode())
+                self._expect(b"OK STREAM")
+                return True
+            except Exception as error:
+                self.usable = False
+                with suppress(Exception):
+                    self.port.close()
+                if attempt:
+                    raise DeviceUnavailableError("Face display stream failed", error=error) from None
+        return False
+
+    def poll(self) -> None:
+        if getattr(self.port, "in_waiting", 1):
+            self._read()
+
+    def ping(self) -> None:
+        self._write(b"PING\n")
+        self._expect(b"PONG")
+
+    def restore(self) -> None:
+        if self.usable and self.original_power is not None:
+            self._command(b"STOP" if self.original_power else b"POWER OFF")
+
+
 FONT_WIDTH = 6
 FONT_HEIGHT = 10
 QR_RECT = (39, 40, 129, 130)
@@ -987,10 +1143,15 @@ class Display:
 
     def _run(self, port_factory: Callable[[], Any], clock: Callable[[], float]) -> None:
         port: Any = None
-        protocol: FrameClient | None = None
+        protocol: FrameClient | StreamClient | None = None
         try:
             port = port_factory()
-            protocol = FrameClient(port, clock=clock, gate=self.condition, on_tap=self._tap)
+            if probe_protocol(port, clock) == 2:
+                protocol = StreamClient(
+                    port, port_factory=port_factory, clock=clock, gate=self.condition, on_tap=self._tap
+                )
+            else:
+                protocol = FrameClient(port, clock=clock, gate=self.condition, on_tap=self._tap)
             protocol.initialize()
             self.ready.set()
             while True:
@@ -1049,6 +1210,8 @@ class Display:
                     log_failure("Display restore failed", error)
                     if self.failure is None:
                         self.failure = display_failure(error)
+            if protocol is not None:
+                port = protocol.port
             if port is not None:
                 try:
                     port.close()

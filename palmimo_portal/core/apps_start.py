@@ -1,16 +1,8 @@
-"""Precheck and orchestration for ``POST /apps/{id}/start`` and ``/stop`` (design doc 3.5).
-
-:func:`start_app` runs the numbered prechecks in order and stops at the
-first failure -- nothing is changed until step 6 (write the run dir), and
-any failure from there on removes it again (never leaves a secret-bearing
-``env`` file behind). Every failure raises a subclass of
-:class:`AppStartError` carrying the i18n ``code`` and any structured
-params ``api/apps.py`` needs for the response body, so that module holds
-no separate code-mapping table of its own.
-"""
+"""App starts hold apps.lock before run.lock; prechecks precede release and display maintenance."""
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections.abc import Callable
@@ -32,9 +24,13 @@ from palmimo_portal.ports import (
     AppsLockTimeoutError,
     AppsState,
     AppUnitPort,
+    DisplayBusyError,
+    DisplayFirmwareNeed,
+    DisplaySyncPending,
     InvalidManifestSourceError,
     RunDirPort,
     RunLockTimeoutError,
+    StartOrigin,
     StateStore,
     UnitStatus,
 )
@@ -77,22 +73,28 @@ class AppBusyError(AppStartError):
         super().__init__("app_busy")
 
 
+class DisplayBusyStartError(AppStartError):
+    def __init__(self, reason: str | None = None) -> None:
+        super().__init__("display_busy", reason=reason)
+
+
+class DisplayFirmwareStartError(AppStartError):
+    def __init__(self, result: str, reason: str | None = None) -> None:
+        super().__init__("display_firmware_failed", result=result, reason=reason)
+
+
+class DisplaySyncStartError(AppStartError):
+    def __init__(self, reason: str | None = None) -> None:
+        super().__init__("display_sync_failed", reason=reason)
+
+
 class DisplayRecoveryPendingError(AppStartError):
     def __init__(self) -> None:
         super().__init__("display_recovery_pending")
 
 
 class AppJobInProgressStartError(AppStartError):
-    """Raised when any install/update/delete job is in flight, against any app.
-
-    Distinct from :class:`~palmimo_portal.ports.AppsLockTimeoutError` (design
-    doc 3.5): ``run.lock`` and ``apps.lock`` are independent axes, so a start
-    request can acquire ``run.lock`` freely while an unrelated app's job is
-    running -- this checks the *ledger*'s ``current_job_app`` instead. A
-    job's sync step runs untrusted build hooks as the same uid an app unit
-    runs as (design doc 3.10), so this must refuse every app's start, not
-    just the job's own target.
-    """
+    """Another app lifecycle job owns the app ledger."""
 
     def __init__(self) -> None:
         super().__init__("app_job_in_progress")
@@ -167,14 +169,8 @@ def _other_active_app(deps: StartDeps, name: str, apps_state: AppsState) -> str 
     return None
 
 
-def start_app(deps: StartDeps, name: str, *, host: str) -> None:
-    """Run every design-doc-3.5 precheck for ``name`` and start it, in order, changing nothing on failure.
-
-    Raises:
-        AppNotFoundError: no app named ``name`` is installed.
-        AppStartError: one of steps 0-9 refused (see the module docstring
-            for the subclass-per-code shape).
-    """
+def start_app(deps: StartDeps, name: str, *, host: str, origin: StartOrigin = "api") -> None:
+    """Start under apps.lock then run.lock; precheck refusals leave state unchanged."""
     # Every path that takes both locks acquires apps.lock before run.lock. Holding both through
     # systemd start makes a job unable to begin after the prechecks but before the unit starts.
     apps_lock_cm = deps.state.lock_apps()
@@ -189,7 +185,7 @@ def start_app(deps: StartDeps, name: str, *, host: str) -> None:
         apps_lock_cm.__exit__(None, None, None)
         raise AppBusyError() from None
     try:
-        _start_app_locked(deps, name, host=host)
+        _start_app_locked(deps, name, host=host, origin=origin)
     finally:
         lock_cm.__exit__(None, None, None)
         apps_lock_cm.__exit__(None, None, None)
@@ -206,6 +202,9 @@ class _StartPlan:
     argv: list[str]
     layout: LayoutPaths
     devices: list[str]
+    need: DisplayFirmwareNeed = "none"
+    display_stage: bool = False
+    assets_json: str | None = None
 
 
 def _run_prechecks(deps: StartDeps, name: str, *, host: str) -> _StartPlan:
@@ -323,20 +322,134 @@ def precheck_report(deps: StartDeps, name: str, *, host: str) -> PrecheckResult:
     return PrecheckResult(ok=True)
 
 
-def _start_app_locked(deps: StartDeps, name: str, *, host: str) -> None:
+def _plan_start(deps: StartDeps, name: str, *, host: str) -> _StartPlan:
     plan = _run_prechecks(deps, name, host=host)
-    deps.before_start(plan.devices)
-    device_specs = [spec for device in plan.devices for spec in DEVICE_ALLOW_SPECS[device]]
-
-    deps.run_dir.write(
-        name,
-        env=plan.env,
-        argv=plan.argv,
-        cwd=str(plan.layout.cwd),
-        project=str(plan.layout.project),
-        python=plan.record.requires_python,
+    environment = deps.apps_job_ctx.app_environment
+    need = environment.read_display_firmware_need(plan.layout.project / ".venv") if environment else "none"
+    assets = []
+    for asset_name, asset in plan.manifest.assets.items():
+        translations = {}
+        for locale, messages in plan.manifest.translations.items():
+            fields = {
+                "description": f"assets.{asset_name}",
+                **{f"params.{sid}": f"assets.{asset_name}.params.{sid}" for sid in asset.params},
+            }
+            translated = {key: messages[source] for key, source in fields.items() if source in messages}
+            if translated:
+                translations[locale] = translated
+        assets.append(
+            {
+                "id": f"{name}/{asset_name}",
+                "description": asset.description,
+                "tags": list(asset.tags),
+                "params": {sid: {"description": description} for sid, description in asset.params.items()},
+                "translations": translations,
+            }
+        )
+    return replace(
+        plan,
+        need=need,
+        display_stage=need in {"1", "2"} and "motor_display" in plan.devices,
+        assets_json=json.dumps({"schema": 1, "assets": assets}) if assets else None,
     )
+
+
+def _no_step(step: str) -> None:
+    pass
+
+
+def _release_start(deps: StartDeps, plan: _StartPlan, origin: StartOrigin) -> None:
+    if origin == "api":
+        deps.before_start(plan.devices)
+
+
+def _start_app_locked(
+    deps: StartDeps, name: str, *, host: str, on_step: Callable[[str], None] = _no_step, origin: StartOrigin = "api"
+) -> str | None:
+    on_step("precheck")
+    plan = _plan_start(deps, name, host=host)
+    on_step("release")
+    _release_start(deps, plan, origin)
+    return _continue_start_locked(deps, plan, on_step=on_step, origin=origin)
+
+
+def _display_firmware(deps: StartDeps, plan: _StartPlan) -> tuple[bool, str | None]:
+    platform = deps.apps_job_ctx.platform
     try:
+        if platform is None:
+            raise RuntimeError("display platform is unavailable")
+        platform.desire_display_firmware(1 if plan.need == "1" else 2, "app-start")
+        result = platform.ensure_display_firmware()
+    except DisplayBusyError as error:
+        raise DisplayBusyStartError(str(error)) from error
+    except Exception as error:
+        raise DisplayFirmwareStartError("failed", str(error)) from error
+    if result.result == "busy":
+        raise DisplayBusyStartError(result.reason)
+    if result.result in {"absent", "undeclared"}:
+        return True, result.result
+    if result.result not in {"updated", "current"}:
+        raise DisplayFirmwareStartError(result.result, result.reason)
+    return False, None
+
+
+def _sync_display_assets(deps: StartDeps, plan: _StartPlan) -> None:
+    platform = deps.apps_job_ctx.platform
+    try:
+        if platform is None:
+            raise RuntimeError("display platform is unavailable")
+        result = platform.sync_display_assets(plan.record.id)
+    except Exception as error:
+        raise DisplaySyncStartError(str(error)) from error
+    if result.result == "synced":
+        deps.state.write_display_sync(None)
+    elif result.result == "busy":
+        deps.state.write_display_sync(DisplaySyncPending(True, result.reason, platform.read_boot_id()))
+        raise DisplayBusyStartError(result.reason)
+    elif result.result == "failed":
+        raise DisplaySyncStartError(result.reason)
+
+
+def _continue_start_locked(
+    deps: StartDeps, plan: _StartPlan, *, on_step: Callable[[str], None] = _no_step, origin: StartOrigin
+) -> str | None:
+    name = plan.record.id
+    if plan.record.display_firmware != plan.need:
+        deps.state.update_apps_state(
+            lambda state: replace(
+                state, apps={**state.apps, name: replace(state.apps[name], display_firmware=plan.need)}
+            )
+        )
+    warning = None
+    skip_assets = False
+    try:
+        if plan.display_stage:
+            on_step("firmware")
+            skip_assets, warning = _display_firmware(deps, plan)
+        if plan.display_stage and plan.need == "2" and not skip_assets:
+            on_step("assets")
+            _sync_display_assets(deps, plan)
+    except (DisplayFirmwareStartError, DisplaySyncStartError) as error:
+        if origin != "restore":
+            raise
+        warning = error.code
+        logger.warning(
+            "app restore display maintenance failed app=%s code=%s params=%s", name, error.code, error.params
+        )
+    on_step("launch")
+    if origin == "resume" and deps.app_unit.status(name).active_state in RUNNING_ACTIVE_STATES:
+        return warning
+    device_specs = [spec for device in plan.devices for spec in DEVICE_ALLOW_SPECS[device]]
+    try:
+        deps.run_dir.write(
+            name,
+            env=plan.env,
+            argv=plan.argv,
+            cwd=str(plan.layout.cwd),
+            project=str(plan.layout.project),
+            python=plan.record.requires_python,
+            assets=plan.assets_json,
+        )
         deps.app_unit.set_device_allow(name, device_specs)
         logger.info(
             "app start requested name=%s argv=%s params=%s bindings=%s devices=%s",
@@ -350,6 +463,7 @@ def _start_app_locked(deps: StartDeps, name: str, *, host: str) -> None:
     except BaseException:
         deps.run_dir.remove(name)
         raise
+    return warning
 
 
 def stop_app(deps: StartDeps, name: str) -> None:

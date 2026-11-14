@@ -387,9 +387,10 @@ def test_asset_mutations_use_shared_sync_without_reacquiring_locks(
 
 
 def test_missing_sync_service_refuses_save_before_mutation(
-    client: TestClient, adapters: FakeAdapterBundle, app: FastAPI
+    client: TestClient, adapters: FakeAdapterBundle, app: FastAPI, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     token = _preview(client)["token"]
+    monkeypatch.setattr(app.state, "display_sync", None, raising=False)
     app.state.adapters = replace(adapters, display_sync=None)
 
     response = client.put(f"{BASE}/standard/happy", json={"token": token}, headers=HEADERS)

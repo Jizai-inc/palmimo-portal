@@ -42,12 +42,14 @@ from palmimo_portal.adapters.static_asset import (
 )
 from palmimo_portal.ports import (
     DisplayAssetsStatus,
+    DisplayBusyError,
     DisplayDesireResult,
     DisplayFirmwareResult,
     DisplayFirmwareSelection,
     DisplayFirmwareState,
     DisplayProtocol,
     DisplaySyncResult,
+    DisplayToolError,
     PlatformBundleFetchError,
     PlatformCommandError,
     PlatformInstalled,
@@ -149,28 +151,96 @@ class SudoPlatformPort(PlatformPort):
     display_firmware_tool: Path = Path("/usr/local/libexec/palmimo/palmimo-display-firmware")
     display_firmware_state_path: Path = Path("/var/lib/palmimo/display-firmware/state.json")
 
+    display_firmware_selection_path: Path = Path("/var/lib/palmimo/display-firmware/desired.json")
+
     def read_display_firmware_selection(self) -> DisplayFirmwareSelection | None:
-        raise NotImplementedError
+        try:
+            payload = json.loads(self.display_firmware_selection_path.read_text(encoding="utf-8"))
+            if (
+                not isinstance(payload, dict)
+                or type(payload.get("schema")) is not int
+                or payload["schema"] != 1
+                or type(payload.get("protocol")) is not int
+                or payload["protocol"] not in (1, 2)
+                or payload.get("by") not in ("app-start", "initial")
+            ):
+                return None
+            return DisplayFirmwareSelection(payload["protocol"], payload["by"])
+        except (OSError, ValueError):
+            return None
 
     def desire_display_firmware(
         self, protocol: DisplayProtocol, by: Literal["app-start", "initial"]
     ) -> DisplayDesireResult:
-        raise NotImplementedError
+        payload = self._display_command(["desire", str(protocol), "--by", by], timeout=10)
+        if (
+            type(payload.get("protocol")) is not int
+            or payload["protocol"] not in (1, 2)
+            or type(payload.get("changed")) is not bool
+        ):
+            raise PlatformCommandError("display_firmware", "invalid desire result")
+        return DisplayDesireResult(payload["protocol"], payload["changed"])
 
     def sync_display_assets(self, app_id: str | None) -> DisplaySyncResult:
-        raise NotImplementedError
+        arguments = ["assets", "sync"]
+        if app_id is not None:
+            arguments += ["--app", app_id]
+        payload = self._display_command(arguments, timeout=300, sync=True)
+        try:
+            return DisplaySyncResult.from_payload(payload)
+        except ValueError as error:
+            raise PlatformCommandError("display_assets", str(error)) from error
 
     def replace_display_assets(self, app_id: str, directory: Path) -> None:
-        raise NotImplementedError
+        self._display_save(["assets", "replace", app_id, str(directory)])
 
     def uninstall_display_assets(self, app_id: str) -> None:
-        raise NotImplementedError
+        self._display_save(["assets", "uninstall", app_id])
 
     def override_display_asset(self, name: str, bin_path: Path | None) -> None:
-        raise NotImplementedError
+        arguments = [name, str(bin_path)] if bin_path is not None else ["--reset", name]
+        self._display_save(["assets", "override", *arguments])
 
     def display_assets_status(self) -> DisplayAssetsStatus:
-        raise NotImplementedError
+        payload = self._display_command(["assets", "status"], timeout=150)
+        try:
+            return DisplayAssetsStatus.from_payload(payload)
+        except ValueError as error:
+            raise PlatformCommandError("display_assets", str(error)) from error
+
+    def _display_save(self, arguments: list[str]) -> None:
+        payload = self._display_command(arguments, timeout=150)
+        if payload.get("ok") is not True:
+            raise PlatformCommandError("display_assets", "invalid save result")
+
+    def _display_command(self, arguments: list[str], *, timeout: int, sync: bool = False) -> dict[str, Any]:
+        process = self._run(
+            "display_assets",
+            [str(self.display_firmware_tool), *arguments, "--json"],
+            command_timeout=timeout,
+            subprocess_timeout=timeout + 60,
+            success_codes=(0, 1, 75),
+        )
+        try:
+            if len(process.stdout.strip().splitlines()) != 1:
+                raise ValueError("expected one JSON line")
+            payload = json.loads(process.stdout)
+            if not isinstance(payload, dict):
+                raise ValueError("expected JSON object")
+        except (ValueError, TypeError) as error:
+            raise PlatformCommandError("display_assets", f"invalid tool output: {error}") from error
+        if not sync:
+            reason = payload.get("reason")
+            if process.returncode == 75:
+                raise DisplayBusyError(reason)
+            if process.returncode == 1 or payload.get("ok") is False:
+                shortage = payload.get("short_by")
+                if not isinstance(reason, str) or (
+                    shortage is not None and (type(shortage) is not int or shortage < 0)
+                ):
+                    raise PlatformCommandError("display_assets", "invalid tool failure")
+                raise DisplayToolError(reason, shortage)
+        return payload
 
     def read_boot_id(self) -> str | None:
         try:

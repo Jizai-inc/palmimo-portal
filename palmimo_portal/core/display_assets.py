@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -8,12 +9,18 @@ from palmimo_portal.ports import (
     DisplayAssetPreview,
     DisplayAssetPreviewsPort,
     DisplayAssetsStatus,
+    DisplaySyncPending,
     DisplaySyncPort,
     DisplaySyncResult,
+    DisplayToolError,
+    PlatformCommandError,
     PlatformPort,
     StandardAssetsPort,
     StateStore,
 )
+
+
+logger = logging.getLogger("palmimo_portal")
 
 
 class UnknownDisplayAssetError(Exception):
@@ -85,19 +92,21 @@ class DisplayAssetsService:
 
     def put(self, name: str, token: str, sync: DisplaySyncPort) -> DisplaySyncResult:
         self.require_standard(name)
-        with self.state.lock_apps(), self.state.lock_run(), self.previews.open(name, token) as preview:
-            if preview is None:
-                raise DisplayPreviewExpiredError(token)
-            status = self.platform.display_assets_status()
-            if preview.conversion.bytes is None:
-                raise ValueError("converted asset has no size")
-            capacity = replacement_capacity(status, name, preview.conversion.bytes)
-            if not capacity.ok:
-                raise DisplayCapacityError(capacity.short_by)
-            self.platform.override_display_asset(name, preview.path)
-            result = sync.sync_locked()
-        self.previews.delete(token)
-        return result
+        with self.state.lock_apps(), self.state.lock_run():
+            with self.previews.open(name, token) as preview:
+                if preview is None:
+                    raise DisplayPreviewExpiredError(token)
+                status = self.platform.display_assets_status()
+                if preview.conversion.bytes is None:
+                    raise ValueError("converted asset has no size")
+                capacity = replacement_capacity(status, name, preview.conversion.bytes)
+                if not capacity.ok:
+                    raise DisplayCapacityError(capacity.short_by)
+                self.platform.override_display_asset(name, preview.path)
+            try:
+                return self._sync_saved(sync)
+            finally:
+                self.previews.delete(token)
 
     def delete(self, name: str, sync: DisplaySyncPort) -> DisplaySyncResult:
         names = self.standards.list_standard_names()
@@ -105,7 +114,19 @@ class DisplayAssetsService:
             if name not in names and name not in self.platform.display_assets_status().orphan_overrides:
                 raise UnknownDisplayAssetError(name)
             self.platform.override_display_asset(name, None)
+            return self._sync_saved(sync)
+
+    def _sync_saved(self, sync: DisplaySyncPort) -> DisplaySyncResult:
+        try:
             return sync.sync_locked()
+        except (PlatformCommandError, DisplayToolError) as error:
+            reason = str(error)
+            logger.warning("saved display asset could not be synchronized: %s", reason)
+            try:
+                self.state.write_display_sync(DisplaySyncPending(True, reason, self.platform.read_boot_id()))
+            except OSError:
+                logger.warning("display sync record could not be written")
+            return DisplaySyncResult("failed", (), (), reason)
 
     def sync(self, sync: DisplaySyncPort) -> DisplaySyncResult:
         with self.state.lock_apps(), self.state.lock_run():

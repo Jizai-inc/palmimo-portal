@@ -9,7 +9,10 @@ from typing import Any
 
 MAX_TRANSLATIONS_BYTES = 65_536
 _LOCALE = re.compile(r"^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$")
-_KEY = re.compile(r"^(?:description|env\.[A-Z][A-Z0-9_]{0,63}|params\.[a-z][a-z0-9_]{0,31})$")
+_KEY = re.compile(
+    r"^(?:description|env\.[A-Z][A-Z0-9_]{0,63}|params\.[a-z][a-z0-9_]{0,31}"
+    r"|assets\.[a-z0-9][a-z0-9._-]{0,39}(?:\.params\.[a-z0-9_]{1,32})?)$"
+)
 
 
 def parse_translations(raw: Any) -> dict[str, dict[str, str]]:

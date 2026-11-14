@@ -1,4 +1,4 @@
-"""Behavioral tests for the schema=1 palmimo.toml parser (design doc chapter 1)."""
+"""Behavioral tests for app manifest validation and parameter resolution."""
 
 from __future__ import annotations
 
@@ -329,3 +329,193 @@ def test_resolve_command_substitutes_app_dir() -> None:
     )
     argv = resolve_command(manifest, {}, host="h", app_dir="/var/lib/palmimo/apps/app")
     assert argv == ["run", "--root", "/var/lib/palmimo/apps/app"]
+
+
+ASSET_MANIFEST = 'schema=2\nname="face"\ndescription="Face"\ncommand=["run"]\n'
+
+
+def test_manifest_assets_expand_include_and_survive_snapshot() -> None:
+    text = (
+        ASSET_MANIFEST
+        + """
+[assets]
+include = "assets/more.toml"
+[assets.welcome]
+file = "assets/welcome.json"
+description = "Welcome"
+tags = ["greeting"]
+[assets.welcome.params.eye_color]
+description = "Eye color"
+"""
+    )
+    manifest = parse_manifest(
+        text,
+        read_include=lambda path: (
+            """
+[assets.bye]
+file = "assets/bye.gif"
+description = "Goodbye"
+"""
+        ),
+    )
+    restored = manifest_from_snapshot(manifest_snapshot(manifest))
+    assert restored.assets == manifest.assets
+    assert set(restored.assets) == {"welcome", "bye"}
+    assert restored.assets["welcome"].file == "assets/welcome.json"
+    assert restored.assets["welcome"].description == "Welcome"
+    assert restored.assets["welcome"].tags == ("greeting",)
+    assert restored.assets["welcome"].params == {"eye_color": "Eye color"}
+    assert restored.assets["bye"].tags == ()
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        'assets = "bad"',
+        '[assets.include]\nfile="a.json"\ndescription="d"',
+        '[assets.a]\nfile="a.txt"\ndescription="d"',
+        '[assets.a]\nfile="a.png"\ndescription="d"\n[assets.a.params]',
+        '[assets.a]\nfile="a.json"\ndescription="d"\n[assets.a.params.eye]\ndescription=42',
+        '[assets.a]\nfile="a.json"\ndescription="d"\n[assets.a.params.eye]\ndescription="d"\nextra=true',
+        '[assets."Bad"]\nfile="a.json"\ndescription="d"',
+        '[assets.a]\nfile="a.json"\ndescription="d"\nextra=true',
+        '[assets.a]\ndescription="d"',
+        '[assets.a]\nfile="a.json"',
+        '[assets.a]\nfile=42\ndescription="d"',
+        '[assets.a]\nfile="/a.json"\ndescription="d"',
+        '[assets.a]\nfile="sub/../a.json"\ndescription="d"',
+        '[assets.a]\nfile="a.json"\ndescription=""',
+        '[assets.a]\nfile="a.json"\ndescription=42',
+        '[assets.a]\nfile="a.json"\ndescription="' + "d" * 201 + '"',
+        '[assets.a]\nfile="a.json"\ndescription="d"\ntags="greeting"',
+        '[assets.a]\nfile="a.json"\ndescription="d"\ntags=["Bad"]',
+        '[assets.a]\nfile="a.json"\ndescription="d"\ntags=[42]',
+        '[assets.a]\nfile="a.json"\ndescription="d"\nparams="bad"',
+        '[assets.a]\nfile="a.json"\ndescription="d"\n[assets.a.params.eye]\n',
+        '[assets.a]\nfile="a.json"\ndescription="d"\n[assets.a.params."Bad"]\ndescription="d"',
+        '[assets.a]\nfile="a.json"\ndescription="d"\n[assets.a.params.eye]\ndescription=""',
+        '[assets.a]\nfile="a.png"\ndescription="d"\n[assets.a.params.eye]\ndescription="d"',
+    ],
+)
+def test_manifest_assets_reject_invalid_declarations(declaration: str) -> None:
+    with pytest.raises(ManifestValidationError):
+        parse_manifest(ASSET_MANIFEST + declaration)
+
+
+@pytest.mark.parametrize(
+    "include",
+    [
+        "[extra]\na=1",
+        '[assets]\ninclude="nested.toml"',
+        '[assets.welcome]\nfile="other.json"\ndescription="other"',
+        "invalid TOML",
+        'assets="bad"',
+    ],
+)
+def test_manifest_assets_reject_invalid_include(include: str) -> None:
+    text = ASSET_MANIFEST + '[assets]\ninclude="more.toml"\n[assets.welcome]\nfile="a.json"\ndescription="d"'
+    with pytest.raises(ManifestValidationError):
+        parse_manifest(text, read_include=lambda path: include)
+
+
+@pytest.mark.parametrize("path", ["/more.toml", "../more.toml", "sub/../more.toml", ""])
+def test_manifest_assets_reject_unsafe_include_without_reading(path: str) -> None:
+    def read_include(path: str) -> str:
+        pytest.fail("unsafe include must not be read")
+
+    with pytest.raises(ManifestValidationError):
+        parse_manifest(ASSET_MANIFEST + f'[assets]\ninclude="{path}"', read_include=read_include)
+
+
+def test_manifest_snapshot_rejects_unexpanded_include() -> None:
+    snapshot = manifest_snapshot(parse_manifest(ASSET_MANIFEST))
+    snapshot["assets"] = {"include": "more.toml"}
+    with pytest.raises(ManifestValidationError):
+        manifest_from_snapshot(snapshot)
+
+
+def test_manifest_schema_one_rejects_assets() -> None:
+    with pytest.raises(ManifestValidationError):
+        parse_manifest(ASSET_MANIFEST.replace("schema=2", "schema=1") + "[assets]\n")
+
+
+def test_manifest_future_schema_has_distinct_error() -> None:
+    from palmimo_portal.core.manifest import ManifestSchemaUnsupportedError
+
+    with pytest.raises(ManifestSchemaUnsupportedError) as caught:
+        parse_manifest(ASSET_MANIFEST.replace("schema=2", "schema=3"))
+    assert caught.value.schema == 3
+    assert caught.value.code == "manifest_schema_unsupported"
+
+
+@pytest.mark.parametrize(
+    "source", ["missing", "absolute", "parent", "symlink", "symlink-parent", "oversized", "invalid-utf8"]
+)
+def test_manifest_loading_rejects_unsafe_include_files(tmp_path: Path, source: str) -> None:
+    from palmimo_portal.core.apps_jobs import _read_manifest
+
+    include_path = "more.toml"
+    content = b'[assets.bye]\nfile="bye.gif"\ndescription="d"'
+    if source == "absolute":
+        include_path = str(tmp_path / "more.toml")
+    elif source == "parent":
+        include_path = "../more.toml"
+    elif source == "symlink":
+        (tmp_path / "target.toml").write_bytes(content)
+        (tmp_path / "more.toml").symlink_to(tmp_path / "target.toml")
+    elif source == "symlink-parent":
+        (tmp_path / "real").mkdir()
+        (tmp_path / "real" / "more.toml").write_bytes(content)
+        (tmp_path / "linked").symlink_to(tmp_path / "real", target_is_directory=True)
+        include_path = "linked/more.toml"
+    elif source == "oversized":
+        (tmp_path / "more.toml").write_bytes(content + b"\n#" + b"x" * 65536)
+    elif source == "invalid-utf8":
+        (tmp_path / "more.toml").write_bytes(b"\xff")
+    (tmp_path / "palmimo.toml").write_text(ASSET_MANIFEST + f'[assets]\ninclude="{include_path}"')
+    with pytest.raises(ManifestValidationError):
+        _read_manifest(tmp_path)
+
+
+@pytest.mark.parametrize("padded", [False, True])
+def test_manifest_loading_expands_include_relative_to_app_directory(tmp_path: Path, padded: bool) -> None:
+    from palmimo_portal.core.apps_jobs import _read_manifest
+
+    (tmp_path / "declarations").mkdir()
+    content = '[assets.bye]\nfile="bye.gif"\ndescription="d"'
+    if padded:
+        content = content.ljust(65_536)
+    (tmp_path / "declarations" / "more.toml").write_text(content)
+    (tmp_path / "bye.gif").write_bytes(b"gif")
+    (tmp_path / "palmimo.variant.toml").write_text(ASSET_MANIFEST + '[assets]\ninclude="declarations/more.toml"')
+    assert _read_manifest(tmp_path, "palmimo.variant.toml").assets["bye"].file == "bye.gif"
+
+
+@pytest.mark.parametrize("included", [False, True])
+@pytest.mark.parametrize("directory_link", [False, True])
+def test_manifest_loading_rejects_symlink_asset_files(tmp_path: Path, included: bool, directory_link: bool) -> None:
+    from palmimo_portal.core.apps_jobs import _read_manifest
+
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real" / "face.json").write_text("{}")
+    if directory_link:
+        (tmp_path / "linked").symlink_to(tmp_path / "real", target_is_directory=True)
+        asset_path = "linked/face.json"
+    else:
+        (tmp_path / "face.json").symlink_to(tmp_path / "real" / "face.json")
+        asset_path = "face.json"
+    declaration = f'[assets.face]\nfile="{asset_path}"\ndescription="d"'
+    if included:
+        (tmp_path / "more.toml").write_text(declaration)
+        declaration = '[assets]\ninclude="more.toml"'
+    (tmp_path / "palmimo.toml").write_text(ASSET_MANIFEST + declaration)
+    with pytest.raises(ManifestValidationError):
+        _read_manifest(tmp_path)
+
+
+@pytest.mark.parametrize("schema", [True, 1.0, "2", None])
+def test_manifest_rejects_non_integer_schema(schema: object) -> None:
+    snapshot = manifest_snapshot(parse_manifest(ASSET_MANIFEST))
+    snapshot["schema"] = schema
+    with pytest.raises(ManifestValidationError):
+        manifest_from_snapshot(snapshot)

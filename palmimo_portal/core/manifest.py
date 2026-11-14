@@ -1,4 +1,4 @@
-"""Parser and validator for the schema=1 ``palmimo.toml`` app manifest.
+"""Parser and validator for the schema 1 and 2 ``palmimo.toml`` app manifest.
 
 Portal is the only reader of this format (design doc "app-platform" ch. 1);
 devkit only ships the spec text and example files. Every top-level key is
@@ -11,7 +11,9 @@ from __future__ import annotations
 import math
 import re
 import tomllib
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import PurePosixPath
 from typing import Any, Literal, cast
 
 
@@ -25,7 +27,12 @@ _ENV_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 _RESERVED_ENV_PREFIX = "PALMIMO_"
 _KNOWN_DEVICES = frozenset({"camera", "audio", "motor_display"})
 _RESERVED_PLACEHOLDERS = frozenset({"host", "app_dir"})
-_TOP_LEVEL_KEYS = frozenset({"schema", "name", "description", "command", "url", "devices", "env", "params"})
+_TOP_LEVEL_KEYS = frozenset({"schema", "name", "description", "command", "url", "devices", "env", "params", "assets"})
+_ASSET_NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,39}$")
+_ASSET_TAG_PATTERN = re.compile(r"^[a-z0-9-]{1,32}$")
+_ASSET_SLOT_PATTERN = re.compile(r"^[a-z0-9_]{1,32}$")
+_ASSET_KEYS = frozenset({"file", "description", "tags", "params"})
+_ASSET_SUFFIXES = frozenset({".json", ".gif", ".png", ".jpg", ".jpeg"})
 _ENV_TABLE_KEYS = frozenset({"required", "description", "help_url"})
 _PARAM_TYPES = frozenset({"string", "int", "float", "enum", "bool"})
 # Extra keys each param type accepts beyond {type, default}.
@@ -103,6 +110,22 @@ class ManifestValidationError(Exception):
         super().__init__("; ".join(errors))
 
 
+class ManifestSchemaUnsupportedError(ManifestValidationError):
+    code = "manifest_schema_unsupported"
+
+    def __init__(self, schema: object) -> None:
+        self.schema = schema
+        super().__init__([self.code])
+
+
+@dataclass(frozen=True)
+class AssetSpec:
+    file: str
+    description: str
+    tags: tuple[str, ...] = ()
+    params: dict[str, str] = field(default_factory=dict)
+
+
 @dataclass(frozen=True)
 class EnvSpec:
     required: bool
@@ -138,6 +161,7 @@ class Manifest:
     env: dict[str, EnvSpec]
     params: dict[str, ParamSpec]
     translations: dict[str, dict[str, str]] = field(default_factory=dict)
+    assets: dict[str, AssetSpec] = field(default_factory=dict)
 
 
 def manifest_snapshot(manifest: Manifest) -> dict[str, Any]:
@@ -178,6 +202,25 @@ def manifest_snapshot(manifest: Manifest) -> dict[str, Any]:
             for name, spec in manifest.env.items()
         },
         "params": params,
+        **(
+            {
+                "assets": {
+                    name: {
+                        "file": asset.file,
+                        "description": asset.description,
+                        "tags": list(asset.tags),
+                        **(
+                            {"params": {sid: {"description": description} for sid, description in asset.params.items()}}
+                            if asset.params
+                            else {}
+                        ),
+                    }
+                    for name, asset in manifest.assets.items()
+                }
+            }
+            if manifest.schema == 2
+            else {}
+        ),
     }
 
 
@@ -198,20 +241,16 @@ def manifest_from_snapshot(snapshot: Any) -> Manifest:
     return _validate_manifest_dict(snapshot)
 
 
-def parse_manifest(text: str) -> Manifest:
-    """Parse and fully validate a ``palmimo.toml`` document.
-
-    Raises :class:`ManifestValidationError` carrying every violation found,
-    not just the first, so a manifest author fixes the file in one pass.
-    """
+def parse_manifest(text: str, *, read_include: Callable[[str], str] | None = None) -> Manifest:
+    """Unsupported schemas fail before field validation; other violations are collected."""
     try:
         raw = tomllib.loads(text)
     except tomllib.TOMLDecodeError as error:
         raise ManifestValidationError([f"invalid TOML: {error}"]) from error
-    return _validate_manifest_dict(raw)
+    return _validate_manifest_dict(raw, read_include=read_include)
 
 
-def _validate_manifest_dict(raw: dict[str, Any]) -> Manifest:
+def _validate_manifest_dict(raw: dict[str, Any], *, read_include: Callable[[str], str] | None = None) -> Manifest:
     """Validate the small manifest schema against an already-parsed dict (TOML or a ledger snapshot)."""
     errors: list[str] = []
     unknown_keys = set(raw) - _TOP_LEVEL_KEYS
@@ -219,8 +258,10 @@ def _validate_manifest_dict(raw: dict[str, Any]) -> Manifest:
         errors.append(f"unknown top-level key: {key!r}")
 
     schema = raw.get("schema")
-    if schema != 1:
-        errors.append(f"schema must be 1, got {schema!r}")
+    if type(schema) is not int or schema not in (1, 2):
+        raise ManifestSchemaUnsupportedError(schema)
+    if schema == 1 and "assets" in raw:
+        errors.append("assets require schema 2")
 
     name = raw.get("name")
     if not isinstance(name, str) or not _NAME_PATTERN.fullmatch(name):
@@ -251,6 +292,7 @@ def _validate_manifest_dict(raw: dict[str, Any]) -> Manifest:
 
     env = _parse_env(raw.get("env", {}), errors)
     params = _parse_params(raw.get("params", {}), errors)
+    assets = _parse_assets(raw.get("assets", {}), errors, read_include=read_include)
 
     _validate_placeholders(command, "command", params, errors)
     if isinstance(url, str):
@@ -260,7 +302,7 @@ def _validate_manifest_dict(raw: dict[str, Any]) -> Manifest:
         raise ManifestValidationError(errors)
 
     return Manifest(
-        schema=cast(int, schema),
+        schema=schema,
         name=cast(str, name),
         description=cast(str, description),
         command=tuple(command),
@@ -268,7 +310,91 @@ def _validate_manifest_dict(raw: dict[str, Any]) -> Manifest:
         devices=devices,
         env=env,
         params=params,
+        assets=assets,
     )
+
+
+def validate_asset_path(path: object) -> str:
+    """Accept only paths relative to the app directory, without parent traversal."""
+    if not isinstance(path, str) or not path or "\x00" in path:
+        raise ValueError("asset path must be a non-empty string")
+    candidate = PurePosixPath(path)
+    if candidate.is_absolute() or ".." in candidate.parts or not candidate.name:
+        raise ValueError("asset path must stay within the app directory")
+    return path
+
+
+def _parse_assets(
+    raw: Any, errors: list[str], *, read_include: Callable[[str], str] | None = None
+) -> dict[str, AssetSpec]:
+    if not isinstance(raw, dict):
+        errors.append("assets must be a table")
+        return {}
+    entries = dict(raw)
+    if "include" in entries:
+        include = entries.pop("include")
+        try:
+            include_path = validate_asset_path(include)
+            if read_include is None:
+                raise ValueError("asset include requires a file reader")
+            included = tomllib.loads(read_include(include_path))
+            if set(included) != {"assets"} or not isinstance(included["assets"], dict):
+                raise ValueError("asset include must contain only an assets table")
+            if "include" in included["assets"]:
+                raise ValueError("asset include cannot include another file")
+            duplicates = entries.keys() & included["assets"].keys()
+            if duplicates:
+                raise ValueError(f"duplicate asset names: {sorted(duplicates)}")
+            entries.update(included["assets"])
+        except (OSError, ValueError) as error:
+            errors.append(f"invalid asset include: {error}")
+
+    assets = {}
+    for name, spec in entries.items():
+        if not isinstance(name, str) or not _ASSET_NAME_PATTERN.fullmatch(name):
+            errors.append(f"invalid asset name: {name!r}")
+            continue
+        if not isinstance(spec, dict) or set(spec) - _ASSET_KEYS:
+            errors.append(f"assets.{name} must be a table with only {sorted(_ASSET_KEYS)}")
+            continue
+        try:
+            file = validate_asset_path(spec.get("file"))
+            if PurePosixPath(file).suffix.lower() not in _ASSET_SUFFIXES:
+                raise ValueError("asset file must be Lottie, GIF, PNG, or JPEG")
+        except ValueError as error:
+            errors.append(f"assets.{name}: {error}")
+            continue
+        description = spec.get("description")
+        if not isinstance(description, str) or not 1 <= len(description) <= 200:
+            errors.append(f"assets.{name}.description must be a string of 1-200 characters")
+            continue
+        tags = spec.get("tags", [])
+        if not isinstance(tags, list) or any(
+            not isinstance(tag, str) or not _ASSET_TAG_PATTERN.fullmatch(tag) for tag in tags
+        ):
+            errors.append(f"assets.{name}.tags must be an array of asset tags")
+            continue
+        params_raw = spec.get("params", {})
+        params = {}
+        if not isinstance(params_raw, dict):
+            errors.append(f"assets.{name}.params must be a table")
+            continue
+        if "params" in spec and PurePosixPath(file).suffix.lower() != ".json":
+            errors.append(f"assets.{name}.params require a Lottie file")
+        for sid, param in params_raw.items():
+            if not isinstance(sid, str) or not _ASSET_SLOT_PATTERN.fullmatch(sid):
+                errors.append(f"invalid asset slot: {sid!r}")
+                continue
+            if not isinstance(param, dict) or set(param) != {"description"}:
+                errors.append(f"assets.{name}.params.{sid} requires only a description")
+                continue
+            slot_description = param["description"]
+            if not isinstance(slot_description, str) or not 1 <= len(slot_description) <= 200:
+                errors.append(f"assets.{name}.params.{sid}.description must be a string of 1-200 characters")
+                continue
+            params[sid] = slot_description
+        assets[name] = AssetSpec(file, description, tuple(tags), params)
+    return assets
 
 
 def _parse_env(raw: Any, errors: list[str]) -> dict[str, EnvSpec]:

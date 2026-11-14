@@ -312,3 +312,156 @@ def test_display_firmware_repairs_while_preserving_wifi_hold_only_record(
     assert adapters.state.read_preempted_app() == record
     assert adapters.app_unit.stop_calls == ["face"]
     assert adapters.app_unit.start_calls == ["face"]
+
+
+@pytest.mark.parametrize(
+    ("preempt", "running", "auto", "expected"),
+    [("1", "2", "2", 1), ("none", "1", "2", 1), (None, "none", "1", 1), (None, None, "2", 2), (None, None, "none", 2)],
+)
+def test_initial_protocol_prioritizes_preempt_then_running_then_autostart(
+    prepared: tuple[StartDeps, FakeAdapterBundle], preempt: str | None, running: str | None, auto: str, expected: int
+) -> None:
+    from dataclasses import replace
+    from typing import cast
+
+    from palmimo_portal.core.display_firmware import initial_display_protocol
+    from palmimo_portal.ports import DisplayFirmwareNeed
+
+    deps, adapters = prepared
+    base = adapters.state.read_apps_state().apps["face"]
+    apps = {"face": replace(base, display_firmware=cast(DisplayFirmwareNeed | None, running))}
+    apps["auto"] = replace(base, id="auto", autostart=True, display_firmware=cast(DisplayFirmwareNeed, auto))
+    if preempt is not None:
+        apps["preempt"] = replace(base, id="preempt", display_firmware=cast(DisplayFirmwareNeed, preempt))
+        adapters.state.write_preempted_app(PreemptedApp("preempt", "display-firmware"))
+    adapters.state.write_apps_state(AppsState(apps=apps))
+    assert initial_display_protocol(deps) == expected
+
+
+def test_maintenance_initial_protocol_avoids_round_trip_for_old_sdk(
+    prepared: tuple[StartDeps, FakeAdapterBundle], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    deps, adapters = prepared
+    adapters.state.update_apps_state(
+        lambda state: replace(state, apps={"face": replace(state.apps["face"], display_firmware="1")})
+    )
+    adapters.app_environment.display_firmware_need = "1"
+    desired_at_ensure: list[int] = []
+    flashed: list[int] = []
+    installed_protocol = 2
+
+    def ensure() -> DisplayFirmwareResult:
+        nonlocal installed_protocol
+        selection = adapters.platform.read_display_firmware_selection()
+        assert selection is not None
+        desired_at_ensure.append(selection.protocol)
+        if selection.protocol != installed_protocol:
+            flashed.append(selection.protocol)
+            installed_protocol = selection.protocol
+            return DisplayFirmwareResult("updated")
+        return DisplayFirmwareResult("current")
+
+    monkeypatch.setattr(adapters.platform, "ensure_display_firmware", ensure)
+    result = run_display_firmware(deps, adapters.platform)
+    assert result.result == "updated"
+    assert desired_at_ensure == [1, 1]
+    assert flashed == [1]
+    assert adapters.app_unit.start_calls == ["face"]
+    assert adapters.state.read_preempted_app() is None
+
+
+@pytest.mark.parametrize("outcome", ["synced", "busy", "skipped"])
+def test_maintenance_syncs_standard_assets_after_current_v2(
+    prepared: tuple[StartDeps, FakeAdapterBundle], outcome: str
+) -> None:
+    from palmimo_portal.ports import DisplayFirmwareSelection, DisplaySyncPending, DisplaySyncResult
+
+    deps, adapters = prepared
+    adapters.app_unit.statuses.clear()
+    adapters.platform.display_firmware_selection = DisplayFirmwareSelection(2, "initial")
+    pending = DisplaySyncPending(True, "old", None)
+    adapters.state.write_display_sync(pending)
+    adapters.platform.display_sync_result = DisplaySyncResult.from_payload({"result": outcome, "reason": "new"})
+    assert run_display_firmware(deps, adapters.platform).result == "current"
+    assert adapters.platform.sync_display_assets_calls == [None]
+    expected = None if outcome == "synced" else DisplaySyncPending(True, "new", None) if outcome == "busy" else pending
+    assert adapters.state.read_display_sync() == expected
+
+
+def test_restore_discards_unstartable_preempted_app(prepared: tuple[StartDeps, FakeAdapterBundle]) -> None:
+    deps, adapters = prepared
+    adapters.app_unit.statuses.clear()
+    adapters.state.write_preempted_app(PreemptedApp("face", "display-firmware"))
+    (deps.apps_job_ctx.app_dir("face") / ".venv" / "bin" / "python").unlink()
+    adapters.run_dir.written["face"] = {"env": {"KEY": "private-value"}}
+    assert not restore_preempted_app(deps)
+    assert adapters.state.read_preempted_app() is None
+    assert "face" not in adapters.run_dir.written
+
+
+def test_maintenance_restores_despite_failed_display_ensure(prepared: tuple[StartDeps, FakeAdapterBundle]) -> None:
+    deps, adapters = prepared
+    adapters.app_environment.display_firmware_need = "1"
+    adapters.platform.display_firmware_result = DisplayFirmwareResult("failed", reason="unavailable")
+    assert run_display_firmware(deps, adapters.platform).result == "failed"
+    assert adapters.app_unit.start_calls == ["face"]
+    assert adapters.state.read_preempted_app() is None
+
+
+def test_initial_protocol_ignores_running_apps_without_display(prepared: tuple[StartDeps, FakeAdapterBundle]) -> None:
+    from dataclasses import replace
+
+    from palmimo_portal.core.display_firmware import initial_display_protocol
+
+    deps, adapters = prepared
+    path = deps.apps_job_ctx.app_dir("face") / "palmimo.toml"
+    path.write_text('schema=1\nname="face"\ndescription="d"\ncommand=["run"]\n')
+    record = adapters.state.read_apps_state().apps["face"]
+    adapters.state.write_apps_state(
+        AppsState(
+            apps={
+                "face": replace(record, display_firmware="1"),
+                "auto": replace(record, id="auto", autostart=True, display_firmware="2"),
+            }
+        )
+    )
+    assert initial_display_protocol(deps) == 2
+
+
+@pytest.mark.parametrize("stage", ["firmware", "assets"])
+def test_restore_keeps_preempted_app_on_display_busy(prepared: tuple[StartDeps, FakeAdapterBundle], stage: str) -> None:
+    from palmimo_portal.ports import DisplaySyncResult
+
+    deps, adapters = prepared
+    adapters.app_unit.statuses.clear()
+    adapters.app_environment.display_firmware_need = "2"
+    pending = PreemptedApp("face", "display-firmware")
+    adapters.state.write_preempted_app(pending)
+    if stage == "firmware":
+        adapters.platform.display_firmware_result = DisplayFirmwareResult("busy")
+    else:
+        adapters.platform.display_sync_result = DisplaySyncResult("busy", (), (), "display occupied")
+    assert restore_preempted_app(deps)
+    assert adapters.app_unit.start_calls == []
+    assert adapters.state.read_preempted_app() == pending
+
+
+@pytest.mark.parametrize("failure", ["result", "exception"])
+def test_asset_sync_failure_does_not_overwrite_firmware_outcome(
+    prepared: tuple[StartDeps, FakeAdapterBundle], monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    from palmimo_portal.ports import DisplayFirmwareSelection, DisplaySyncResult, PlatformCommandError
+
+    deps, adapters = prepared
+    adapters.app_unit.statuses.clear()
+    adapters.platform.display_firmware_selection = DisplayFirmwareSelection(2, "initial")
+
+    def sync(app_id: str | None) -> DisplaySyncResult:
+        if failure == "exception":
+            raise PlatformCommandError("display_assets", "invalid response")
+        return DisplaySyncResult("failed", (), (), "unavailable")
+
+    monkeypatch.setattr(adapters.platform, "sync_display_assets", sync)
+    assert run_display_firmware(deps, adapters.platform).result == "current"

@@ -1,4 +1,4 @@
-"""Display firmware maintenance and recovery, under apps.lock then run.lock."""
+"""Display maintenance; callers of run_display_firmware must hold apps.lock."""
 
 from __future__ import annotations
 
@@ -6,14 +6,40 @@ import logging
 import socket
 import time
 from dataclasses import replace
+from itertools import chain
 from typing import Literal
 
 from palmimo_portal.core.apps_jobs import read_manifest_for_app
-from palmimo_portal.core.apps_start import RUNNING_ACTIVE_STATES, StartDeps, _start_app_locked
-from palmimo_portal.ports import DisplayFirmwareResult, PlatformPort, PreemptedApp, RunLockTimeoutError
+from palmimo_portal.core.apps_start import (
+    RUNNING_ACTIVE_STATES,
+    AppStartError,
+    StartDeps,
+    _start_app_locked,
+    autostart_apps,
+)
+from palmimo_portal.core.display_sync import record_display_sync
+from palmimo_portal.ports import DisplayFirmwareResult, DisplayProtocol, PlatformPort, PreemptedApp, RunLockTimeoutError
 
 
 logger = logging.getLogger("palmimo_portal")
+
+
+def initial_display_protocol(deps: StartDeps) -> DisplayProtocol:
+    state = deps.state.read_apps_state()
+    preempt = deps.state.read_preempted_app()
+    preempted = [preempt.preempted_app] if preempt is not None and preempt.preempted_app is not None else []
+    running = (
+        name
+        for name, record in state.apps.items()
+        if deps.app_unit.status(name).active_state in RUNNING_ACTIVE_STATES
+        and "motor_display" in read_manifest_for_app(deps.apps_job_ctx, record).devices
+    )
+    candidates = chain(preempted, running, autostart_apps(state)[:1])
+    for name in candidates:
+        record = state.apps.get(name)
+        if record is not None and record.display_firmware in {"1", "2"}:
+            return 1 if record.display_firmware == "1" else 2
+    return 2
 
 
 def _restore_locked(deps: StartDeps) -> Literal["restored", "pending", "discarded"]:
@@ -38,12 +64,20 @@ def _restore_locked(deps: StartDeps) -> Literal["restored", "pending", "discarde
                 time.sleep(0.1)
                 active_state = deps.app_unit.status(name).active_state
         if active_state in {"inactive", "failed"}:
-            _start_app_locked(
-                replace(deps, platform_ready=lambda: True, before_start=lambda devices: None),
-                name,
-                host=socket.gethostname(),
-                origin="restore",
-            )
+            try:
+                _start_app_locked(
+                    replace(deps, platform_ready=lambda: True, before_start=lambda devices: None),
+                    name,
+                    host=socket.gethostname(),
+                    origin="restore",
+                )
+            except AppStartError as error:
+                if error.code in {"app_busy", "app_job_in_progress", "display_busy"}:
+                    return "pending"
+                logger.warning("preempt: discarding unstartable app=%s code=%s", name, error.code)
+                deps.run_dir.remove(name)
+                deps.state.write_preempted_app(None)
+                return "discarded"
         elif active_state not in {"active", "activating"}:
             logger.warning("preempt: app=%s state=%s cannot be restored; retaining record", name, active_state)
             return "pending"
@@ -73,6 +107,9 @@ def run_display_firmware(deps: StartDeps, platform: PlatformPort) -> DisplayFirm
             preempted = False
             hold_record = None
             try:
+                initial = initial_display_protocol(deps)
+                if platform.read_display_firmware_selection() is None:
+                    platform.desire_display_firmware(initial, "initial")
                 preemption = deps.state.read_preempted_app()
                 if preemption is not None and preemption.by == "wifi-setup" and preemption.preempted_app is None:
                     hold_record = preemption
@@ -102,7 +139,20 @@ def run_display_firmware(deps: StartDeps, platform: PlatformPort) -> DisplayFirm
                             return DisplayFirmwareResult(result="busy", reason="app did not stop within 20 seconds")
                         time.sleep(0.1)
                     break
-                return platform.ensure_display_firmware()
+                result = platform.ensure_display_firmware()
+                selection = platform.read_display_firmware_selection()
+                if result.result in {"current", "updated"} and selection is not None and selection.protocol == 2:
+                    try:
+                        if deps.display_sync is not None:
+                            sync = deps.display_sync.sync_locked()
+                        else:
+                            sync = platform.sync_display_assets(None)
+                            record_display_sync(deps.state, platform, sync)
+                        if sync.result == "failed":
+                            logger.warning("display-firmware: asset synchronization failed reason=%s", sync.reason)
+                    except Exception:
+                        logger.exception("display-firmware: asset synchronization failed")
+                return result
             except Exception as error:
                 logger.exception("display-firmware: maintenance failed")
                 return DisplayFirmwareResult(result="failed", reason=str(error))

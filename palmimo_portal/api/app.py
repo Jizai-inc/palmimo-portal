@@ -71,6 +71,7 @@ from palmimo_portal.core.apps_start import (
 from palmimo_portal.core.apps_start_job import StartJobRunner
 from palmimo_portal.core.auth import SESSION_COOKIE_NAME, LoginRateLimiter, ResetRateLimiter, decode_session
 from palmimo_portal.core.display_firmware import restore_preempted_app, run_display_firmware
+from palmimo_portal.core.display_sync import DisplaySyncService
 from palmimo_portal.core.periodic import build_scheduler
 from palmimo_portal.core.platform import (
     PlatformJobRunner,
@@ -735,12 +736,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         adapters.state, app.state.platform_update_runner, run_in_thread=bool(settings.apps_run_in_thread)
     )
 
+    app.state.display_sync = DisplaySyncService(adapters.state, adapters.platform)
     app.state.periodic_scheduler = build_scheduler(
         clock=adapters.clock,
         apps_job_context=app.state.apps_job_context,
         state_store=adapters.state,
         public_catalog_cache=app.state.public_catalog_cache,
         platform_latest_cache=app.state.platform_latest_cache,
+        display_sync=app.state.display_sync.retry_pending,
     )
 
     def _platform_ready() -> bool:
@@ -756,6 +759,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app_unit=adapters.app_unit,
         run_dir=adapters.run_dir,
         platform_ready=_platform_ready,
+        display_sync=app.state.display_sync,
+        trigger_display_sync=lambda: app.state.periodic_scheduler.trigger("display_sync"),
     )
     hostname = socket.gethostname()
     app.state.wifi_setup = WifiSetup(

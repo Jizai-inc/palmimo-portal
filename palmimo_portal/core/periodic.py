@@ -1,17 +1,4 @@
-"""The periodic background scheduler: git update checks, catalog and platform-latest refresh.
-
-Every task here is network work, so every task is gated on
-:meth:`~palmimo_portal.ports.ClockPort.ntp_synchronized` (design doc 3.6): a
-device without an RTC dials TLS to GitHub with a clock that can be years
-off before its first sync, which fails outright. :class:`PeriodicScheduler`
-is driven by :meth:`~palmimo_portal.ports.ClockPort.monotonic` only, never
-wall-clock time -- an NTP sync jumping the wall clock must never make a task
-fire early or late.
-
-``api/app.py`` owns the daemon thread that calls :meth:`PeriodicScheduler.run_forever`;
-tests drive :meth:`PeriodicScheduler.tick` directly instead, with a fake
-clock, so no test ever sleeps for a real interval.
-"""
+"""Periodic tasks use monotonic time; only network work requires NTP synchronization."""
 
 from __future__ import annotations
 
@@ -45,51 +32,58 @@ DEFAULT_POLL_INTERVAL_SECONDS = 5.0
 
 @dataclass(frozen=True)
 class PeriodicTask:
-    """One named unit of periodic network work, run no more often than ``interval_seconds`` apart."""
+    """Network tasks require synchronized time; local tasks can opt out."""
 
     name: str
     interval_seconds: float
     run: Callable[[], None]
+    requires_ntp: bool = True
 
 
 class PeriodicScheduler:
-    """Fires each :class:`PeriodicTask` at its own interval, measured on injected monotonic time.
-
-    A task's first eligible firing is one full interval after the
-    scheduler is constructed, not immediately -- every task here duplicates
-    work a request path already does lazily on demand (``check_git_update``
-    via ``POST .../update/check``, the catalog/platform caches via their
-    own ``GET`` endpoints), so there is nothing useful to gain by racing
-    that on startup, and every test that asserts "not before" gets a
-    simple, uniform rule to check.
-    """
+    """Intervals use monotonic time; triggers coalesce until the next eligible tick."""
 
     def __init__(self, clock: ClockPort, tasks: list[PeriodicTask]) -> None:
         self._clock = clock
         self._tasks = tasks
         start = clock.monotonic()
         self._last_run: dict[str, float] = {task.name: start for task in tasks}
+        self._triggered: set[str] = set()
+        self._running: set[str] = set()
+        self._lock = threading.Lock()
         self._unsynced_streak = False
         self._stop = threading.Event()
 
+    def trigger(self, name: str) -> None:
+        with self._lock:
+            self._triggered.add(name)
+
     def tick(self) -> None:
-        """Run every task whose interval has elapsed, skipping all of them if the clock is unsynchronized."""
         now = self._clock.monotonic()
-        due = [task for task in self._tasks if now - self._last_run[task.name] >= task.interval_seconds]
-        if not due:
-            return
-        if not self._clock.ntp_synchronized():
-            if not self._unsynced_streak:
-                logger.info("catalog: skipped reason=clock_unsynced")
-                self._unsynced_streak = True
-            return
-        self._unsynced_streak = False
-        for task in due:
-            self._last_run[task.name] = now
+        synchronized = self._clock.ntp_synchronized()
+        for task in self._tasks:
+            with self._lock:
+                if task.name in self._running:
+                    continue
+                if task.name not in self._triggered and now - self._last_run[task.name] < task.interval_seconds:
+                    continue
+                if task.requires_ntp and not synchronized:
+                    if not self._unsynced_streak:
+                        logger.info("catalog: skipped reason=clock_unsynced")
+                        self._unsynced_streak = True
+                    continue
+                self._triggered.discard(task.name)
+                self._last_run[task.name] = now
+                self._running.add(task.name)
             try:
                 task.run()
             except Exception:
                 logger.exception("periodic: task %s failed", task.name)
+            finally:
+                with self._lock:
+                    self._running.remove(task.name)
+        if synchronized:
+            self._unsynced_streak = False
 
     def run_forever(self, *, poll_interval_seconds: float = DEFAULT_POLL_INTERVAL_SECONDS) -> None:
         """Call :meth:`tick` every ``poll_interval_seconds`` until :meth:`stop` is called."""
@@ -209,6 +203,7 @@ def build_scheduler(
     state_store: StateStore,
     platform_latest_cache: PlatformLatestCache,
     public_catalog_cache: PublicCatalogCache | None = None,
+    display_sync: Callable[[], None] | None = None,
 ) -> PeriodicScheduler:
     """Build the one scheduler ``api/app.py`` runs for the process's lifetime."""
 
@@ -229,4 +224,6 @@ def build_scheduler(
                 lambda: public_catalog_cache.refresh(ntp_synchronized=True),
             )
         )
+    if display_sync is not None:
+        tasks.append(PeriodicTask("display_sync", 60.0, display_sync, requires_ntp=False))
     return PeriodicScheduler(clock, tasks)

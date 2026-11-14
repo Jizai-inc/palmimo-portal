@@ -11,6 +11,7 @@ from typing import Any, cast
 
 from palmimo_portal.core.apps_jobs import AppsJobContext, read_manifest_for_app
 from palmimo_portal.core.apps_layout import LayoutPaths, resolve_layout
+from palmimo_portal.core.display_sync import DisplaySyncService, record_display_sync
 from palmimo_portal.core.manifest import (
     Manifest,
     ManifestValidationError,
@@ -26,7 +27,6 @@ from palmimo_portal.ports import (
     AppUnitPort,
     DisplayBusyError,
     DisplayFirmwareNeed,
-    DisplaySyncPending,
     InvalidManifestSourceError,
     RunDirPort,
     RunLockTimeoutError,
@@ -153,6 +153,8 @@ class StartDeps:
     now: Callable[[], float] = time.time
     before_start: Callable[[list[str]], None] = lambda devices: None
     wifi_setup_active: Callable[[], bool] = lambda: False
+    display_sync: DisplaySyncService | None = None
+    trigger_display_sync: Callable[[], None] = lambda: None
 
 
 def _layout_for(ctx: AppsJobContext, record: AppRecord) -> LayoutPaths:
@@ -393,25 +395,21 @@ def _display_firmware(deps: StartDeps, plan: _StartPlan) -> tuple[bool, str | No
     return False, None
 
 
-def _record_display_sync(deps: StartDeps, pending: DisplaySyncPending | None) -> None:
-    try:
-        deps.state.write_display_sync(pending)
-    except OSError:
-        logger.warning("app display sync record could not be written")
-
-
 def _sync_display_assets(deps: StartDeps, plan: _StartPlan) -> None:
     platform = deps.apps_job_ctx.platform
     try:
         if platform is None:
             raise RuntimeError("display platform is unavailable")
-        result = platform.sync_display_assets(plan.record.id)
+        result = (
+            deps.display_sync.sync_locked(plan.record.id)
+            if deps.display_sync is not None
+            else platform.sync_display_assets(plan.record.id)
+        )
+        if deps.display_sync is None:
+            record_display_sync(deps.state, platform, result)
     except Exception as error:
         raise DisplaySyncStartError(str(error)) from error
-    if result.result == "synced":
-        _record_display_sync(deps, None)
-    elif result.result == "busy":
-        _record_display_sync(deps, DisplaySyncPending(True, result.reason, platform.read_boot_id()))
+    if result.result == "busy":
         raise DisplayBusyStartError(result.reason)
     elif result.result == "failed":
         raise DisplaySyncStartError(result.reason)
@@ -498,6 +496,9 @@ def stop_app(deps: StartDeps, name: str) -> None:
         _stop_app_locked(deps, name)
     finally:
         lock_cm.__exit__(None, None, None)
+    pending = deps.state.read_display_sync()
+    if pending is not None and pending.pending:
+        deps.trigger_display_sync()
 
 
 def _stop_app_locked(deps: StartDeps, name: str) -> None:

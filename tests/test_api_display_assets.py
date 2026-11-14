@@ -14,6 +14,7 @@ from palmimo_portal.ports import (
     DisplayAssetConversion,
     DisplayAssetMessage,
     DisplayAssetsStatus,
+    DisplayFirmwareSelection,
     DisplaySyncPending,
     DisplaySyncResult,
     DisplayToolError,
@@ -31,12 +32,18 @@ STANDARD = StandardAssetStatus("happy", 4096, "vector", ("color",), False, 4096,
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
+    platform_dir = tmp_path / "platform"
+    current = platform_dir / "current"
+    current.mkdir(parents=True)
+    (current / "install.sh").write_text("#!/bin/sh\n", encoding="utf-8")
     return Settings(
         allowed_hosts=frozenset({"testserver"}),
         state_dir=tmp_path / "state",
         static_dir=tmp_path / "static",
+        platform_dir=platform_dir,
         periodic_enabled=False,
         start_run_in_thread=False,
+        startup_run_in_thread=False,
     )
 
 
@@ -47,6 +54,7 @@ def app(settings: Settings) -> FastAPI:
 
 @pytest.fixture
 def client(app: FastAPI, adapters: FakeAdapterBundle) -> Iterator[TestClient]:
+    adapters.platform.display_firmware_selection = DisplayFirmwareSelection(2, "initial")
     with TestClient(app) as client:
         client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=HEADERS)
         adapters.saved_networks.save("home", "", first=False)
@@ -441,4 +449,32 @@ def test_preview_rejects_multiple_files_before_conversion(client: TestClient, ad
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "display_asset_invalid"
+    assert adapters.asset_converter.convert_calls == []
+
+
+@pytest.mark.parametrize("operation", ["list", "preview", "put", "delete", "sync"])
+@pytest.mark.parametrize("version", [None, 10])
+def test_asset_operations_require_ready_platform_before_calling_tools(
+    client: TestClient, adapters: FakeAdapterBundle, operation: str, version: int | None
+) -> None:
+    assert adapters.platform.installed is not None
+    adapters.platform.installed = replace(adapters.platform.installed, version=version) if version is not None else None
+    adapters.platform.display_error = PlatformCommandError("display_assets", "unsupported command")
+    path = f"{BASE}/standard/happy"
+    if operation == "list":
+        response = client.get(f"{BASE}/standard")
+    elif operation == "preview":
+        response = client.post(f"{path}/preview", files={"file": ("face.gif", b"source")}, headers=HEADERS)
+    elif operation == "put":
+        response = client.put(path, json={"token": "unused"}, headers=HEADERS)
+    elif operation == "delete":
+        response = client.delete(path, headers=HEADERS)
+    else:
+        response = client.post(f"{BASE}/sync", headers=HEADERS)
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "platform_not_ready"
+    assert adapters.platform.display_assets_status_calls == 0
+    assert adapters.platform.override_display_asset_calls == []
+    assert adapters.platform.sync_display_assets_calls == []
     assert adapters.asset_converter.convert_calls == []

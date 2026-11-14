@@ -32,10 +32,22 @@ from palmimo_portal.ports import (
 
 
 logger = logging.getLogger("palmimo_portal")
+
+
+def require_platform_ready(request: Request) -> None:
+    if not request.app.state.start_deps.platform_ready():
+        raise PortalError(409, "platform_not_ready")
+
+
 router = APIRouter(
     prefix="/api/v1/display-assets",
     tags=["display-assets"],
-    dependencies=[Depends(require_provisioned), Depends(require_auth), Depends(require_full_session)],
+    dependencies=[
+        Depends(require_provisioned),
+        Depends(require_auth),
+        Depends(require_full_session),
+        Depends(require_platform_ready),
+    ],
 )
 MAX_UPLOAD_BYTES = 16 * 1024 * 1024
 

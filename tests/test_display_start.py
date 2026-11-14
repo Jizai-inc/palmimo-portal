@@ -420,3 +420,111 @@ def test_resume_of_running_unit_finishes_without_display_or_launch(
     assert APP_ID not in adapters.run_dir.written
     assert adapters.state.read_display_sync() == pending
     assert adapters.state.read_apps_state().current_job is None
+
+
+@pytest.mark.parametrize("origin", ["api", "autostart", "resume", "restore"])
+def test_start_metadata_write_failure_does_not_prevent_launch(
+    env: tuple[StartDeps, FakeAdapterBundle],
+    monkeypatch: pytest.MonkeyPatch,
+    origin: Literal["api", "autostart", "resume", "restore"],
+) -> None:
+    deps, adapters = env
+
+    def unavailable(fn: Callable[[AppsState], AppsState]) -> AppsState:
+        raise OSError("ledger write temporarily unavailable")
+
+    monkeypatch.setattr(adapters.state, "update_apps_state", unavailable)
+    start_app(deps, APP_ID, host="robot", origin=origin)
+    assert adapters.app_unit.start_calls == [APP_ID]
+    assert adapters.platform.display_firmware_calls == 1
+    assert adapters.platform.sync_display_assets_calls == [APP_ID]
+    assert adapters.state.read_apps_state().apps[APP_ID].display_firmware is None
+
+
+@pytest.mark.parametrize("origin", ["api", "autostart", "resume", "restore"])
+@pytest.mark.parametrize("outcome", ["synced", "busy"])
+def test_start_sync_record_write_failure_preserves_sync_outcome(
+    env: tuple[StartDeps, FakeAdapterBundle],
+    monkeypatch: pytest.MonkeyPatch,
+    origin: Literal["api", "autostart", "resume", "restore"],
+    outcome: Literal["synced", "busy"],
+) -> None:
+    deps, adapters = env
+    pending = DisplaySyncPending(True, "old", "old-boot")
+    adapters.state.write_display_sync(pending)
+    adapters.platform.display_sync_result = DisplaySyncResult(outcome, (), (), "app owns display")
+
+    def unavailable(pending: DisplaySyncPending | None) -> None:
+        raise OSError("pending state unavailable")
+
+    monkeypatch.setattr(adapters.state, "write_display_sync", unavailable)
+    if outcome == "busy":
+        with pytest.raises(AppStartError) as caught:
+            start_app(deps, APP_ID, host="robot", origin=origin)
+        assert caught.value.code == "display_busy"
+        assert caught.value.params["reason"] == "app owns display"
+        assert not adapters.app_unit.start_calls
+    else:
+        start_app(deps, APP_ID, host="robot", origin=origin)
+        assert adapters.app_unit.start_calls == [APP_ID]
+    assert adapters.state.read_display_sync() == pending
+
+
+@pytest.mark.parametrize("failure", ["metadata", "synced", "busy"])
+def test_wifi_restore_record_write_failure_does_not_discard_retry_or_block_launch(
+    env: tuple[StartDeps, FakeAdapterBundle], monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    from palmimo_portal.core.wifi_setup import WifiSetupApps
+    from palmimo_portal.ports import PreemptedApp
+
+    deps, adapters = env
+    preempted = PreemptedApp(APP_ID, "wifi-setup")
+    adapters.state.write_preempted_app(preempted)
+    if failure == "metadata":
+
+        def update_unavailable(fn: Callable[[AppsState], AppsState]) -> AppsState:
+            raise OSError("ledger write temporarily unavailable")
+
+        monkeypatch.setattr(adapters.state, "update_apps_state", update_unavailable)
+    else:
+
+        def pending_unavailable(pending: DisplaySyncPending | None) -> None:
+            raise OSError("pending state unavailable")
+
+        monkeypatch.setattr(adapters.state, "write_display_sync", pending_unavailable)
+        adapters.platform.display_sync_result = DisplaySyncResult.from_payload({"result": failure})
+    restored = WifiSetupApps(deps, hostname="robot").restore(hold=False)
+    assert restored == (failure != "busy")
+    assert adapters.state.read_preempted_app() == (preempted if failure == "busy" else None)
+    assert adapters.app_unit.start_calls == ([] if failure == "busy" else [APP_ID])
+
+
+@pytest.mark.parametrize("failure", ["metadata", "pending"])
+def test_start_job_record_write_failure_still_records_done(
+    env: tuple[StartDeps, FakeAdapterBundle], monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    from palmimo_portal.core.apps_start_job import StartJobRunner
+
+    deps, adapters = env
+    original = adapters.state.update_apps_state
+    if failure == "metadata":
+
+        def update(fn: Callable[[AppsState], AppsState]) -> AppsState:
+            before = adapters.state.read_apps_state()
+            after = fn(before)
+            if after.apps[APP_ID].display_firmware != before.apps[APP_ID].display_firmware:
+                raise OSError("ledger write temporarily unavailable")
+            return original(lambda previous: after)
+
+        monkeypatch.setattr(adapters.state, "update_apps_state", update)
+    else:
+
+        def unavailable(pending: DisplaySyncPending | None) -> None:
+            raise OSError("pending state unavailable")
+
+        monkeypatch.setattr(adapters.state, "write_display_sync", unavailable)
+    job = StartJobRunner(deps, run_in_thread=False).start(APP_ID, host="robot", origin="api")
+    state = adapters.state.read_apps_state()
+    assert job.state == "done" and job.warning is None
+    assert state.current_job is None and state.apps[APP_ID].last_job == job
+    assert adapters.app_unit.start_calls == [APP_ID]

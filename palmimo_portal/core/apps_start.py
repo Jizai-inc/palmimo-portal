@@ -393,6 +393,13 @@ def _display_firmware(deps: StartDeps, plan: _StartPlan) -> tuple[bool, str | No
     return False, None
 
 
+def _record_display_sync(deps: StartDeps, pending: DisplaySyncPending | None) -> None:
+    try:
+        deps.state.write_display_sync(pending)
+    except OSError:
+        logger.warning("app display sync record could not be written")
+
+
 def _sync_display_assets(deps: StartDeps, plan: _StartPlan) -> None:
     platform = deps.apps_job_ctx.platform
     try:
@@ -402,9 +409,9 @@ def _sync_display_assets(deps: StartDeps, plan: _StartPlan) -> None:
     except Exception as error:
         raise DisplaySyncStartError(str(error)) from error
     if result.result == "synced":
-        deps.state.write_display_sync(None)
+        _record_display_sync(deps, None)
     elif result.result == "busy":
-        deps.state.write_display_sync(DisplaySyncPending(True, result.reason, platform.read_boot_id()))
+        _record_display_sync(deps, DisplaySyncPending(True, result.reason, platform.read_boot_id()))
         raise DisplayBusyStartError(result.reason)
     elif result.result == "failed":
         raise DisplaySyncStartError(result.reason)
@@ -418,11 +425,14 @@ def _continue_start_locked(
         on_step("launch")
         return None
     if plan.record.display_firmware != plan.need:
-        deps.state.update_apps_state(
-            lambda state: replace(
-                state, apps={**state.apps, name: replace(state.apps[name], display_firmware=plan.need)}
+        try:
+            deps.state.update_apps_state(
+                lambda state: replace(
+                    state, apps={**state.apps, name: replace(state.apps[name], display_firmware=plan.need)}
+                )
             )
-        )
+        except OSError:
+            logger.warning("app display firmware record could not be written app=%s", name)
     warning = None
     skip_assets = False
     try:

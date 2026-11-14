@@ -71,7 +71,12 @@ from palmimo_portal.core.apps_start import (
 )
 from palmimo_portal.core.apps_start_job import StartJobRunner
 from palmimo_portal.core.auth import SESSION_COOKIE_NAME, LoginRateLimiter, ResetRateLimiter, decode_session
-from palmimo_portal.core.display_firmware import initial_display_protocol, restore_preempted_app, run_display_firmware
+from palmimo_portal.core.display_firmware import (
+    initial_display_protocol,
+    restore_preempted_app,
+    retry_preempted_app,
+    run_display_firmware,
+)
 from palmimo_portal.core.display_sync import DisplaySyncService
 from palmimo_portal.core.periodic import build_scheduler
 from palmimo_portal.core.platform import (
@@ -102,6 +107,7 @@ from palmimo_portal.ports import (
     DisplayFirmwareNeed,
     Identity,
     IdentityStore,
+    InvalidManifestSourceError,
     NetworkPort,
     PolkitDeniedError,
     StateStore,
@@ -465,6 +471,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     done/failed decision. A no-op, safe unconditionally, on every other boot.
     """
     adapters: AdapterBundle = app.state.adapters
+    app.state.startup_recovery_complete.clear()
     await anyio.to_thread.run_sync(app.state.wifi_setup.startup)
     try:
         state = adapters.state.read_update_state()
@@ -553,7 +560,10 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     def start_watcher() -> None:
         nonlocal wifi_setup_thread
         with watcher_lock:
-            if setup_enabled and not startup_stop.is_set():
+            if startup_stop.is_set():
+                return
+            app.state.startup_recovery_complete.set()
+            if setup_enabled:
                 wifi_setup_thread = threading.Thread(
                     target=app.state.wifi_setup.run_forever, daemon=True, name="palmimo-wifi-setup"
                 )
@@ -574,6 +584,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     finally:
         with watcher_lock:
             startup_stop.set()
+            app.state.startup_recovery_complete.clear()
         try:
             try:
                 await anyio.to_thread.run_sync(app.state.wifi_setup.shutdown)
@@ -638,6 +649,8 @@ def _backfill_display_requirements(app: FastAPI) -> None:
             deps.state.update_apps_state(update)
         except OSError:
             logger.warning("apps: display requirement backfill could not be saved app=%s", name)
+        except InvalidManifestSourceError:
+            logger.warning("apps: display requirement backfill has invalid source app=%s", name)
         except Exception:
             logger.exception("apps: display requirement backfill failed app=%s", name)
 
@@ -663,47 +676,57 @@ def _startup_sequence(
                     changed = adapters.platform.desire_display_firmware(initial, "initial").changed
         except Exception:
             logger.exception("startup: initial display selection failed")
+    if stopped.is_set():
+        return
+    try:
+        record = adapters.state.read_preempted_app()
+        if record is not None and record.by == "display-firmware":
+            skip_autostart = True
+            skip_autostart = restore_preempted_app(deps)
+        elif record is not None and record.by == "wifi-setup":
+            skip_autostart = record.preempted_app is not None
+            app.state.wifi_setup.recover_startup(enabled=setup_enabled)
+    except Exception:
+        logger.exception("preempt: startup recovery failed")
+    if not stopped.is_set():
+        if resume is not None and not skip_autostart:
+            skip_autostart = True
+            try:
+                job = app.state.start_job_runner.start(resume, host=socket.gethostname(), origin="resume")
+                scheduled_display = job.state == "running" and job.step == "firmware"
+            except Exception:
+                logger.exception("startup: app resume failed")
+        elif resume is not None:
+            logger.info("startup: resume suppressed by preempt recovery app=%s", resume)
+        if app.state.settings.autostart_enabled and not skip_autostart:
+            try:
+                job = _run_autostart(app)
+                scheduled_display = job is not None and job.state == "running" and job.step == "firmware"
+            except Exception:
+                logger.exception("autostart: startup autostart failed")
+    if scheduled_display:
+        logger.info("startup: display maintenance delegated to app start")
+    if (
+        ready
+        and changed
+        and not stopped.is_set()
+        and not scheduled_display
+        and not app.state.startup_display_ensure.is_set()
+    ):
+        while app.state.start_job_runner.is_alive() and not stopped.wait(0.05):
+            pass
         if stopped.is_set():
             return
-        try:
-            record = adapters.state.read_preempted_app()
-            if record is not None and record.by == "display-firmware":
-                skip_autostart = True
-                skip_autostart = restore_preempted_app(deps)
-            elif record is not None and record.by == "wifi-setup":
-                skip_autostart = record.preempted_app is not None
-                app.state.wifi_setup.recover_startup(enabled=setup_enabled)
-        except Exception:
-            logger.exception("preempt: startup recovery failed")
-        if not stopped.is_set():
-            if resume is not None and not skip_autostart:
-                skip_autostart = True
-                try:
-                    job = app.state.start_job_runner.start(resume, host=socket.gethostname(), origin="resume")
-                    scheduled_display = job.state == "running" and job.step == "firmware"
-                except Exception:
-                    logger.exception("startup: app resume failed")
-            if app.state.settings.autostart_enabled and not skip_autostart:
-                try:
-                    job = _run_autostart(app)
-                    scheduled_display = job is not None and job.state == "running" and job.step == "firmware"
-                except Exception:
-                    logger.exception("autostart: startup autostart failed")
-        if changed and not stopped.is_set() and not scheduled_display and not app.state.startup_display_ensure.is_set():
-            while app.state.start_job_runner.is_alive() and not stopped.wait(0.05):
-                pass
-            if stopped.is_set():
-                return
-            if not app.state.startup_display_ensure.is_set():
-                try:
-                    with deps.state.lock_apps():
-                        result = run_display_firmware(deps, adapters.platform)
-                    if result.result not in {"current", "updated"}:
-                        logger.warning(
-                            "startup: initial display maintenance result=%s reason=%s", result.result, result.reason
-                        )
-                except Exception:
-                    logger.exception("startup: initial display maintenance failed")
+        if not app.state.startup_display_ensure.is_set():
+            try:
+                with deps.state.lock_apps():
+                    result = run_display_firmware(deps, adapters.platform)
+                if result.result not in {"current", "updated"}:
+                    logger.warning(
+                        "startup: initial display maintenance result=%s reason=%s", result.result, result.reason
+                    )
+            except Exception:
+                logger.exception("startup: initial display maintenance failed")
     try:
         start_watcher()
     except Exception:
@@ -835,6 +858,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         adapters.state, app.state.platform_update_runner, run_in_thread=bool(settings.apps_run_in_thread)
     )
 
+    app.state.startup_recovery_complete = threading.Event()
     app.state.display_sync = DisplaySyncService(adapters.state, adapters.platform)
     app.state.periodic_scheduler = build_scheduler(
         clock=adapters.clock,
@@ -843,6 +867,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         public_catalog_cache=app.state.public_catalog_cache,
         platform_latest_cache=app.state.platform_latest_cache,
         display_sync=app.state.display_sync.retry_pending,
+        display_recovery=lambda: (
+            retry_preempted_app(app.state.start_deps) if app.state.startup_recovery_complete.is_set() else None
+        ),
     )
 
     def _platform_ready() -> bool:

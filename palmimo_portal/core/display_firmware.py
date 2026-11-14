@@ -18,7 +18,14 @@ from palmimo_portal.core.apps_start import (
     autostart_apps,
 )
 from palmimo_portal.core.display_sync import record_display_sync
-from palmimo_portal.ports import DisplayFirmwareResult, DisplayProtocol, PlatformPort, PreemptedApp, RunLockTimeoutError
+from palmimo_portal.ports import (
+    AppsLockTimeoutError,
+    DisplayFirmwareResult,
+    DisplayProtocol,
+    PlatformPort,
+    PreemptedApp,
+    RunLockTimeoutError,
+)
 
 
 logger = logging.getLogger("palmimo_portal")
@@ -42,7 +49,7 @@ def initial_display_protocol(deps: StartDeps) -> DisplayProtocol:
     return 2
 
 
-def _restore_locked(deps: StartDeps) -> Literal["restored", "pending", "discarded"]:
+def _restore_locked(deps: StartDeps, *, stop_wait_s: float = 20) -> Literal["restored", "pending", "discarded"]:
     record = deps.state.read_preempted_app()
     if record is None:
         return "discarded"
@@ -56,7 +63,7 @@ def _restore_locked(deps: StartDeps) -> Literal["restored", "pending", "discarde
             return "discarded"
         active_state = deps.app_unit.status(name).active_state
         if active_state == "deactivating":
-            deadline = time.monotonic() + 20
+            deadline = time.monotonic() + stop_wait_s
             while active_state == "deactivating":
                 if time.monotonic() >= deadline:
                     logger.warning("preempt: app=%s is still stopping; retaining record", name)
@@ -73,6 +80,7 @@ def _restore_locked(deps: StartDeps) -> Literal["restored", "pending", "discarde
                 )
             except AppStartError as error:
                 if error.code in {"app_busy", "app_job_in_progress", "display_busy"}:
+                    logger.warning("preempt: restore deferred app=%s code=%s", name, error.code)
                     return "pending"
                 logger.warning("preempt: discarding unstartable app=%s code=%s", name, error.code)
                 deps.run_dir.remove(name)
@@ -86,17 +94,27 @@ def _restore_locked(deps: StartDeps) -> Literal["restored", "pending", "discarde
     return "restored"
 
 
-def restore_preempted_app(deps: StartDeps) -> bool:
+def restore_preempted_app(deps: StartDeps, *, run_lock_timeout_s: float = 3, stop_wait_s: float = 20) -> bool:
     """Return True to suppress autostart after recovering or retaining an installed app."""
-    with deps.state.lock_apps(), deps.state.lock_run(timeout_s=3):
+    with deps.state.lock_apps(), deps.state.lock_run(timeout_s=run_lock_timeout_s):
         record = deps.state.read_preempted_app()
         if record is None or record.by != "display-firmware":
             return False
         try:
-            return _restore_locked(deps) != "discarded"
+            return _restore_locked(deps, stop_wait_s=stop_wait_s) != "discarded"
         except Exception:
             logger.exception("preempt: could not restore app; retaining record")
             return True
+
+
+def retry_preempted_app(deps: StartDeps) -> None:
+    record = deps.state.read_preempted_app()
+    if record is None or record.by != "display-firmware":
+        return
+    try:
+        restore_preempted_app(deps, run_lock_timeout_s=0, stop_wait_s=0)
+    except (AppsLockTimeoutError, RunLockTimeoutError):
+        return
 
 
 def run_display_firmware(deps: StartDeps, platform: PlatformPort) -> DisplayFirmwareResult:

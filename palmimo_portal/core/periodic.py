@@ -204,6 +204,7 @@ def build_scheduler(
     platform_latest_cache: PlatformLatestCache,
     public_catalog_cache: PublicCatalogCache | None = None,
     display_sync: Callable[[], None] | None = None,
+    display_recovery: Callable[[], None] | None = None,
 ) -> PeriodicScheduler:
     """Build the one scheduler ``api/app.py`` runs for the process's lifetime."""
 
@@ -226,4 +227,8 @@ def build_scheduler(
         )
     if display_sync is not None:
         tasks.append(PeriodicTask("display_sync", 60.0, display_sync, requires_ntp=False))
+    if display_recovery is not None:
+        tasks.append(
+            PeriodicTask("display_recovery", DEFAULT_POLL_INTERVAL_SECONDS, display_recovery, requires_ntp=False)
+        )
     return PeriodicScheduler(clock, tasks)

@@ -108,7 +108,7 @@ def test_startup_falls_back_to_maintenance_when_autostart_precheck_fails(startup
         assert adapters.platform.desire_display_firmware_calls == [(1, "initial")]
 
 
-def test_startup_serves_http_while_display_ensure_is_blocked(
+def test_startup_serves_http_during_ensure_and_keeps_monitor_stopped_after_shutdown(
     startup_app: FastAPI, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     install(startup_app, "auto", auto=True)
@@ -137,6 +137,8 @@ def test_startup_serves_http_while_display_ensure_is_blocked(
         startup_app.state.startup_thread.join(3)
     assert not startup_app.state.startup_thread.is_alive()
     assert not monitor_started.is_set()
+    last_job = adapters.state.read_apps_state().apps["auto"].last_job
+    assert last_job is not None and last_job.state == "done"
 
 
 def test_wifi_monitor_starts_after_preempted_app_recovery(
@@ -231,3 +233,154 @@ def test_initial_maintenance_waits_for_non_display_autostart_to_release_locks(
     finally:
         release.set()
         startup_app.state.startup_thread.join(3)
+
+
+@pytest.mark.parametrize("by", ["display-firmware", "wifi-setup"])
+@pytest.mark.parametrize("tool_unavailable", [False, True])
+def test_startup_recovers_preempted_app_when_platform_not_ready(
+    startup_app: FastAPI, by: str, tool_unavailable: bool
+) -> None:
+    from palmimo_portal.ports import PlatformCommandError
+
+    install(startup_app, "face")
+    adapters: FakeAdapterBundle = startup_app.state.adapters
+    adapters.platform.installed = None
+    if tool_unavailable:
+        adapters.platform.display_error = PlatformCommandError("display_firmware", "tool unavailable")
+    adapters.state.write_preempted_app(PreemptedApp("face", by))
+    with TestClient(startup_app):
+        assert adapters.app_unit.start_calls == ["face"]
+        assert adapters.state.read_preempted_app() is None
+        assert all(owner != "initial" for _, owner in adapters.platform.desire_display_firmware_calls)
+
+
+def test_startup_clears_wifi_hold_when_platform_not_ready(startup_app: FastAPI) -> None:
+    adapters: FakeAdapterBundle = startup_app.state.adapters
+    adapters.platform.installed = None
+    adapters.state.write_preempted_app(PreemptedApp(None, "wifi-setup", hold=True))
+    with TestClient(startup_app):
+        assert adapters.state.read_preempted_app() is None
+        assert adapters.platform.desire_display_firmware_calls == []
+        assert adapters.platform.display_firmware_calls == 0
+
+
+@pytest.mark.parametrize("busy_stage", ["firmware", "assets"])
+def test_periodic_recovery_retries_busy_preempt_without_ntp(startup_app: FastAPI, busy_stage: str) -> None:
+    from palmimo_portal.ports import DisplayFirmwareSelection, DisplaySyncResult
+
+    install(startup_app, "face")
+    adapters: FakeAdapterBundle = startup_app.state.adapters
+    adapters.clock.synchronized = False
+    adapters.platform.display_firmware_selection = DisplayFirmwareSelection(2, "initial")
+    pending = PreemptedApp("face", "display-firmware")
+    adapters.state.write_preempted_app(pending)
+    if busy_stage == "firmware":
+        adapters.platform.display_firmware_result = DisplayFirmwareResult("busy")
+    else:
+        adapters.platform.display_sync_result = DisplaySyncResult("busy", (), (), "in use")
+    with TestClient(startup_app):
+        assert adapters.app_unit.start_calls == []
+        assert adapters.state.read_preempted_app() == pending
+        adapters.platform.display_firmware_result = DisplayFirmwareResult("current")
+        adapters.platform.display_sync_result = DisplaySyncResult("synced", (), (), None)
+        adapters.clock.monotonic_value += 5
+        startup_app.state.periodic_scheduler.tick()
+        assert adapters.app_unit.start_calls == ["face"]
+        assert adapters.state.read_preempted_app() is None
+        adapters.clock.monotonic_value += 5
+        startup_app.state.periodic_scheduler.tick()
+        assert adapters.app_unit.start_calls == ["face"]
+
+
+@pytest.mark.parametrize("held_lock", ["apps", "run"])
+def test_periodic_recovery_skips_contended_locks_and_resumes_after_release(
+    startup_app: FastAPI, monkeypatch: pytest.MonkeyPatch, held_lock: str
+) -> None:
+    from contextlib import AbstractContextManager
+
+    install(startup_app, "face")
+    adapters: FakeAdapterBundle = startup_app.state.adapters
+    with TestClient(startup_app):
+        adapters.state.write_preempted_app(PreemptedApp("face", "display-firmware"))
+        run_lock = adapters.state.lock_run
+        budgets: list[float] = []
+
+        def observed_run_lock(timeout_s: float = 0) -> AbstractContextManager[None]:
+            budgets.append(timeout_s)
+            return run_lock(timeout_s=0)
+
+        monkeypatch.setattr(adapters.state, "lock_run", observed_run_lock)
+        with adapters.state.lock_apps() if held_lock == "apps" else run_lock():
+            adapters.clock.monotonic_value += 5
+            startup_app.state.periodic_scheduler.tick()
+            assert adapters.app_unit.start_calls == []
+            assert adapters.state.read_preempted_app() is not None
+            assert budgets == ([] if held_lock == "apps" else [0])
+        adapters.clock.monotonic_value += 5
+        startup_app.state.periodic_scheduler.tick()
+        assert adapters.app_unit.start_calls == ["face"]
+        assert adapters.state.read_preempted_app() is None
+        assert all(budget == 0 for budget in budgets)
+
+
+def test_periodic_recovery_cannot_consume_startup_preempt_before_autostart_decision(
+    startup_app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from palmimo_portal.api import app as app_module
+    from palmimo_portal.ports import DisplayFirmwareSelection, UnitStatus
+
+    install(startup_app, "face")
+    install(startup_app, "auto", auto=True)
+    adapters: FakeAdapterBundle = startup_app.state.adapters
+    adapters.platform.display_firmware_selection = DisplayFirmwareSelection(2, "initial")
+    adapters.state.write_preempted_app(PreemptedApp("face", "display-firmware"))
+    original_restore = app_module.restore_preempted_app
+    original_start = adapters.app_unit.start
+
+    def start(name: str) -> None:
+        original_start(name)
+        if name == "face":
+            adapters.app_unit.statuses[name] = UnitStatus("inactive", "dead", "success", 0)
+
+    def restore(deps: object) -> bool:
+        adapters.clock.monotonic_value += 5
+        startup_app.state.periodic_scheduler.tick()
+        return original_restore(startup_app.state.start_deps)
+
+    monkeypatch.setattr(adapters.app_unit, "start", start)
+    monkeypatch.setattr(app_module, "restore_preempted_app", restore)
+    with TestClient(startup_app):
+        assert adapters.app_unit.start_calls == ["face"]
+        assert adapters.state.read_preempted_app() is None
+
+
+def test_periodic_recovery_defers_stopping_unit_without_waiting(
+    startup_app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+
+    from palmimo_portal.core import display_firmware
+    from palmimo_portal.ports import UnitStatus
+
+    install(startup_app, "face")
+    adapters: FakeAdapterBundle = startup_app.state.adapters
+    waits: list[float] = []
+
+    def sleep(seconds: float) -> None:
+        waits.append(seconds)
+        adapters.clock.monotonic_value += seconds
+
+    with TestClient(startup_app):
+        adapters.state.write_preempted_app(PreemptedApp("face", "display-firmware"))
+        adapters.app_unit.statuses["face"] = UnitStatus("deactivating", "stop", "success", 0)
+        monkeypatch.setattr(display_firmware, "time", SimpleNamespace(monotonic=adapters.clock.monotonic, sleep=sleep))
+        adapters.clock.monotonic_value += 5
+        startup_app.state.periodic_scheduler.tick()
+        assert waits == []
+        assert adapters.state.read_preempted_app() is not None
+        assert adapters.app_unit.start_calls == []
+        adapters.app_unit.statuses["face"] = UnitStatus("inactive", "dead", "success", 0)
+        adapters.clock.monotonic_value += 5
+        startup_app.state.periodic_scheduler.tick()
+        assert adapters.app_unit.start_calls == ["face"]
+        assert adapters.state.read_preempted_app() is None

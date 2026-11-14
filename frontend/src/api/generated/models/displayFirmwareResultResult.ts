@@ -13,6 +13,7 @@ export const DisplayFirmwareResultResult = {
   current: 'current',
   absent: 'absent',
   undeclared: 'undeclared',
+  undesired: 'undesired',
   skipped: 'skipped',
   busy: 'busy',
   failed: 'failed',

@@ -68,6 +68,7 @@ from palmimo_portal.core.apps_start import (
     reconcile_run_dirs,
     start_app,
 )
+from palmimo_portal.core.apps_start_job import StartJobRunner
 from palmimo_portal.core.auth import SESSION_COOKIE_NAME, LoginRateLimiter, ResetRateLimiter, decode_session
 from palmimo_portal.core.display_firmware import restore_preempted_app, run_display_firmware
 from palmimo_portal.core.periodic import build_scheduler
@@ -772,6 +773,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         before_start=app.state.wifi_setup.before_app_start,
         wifi_setup_active=lambda: app.state.wifi_setup.status().mode in {"starting", "active", "stopping"},
     )
+
+    app.state.start_job_runner = StartJobRunner(app.state.start_deps, run_in_thread=settings.start_run_in_thread)
 
     # Order matters: the last middleware added is the outermost, so adding
     # CSRF then Session then HostGuard makes requests hit HostGuard first.

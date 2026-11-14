@@ -364,6 +364,17 @@
               }
             ],
             "title": "Step"
+          },
+          "warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warning"
           }
         },
         "required": [
@@ -981,6 +992,7 @@
               "current",
               "absent",
               "undeclared",
+              "undesired",
               "skipped",
               "busy",
               "failed",
@@ -1015,6 +1027,7 @@
               "current",
               "absent",
               "undeclared",
+              "undesired",
               "skipped",
               "busy",
               "failed",
@@ -2320,20 +2333,6 @@
         "title": "SsidRequest",
         "type": "object"
       },
-      "StartResponse": {
-        "properties": {
-          "status": {
-            "const": "activating",
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "title": "StartResponse",
-        "type": "object"
-      },
       "StatusResponse": {
         "properties": {
           "status": {
@@ -3592,7 +3591,7 @@
     },
     "/api/v1/apps/{name}/start": {
       "post": {
-        "description": "Run the design doc 3.5 prechecks and start ``name``, changing nothing on any failure.\n\nRaises:\n    PortalError: 404 ``app_not_found``; 409 for every precheck refusal\n        (``app_busy``, ``display_recovery_pending``, ``app_running``, ``manifest_invalid``,\n        ``env_unbound``, ``params_missing``, ``params_invalid``,\n        ``venv_missing``, ``platform_not_ready``); 503 ``polkit_denied``\n        if systemd itself refuses the ``set-property``/``start`` verb;\n        500 ``start_failed`` (with a ``journal_tail``) for any other\n        error the unit start itself raises.",
+        "description": "Accept a start job after synchronous prechecks and display release.\n\nPrecheck refusals return 404 or 409. Failures after acceptance are recorded on the job.",
         "operationId": "start_app_endpoint_api_v1_apps__name__start_post",
         "parameters": [
           {
@@ -3610,7 +3609,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StartResponse"
+                  "$ref": "#/components/schemas/AppJobAcceptedResponse"
                 }
               }
             },

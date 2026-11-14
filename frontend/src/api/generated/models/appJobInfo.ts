@@ -18,4 +18,5 @@ export interface AppJobInfo {
   started_at: number | null;
   state: string;
   step: string | null;
+  warning?: string | null;
 }

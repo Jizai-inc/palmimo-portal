@@ -839,7 +839,7 @@ class StreamClient:
                 with suppress(Exception):
                     self.port.close()
                 if attempt:
-                    if isinstance(error, DeviceUnavailableError):
+                    if isinstance(error, (DeviceUnavailableError, ReservationUnavailableError)):
                         raise
                     raise DisplayProtocolError("Display stream failed") from error
                 log_failure("Display stream retrying after reconnect", error)

@@ -930,16 +930,17 @@ def test_v2_display_reports_communication_failure_after_two_failed_transfers(mod
     assert first.closed and second.closed
 
 
-def test_stream_reports_unavailable_when_reconnect_cannot_open_port(module: Any) -> None:
+@pytest.mark.parametrize("error_type", ["DeviceUnavailableError", "ReservationUnavailableError"])
+def test_stream_preserves_failure_when_reconnect_cannot_open_port(module: Any, error_type: str) -> None:
     serial = StreamSerial(Clock())
 
     def unavailable() -> Any:
-        raise module.DeviceUnavailableError("Face display unavailable")
+        raise getattr(module, error_type)("Face display unavailable")
 
     client = module.StreamClient(serial, port_factory=unavailable, clock=serial.clock)
     client.initialize()
     serial.failure = "ack"
-    with pytest.raises(module.DeviceUnavailableError):
+    with pytest.raises(getattr(module, error_type)):
         client.send_frame(bytes(168 * 168 * 2), 168, 168, "RGB565")
     assert serial.closed
 

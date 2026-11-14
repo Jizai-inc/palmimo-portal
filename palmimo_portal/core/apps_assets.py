@@ -5,7 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from palmimo_portal.core.manifest import Manifest, ManifestValidationError
+from palmimo_portal.core.manifest import Manifest, ManifestValidationError, validate_asset_path
 from palmimo_portal.ports import (
     DisplayAssetMessage,
     DisplayBusyError,
@@ -47,6 +47,21 @@ class DisplayCapacityError(DisplayToolError):
         super().__init__(f"display assets exceed capacity by {short_by} bytes", short_by)
 
 
+def asset_source_path(project_dir: Path, path: str) -> Path:
+    try:
+        validate_asset_path(path)
+        candidate = project_dir.resolve()
+        for part in Path(path).parts:
+            candidate = candidate / part
+            if candidate.is_symlink():
+                raise ValueError("asset paths cannot follow symlinks")
+        if not candidate.is_file():
+            raise ValueError("asset source must be an existing regular file")
+        return candidate
+    except (OSError, ValueError) as error:
+        raise ManifestValidationError([f"invalid asset source {path!r}: {error}"]) from error
+
+
 def stage_display_assets(
     ctx: AppsJobContext,
     manifest: Manifest,
@@ -78,7 +93,7 @@ def stage_display_assets(
     directory.mkdir(mode=0o750)
     sizes = []
     for name, asset in manifest.assets.items():
-        conversion = ctx.asset_converter.convert(project_dir / asset.file, directory / f"{name}.bin")
+        conversion = ctx.asset_converter.convert(asset_source_path(project_dir, asset.file), directory / f"{name}.bin")
         if not conversion.ok:
             raise DisplayAssetConversionError(name, conversion.errors)
         invalid_slots = set(asset.params) - conversion.params.keys()

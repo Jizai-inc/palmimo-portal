@@ -50,7 +50,7 @@ from palmimo_portal.core.apps import (
     resolve_subdir,
     suggest_app_name,
 )
-from palmimo_portal.core.apps_assets import ASSETS_LOCK_TIMEOUT_SECONDS, stage_display_assets
+from palmimo_portal.core.apps_assets import ASSETS_LOCK_TIMEOUT_SECONDS, asset_source_path, stage_display_assets
 from palmimo_portal.core.apps_layout import LayoutPaths, resolve_layout
 from palmimo_portal.core.apps_zip import UPLOAD_MAX_BYTES, extract_zip_to_staging
 from palmimo_portal.core.legacy_official import is_retired_official
@@ -61,7 +61,6 @@ from palmimo_portal.core.manifest import (
     manifest_from_snapshot,
     manifest_snapshot,
     parse_manifest,
-    validate_asset_path,
     validate_manifest_filename,
 )
 from palmimo_portal.core.os_group import apps_gid
@@ -407,7 +406,7 @@ def _read_manifest(project_dir: Path, manifest_filename: str = DEFAULT_MANIFEST_
 
     def read_include(path: str) -> str:
         try:
-            with _asset_source_path(project_dir, path).open("rb") as stream:
+            with asset_source_path(project_dir, path).open("rb") as stream:
                 content = stream.read(65_537)
             if len(content) > 65_536:
                 raise ValueError("asset include exceeds 64 KiB")
@@ -417,23 +416,8 @@ def _read_manifest(project_dir: Path, manifest_filename: str = DEFAULT_MANIFEST_
 
     manifest = parse_manifest(manifest_path.read_text(encoding="utf-8"), read_include=read_include)
     for asset in manifest.assets.values():
-        _asset_source_path(project_dir, asset.file)
+        asset_source_path(project_dir, asset.file)
     return replace(manifest, translations=_read_translations(project_dir, manifest_filename))
-
-
-def _asset_source_path(project_dir: Path, path: str) -> Path:
-    try:
-        validate_asset_path(path)
-        candidate = project_dir.resolve()
-        for part in Path(path).parts:
-            candidate = candidate / part
-            if candidate.is_symlink():
-                raise ValueError("asset paths cannot follow symlinks")
-        if not candidate.is_file():
-            raise ValueError("asset source must be an existing regular file")
-        return candidate
-    except (OSError, ValueError) as error:
-        raise ManifestValidationError([f"invalid asset source {path!r}: {error}"]) from error
 
 
 def _read_translations(project_dir: Path, manifest_filename: str) -> dict[str, dict[str, str]]:

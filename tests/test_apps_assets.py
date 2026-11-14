@@ -324,3 +324,38 @@ def test_asset_install_preserves_declared_slots_and_converted_content(
     assert copied == [(APP_ID, b"converted asset")]
     assert adapters.platform.display_firmware_calls == 0
     assert not adapters.platform.sync_display_assets_calls
+
+
+@pytest.mark.parametrize("replacement", ["symlink", "fifo"])
+def test_asset_sources_changed_by_sync_are_rejected_before_conversion(
+    env: tuple[AppsJobContext, FakeAdapterBundle, AppsJobRunner],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    replacement: str,
+) -> None:
+    import os
+
+    from palmimo_portal.ports import UnitStatus
+
+    ctx, adapters, runner = env
+    prepared = prepare_install_zip(ctx, archive())
+    original = adapters.sync_unit.wait
+
+    def wait(instance: str, timeout_s: float) -> UnitStatus:
+        status = original(instance, timeout_s)
+        source = prepared.project_dir / "welcome.json"
+        source.unlink()
+        if replacement == "symlink":
+            target = tmp_path / "outside.json"
+            target.write_text("{}")
+            source.symlink_to(target)
+        else:
+            os.mkfifo(source)
+        return status
+
+    monkeypatch.setattr(adapters.sync_unit, "wait", wait)
+    job = runner.start_install(prepared)
+    assert job.state == "failed" and job.error_code == "manifest_invalid"
+    assert not adapters.asset_converter.convert_calls
+    assert not adapters.platform.replace_display_assets_calls
+    assert APP_ID not in adapters.state.read_apps_state().apps

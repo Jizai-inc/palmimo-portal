@@ -769,7 +769,7 @@
       "confirmDescription": "変換結果とディスプレイの保存容量への影響を確認してから保存してください。",
       "converted": "変換後のアセット",
       "sizeChange": "大きさの増減",
-      "size": "{{kb}} KB",
+      "size": "{{kb}} KiB",
       "vector": "ベクターアニメーション",
       "image": "画像",
       "gif": "GIF",

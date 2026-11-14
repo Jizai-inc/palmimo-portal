@@ -1781,7 +1781,7 @@ class DisplaySyncPort(Protocol):
     @property
     def running(self) -> bool: ...
 
-    def sync(self) -> DisplaySyncResult:
+    def sync_locked(self, app_id: str | None = None) -> DisplaySyncResult:
         """The caller holds run.lock; update pending state and clear running in finally."""
         ...
 

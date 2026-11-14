@@ -20,7 +20,7 @@ from palmimo_portal.ports import (
     StandardAssetStatus,
 )
 from palmimo_portal.settings import Settings
-from palmimo_portal.testing.fakes import FakeAdapterBundle
+from palmimo_portal.testing.fakes import FakeAdapterBundle, FakeDisplaySyncService, FakePlatformPort
 
 
 HEADERS = {"X-Requested-With": "PalmimoPortal"}
@@ -334,19 +334,21 @@ def test_asset_operations_refuse_run_lock_contention(
 
 
 def test_status_reports_running_only_while_sync_is_active(
-    client: TestClient, adapters: FakeAdapterBundle, monkeypatch: pytest.MonkeyPatch
+    client: TestClient, adapters: FakeAdapterBundle, app: FastAPI, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import threading
     from concurrent.futures import ThreadPoolExecutor
 
     entered, release = threading.Event(), threading.Event()
+    platform = FakePlatformPort()
+    app.state.display_sync = FakeDisplaySyncService(platform, adapters.state)
 
     def sync(app_id: str | None) -> DisplaySyncResult:
         entered.set()
         assert release.wait(5)
         return DisplaySyncResult("synced", (), (), None)
 
-    monkeypatch.setattr(adapters.platform, "sync_display_assets", sync)
+    monkeypatch.setattr(platform, "sync_display_assets", sync)
     with ThreadPoolExecutor() as pool:
         response = pool.submit(client.post, f"{BASE}/sync", headers=HEADERS)
         try:
@@ -356,6 +358,32 @@ def test_status_reports_running_only_while_sync_is_active(
             release.set()
         assert response.result(timeout=5).status_code == 200
     assert client.get("/api/v1/system/status").json()["display_sync"]["running"] is False
+
+
+@pytest.mark.parametrize("operation", ["put", "delete", "sync"])
+def test_asset_mutations_use_shared_sync_without_reacquiring_locks(
+    client: TestClient, adapters: FakeAdapterBundle, app: FastAPI, operation: str
+) -> None:
+    class LockingSyncService(FakeDisplaySyncService):
+        def sync(self) -> DisplaySyncResult:
+            with self.state.lock_apps(), self.state.lock_run():
+                return self.sync_locked()
+
+    platform = FakePlatformPort(display_sync_result=DisplaySyncResult("busy", (), (), "occupied"))
+    app.state.display_sync = LockingSyncService(platform, adapters.state)
+    if operation == "put":
+        token = _preview(client)["token"]
+        response = client.put(f"{BASE}/standard/happy", json={"token": token}, headers=HEADERS)
+    elif operation == "delete":
+        response = client.delete(f"{BASE}/standard/happy", headers=HEADERS)
+    else:
+        response = client.post(f"{BASE}/sync", headers=HEADERS)
+
+    assert response.status_code == 200
+    payload = response.json() if operation == "sync" else response.json()["sync"]
+    assert payload["result"] == "busy"
+    assert platform.sync_display_assets_calls == [None]
+    assert adapters.platform.sync_display_assets_calls == []
 
 
 def test_missing_sync_service_refuses_save_before_mutation(

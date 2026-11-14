@@ -799,10 +799,10 @@ class FakeDisplaySyncService(DisplaySyncPort):
     def running(self) -> bool:
         return self._running
 
-    def sync(self) -> DisplaySyncResult:
+    def sync_locked(self, app_id: str | None = None) -> DisplaySyncResult:
         self._running = True
         try:
-            result = self.platform.sync_display_assets(None)
+            result = self.platform.sync_display_assets(app_id)
             if result.result == "synced":
                 self.state.write_display_sync(None)
             elif result.result == "busy":

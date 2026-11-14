@@ -166,7 +166,7 @@ def get_status(
     settings: Settings = request.app.state.settings
     wifi_setup = request.app.state.wifi_setup.status()
     pending = state.read_display_sync()
-    display_sync = getattr(request.app.state, "display_sync_service", None) or request.app.state.adapters.display_sync
+    display_sync = getattr(request.app.state, "display_sync", None) or request.app.state.adapters.display_sync
     return SystemStatus(
         state=wifi_status.state.value,
         hostname=socket.gethostname(),

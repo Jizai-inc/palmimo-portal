@@ -95,7 +95,7 @@ class DisplayAssetsService:
             if not capacity.ok:
                 raise DisplayCapacityError(capacity.short_by)
             self.platform.override_display_asset(name, preview.path)
-            result = sync.sync()
+            result = sync.sync_locked()
         self.previews.delete(token)
         return result
 
@@ -105,8 +105,8 @@ class DisplayAssetsService:
             if name not in names and name not in self.platform.display_assets_status().orphan_overrides:
                 raise UnknownDisplayAssetError(name)
             self.platform.override_display_asset(name, None)
-            return sync.sync()
+            return sync.sync_locked()
 
     def sync(self, sync: DisplaySyncPort) -> DisplaySyncResult:
         with self.state.lock_apps(), self.state.lock_run():
-            return sync.sync()
+            return sync.sync_locked()

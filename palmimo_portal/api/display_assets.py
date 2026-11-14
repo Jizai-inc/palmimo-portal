@@ -82,7 +82,7 @@ def get_display_assets(request: Request) -> DisplayAssetsService:
 
 
 def get_display_sync(request: Request) -> DisplaySyncPort:
-    service: DisplaySyncPort | None = getattr(request.app.state, "display_sync_service", None)
+    service: DisplaySyncPort | None = getattr(request.app.state, "display_sync", None)
     if service is None:
         service = request.app.state.adapters.display_sync
     if service is None:

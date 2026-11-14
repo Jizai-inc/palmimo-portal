@@ -1759,6 +1759,33 @@ class DisplayAssetConverterPort(Protocol):
     def inspect(self, path: Path) -> DisplayAssetConversion: ...
 
 
+@dataclass(frozen=True)
+class DisplayAssetPreview:
+    token: str
+    name: str
+    path: Path
+    conversion: DisplayAssetConversion
+
+
+class DisplayAssetPreviewsPort(Protocol):
+    def create(self, name: str, content: bytes, suffix: str) -> DisplayAssetPreview: ...
+
+    def open(self, name: str, token: str) -> AbstractContextManager[DisplayAssetPreview | None]:
+        """Keep the file alive for the whole operation, including after its expiry."""
+        ...
+
+    def delete(self, token: str) -> None: ...
+
+
+class DisplaySyncPort(Protocol):
+    @property
+    def running(self) -> bool: ...
+
+    def sync_locked(self, app_id: str | None = None) -> DisplaySyncResult:
+        """The caller holds run.lock; update pending state and clear running in finally."""
+        ...
+
+
 class AppEnvironmentPort(Protocol):
     def read_display_firmware_need(self, venv: Path) -> DisplayFirmwareNeed:
         """Fall back to protocol 1 when the installed environment cannot be read."""

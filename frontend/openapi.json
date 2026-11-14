@@ -60,6 +60,29 @@
             "title": "Devices",
             "type": "array"
           },
+          "display_assets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Display Assets",
+            "type": "array"
+          },
+          "display_firmware": {
+            "anyOf": [
+              {
+                "enum": [
+                  "1",
+                  "2",
+                  "none"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Firmware"
+          },
           "env": {
             "items": {
               "$ref": "#/components/schemas/EnvSpecInfo"
@@ -583,6 +606,29 @@
             "title": "Credential Rejected",
             "type": "boolean"
           },
+          "display_assets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Display Assets",
+            "type": "array"
+          },
+          "display_firmware": {
+            "anyOf": [
+              {
+                "enum": [
+                  "1",
+                  "2",
+                  "none"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Firmware"
+          },
           "exit_code": {
             "anyOf": [
               {
@@ -818,6 +864,20 @@
         "title": "BindingsRequest",
         "type": "object"
       },
+      "Body_preview_standard_asset_api_v1_display_assets_standard__name__preview_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_preview_standard_asset_api_v1_display_assets_standard__name__preview_post",
+        "type": "object"
+      },
       "ChangePasswordRequest": {
         "properties": {
           "current_password": {
@@ -940,6 +1000,139 @@
         "title": "DefaultAppResponse",
         "type": "object"
       },
+      "DisplayAssetCapacity": {
+        "properties": {
+          "apps_no_longer_fit": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Apps No Longer Fit",
+            "type": "array"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "short_by": {
+            "title": "Short By",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ok",
+          "short_by",
+          "apps_no_longer_fit"
+        ],
+        "title": "DisplayAssetCapacity",
+        "type": "object"
+      },
+      "DisplayAssetMessage": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "DisplayAssetMessage",
+        "type": "object"
+      },
+      "DisplayAssetPreviewResponse": {
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "capacity": {
+            "$ref": "#/components/schemas/DisplayAssetCapacity"
+          },
+          "crc32": {
+            "title": "Crc32",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "vector",
+              "image",
+              "gif"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "params_lost": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Params Lost",
+            "type": "array"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/DisplayAssetMessage"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "token",
+          "kind",
+          "bytes",
+          "crc32",
+          "warnings",
+          "params_lost",
+          "capacity"
+        ],
+        "title": "DisplayAssetPreviewResponse",
+        "type": "object"
+      },
+      "DisplayAssetPutRequest": {
+        "properties": {
+          "token": {
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "DisplayAssetPutRequest",
+        "type": "object"
+      },
+      "DisplayAssetSavedResponse": {
+        "properties": {
+          "sync": {
+            "$ref": "#/components/schemas/DisplaySyncResult"
+          }
+        },
+        "required": [
+          "sync"
+        ],
+        "title": "DisplayAssetSavedResponse",
+        "type": "object"
+      },
       "DisplayFirmwareResult": {
         "properties": {
           "after": {
@@ -1041,6 +1234,84 @@
           "last_result"
         ],
         "title": "DisplayFirmwareState",
+        "type": "object"
+      },
+      "DisplaySyncInfo": {
+        "properties": {
+          "pending": {
+            "title": "Pending",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "running": {
+            "title": "Running",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "pending",
+          "running",
+          "reason"
+        ],
+        "title": "DisplaySyncInfo",
+        "type": "object"
+      },
+      "DisplaySyncResult": {
+        "description": "put and deleted contain asset IDs in <owner>/<name> form.",
+        "properties": {
+          "deleted": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Deleted",
+            "type": "array"
+          },
+          "put": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Put",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "result": {
+            "enum": [
+              "synced",
+              "busy",
+              "skipped",
+              "failed"
+            ],
+            "title": "Result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result",
+          "put",
+          "deleted",
+          "reason"
+        ],
+        "title": "DisplaySyncResult",
         "type": "object"
       },
       "EnvSpecInfo": {
@@ -1650,6 +1921,21 @@
             "default": false,
             "title": "Display Firmware Available",
             "type": "boolean"
+          },
+          "display_firmware_desired": {
+            "anyOf": [
+              {
+                "enum": [
+                  1,
+                  2
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Firmware Desired"
           },
           "installed_at": {
             "anyOf": [
@@ -2333,6 +2619,117 @@
         "title": "SsidRequest",
         "type": "object"
       },
+      "StandardAssetInfo": {
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "default_bytes": {
+            "title": "Default Bytes",
+            "type": "integer"
+          },
+          "default_kind": {
+            "enum": [
+              "vector",
+              "image",
+              "gif"
+            ],
+            "title": "Default Kind",
+            "type": "string"
+          },
+          "default_params": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Default Params",
+            "type": "array"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "kind": {
+            "enum": [
+              "vector",
+              "image",
+              "gif"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "overridden": {
+            "title": "Overridden",
+            "type": "boolean"
+          },
+          "params": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Params",
+            "type": "array"
+          },
+          "translations": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Translations",
+            "type": "object"
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "translations",
+          "overridden",
+          "kind",
+          "default_kind",
+          "bytes",
+          "default_bytes",
+          "params",
+          "default_params"
+        ],
+        "title": "StandardAssetInfo",
+        "type": "object"
+      },
+      "StandardAssetsResponse": {
+        "properties": {
+          "orphan_overrides": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Orphan Overrides",
+            "type": "array"
+          },
+          "standard": {
+            "items": {
+              "$ref": "#/components/schemas/StandardAssetInfo"
+            },
+            "title": "Standard",
+            "type": "array"
+          }
+        },
+        "required": [
+          "standard",
+          "orphan_overrides"
+        ],
+        "title": "StandardAssetsResponse",
+        "type": "object"
+      },
       "StatusResponse": {
         "properties": {
           "status": {
@@ -2382,6 +2779,9 @@
           "disk_free_bytes": {
             "title": "Disk Free Bytes",
             "type": "integer"
+          },
+          "display_sync": {
+            "$ref": "#/components/schemas/DisplaySyncInfo"
           },
           "hostname": {
             "title": "Hostname",
@@ -3967,6 +4367,197 @@
         "summary": "Get Public Catalog",
         "tags": [
           "catalog"
+        ]
+      }
+    },
+    "/api/v1/display-assets/standard": {
+      "get": {
+        "description": "Include uncatalogued system assets and orphan overrides; translations are selected by the client.",
+        "operationId": "list_standard_assets_api_v1_display_assets_standard_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StandardAssetsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Standard Assets",
+        "tags": [
+          "display-assets"
+        ]
+      }
+    },
+    "/api/v1/display-assets/standard/{name}": {
+      "delete": {
+        "description": "Reset standard overrides, including names removed from the current bundle.",
+        "operationId": "delete_standard_asset_api_v1_display_assets_standard__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisplayAssetSavedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Standard Asset",
+        "tags": [
+          "display-assets"
+        ]
+      },
+      "put": {
+        "description": "Recheck capacity before saving; a busy sync leaves the override saved for a later retry.",
+        "operationId": "put_standard_asset_api_v1_display_assets_standard__name__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisplayAssetPutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisplayAssetSavedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Standard Asset",
+        "tags": [
+          "display-assets"
+        ]
+      }
+    },
+    "/api/v1/display-assets/standard/{name}/preview": {
+      "post": {
+        "description": "Accept up to 16 MiB; preview tokens are bound to the asset name and expire after ten minutes.",
+        "operationId": "preview_standard_asset_api_v1_display_assets_standard__name__preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_preview_standard_asset_api_v1_display_assets_standard__name__preview_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisplayAssetPreviewResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Preview Standard Asset",
+        "tags": [
+          "display-assets"
+        ]
+      }
+    },
+    "/api/v1/display-assets/sync": {
+      "post": {
+        "description": "Wait for synchronization, up to the tool's 300-second budget.",
+        "operationId": "sync_display_assets_api_v1_display_assets_sync_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisplaySyncResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sync Display Assets",
+        "tags": [
+          "display-assets"
         ]
       }
     },

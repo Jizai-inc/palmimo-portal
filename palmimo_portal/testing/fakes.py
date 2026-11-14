@@ -44,6 +44,7 @@ from palmimo_portal.ports import (
     DiskPort,
     DisplayAssetConversion,
     DisplayAssetConverterPort,
+    DisplayAssetPreviewsPort,
     DisplayAssetsStatus,
     DisplayDesireResult,
     DisplayFirmwareNeed,
@@ -52,6 +53,7 @@ from palmimo_portal.ports import (
     DisplayFirmwareState,
     DisplayProtocol,
     DisplaySyncPending,
+    DisplaySyncPort,
     DisplaySyncResult,
     DuplicateKeyError,
     GitCommandError,
@@ -764,14 +766,50 @@ class FakeDisplayAssetConverterPort(DisplayAssetConverterPort):
 
 @dataclass
 class FakeStandardAssetsPort(StandardAssetsPort):
-    names: tuple[str, ...] = ()
-    catalog: dict[str, Any] = field(default_factory=dict)
+    names: tuple[str, ...] = ("happy", "sad")
+    catalog: dict[str, Any] = field(
+        default_factory=lambda: {
+            "schema": 1,
+            "assets": [
+                {
+                    "id": "palmimo/happy",
+                    "description": "A happy face",
+                    "tags": [],
+                    "params": {},
+                    "translations": {"ja": {"description": "A translated happy face"}},
+                }
+            ],
+        }
+    )
 
     def list_standard_names(self) -> tuple[str, ...]:
         return self.names
 
     def read_catalog(self) -> dict[str, Any]:
         return self.catalog
+
+
+@dataclass
+class FakeDisplaySyncService(DisplaySyncPort):
+    platform: PlatformPort
+    state: StateStore
+    _running: bool = False
+
+    @property
+    def running(self) -> bool:
+        return self._running
+
+    def sync_locked(self, app_id: str | None = None) -> DisplaySyncResult:
+        self._running = True
+        try:
+            result = self.platform.sync_display_assets(app_id)
+            if result.result == "synced":
+                self.state.write_display_sync(None)
+            elif result.result == "busy":
+                self.state.write_display_sync(DisplaySyncPending(True, result.reason, self.platform.read_boot_id()))
+            return result
+        finally:
+            self._running = False
 
 
 @dataclass
@@ -1314,6 +1352,9 @@ class FakeAdapterBundle:
     app_unit: FakeAppUnitPort
     app_environment: FakeAppEnvironmentPort
     asset_converter: FakeDisplayAssetConverterPort
+    standard_assets: FakeStandardAssetsPort
+    display_previews: DisplayAssetPreviewsPort
+    display_sync: FakeDisplaySyncService | None
     run_dir: FakeRunDirPort
     journal: FakeJournalPort
     platform: FakePlatformPort

@@ -6,11 +6,13 @@
  */
 import type { DisplayFirmwareState } from './displayFirmwareState';
 import type { PlatformLatestInfo } from './platformLatestInfo';
+import type { PlatformStatusResponseDisplayFirmwareDesired } from './platformStatusResponseDisplayFirmwareDesired';
 import type { PlatformVerifyDiffInfo } from './platformVerifyDiffInfo';
 
 export interface PlatformStatusResponse {
   display_firmware?: DisplayFirmwareState | null;
   display_firmware_available?: boolean;
+  display_firmware_desired?: PlatformStatusResponseDisplayFirmwareDesired;
   installed_at: string | null;
   installed_version: number | null;
   latest: PlatformLatestInfo | null;

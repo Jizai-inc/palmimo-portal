@@ -45,6 +45,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 
 from palmimo_portal.api import apps as apps_api
 from palmimo_portal.api import auth as auth_api
+from palmimo_portal.api import display_assets as display_assets_api
 from palmimo_portal.api import platform as platform_api
 from palmimo_portal.api import public_catalog as public_catalog_api
 from palmimo_portal.api import secrets as secrets_api
@@ -903,6 +904,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(ssh_keys_api.router)
     app.include_router(update_api.router)
     app.include_router(apps_api.router)
+    app.include_router(display_assets_api.router)
     app.include_router(platform_api.router)
     app.include_router(secrets_api.router)
     app.include_router(public_catalog_api.router)

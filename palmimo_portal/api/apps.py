@@ -118,6 +118,7 @@ from palmimo_portal.core.legacy_official import is_retired_official, legacy_offi
 from palmimo_portal.core.manifest import (
     InvalidManifestFilenameError,
     Manifest,
+    ManifestSchemaUnsupportedError,
     ManifestValidationError,
     manifest_from_snapshot,
     validate_manifest_filename,
@@ -153,6 +154,7 @@ from palmimo_portal.ports import (
     ClockPort,
     DiskFullError,
     DiskPort,
+    DisplayFirmwareNeed,
     GitCommandError,
     Identity,
     IdentityStore,
@@ -211,6 +213,12 @@ def _raise_for_start_error(error: Exception) -> NoReturn:
     if isinstance(error, PlatformNotReadyError):
         raise PortalError(409, "platform_not_ready") from error
     raise error
+
+
+def _raise_for_manifest_error(error: ManifestValidationError) -> NoReturn:
+    if isinstance(error, ManifestSchemaUnsupportedError):
+        raise PortalError(422, "manifest_schema_unsupported", schema=error.schema) from error
+    raise PortalError(422, "manifest_invalid", errors=error.errors) from error
 
 
 def _raise_for_git_error(error: GitCommandError, status_code: int) -> NoReturn:
@@ -341,6 +349,8 @@ class AppSummary(PublicAvailabilityResponse):
     reason: str | None = None
     url: str | None = None
     missing_env: list[str] = Field(default_factory=list)
+    display_firmware: DisplayFirmwareNeed | None = None
+    display_assets: list[str] = Field(default_factory=list)
 
 
 class AppsListResponse(BaseModel):
@@ -418,6 +428,8 @@ class AppDetailResponse(PublicAvailabilityResponse):
     reason: str | None = None
     url: str | None = None
     missing_env: list[str] = Field(default_factory=list)
+    display_firmware: DisplayFirmwareNeed | None = None
+    display_assets: list[str] = Field(default_factory=list)
 
 
 class ManifestPreviewResponse(BaseModel):
@@ -714,6 +726,7 @@ def _summary(
 ) -> AppSummary:
     status, exit_code, reason = _run_status(record, state, app_unit, deps.run_dir, deps.state)
     url = resolve_running_url(deps, record, host=host) if status == "running" else None
+    manifest = _snapshot_manifest(record)
     return AppSummary(
         name=record.name,
         id=record.id,
@@ -733,7 +746,9 @@ def _summary(
         exit_code=exit_code,
         reason=reason,
         url=url,
-        missing_env=_missing_env(record, _snapshot_manifest(record), deps.apps_job_ctx.secrets, registered),
+        missing_env=_missing_env(record, manifest, deps.apps_job_ctx.secrets, registered),
+        display_firmware=record.display_firmware,
+        display_assets=sorted(manifest.assets) if manifest is not None else [],
     )
 
 
@@ -831,6 +846,8 @@ def _detail(
         reason=reason,
         url=url,
         missing_env=_missing_env(record, manifest, secrets, _registered_secret_names(secrets)),
+        display_firmware=record.display_firmware,
+        display_assets=sorted(manifest.assets) if manifest is not None else [],
     )
 
 
@@ -973,7 +990,7 @@ async def preview(
                 )
             )
     except ManifestValidationError as error:
-        raise PortalError(422, "manifest_invalid", errors=error.errors) from error
+        _raise_for_manifest_error(error)
     except InvalidManifestSourceError as error:
         raise PortalError(422, "preview_failed", detail=str(error)) from error
     except GitCommandError as error:
@@ -1046,7 +1063,7 @@ async def install(
                 )
             )
     except ManifestValidationError as error:
-        raise PortalError(422, "manifest_invalid", errors=error.errors) from error
+        _raise_for_manifest_error(error)
     except DiskFullError as error:
         raise PortalError(507, "disk_full") from error
     except AppsDirUnavailableError as error:
@@ -1106,7 +1123,7 @@ def install_public(
     except PublicAppMismatchError as error:
         raise PortalError(422, "public_app_mismatch") from error
     except ManifestValidationError as error:
-        raise PortalError(422, "manifest_invalid", errors=error.errors) from error
+        _raise_for_manifest_error(error)
     except DiskFullError as error:
         raise PortalError(507, "disk_full") from error
     except AppsDirUnavailableError as error:

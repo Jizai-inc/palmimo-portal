@@ -88,7 +88,7 @@ def _codes_from_assign(node: ast.Assign) -> set[str]:
     # inline.
     if len(node.targets) != 1 or not isinstance(node.targets[0], ast.Name):
         return set()
-    if node.targets[0].id != "_ADAPTER_ERROR_CODE":
+    if node.targets[0].id not in {"_ADAPTER_ERROR_CODE", "code"}:
         return set()
     literal = _string_literal(node.value)
     return {literal} if literal is not None else set()
@@ -148,6 +148,22 @@ def _backend_error_codes() -> set[str]:
                 codes |= _codes_from_dict(node)
             elif isinstance(node, ast.Assign):
                 codes |= _codes_from_assign(node)
+            elif isinstance(node, ast.ClassDef) and any(
+                isinstance(base, ast.Name) and base.id == "AppStartError" for base in node.bases
+            ):
+                for call in ast.walk(node):
+                    if (
+                        isinstance(call, ast.Call)
+                        and isinstance(call.func, ast.Attribute)
+                        and call.func.attr == "__init__"
+                        and isinstance(call.func.value, ast.Call)
+                        and isinstance(call.func.value.func, ast.Name)
+                        and call.func.value.func.id == "super"
+                        and call.args
+                    ):
+                        code = _string_literal(call.args[0])
+                        if code is not None:
+                            codes.add(code)
     return codes
 
 
@@ -187,6 +203,18 @@ def test_the_error_code_scan_finds_the_codes_this_test_was_written_for() -> None
         assert expected in codes, (
             f"the error-code scan no longer finds {expected!r} -- update _codes_from_call/_codes_from_dict/_codes_from_assign"
         )
+
+
+def test_error_code_scan_includes_display_job_failures() -> None:
+    assert {
+        "display_busy",
+        "display_firmware_failed",
+        "display_sync_failed",
+        "display_asset_invalid",
+        "display_assets_require_v2",
+        "display_capacity_exceeded",
+        "manifest_schema_unsupported",
+    } <= _backend_error_codes()
 
 
 def test_the_error_code_scan_finds_a_code_passed_as_a_keyword_argument() -> None:

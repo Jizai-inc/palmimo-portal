@@ -475,7 +475,16 @@
     "wifi_saved_active": "Palmimo はいまそのネットワークに接続しています。削除するには「このネットワークを忘れる」を使ってください。",
     "wifi_saved_order_mismatch": "保存済みのネットワークが変わりました。再読み込みしてやり直してください。",
     "display_firmware_unavailable": "このプラットフォームでは顔のファームを書き直せません。",
-    "display_recovery_pending": "顔ファームの復旧が終わっていません。Palmimo を再起動してから、もう一度アプリを起動してください。"
+    "display_recovery_pending": "顔ファームの復旧が終わっていません。Palmimo を再起動してから、もう一度アプリを起動してください。",
+    "display_busy": "顔ディスプレイを使用中です。処理が終わってから、もう一度試してください。",
+    "display_firmware_failed": "顔ファームを準備できませんでした。もう一度試してください。",
+    "display_sync_failed": "顔アセットを同期できませんでした。もう一度試してください。",
+    "display_asset_invalid": "この顔アセットは変換できませんでした。表示されたエラーを確認してください。",
+    "display_assets_require_v2": "顔アセットには顔ファーム 2 と顔ディスプレイへのアクセスが必要です。",
+    "display_capacity_exceeded": "顔アセットがディスプレイの保存容量を超えています。小さいアセットを使用してください。",
+    "display_asset_preview_expired": "プレビューの有効期限が切れました。もう一度ファイルをアップロードしてください。",
+    "manifest_schema_unsupported": "このアプリのマニフェスト形式には対応していません。Palmimo Portal を更新してください。",
+    "display_asset_unknown": "この標準顔アセットはもうありません。一覧を再読み込みしてください。"
   },
   "apps": {
     "tabsLabel": "アプリのセクション",

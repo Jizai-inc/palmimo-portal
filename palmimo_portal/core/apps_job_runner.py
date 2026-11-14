@@ -56,7 +56,7 @@ from palmimo_portal.core.apps_jobs import (
 )
 from palmimo_portal.core.apps_start import RUNNING_ACTIVE_STATES, AppRunningError, derive_run_status
 from palmimo_portal.core.legacy_official import is_retired_official
-from palmimo_portal.core.manifest import ManifestValidationError
+from palmimo_portal.core.manifest import ManifestSchemaUnsupportedError, ManifestValidationError
 from palmimo_portal.core.public_catalog import (
     PublicAppChangedError,
     PublicAppInstalledError,
@@ -98,6 +98,8 @@ _ADAPTER_ERROR_CODE = "sync_unit_uncontained"
 
 
 def _job_error_code(error: Exception) -> str | None:
+    if isinstance(error, ManifestSchemaUnsupportedError):
+        return error.code
     if isinstance(error, (DisplayAssetConversionError, DisplayAssetsRequireV2Error, DisplayCapacityError)):
         return error.code
     if isinstance(error, DisplayBusyError):

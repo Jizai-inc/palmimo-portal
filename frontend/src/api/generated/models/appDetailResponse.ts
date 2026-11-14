@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { AppDetailResponseBindings } from './appDetailResponseBindings';
+import type { AppDetailResponseDisplayFirmware } from './appDetailResponseDisplayFirmware';
 import type { AppDetailResponseParams } from './appDetailResponseParams';
 import type { AppDetailResponseStatus } from './appDetailResponseStatus';
 import type { AppDetailResponseTranslations } from './appDetailResponseTranslations';
@@ -20,6 +21,8 @@ export interface AppDetailResponse {
   broken_reason: string | null;
   description: string;
   devices: string[];
+  display_assets?: string[];
+  display_firmware?: AppDetailResponseDisplayFirmware;
   env: EnvSpecInfo[];
   exit_code?: number | null;
   id: string;

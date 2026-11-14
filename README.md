@@ -6,8 +6,8 @@ FastAPI backend plus a React frontend, reachable at `http://<hostname>.local/`
 a fresh device through Wi-Fi setup, then serves an authenticated dashboard
 for SSH key management, power controls, and self-updates.
 
-See [How Palmimo Portal works](doc/palmimo-portal.md) for the auth and
-update model.
+See [How Palmimo Portal works](doc/palmimo-portal.md) for the auth model,
+update model, and app lifecycle.
 
 ## Status
 
@@ -15,6 +15,11 @@ Palmimo Portal ships preinstalled on the Palmimo device image as a systemd
 service — nothing to install separately on a built robot. This repository is
 the update source: a device's own Updater pulls new versions from here, one
 tagged GitHub Release at a time (see [Releasing](doc/releasing.md)).
+
+## Face display
+
+Portal manages app firmware, face assets, and standard overrides. See
+[Face display](doc/palmimo-portal.md#face-display) for the workflow.
 
 ## Quick dev setup
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import json
+import logging
 import os
 import re
 import stat
@@ -18,11 +19,21 @@ from palmimo_portal.ports import (
 )
 
 
-def _read_regular(path: Path, limit: int | None = None) -> bytes:
-    parts = path.absolute().parts
-    descriptor = os.open(parts[0], os.O_RDONLY | os.O_DIRECTORY)
+logger = logging.getLogger("palmimo_portal")
+
+
+def _read_regular(path: Path, limit: int | None = None, *, root: Path | None = None) -> bytes:
+    """Allow symlinks above root, rejecting them in every descendant component."""
+    if root is None:
+        absolute = path.absolute()
+        root = Path(absolute.anchor)
+        parts = absolute.relative_to(root).parts
+    else:
+        parts = path.relative_to(root).parts
+        root = root.resolve()
+    descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY)
     try:
-        for part in parts[1:-1]:
+        for part in parts[:-1]:
             if part == "..":
                 raise ValueError("parent traversal is not allowed")
             child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=descriptor)
@@ -49,12 +60,14 @@ class AppEnvironment:
             if not distributions:
                 return "none"
             if len(distributions) != 1:
-                return "1"
+                raise ValueError("multiple SDK distributions")
             distribution = distributions[0]
-            rows = csv.reader(_read_regular(distribution / "RECORD").decode("utf-8").splitlines())
+            rows = csv.reader(_read_regular(distribution / "RECORD", root=venv).decode("utf-8").splitlines())
             if sum(bool(row) and row[0] == "palmimo_sdk/display_firmware.json" for row in rows) != 1:
-                return "1"
-            payload = json.loads(_read_regular(distribution.parent / "palmimo_sdk/display_firmware.json", 4096))
+                raise ValueError("firmware declaration must appear exactly once in RECORD")
+            payload = json.loads(
+                _read_regular(distribution.parent / "palmimo_sdk/display_firmware.json", 4096, root=venv)
+            )
             if (
                 isinstance(payload, dict)
                 and type(payload.get("schema")) is int
@@ -63,9 +76,10 @@ class AppEnvironment:
                 and payload["protocol"] in (1, 2)
             ):
                 return "2" if payload["protocol"] == 2 else "1"
-        except (OSError, ValueError, csv.Error):
-            pass
-        return "1"
+            raise ValueError("invalid firmware declaration schema or protocol")
+        except (OSError, ValueError, csv.Error) as error:
+            logger.warning("display firmware declaration unreadable venv=%s reason=%s", venv, error)
+            return "1"
 
 
 @dataclass

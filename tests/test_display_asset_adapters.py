@@ -123,7 +123,20 @@ def test_selection_reads_only_valid_declarations(tmp_path: Path, payload: Any) -
 
 @pytest.mark.parametrize(
     "case",
-    ["absent", "undeclared", "symlink", "parent-symlink", "oversized", "multiple", "invalid", "valid", "unrecorded"],
+    [
+        "absent",
+        "undeclared",
+        "symlink",
+        "parent-symlink",
+        "oversized",
+        "multiple",
+        "invalid",
+        "valid",
+        "unrecorded",
+        "broken-json",
+        "missing-record",
+        "duplicate-record",
+    ],
 )
 def test_environment_reads_installed_declaration_safely(tmp_path: Path, case: str) -> None:
     site = tmp_path / "lib/python3.12/site-packages"
@@ -146,6 +159,12 @@ def test_environment_reads_installed_declaration_safely(tmp_path: Path, case: st
             declaration.write_text('{"schema":1,"protocol":2}' + " " * 4096)
         elif case == "multiple":
             (site / "palmimo_sdk-2.0.dist-info").mkdir()
+        elif case == "broken-json":
+            declaration.write_text("{")
+        elif case == "missing-record":
+            (dist / "RECORD").unlink()
+        elif case == "duplicate-record":
+            (dist / "RECORD").write_text("palmimo_sdk/display_firmware.json,,\n" * 2)
     expected = "none" if case == "absent" else "2" if case == "valid" else "1"
     assert AppEnvironment().read_display_firmware_need(tmp_path) == expected
 
@@ -238,3 +257,55 @@ def test_platform_display_reports_execution_failures(tmp_path: Path, operation: 
 
     with pytest.raises(PlatformCommandError):
         invoke(SudoPlatformPort(tmp_path / "installed", runner=run), operation)
+
+
+def test_environment_allows_symlink_ancestors_above_venv(tmp_path: Path) -> None:
+    ancestor = tmp_path / "real"
+    venv = ancestor / "venv"
+    site = venv / "lib/python3.12/site-packages"
+    dist = site / "palmimo_sdk-1.0.dist-info"
+    dist.mkdir(parents=True)
+    (dist / "RECORD").write_text("palmimo_sdk/display_firmware.json,,\n")
+    package = site / "palmimo_sdk"
+    package.mkdir()
+    (package / "display_firmware.json").write_text('{"schema":1,"protocol":2}')
+    alias = tmp_path / "alias"
+    alias.symlink_to(ancestor, target_is_directory=True)
+    assert AppEnvironment().read_display_firmware_need(alias / "venv") == "2"
+
+
+@pytest.mark.parametrize("output", ["", "not json", "{}\n{}", "[]"])
+def test_platform_display_invalid_output_preserves_stderr_tail(tmp_path: Path, output: str) -> None:
+    stderr = "prefix" * 100 + "tool diagnostic"
+
+    def run(argv: list[str], **options: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(argv, 1, output, stderr)
+
+    with pytest.raises(PlatformCommandError) as caught:
+        SudoPlatformPort(tmp_path / "installed", runner=run).sync_display_assets(None)
+    assert str(caught.value).endswith(stderr[-500:])
+    assert stderr not in str(caught.value)
+
+
+def test_platform_display_provides_stderr_progress_callback(tmp_path: Path) -> None:
+    callbacks = []
+
+    def run(argv: list[str], **options: Any) -> subprocess.CompletedProcess[str]:
+        callback = options.get("on_stderr")
+        callbacks.append(callback)
+        if callable(callback):
+            callback("progress")
+        return subprocess.CompletedProcess(argv, 0, '{"result":"synced"}', "")
+
+    assert SudoPlatformPort(tmp_path / "installed", runner=run).sync_display_assets(None).result == "synced"
+    assert len(callbacks) == 1 and callable(callbacks[0])
+
+
+def test_platform_desire_preserves_tool_failure_payload(tmp_path: Path) -> None:
+    def run(argv: list[str], **options: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(argv, 1, '{"result":"failed","reason":"unavailable"}', "")
+
+    with pytest.raises(DisplayToolError) as caught:
+        SudoPlatformPort(tmp_path / "installed", runner=run).desire_display_firmware(2, "initial")
+    assert caught.value.reason == "unavailable"
+    assert caught.value.short_by is None

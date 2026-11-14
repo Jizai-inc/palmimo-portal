@@ -228,7 +228,9 @@ class SudoPlatformPort(PlatformPort):
             if not isinstance(payload, dict):
                 raise ValueError("expected JSON object")
         except (ValueError, TypeError) as error:
-            raise PlatformCommandError("display_assets", f"invalid tool output: {error}") from error
+            tail = (process.stderr or "").strip()[-500:]
+            detail = f"invalid tool output: {error}"
+            raise PlatformCommandError("display_assets", f"{detail}; {tail}" if tail else detail) from error
         if not sync:
             reason = payload.get("reason")
             if process.returncode == 75:
@@ -351,8 +353,8 @@ class SudoPlatformPort(PlatformPort):
         # subprocess-level timeout below, which exists only to catch `timeout`/`sudo` itself hanging.
         full_argv = [self.sudo_bin, "-n", "timeout", "-k", "5", str(int(command_timeout)), *argv]
         options: dict[str, Any] = {"capture_output": True, "text": True, "timeout": subprocess_timeout}
-        if step == "display_firmware":
-            options["on_stderr"] = lambda line: logger.info("display-firmware: %s", line)
+        if step in {"display_firmware", "display_assets"}:
+            options["on_stderr"] = lambda line: logger.info("%s: %s", step.replace("_", "-"), line)
         try:
             result = self.runner(full_argv, **options)  # type: ignore[operator]
         except subprocess.TimeoutExpired as error:

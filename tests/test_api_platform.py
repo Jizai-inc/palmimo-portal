@@ -11,7 +11,16 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-from palmimo_portal.ports import PlatformJob, PlatformUpdateState, Release, ReleaseSourceError, UpdateJob, UpdateState
+from palmimo_portal.ports import (
+    DisplayFirmwareSelection,
+    DisplayProtocol,
+    PlatformJob,
+    PlatformUpdateState,
+    Release,
+    ReleaseSourceError,
+    UpdateJob,
+    UpdateState,
+)
 from palmimo_portal.settings import DEFAULT_REQUIRED_PLATFORM_VERSION, Settings
 from palmimo_portal.testing.fakes import FakeAdapterBundle
 
@@ -75,6 +84,21 @@ def _set_available_release(adapters: FakeAdapterBundle, *, manifest: dict[str, o
         tag="v2", name="v2", published_at="2026-01-01T00:00:00Z", html_url="https://example.test/v2"
     )
     adapters.platform_bundle.manifest = dict(manifest or READY_MANIFEST)
+
+
+@pytest.mark.parametrize("protocol", [None, 1, 2])
+def test_platform_reports_desired_display_protocol(
+    client: TestClient, adapters: FakeAdapterBundle, protocol: DisplayProtocol | None
+) -> None:
+    client = _authenticated_client(client, adapters)
+    adapters.platform.display_firmware_selection = (
+        DisplayFirmwareSelection(protocol, "app-start") if protocol is not None else None
+    )
+
+    response = client.get("/api/v1/platform")
+
+    assert response.status_code == 200
+    assert response.json()["display_firmware_desired"] == protocol
 
 
 def _zip_bytes(name: str = "palmimo-teleop") -> bytes:

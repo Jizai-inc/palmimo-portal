@@ -60,6 +60,29 @@
             "title": "Devices",
             "type": "array"
           },
+          "display_assets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Display Assets",
+            "type": "array"
+          },
+          "display_firmware": {
+            "anyOf": [
+              {
+                "enum": [
+                  "1",
+                  "2",
+                  "none"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Firmware"
+          },
           "env": {
             "items": {
               "$ref": "#/components/schemas/EnvSpecInfo"
@@ -582,6 +605,29 @@
           "credential_rejected": {
             "title": "Credential Rejected",
             "type": "boolean"
+          },
+          "display_assets": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Display Assets",
+            "type": "array"
+          },
+          "display_firmware": {
+            "anyOf": [
+              {
+                "enum": [
+                  "1",
+                  "2",
+                  "none"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Firmware"
           },
           "exit_code": {
             "anyOf": [
@@ -1650,6 +1696,21 @@
             "default": false,
             "title": "Display Firmware Available",
             "type": "boolean"
+          },
+          "display_firmware_desired": {
+            "anyOf": [
+              {
+                "enum": [
+                  1,
+                  2
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Firmware Desired"
           },
           "installed_at": {
             "anyOf": [

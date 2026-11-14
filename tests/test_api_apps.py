@@ -19,12 +19,14 @@ from starlette.testclient import TestClient
 
 from palmimo_portal.api.apps import _read_upload_bounded
 from palmimo_portal.api.errors import PortalError
+from palmimo_portal.core.manifest import manifest_snapshot, parse_manifest
 from palmimo_portal.core.periodic import run_git_check_sweep
 from palmimo_portal.ports import (
     AppJob,
     AppRecord,
     AppSource,
     AppsState,
+    DisplayFirmwareNeed,
     GitCommandError,
     UnitStatus,
     UpdateJob,
@@ -142,6 +144,32 @@ def _install_zip(client: TestClient, name: str = "palmimo-teleop") -> httpx.Resp
     return client.post(
         "/api/v1/apps/install", files={"file": ("app.zip", _zip_bytes(name), "application/zip")}, headers=CSRF_HEADERS
     )
+
+
+@pytest.mark.parametrize("need", [None, "none", "1", "2"])
+def test_app_list_and_detail_report_display_requirements(
+    client: TestClient, adapters: FakeAdapterBundle, need: DisplayFirmwareNeed | None
+) -> None:
+    client = _authenticated_client(client, adapters)
+    assert _install_zip(client).status_code == 202
+    state = adapters.state.read_apps_state()
+    manifest = parse_manifest(
+        'schema = 2\nname = "palmimo-teleop"\ndescription = "d"\ncommand = ["run"]\n'
+        '[assets.wave]\nfile = "wave.json"\ndescription = "Wave"\n'
+        '[assets.blink]\nfile = "blink.gif"\ndescription = "Blink"\n'
+        if need == "2"
+        else 'schema = 1\nname = "palmimo-teleop"\ndescription = "d"\ncommand = ["run"]\n'
+    )
+    record = replace(state.apps[ZIP_TELEOP_ID], display_firmware=need, manifest=manifest_snapshot(manifest))
+    adapters.state.write_apps_state(replace(state, apps={ZIP_TELEOP_ID: record}))
+
+    listed = client.get("/api/v1/apps")
+    detail = client.get(f"/api/v1/apps/{ZIP_TELEOP_ID}")
+
+    assert listed.status_code == detail.status_code == 200
+    for payload in (listed.json()["apps"][0], detail.json()):
+        assert payload["display_firmware"] == need
+        assert payload["display_assets"] == (["blink", "wave"] if need == "2" else [])
 
 
 def _zip_bytes_with_two_manifests() -> bytes:
@@ -267,6 +295,8 @@ def test_list_apps_shows_a_deleting_row_after_the_ledger_entry_is_removed(
             "reason": None,
             "url": None,
             "missing_env": [],
+            "display_firmware": None,
+            "display_assets": [],
         }
     ]
 

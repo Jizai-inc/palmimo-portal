@@ -153,6 +153,7 @@ from palmimo_portal.ports import (
     ClockPort,
     DiskFullError,
     DiskPort,
+    DisplayFirmwareNeed,
     GitCommandError,
     Identity,
     IdentityStore,
@@ -341,6 +342,8 @@ class AppSummary(PublicAvailabilityResponse):
     reason: str | None = None
     url: str | None = None
     missing_env: list[str] = Field(default_factory=list)
+    display_firmware: DisplayFirmwareNeed | None = None
+    display_assets: list[str] = Field(default_factory=list)
 
 
 class AppsListResponse(BaseModel):
@@ -418,6 +421,8 @@ class AppDetailResponse(PublicAvailabilityResponse):
     reason: str | None = None
     url: str | None = None
     missing_env: list[str] = Field(default_factory=list)
+    display_firmware: DisplayFirmwareNeed | None = None
+    display_assets: list[str] = Field(default_factory=list)
 
 
 class ManifestPreviewResponse(BaseModel):
@@ -714,6 +719,7 @@ def _summary(
 ) -> AppSummary:
     status, exit_code, reason = _run_status(record, state, app_unit, deps.run_dir, deps.state)
     url = resolve_running_url(deps, record, host=host) if status == "running" else None
+    manifest = _snapshot_manifest(record)
     return AppSummary(
         name=record.name,
         id=record.id,
@@ -733,7 +739,9 @@ def _summary(
         exit_code=exit_code,
         reason=reason,
         url=url,
-        missing_env=_missing_env(record, _snapshot_manifest(record), deps.apps_job_ctx.secrets, registered),
+        missing_env=_missing_env(record, manifest, deps.apps_job_ctx.secrets, registered),
+        display_firmware=record.display_firmware,
+        display_assets=sorted(manifest.assets) if manifest is not None else [],
     )
 
 
@@ -831,6 +839,8 @@ def _detail(
         reason=reason,
         url=url,
         missing_env=_missing_env(record, manifest, secrets, _registered_secret_names(secrets)),
+        display_firmware=record.display_firmware,
+        display_assets=sorted(manifest.assets) if manifest is not None else [],
     )
 
 

@@ -11,7 +11,15 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
-from palmimo_portal.ports import PlatformJob, PlatformUpdateState, Release, ReleaseSourceError, UpdateJob, UpdateState
+from palmimo_portal.ports import (
+    DisplayFirmwareSelection,
+    PlatformJob,
+    PlatformUpdateState,
+    Release,
+    ReleaseSourceError,
+    UpdateJob,
+    UpdateState,
+)
 from palmimo_portal.settings import DEFAULT_REQUIRED_PLATFORM_VERSION, Settings
 from palmimo_portal.testing.fakes import FakeAdapterBundle
 
@@ -42,6 +50,9 @@ def settings(tmp_path: Path) -> Settings:
         uv_cache_dir=tmp_path / "uv-cache",
         platform_dir=platform_dir,
         apps_run_in_thread=False,
+        start_run_in_thread=False,
+        startup_run_in_thread=False,
+        periodic_enabled=False,
     )
 
 
@@ -49,7 +60,9 @@ def settings(tmp_path: Path) -> Settings:
 def app(settings: Settings) -> FastAPI:
     from palmimo_portal.api.app import create_app
 
-    return create_app(settings)
+    app = create_app(settings)
+    app.state.adapters.platform.display_firmware_selection = DisplayFirmwareSelection(2, "initial")
+    return app
 
 
 @pytest.fixture

@@ -345,9 +345,10 @@ def test_display_firmware_refuses_reader_without_app_record(
         if mode == "active":
             adapters.wifi_qr_client.clients[-1].emit({"type": "hello", "proto": 1, "display": "frame"})
         assert adapters.state.read_preempted_app() is None
+        calls_before = adapters.platform.display_firmware_calls
         result = run_display_firmware(app.state.start_deps, adapters.platform)
         assert result.result == "busy"
-        assert adapters.platform.display_firmware_calls == 0
+        assert adapters.platform.display_firmware_calls == calls_before
 
 
 @pytest.mark.parametrize("network", list(ConnectionState))

@@ -219,7 +219,9 @@ def test_finalize_apps_state_marks_interrupted_job_failed() -> None:
     record = _record("palmimo-teleop")
     state = AppsState(apps={APP_ID: record}, current_job=running_job, current_job_app=APP_ID)
 
-    finalized = finalize_apps_state(state, manifest_exists=lambda name: True, venv_exists=lambda name: True, now=99.0)
+    finalized, _ = finalize_apps_state(
+        state, manifest_exists=lambda name: True, venv_exists=lambda name: True, now=99.0
+    )
 
     assert finalized.current_job is None
     assert finalized.current_job_app is None
@@ -241,7 +243,7 @@ def test_finalize_apps_state_marks_broken_when_disk_is_inconsistent(
 ) -> None:
     state = AppsState(apps={APP_ID: _record("palmimo-teleop")})
 
-    finalized = finalize_apps_state(state, manifest_exists=manifest_exists, venv_exists=venv_exists, now=1.0)
+    finalized, _ = finalize_apps_state(state, manifest_exists=manifest_exists, venv_exists=venv_exists, now=1.0)
 
     assert finalized.apps[APP_ID].broken_reason == expected_reason
 
@@ -249,6 +251,6 @@ def test_finalize_apps_state_marks_broken_when_disk_is_inconsistent(
 def test_finalize_apps_state_clears_broken_reason_once_disk_is_consistent_again() -> None:
     state = AppsState(apps={APP_ID: _record("palmimo-teleop", broken_reason="venv_missing")})
 
-    finalized = finalize_apps_state(state, manifest_exists=lambda name: True, venv_exists=lambda name: True, now=1.0)
+    finalized, _ = finalize_apps_state(state, manifest_exists=lambda name: True, venv_exists=lambda name: True, now=1.0)
 
     assert finalized.apps[APP_ID].broken_reason is None

@@ -417,6 +417,7 @@ def test_resume_of_running_unit_finishes_without_display_or_launch(
     assert adapters.platform.display_firmware_calls == 0
     assert not adapters.platform.sync_display_assets_calls
     assert not adapters.app_unit.start_calls
+    assert not adapters.app_unit.device_allow_calls
     assert APP_ID not in adapters.run_dir.written
     assert adapters.state.read_display_sync() == pending
     assert adapters.state.read_apps_state().current_job is None

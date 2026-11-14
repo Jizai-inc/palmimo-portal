@@ -21,7 +21,7 @@ def _settings(tmp_path: Path, **overrides: object) -> Settings:
     current = platform_dir / "current"
     current.mkdir(parents=True, exist_ok=True)
     (current / "install.sh").write_text("#!/bin/sh\n", encoding="utf-8")
-    values = {"platform_dir": platform_dir, **overrides}
+    values = {"platform_dir": platform_dir, "startup_run_in_thread": False, "start_run_in_thread": False, **overrides}
     return Settings(
         allowed_hosts=frozenset({"testserver"}),
         static_dir=tmp_path / "static-not-built",
@@ -575,8 +575,9 @@ def test_startup_recovers_wifi_marks_and_preempted_apps_independently(
         adapters.wifi_profiles.raise_on_call = RuntimeError("profile backend unavailable")
 
     with TestClient(app):
-        assert events == ["wifi", "app"]
-        assert adapters.app_unit.start_calls == (["preempted"] if preempted else ["selected"])
+        attempts = 2 if failure == "app-restore" else 1
+        assert events == ["wifi", *(["app"] * attempts)]
+        assert adapters.app_unit.start_calls == (["preempted"] * attempts if preempted else ["selected"])
         assert adapters.state.read_preempted_app() == (record if failure == "app-restore" else None)
         assert len(pending) == (0 if failure == "wifi-start" else 1)
         for work in pending:

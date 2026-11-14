@@ -237,26 +237,26 @@ def finalize_apps_state(
     manifest_exists: Callable[[str], bool],
     venv_exists: Callable[[str], bool],
     now: float,
-) -> AppsState:
-    """Resolve a job orphaned by a process that died mid-job, and mark disk-inconsistent apps broken.
-
-    Called once at Portal startup (design doc 3.3): a ``current_job`` still
-    ``"running"`` means the process that started it never finished --
-    stamped ``failed(interrupted)`` onto the app it targeted, same as
-    :func:`~palmimo_portal.core.update.finalize_after_restart` does for the
-    Portal's own update job. Every app is then re-checked against disk:
-    missing ``palmimo.toml`` or ``.venv`` marks it ``broken(reason)``; an app
-    that was broken but is no longer missing anything is un-marked.
-    """
+    boot_id: str | None = None,
+) -> tuple[AppsState, str | None]:
+    """Return reconciled state and an interrupted start eligible for same-boot resume."""
+    resume = None
     apps = dict(state.apps)
     if state.current_job is not None and state.current_job.state == "running":
         target = state.current_job_app
+        if (
+            state.current_job.kind == "start"
+            and boot_id is not None
+            and state.current_job.boot_id == boot_id
+            and target in apps
+        ):
+            resume = target
         interrupted = replace(state.current_job, state="failed", error="interrupted", finished_at=now)
         if target is not None and target in apps:
             apps[target] = replace(apps[target], last_job=interrupted)
 
     reconciled = {name: _reconcile_broken(record, name, manifest_exists, venv_exists) for name, record in apps.items()}
-    return AppsState(apps=reconciled, current_job=None, current_job_app=None)
+    return AppsState(apps=reconciled, current_job=None, current_job_app=None), resume
 
 
 def _reconcile_broken(

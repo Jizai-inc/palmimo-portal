@@ -155,6 +155,7 @@ class StartDeps:
     wifi_setup_active: Callable[[], bool] = lambda: False
     display_sync: DisplaySyncService | None = None
     trigger_display_sync: Callable[[], None] = lambda: None
+    on_display_ensure: Callable[[], None] = lambda: None
 
 
 def _layout_for(ctx: AppsJobContext, record: AppRecord) -> LayoutPaths:
@@ -381,6 +382,7 @@ def _display_firmware(deps: StartDeps, plan: _StartPlan) -> tuple[bool, str | No
         if platform is None:
             raise RuntimeError("display platform is unavailable")
         platform.desire_display_firmware(1 if plan.need == "1" else 2, "app-start")
+        deps.on_display_ensure()
         result = platform.ensure_display_firmware()
     except DisplayBusyError as error:
         raise DisplayBusyStartError(str(error)) from error

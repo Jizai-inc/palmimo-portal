@@ -809,7 +809,10 @@ class StreamClient:
         if len(pixels) != width * height * (1 if format_ == "GRAY8" else 2):
             raise ValueError("Invalid display frame size")
         if format_ == "GRAY8":
-            pixels = b"".join(struct.pack("<H", (g >> 3) << 11 | (g >> 2) << 5 | (g >> 3)) for g in pixels)
+            pixels = b"".join(
+                struct.pack("<H", value << 11 | ((value << 1) | (value >> 4)) << 5 | value)
+                for value in (g >> 3 for g in pixels)
+            )
         with self.gate:
             if cancelled():
                 return False

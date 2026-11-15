@@ -877,7 +877,7 @@ def test_stream_converts_gray_and_finishes_despite_cancellation_and_events(modul
     serial.on_data = cancel
     pixels = bytes([0, 255, 128, 64]) * (168 * 168 // 4)
     assert client.send_frame(pixels, 168, 168, "GRAY8", cancelled=lambda: cancelled)
-    assert serial.frames == [b"\x00\x00\xff\xff\x10\x84\x08\x42" * (168 * 168 // 4)]
+    assert serial.frames == [b"\x00\x00\xff\xff\x30\x84\x08\x42" * (168 * 168 // 4)]
     assert taps and set(taps) == {(200, 350)}
     before = len(serial.writes)
     assert not client.send_frame(pixels, 168, 168, "GRAY8", cancelled=lambda: True)
@@ -1021,3 +1021,21 @@ def test_v2_restore_failure_still_closes_port(module: Any, power: str) -> None:
     assert serial.closed
     with pytest.raises(module.ReaderOperationError):
         display.check()
+
+
+def test_grayscale_preview_stays_neutral_for_every_intensity(module: Any) -> None:
+    pixels = bytes(range(256))
+    serial = StreamSerial(Clock())
+    client = module.StreamClient(serial, port_factory=lambda: serial, clock=serial.clock)
+    assert client.send_frame(pixels, 16, 16, "GRAY8")
+    colors = [int.from_bytes(serial.frames[-1][i : i + 2], "little") for i in range(0, 512, 2)]
+    assert len(colors) == 256
+    levels = []
+    for color in colors:
+        r5, g6, b5 = color >> 11, (color >> 5) & 63, color & 31
+        red, green, blue = (r5 << 3) | (r5 >> 2), (g6 << 2) | (g6 >> 4), (b5 << 3) | (b5 >> 2)
+        assert max(red, green, blue) - min(red, green, blue) <= 2
+        levels.append(red)
+    assert levels == sorted(levels)
+    assert len(set(levels)) == 32
+    assert colors[0] == 0 and colors[-1] == 0xFFFF

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -133,21 +134,26 @@ def test_selection_reads_only_valid_declarations(tmp_path: Path, payload: Any) -
         "invalid",
         "valid",
         "unrecorded",
+        "legacy",
         "broken-json",
         "missing-record",
         "duplicate-record",
     ],
 )
-def test_environment_reads_installed_declaration_safely(tmp_path: Path, case: str) -> None:
+def test_environment_reads_installed_declaration_safely(
+    tmp_path: Path, case: str, caplog: pytest.LogCaptureFixture
+) -> None:
     site = tmp_path / "lib/python3.12/site-packages"
     dist = site / "palmimo_sdk-1.0.dist-info"
     if case != "absent":
         dist.mkdir(parents=True)
-        (dist / "RECORD").write_text("palmimo_sdk/display_firmware.json,,\n" if case != "unrecorded" else "other,,\n")
+        (dist / "RECORD").write_text(
+            "other,,\n" if case in {"unrecorded", "legacy"} else "palmimo_sdk/display_firmware.json,,\n"
+        )
         package = site / "palmimo_sdk"
         package.mkdir()
         declaration = package / "display_firmware.json"
-        if case != "undeclared":
+        if case not in {"undeclared", "legacy"}:
             declaration.write_text('{"schema":1,"protocol":2}' if case != "invalid" else '{"schema":1,"protocol":true}')
         if case == "symlink":
             declaration.rename(package / "real.json")
@@ -166,7 +172,10 @@ def test_environment_reads_installed_declaration_safely(tmp_path: Path, case: st
         elif case == "duplicate-record":
             (dist / "RECORD").write_text("palmimo_sdk/display_firmware.json,,\n" * 2)
     expected = "none" if case == "absent" else "2" if case == "valid" else "1"
-    assert AppEnvironment().read_display_firmware_need(tmp_path) == expected
+    with caplog.at_level(logging.WARNING, logger="palmimo_portal"):
+        assert AppEnvironment().read_display_firmware_need(tmp_path) == expected
+    warnings = [record for record in caplog.records if record.levelno >= logging.WARNING]
+    assert len(warnings) == (0 if case in {"absent", "valid", "unrecorded", "legacy"} else 1)
 
 
 @pytest.mark.parametrize("bad", ["Bad.bin", "include.bin", "link.bin", "directory.bin", None])

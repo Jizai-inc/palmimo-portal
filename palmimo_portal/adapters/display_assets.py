@@ -63,7 +63,10 @@ class AppEnvironment:
                 raise ValueError("multiple SDK distributions")
             distribution = distributions[0]
             rows = csv.reader(_read_regular(distribution / "RECORD", root=venv).decode("utf-8").splitlines())
-            if sum(bool(row) and row[0] == "palmimo_sdk/display_firmware.json" for row in rows) != 1:
+            declarations = sum(bool(row) and row[0] == "palmimo_sdk/display_firmware.json" for row in rows)
+            if declarations == 0:
+                return "1"
+            if declarations != 1:
                 raise ValueError("firmware declaration must appear exactly once in RECORD")
             payload = json.loads(
                 _read_regular(distribution.parent / "palmimo_sdk/display_firmware.json", 4096, root=venv)

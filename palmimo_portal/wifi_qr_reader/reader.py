@@ -412,6 +412,24 @@ def preview_gray(pixels: bytes, width: int, height: int, *, size: int = 168) -> 
     return bytes(output)[::-1]
 
 
+def preview_rgb565(pixels: bytes, width: int, height: int, *, size: int = 168) -> bytes:
+    if width <= 0 or height <= 0 or size <= 0 or len(pixels) != width * height * 3:
+        raise ValueError("Invalid RGB image")
+    side = min(width, height)
+    left, top = (width - side) // 2, (height - side) // 2
+    positions = [side - 1 - (2 * x + 1) * side // (2 * size) for x in range(size)]
+    output = bytearray()
+    # Match the camera orientation in preview_gray after JPEG's native 1/8 scaling.
+    for y in positions:
+        row = ((top + y) * width + left) * 3
+        for x in positions:
+            offset = row + x * 3
+            red, green, blue = pixels[offset : offset + 3]
+            color = ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)
+            output.extend((color & 255, color >> 8))
+    return bytes(output)
+
+
 TJERR_WARNING = 0
 
 
@@ -436,7 +454,7 @@ class TurboJPEG:
         if not self.handle:
             raise RuntimeError("JPEG decoder initialization failed")
 
-    def decode(self, jpeg: bytes, denominator: int) -> tuple[bytes, int, int]:
+    def decode(self, jpeg: bytes, denominator: int, *, rgb: bool = False) -> tuple[bytes, int, int]:
         width, height, subsampling, colorspace = (ctypes.c_int() for _ in range(4))
         if (
             self.library.tjDecompressHeader3(
@@ -452,13 +470,13 @@ class TurboJPEG:
             and self.library.tjGetErrorCode(self.handle) != TJERR_WARNING
         ):
             raise FrameDecodeError("Invalid camera JPEG")
-        if not 0 < width.value <= 2592 or not 0 < height.value <= 1944 or denominator not in {2, 4}:
+        if not 0 < width.value <= 2592 or not 0 < height.value <= 1944 or denominator not in {2, 4, 8}:
             raise FrameDecodeError("Invalid camera JPEG dimensions or scale")
         w, h = (width.value + denominator - 1) // denominator, (height.value + denominator - 1) // denominator
-        output = ctypes.create_string_buffer(w * h)
+        output = ctypes.create_string_buffer(w * h * (3 if rgb else 1))
         # libjpeg-turbo completes the output on warnings unless STOPONWARNING is set.
         if (
-            self.library.tjDecompress2(self.handle, jpeg, len(jpeg), output, w, 0, h, 6, 0) != 0
+            self.library.tjDecompress2(self.handle, jpeg, len(jpeg), output, w, 0, h, 0 if rgb else 6, 0) != 0
             and self.library.tjGetErrorCode(self.handle) != TJERR_WARNING
         ):
             raise FrameDecodeError("Camera JPEG decode failed")
@@ -482,12 +500,13 @@ class Decoder:
             self.jpeg.close()
             raise
         self.preview: bytes | None = None
+        self.color_preview = False
 
     def decode(self, frame: bytes) -> list[str]:
         texts: list[str] = []
         for denominator in (4, 2):
             pixels, width, height = self.jpeg.decode(frame, denominator)
-            if denominator == 4:
+            if denominator == 4 and not self.color_preview:
                 self.preview = preview_gray(pixels, width, height)
             image = self.zbar.Image(width, height, "Y800", pixels)
             self.scanner.scan(image)
@@ -499,6 +518,9 @@ class Decoder:
                     continue
                 if isinstance(text, str) and text not in texts:
                     texts.append(text)
+        if self.color_preview:
+            pixels, width, height = self.jpeg.decode(frame, 8, rgb=True)
+            self.preview = preview_rgb565(pixels, width, height)
         return texts
 
     def close(self) -> None:
@@ -1085,6 +1107,7 @@ class Display:
         self.close_pending = False
         self.pending_screen: tuple[str, bytes, int] | None = None
         self.pending_live: bytes | None = None
+        self.color_preview = False
         self.scanning_started = False
         self.pending_ping = False
         self.thread = threading.Thread(
@@ -1129,12 +1152,22 @@ class Display:
         self.check()
         if frame is None:
             return
-        if len(frame) != 168 * 168:
+        bytes_per_pixel = 2 if self.color_preview else 1
+        if len(frame) != 168 * 168 * bytes_per_pixel:
             raise ValueError("Invalid live preview size")
         pixels = bytearray(frame)
-        pixels[154 * 168 :] = bytes(14 * 168)
+        pixels[154 * 168 * bytes_per_pixel :] = bytes(14 * 168 * bytes_per_pixel)
         text = "Show your Wi-Fi QR"
-        draw_ascii(pixels, 168, 168, text, (168 - len(text) * FONT_WIDTH) // 2, 156, color=255, bytes_per_pixel=1)
+        draw_ascii(
+            pixels,
+            168,
+            168,
+            text,
+            (168 - len(text) * FONT_WIDTH) // 2,
+            156,
+            color=0xFFFF if self.color_preview else 255,
+            bytes_per_pixel=bytes_per_pixel,
+        )
         with self.condition:
             if self.state == "scanning":
                 self.pending_live = bytes(pixels)
@@ -1170,6 +1203,7 @@ class Display:
         try:
             port = port_factory()
             if probe_protocol(port, clock) == 2:
+                self.color_preview = True
                 protocol = StreamClient(
                     port, port_factory=port_factory, clock=clock, gate=self.condition, on_tap=self._tap
                 )
@@ -1200,7 +1234,12 @@ class Display:
                         heartbeat = True
                         request = None
                     elif self.pending_live is not None:
-                        request = ("GRAY8", self.pending_live, self.generation, "scanning")
+                        request = (
+                            "RGB565" if self.color_preview else "GRAY8",
+                            self.pending_live,
+                            self.generation,
+                            "scanning",
+                        )
                         self.pending_live = None
                     else:
                         request = None
@@ -1344,6 +1383,7 @@ class Reader:
         if hasattr(self.decoder, "close"):
             self.stack.callback(self._cleanup, self.decoder.close)
         self.display = self.display_factory()
+        self.decoder.color_preview = getattr(self.display, "color_preview", False)
         self.stack.callback(self._cleanup, self.display.close)
         self.last_ping = self.clock()
 

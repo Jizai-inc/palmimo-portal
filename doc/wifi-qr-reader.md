@@ -104,9 +104,13 @@ path. The v1 path probes VERSION and FRAME support, sends base64 frame chunks,
 and restores IDLE if the face was on or EXPR SLEEPING if it was off.
 
 The v2 path reads STAT and turns an initially powered-off face on before drawing.
-It converts GRAY8 previews to little-endian RGB565 and sends each frame with its
-CRC-32. Raw bytes stay within 16 KiB of the last acknowledged byte count; success
-requires the final OK STREAM. Events are handled between transfer replies. A
+Scanning previews use color: TurboJPEG decodes a separate RGB image at 1/8 scale,
+then the reader center-crops, rotates, and samples it to 168×168 little-endian
+RGB565. QR decoding continues to use separate GRAY8 images at 1/4 and 1/2 scale;
+v1 previews remain GRAY8. The scanning prompt stays white on a black bottom band.
+The v2 path also converts GRAY8 camera preparation screens to RGB565 and sends
+each frame with its CRC-32. Raw bytes stay within 16 KiB of the last acknowledged
+byte count; success requires the final OK STREAM. Events are handled between transfer replies. A
 screen change or termination waits for the current frame to finish.
 
 On a transfer error, unexpected acknowledgement, or two-second response timeout,

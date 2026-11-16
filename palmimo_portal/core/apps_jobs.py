@@ -896,35 +896,50 @@ def commit_install(
         had_assets=False,
         on_step=on_step,
     )
-    on_step("swap")
-    dest = ctx.app_dir(app_id)
-    prepared.install_root.rename(dest)
-    on_step("register")
-    job = AppJob(
-        id=prepared.job_id,
-        kind="install",
-        state="done",
-        step="register",
-        error=None,
-        started_at=started,
-        finished_at=ctx.now(),
-        display_name=prepared.manifest.name,
-        lock_generated=lock_generated,
-    )
-    record = AppRecord(
-        name=prepared.manifest.name,
-        source=replace(prepared.source, commit=prepared.commit),
-        installed_at=ctx.now(),
-        params={},
-        autostart=False,
-        last_job=job,
-        manifest=manifest_snapshot(prepared.manifest),
-        requires_python=prepared.requires_python,
-        id=app_id,
-        display_firmware=need,
-    )
-    new_state = AppsState(apps={**state.apps, app_id: record})
-    return new_state, record
+    try:
+        on_step("swap")
+        dest = ctx.app_dir(app_id)
+        prepared.install_root.rename(dest)
+        on_step("register")
+        job = AppJob(
+            id=prepared.job_id,
+            kind="install",
+            state="done",
+            step="register",
+            error=None,
+            started_at=started,
+            finished_at=ctx.now(),
+            display_name=prepared.manifest.name,
+            lock_generated=lock_generated,
+        )
+        record = AppRecord(
+            name=prepared.manifest.name,
+            source=replace(prepared.source, commit=prepared.commit),
+            installed_at=ctx.now(),
+            params={},
+            autostart=False,
+            last_job=job,
+            manifest=manifest_snapshot(prepared.manifest),
+            requires_python=prepared.requires_python,
+            id=app_id,
+            display_firmware=need,
+        )
+        new_state = AppsState(apps={**state.apps, app_id: record})
+        return new_state, record
+    except BaseException:
+        if prepared.manifest.assets:
+            discard_install_assets(ctx, app_id)
+        raise
+
+
+def discard_install_assets(ctx: AppsJobContext, app_id: str) -> None:
+    if ctx.state is None or ctx.platform is None:
+        return
+    try:
+        with ctx.state.lock_run(timeout_s=ASSETS_LOCK_TIMEOUT_SECONDS):
+            ctx.platform.uninstall_display_assets(app_id)
+    except Exception as error:
+        logger.warning("apps: failed install left display assets app=%s reason=%s", app_id, error)
 
 
 def install_zip(

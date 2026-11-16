@@ -50,6 +50,7 @@ from palmimo_portal.core.apps_jobs import (
     _purge_uv_cache,
     commit_install,
     delete_from_ledger,
+    discard_install_assets,
     purge_app_files,
     purge_path,
     update_git,
@@ -232,8 +233,13 @@ class AppsJobRunner:
                 latest = self._state.read_apps_state()
                 try:
                     _new_state, record = commit_install(self._ctx, latest, prepared, started, on_step)
-                    self._write_own_record(name, record)
-                    self._finish_registration(name)
+                    try:
+                        self._write_own_record(name, record)
+                        self._finish_registration(name)
+                    except BaseException:
+                        if prepared.manifest.assets and name not in self._state.read_apps_state().apps:
+                            discard_install_assets(self._ctx, name)
+                        raise
                     finished = record.last_job or job
                     result["job"] = finished
                     logger.info(

@@ -63,3 +63,17 @@ def test_saved_original_refuses_unsafe_files(tmp_path: Path, condition: str) -> 
         path.write_bytes(b"x" * (16 * 1024 * 1024 + 1))
 
     assert store.read_original("happy") is None
+
+
+def test_restart_removes_legacy_preview_files_without_deleting_originals(tmp_path: Path) -> None:
+    directory = tmp_path / "display-assets"
+    originals = directory / "originals"
+    originals.mkdir(parents=True)
+    (originals / "happy.json").write_bytes(b"saved")
+    legacy = directory / ("a" * 32 + ".bin")
+    legacy.write_bytes(b"converted")
+
+    store = DisplayAssetPreviews(directory / "previews", FakeDisplayAssetConverterPort())
+
+    assert not legacy.exists()
+    assert store.read_original("happy") == (b"saved", "application/json")

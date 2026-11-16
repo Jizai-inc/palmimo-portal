@@ -44,6 +44,9 @@ class DisplayAssetPreviews:
                 shutil.rmtree(path)
             else:
                 path.unlink()
+        for path in self.directory.parent.iterdir():
+            if re.fullmatch(r"[0-9a-f]{32}\.bin", path.name):
+                path.unlink()
         if self.originals.is_dir() and not self.originals.is_symlink():
             for path in self.originals.iterdir():
                 if re.match(r"\.[0-9a-f]{32}(?:-|\.)", path.name):

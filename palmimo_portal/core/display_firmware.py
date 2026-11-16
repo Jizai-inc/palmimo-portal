@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import socket
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from itertools import chain
 from typing import Literal
@@ -117,7 +118,9 @@ def retry_preempted_app(deps: StartDeps) -> None:
         return
 
 
-def run_display_firmware(deps: StartDeps, platform: PlatformPort) -> DisplayFirmwareResult:
+def run_display_firmware(
+    deps: StartDeps, platform: PlatformPort, *, on_writing: Callable[[bool], None] = lambda active: None
+) -> DisplayFirmwareResult:
     try:
         with deps.state.lock_run(timeout_s=3):
             if deps.wifi_setup_active():
@@ -157,7 +160,11 @@ def run_display_firmware(deps: StartDeps, platform: PlatformPort) -> DisplayFirm
                             return DisplayFirmwareResult(result="busy", reason="app did not stop within 20 seconds")
                         time.sleep(0.1)
                     break
-                result = platform.ensure_display_firmware()
+                on_writing(True)
+                try:
+                    result = platform.ensure_display_firmware()
+                finally:
+                    on_writing(False)
                 selection = platform.read_display_firmware_selection()
                 if result.result in {"current", "updated"} and selection is not None and selection.protocol == 2:
                     try:

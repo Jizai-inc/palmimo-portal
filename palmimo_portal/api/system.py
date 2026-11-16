@@ -221,9 +221,15 @@ def put_checklist(body: ChecklistState, state: StateStore = Depends(get_state_st
 
 
 def _refuse_while_updating(
-    state: StateStore, runner_alive: bool, platform_runner_alive: bool, start_runner_alive: bool = False
+    state: StateStore,
+    runner_alive: bool,
+    platform_runner_alive: bool,
+    start_runner_alive: bool = False,
+    startup_display_writing: bool = False,
 ) -> None:
     """Use self-healing Portal state so an abandoned runner cannot block power operations forever."""
+    if startup_display_writing:
+        raise PortalError(409, "platform_update_in_progress")
     app_job = state.read_apps_state().current_job
     if start_runner_alive and app_job and app_job.kind == "start" and app_job.step == "firmware":
         raise PortalError(409, "platform_update_in_progress")
@@ -257,6 +263,7 @@ def reboot(
         request.app.state.update_runner_alive.is_set(),
         request.app.state.platform_job_runner.is_alive(),
         request.app.state.start_job_runner.is_alive(),
+        request.app.state.startup_display_writing.is_set(),
     )
     system.reboot()
     return StatusResponse()
@@ -281,6 +288,7 @@ def shutdown(
         request.app.state.update_runner_alive.is_set(),
         request.app.state.platform_job_runner.is_alive(),
         request.app.state.start_job_runner.is_alive(),
+        request.app.state.startup_display_writing.is_set(),
     )
     system.shutdown()
     return StatusResponse()

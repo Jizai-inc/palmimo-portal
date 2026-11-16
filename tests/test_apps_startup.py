@@ -384,3 +384,50 @@ def test_periodic_recovery_defers_stopping_unit_without_waiting(
         startup_app.state.periodic_scheduler.tick()
         assert adapters.app_unit.start_calls == ["face"]
         assert adapters.state.read_preempted_app() is None
+
+
+@pytest.mark.parametrize("operation", ["reboot", "shutdown"])
+@pytest.mark.parametrize(("phase", "fail"), [("firmware", False), ("firmware", True), ("assets", False)])
+def test_initial_firmware_maintenance_blocks_power_only_while_writing(
+    startup_app: FastAPI, monkeypatch: pytest.MonkeyPatch, operation: str, phase: str, fail: bool
+) -> None:
+    from palmimo_portal.ports import DisplayFirmwareResult, DisplaySyncResult
+
+    startup_app.state.settings = replace(startup_app.state.settings, startup_run_in_thread=True)
+    adapters: FakeAdapterBundle = startup_app.state.adapters
+    adapters.saved_networks.save("home", "", first=False)
+    entered, release = threading.Event(), threading.Event()
+
+    def ensure() -> DisplayFirmwareResult:
+        if phase == "firmware":
+            entered.set()
+            assert release.wait(5)
+        if fail:
+            raise RuntimeError("write failed")
+        return DisplayFirmwareResult("current")
+
+    def sync(app_id: str | None) -> DisplaySyncResult:
+        if phase == "assets":
+            entered.set()
+            assert release.wait(5)
+        return DisplaySyncResult("synced", (), (), None)
+
+    monkeypatch.setattr(adapters.platform, "ensure_display_firmware", ensure)
+    monkeypatch.setattr(adapters.platform, "sync_display_assets", sync)
+    headers = {"X-Requested-With": "PalmimoPortal"}
+    with TestClient(startup_app) as client:
+        try:
+            assert entered.wait(3)
+            client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=headers)
+            client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=headers)
+            response = client.post(f"/api/v1/system/{operation}", headers=headers)
+            assert response.status_code == (409 if phase == "firmware" else 200)
+            if phase == "firmware":
+                assert response.json()["error"]["code"] == "platform_update_in_progress"
+            assert getattr(adapters.system, f"{operation}_calls") == (0 if phase == "firmware" else 1)
+        finally:
+            release.set()
+            startup_app.state.startup_thread.join(3)
+        assert not startup_app.state.startup_thread.is_alive()
+        assert client.post(f"/api/v1/system/{operation}", headers=headers).status_code == 200
+        assert getattr(adapters.system, f"{operation}_calls") == (1 if phase == "firmware" else 2)

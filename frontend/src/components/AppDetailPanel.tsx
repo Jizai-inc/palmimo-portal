@@ -27,6 +27,7 @@ import type { PublicUpdateSourceInfo, AppDetailResponse, ParamSpecInfo, SourceUp
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { appIdNamePart } from "@/components/AppIdLabel";
 import { AppStartDialogs } from "@/components/AppStartDialogs";
+import { DisplayAssetPreview, DisplayPreviewNote } from "@/components/DisplayAssetPreview";
 import { DisplayFirmwareAlert } from "@/components/DisplayFirmwareAlert";
 import { useAppStart } from "@/lib/useAppStart";
 import { AppJobDialog } from "@/components/AppJobDialog";
@@ -172,6 +173,16 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
       </div>
       <AppStartDialogs start={startApp} />
       <DisplayFirmwareAlert firmware={app.display_firmware} />
+      {(app.display_assets?.length ?? 0) > 0 && <section className="flex flex-col gap-3">
+        <h2 className="font-semibold">{t("displayPreview.assets")}</h2>
+        <DisplayPreviewNote />
+        <ul className="flex flex-wrap gap-4">
+          {app.display_assets?.map((name) => <li key={name} className="flex flex-col items-center gap-1">
+            <DisplayAssetPreview src={`/api/v1/apps/${encodeURIComponent(id)}/assets/${encodeURIComponent(name)}/source?v=${encodeURIComponent(app.source.commit ?? app.installed_at ?? "")}-${updateCompleted}`} label={name} />
+            <span className="text-xs">{name}</span>
+          </li>)}
+        </ul>
+      </section>}
       <ApiErrorAlert error={startApp.error} />
       <ApiErrorAlert error={stopApp.error} />
 

@@ -223,3 +223,22 @@ it("retains the loaded list with an error when the post-save refetch is busy", a
   expect(screen.getByLabelText(i18n.t("settings.display.chooseFile", { name: text("settings.display.names.happy") }))).toBeVisible();
   expect(screen.getByText("retired")).toBeVisible();
 });
+
+it("reloads the visual source after a replacement is saved", async () => {
+  const user = userEvent.setup();
+  stubList();
+  const sources: string[] = [];
+  server.use(
+    http.get("*/api/v1/display-assets/standard/happy/source", ({ request }) => {
+      sources.push(new URL(request.url).searchParams.get("v") ?? "");
+      return new HttpResponse(null, { status: 404 });
+    }),
+    http.post("*/api/v1/display-assets/standard/happy/preview", () => HttpResponse.json(preview)),
+    http.put("*/api/v1/display-assets/standard/happy", () => HttpResponse.json({ sync: { result: "synced", put: [], deleted: [], reason: null } })),
+  );
+  renderWithProviders(<DisplayAssetsPanel />);
+  await waitFor(() => expect(sources).toEqual(["0"]));
+  const dialog = await upload(user);
+  await user.click(within(dialog).getByRole("button", { name: text("settings.display.save") }));
+  await waitFor(() => expect(sources).toEqual(["0", "1"]));
+});

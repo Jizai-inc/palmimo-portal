@@ -431,3 +431,60 @@ def test_initial_firmware_maintenance_blocks_power_only_while_writing(
         assert not startup_app.state.startup_thread.is_alive()
         assert client.post(f"/api/v1/system/{operation}", headers=headers).status_code == 200
         assert getattr(adapters.system, f"{operation}_calls") == (1 if phase == "firmware" else 2)
+
+
+@pytest.mark.parametrize("owner", ["wifi-setup", "display-firmware"])
+@pytest.mark.parametrize("operation", ["reboot", "shutdown"])
+@pytest.mark.parametrize("outcome", ["success", "error", "cancel"])
+def test_recovery_firmware_writes_block_power_and_release_on_every_exit(
+    startup_app: FastAPI, monkeypatch: pytest.MonkeyPatch, owner: str, operation: str, outcome: str
+) -> None:
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+
+    from palmimo_portal.core.display_firmware import restore_preempted_app
+    from palmimo_portal.ports import DisplayFirmwareSelection
+
+    install(startup_app, "face")
+    adapters: FakeAdapterBundle = startup_app.state.adapters
+    adapters.platform.display_firmware_selection = DisplayFirmwareSelection(2, "initial")
+    entered, release = threading.Event(), threading.Event()
+
+    def ensure() -> DisplayFirmwareResult:
+        entered.set()
+        assert release.wait(5)
+        if outcome == "error":
+            raise RuntimeError("write failed")
+        if outcome == "cancel":
+            raise asyncio.CancelledError
+        return DisplayFirmwareResult("current")
+
+    monkeypatch.setattr(adapters.platform, "ensure_display_firmware", ensure)
+    headers = {"X-Requested-With": "PalmimoPortal"}
+    with TestClient(startup_app) as client:
+        client.post("/api/v1/auth/setup", json={"password": "hunter2"}, headers=headers)
+        adapters.saved_networks.save("home", "", first=False)
+        client.post("/api/v1/auth/login", json={"password": "hunter2"}, headers=headers)
+        adapters.state.write_preempted_app(PreemptedApp("face", owner))
+
+        def restore() -> None:
+            try:
+                if owner == "wifi-setup":
+                    startup_app.state.wifi_setup.apps.restore(hold=False)
+                else:
+                    restore_preempted_app(startup_app.state.start_deps)
+            except asyncio.CancelledError:
+                pass
+
+        with ThreadPoolExecutor() as pool:
+            work = pool.submit(restore)
+            try:
+                assert entered.wait(3)
+                response = client.post(f"/api/v1/system/{operation}", headers=headers)
+                assert response.status_code == 409
+                assert response.json()["error"]["code"] == "platform_update_in_progress"
+                assert getattr(adapters.system, f"{operation}_calls") == 0
+            finally:
+                release.set()
+                work.result(timeout=5)
+        assert client.post(f"/api/v1/system/{operation}", headers=headers).status_code == 200

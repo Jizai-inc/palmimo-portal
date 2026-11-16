@@ -720,15 +720,7 @@ def _startup_sequence(
         if not app.state.startup_display_ensure.is_set():
             try:
                 with deps.state.lock_apps():
-                    result = run_display_firmware(
-                        deps,
-                        adapters.platform,
-                        on_writing=lambda active: (
-                            app.state.startup_display_writing.set()
-                            if active
-                            else app.state.startup_display_writing.clear()
-                        ),
-                    )
+                    result = run_display_firmware(deps, adapters.platform)
                 if result.result not in {"current", "updated"}:
                     logger.warning(
                         "startup: initial display maintenance result=%s reason=%s", result.result, result.reason
@@ -890,7 +882,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     app.state.startup_display_ensure = threading.Event()
-    app.state.startup_display_writing = threading.Event()
     app.state.start_deps = StartDeps(
         state=adapters.state,
         apps_job_ctx=app.state.apps_job_context,

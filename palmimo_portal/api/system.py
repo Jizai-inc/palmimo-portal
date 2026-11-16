@@ -225,10 +225,10 @@ def _refuse_while_updating(
     runner_alive: bool,
     platform_runner_alive: bool,
     start_runner_alive: bool = False,
-    startup_display_writing: bool = False,
+    firmware_writing: bool = False,
 ) -> None:
     """Use self-healing Portal state so an abandoned runner cannot block power operations forever."""
-    if startup_display_writing:
+    if firmware_writing:
         raise PortalError(409, "platform_update_in_progress")
     app_job = state.read_apps_state().current_job
     if start_runner_alive and app_job and app_job.kind == "start" and app_job.step == "firmware":
@@ -263,7 +263,7 @@ def reboot(
         request.app.state.update_runner_alive.is_set(),
         request.app.state.platform_job_runner.is_alive(),
         request.app.state.start_job_runner.is_alive(),
-        request.app.state.startup_display_writing.is_set(),
+        request.app.state.start_deps.firmware_activity.active,
     )
     system.reboot()
     return StatusResponse()
@@ -288,7 +288,7 @@ def shutdown(
         request.app.state.update_runner_alive.is_set(),
         request.app.state.platform_job_runner.is_alive(),
         request.app.state.start_job_runner.is_alive(),
-        request.app.state.startup_display_writing.is_set(),
+        request.app.state.start_deps.firmware_activity.active,
     )
     system.shutdown()
     return StatusResponse()

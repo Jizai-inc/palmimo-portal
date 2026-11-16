@@ -340,7 +340,7 @@ def test_finalize_after_simulated_crash_mid_install_marks_interrupted_and_omits_
     state_store.write_apps_state(AppsState(apps={}, current_job=crashed_job, current_job_app=ZIP_ID))
 
     manifest_exists, venv_exists = disk_state_checks(ctx, state_store.read_apps_state())
-    finalized = finalize_apps_state(
+    finalized, _ = finalize_apps_state(
         state_store.read_apps_state(), manifest_exists=manifest_exists, venv_exists=venv_exists, now=99.0
     )
 

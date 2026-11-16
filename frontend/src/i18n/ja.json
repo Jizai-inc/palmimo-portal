@@ -475,7 +475,16 @@
     "wifi_saved_active": "Palmimo はいまそのネットワークに接続しています。削除するには「このネットワークを忘れる」を使ってください。",
     "wifi_saved_order_mismatch": "保存済みのネットワークが変わりました。再読み込みしてやり直してください。",
     "display_firmware_unavailable": "このプラットフォームでは顔のファームを書き直せません。",
-    "display_recovery_pending": "顔ファームの復旧が終わっていません。Palmimo を再起動してから、もう一度アプリを起動してください。"
+    "display_recovery_pending": "顔ファームの復旧が終わっていません。Palmimo を再起動してから、もう一度アプリを起動してください。",
+    "display_busy": "顔ディスプレイを使用中です。処理が終わってから、もう一度試してください。",
+    "display_firmware_failed": "顔ファームを準備できませんでした。もう一度試してください。",
+    "display_sync_failed": "顔アセットを同期できませんでした。もう一度試してください。",
+    "display_asset_invalid": "この顔アセットは変換できませんでした。表示されたエラーを確認してください。",
+    "display_assets_require_v2": "顔アセットには顔ファーム 2 と顔ディスプレイへのアクセスが必要です。",
+    "display_capacity_exceeded": "顔アセットがディスプレイの保存容量を超えています。小さいアセットを使用してください。",
+    "display_asset_preview_expired": "プレビューの有効期限が切れました。もう一度ファイルをアップロードしてください。",
+    "manifest_schema_unsupported": "このアプリのマニフェスト形式には対応していません。Palmimo Portal を更新してください。",
+    "display_asset_unknown": "この標準顔アセットはもうありません。一覧を再読み込みしてください。"
   },
   "apps": {
     "tabsLabel": "アプリのセクション",
@@ -539,7 +548,17 @@
     "jobCompleted": "完了しました",
     "defaultBadge": "デフォルト",
     "missingKeysBadge": "API キーが必要",
-    "emptyStateBody": "公式アプリから始めるか、GitHub リポジトリや zip ファイルから自分のアプリを追加しましょう。"
+    "emptyStateBody": "公式アプリから始めるか、GitHub リポジトリや zip ファイルから自分のアプリを追加しましょう。",
+    "start": {
+      "confirmTitle": "{{name}}を起動しますか？",
+      "unknownFirmware": "顔ディスプレイの FW の書き換えに約 3 分かかることがあります。書き込みが始まると停止できません。",
+      "switchFirmware": "顔ディスプレイの FW を書き換えます。約 3 分かかり、書き込みが始まると停止できません。",
+      "confirm": "起動する",
+      "jobTitle": "{{name}}を起動中",
+      "stepFirmware": "顔ディスプレイの FW を確認・書き換え中（切り替え時は約 3 分）",
+      "stepAssets": "顔のアセットを転送中",
+      "stepLaunch": "起動中"
+    }
   },
   "appAdd": {
     "continueButton": "次へ",
@@ -719,5 +738,77 @@
   },
   "developer": {
     "pageDescription": "SSH アクセスと、非公開アプリ用の Git 認証情報"
+  },
+  "display": {
+    "firmware": {
+      "legacy": "旧 SDK",
+      "unavailable": "顔ディスプレイが見つからないため FW は確認できませんでした。",
+      "syncPending": "顔のアセットの同期を保留中（ディスプレイが使用中）",
+      "syncRunning": "顔のアセットを同期中",
+      "syncNow": "今すぐ同期",
+      "syncBusy": "ディスプレイが引き続き使用中のため、顔のアセットの同期を保留しています。",
+      "switchRequired": "起動すると顔の FW を書き換えます（約 3 分）。",
+      "switchUnknown": "起動すると顔の FW を書き換えることがあります（約 3 分）。"
+    }
+  },
+  "settings": {
+    "display": {
+      "title": "顔ディスプレイ",
+      "description": "標準の顔アニメーションを差し替えたり、標準に戻したりできます。",
+      "standard": "標準アセット",
+      "fileHint": "ファイルを選ぶと、保存前に変換結果を確認できます。上限は 16 MiB です。",
+      "empty": "標準の顔アセットがありません。",
+      "chooseFile": "{{name}} のファイルを選ぶ",
+      "overridden": "差し替え済み",
+      "reset": "標準に戻す",
+      "deleteOrphan": "差し替えを削除",
+      "orphans": "標準から消えたアセット",
+      "orphanDescription": "標準アセットがなくなった名前の差し替えです。削除のみできます。",
+      "previewing": "ファイルを変換・確認中…",
+      "saving": "保存・同期中…",
+      "save": "差し替えを保存",
+      "confirmTitle": "{{name}} を差し替えますか？",
+      "confirmDescription": "変換結果とディスプレイの保存容量への影響を確認してから保存してください。",
+      "converted": "変換後のアセット",
+      "sizeChange": "大きさの増減",
+      "size": "{{kb}} KiB",
+      "vector": "ベクターアニメーション",
+      "image": "画像",
+      "gif": "GIF",
+      "paramsLost": "次のパラメータが使えなくなります：",
+      "warnings": "変換の警告",
+      "capacityExceeded": "ディスプレイの保存容量が {{size}} 不足します。小さいファイルを選んでください。",
+      "appsNoLongerFit": "次のアプリが収まらなくなります：",
+      "resetTitle": "{{name}} を標準に戻しますか？",
+      "resetDescription": "差し替えを削除します。標準アセットがあれば、標準の内容に戻ります。",
+      "confirmReset": "差し替えを削除",
+      "fileTooLarge": "16 MiB 以下のファイルを選んでください。",
+      "syncBusy": "保存しました。ディスプレイを使用中のため、空いたときに同期を再試行します。",
+      "syncSkipped": "保存しました。アセットはまだディスプレイに転送されていません。",
+      "syncFailed": "保存しましたが、同期できませんでした。もう一度保存するか、標準に戻してください。",
+      "syncDone": "保存し、ディスプレイに同期しました。",
+      "names": {
+        "happy": "うれしい",
+        "shy": "照れる",
+        "excited": "わくわく",
+        "surprise": "びっくり",
+        "curious": "興味津々",
+        "thinking": "考え中",
+        "angry": "怒る",
+        "sad": "悲しい",
+        "sleepy": "眠い",
+        "love": "大好き",
+        "sleeping": "眠っている",
+        "maru": "まる",
+        "batsu": "ばつ",
+        "groove": "ノリノリ",
+        "systemIdle": "待機画面",
+        "systemSleep": "スリープ画面",
+        "systemWake": "起動画面"
+      },
+      "rasterWarning": "画像や GIF では色などのパラメータが効かなくなります。",
+      "deleteTitle": "{{name}} の差し替えを削除しますか？",
+      "deleteDescription": "この名前の標準アセットはありません。保存された差し替えを削除します。"
+    }
   }
 }

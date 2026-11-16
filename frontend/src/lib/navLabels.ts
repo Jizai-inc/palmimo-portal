@@ -21,6 +21,8 @@ export function navLabel(t: TFunction, labelKey: NavItem["labelKey"]): string {
       return t("nav.settings");
     case "nav.network":
       return t("nav.network");
+    case "settings.display.title":
+      return t("settings.display.title");
     case "nav.secrets":
       return t("nav.secrets");
     case "nav.softwareUpdate":
@@ -40,6 +42,8 @@ export function navDescription(t: TFunction, descriptionKey: NavItem["descriptio
       return t("nav.appsDescription");
     case "nav.networkDescription":
       return t("nav.networkDescription");
+    case "settings.display.description":
+      return t("settings.display.description");
     case "nav.secretsDescription":
       return t("nav.secretsDescription");
     case "nav.softwareUpdateDescription":

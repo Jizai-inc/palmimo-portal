@@ -38,6 +38,11 @@ from collections.abc import Callable
 from dataclasses import replace
 
 from palmimo_portal.core import apps as apps_core
+from palmimo_portal.core.apps_assets import (
+    DisplayAssetConversionError,
+    DisplayAssetsRequireV2Error,
+    DisplayCapacityError,
+)
 from palmimo_portal.core.apps_jobs import (
     AppsJobContext,
     PreparedInstall,
@@ -45,12 +50,14 @@ from palmimo_portal.core.apps_jobs import (
     _purge_uv_cache,
     commit_install,
     delete_from_ledger,
+    discard_install_assets,
     purge_app_files,
     purge_path,
     update_git,
 )
 from palmimo_portal.core.apps_start import RUNNING_ACTIVE_STATES, AppRunningError, derive_run_status
 from palmimo_portal.core.legacy_official import is_retired_official
+from palmimo_portal.core.manifest import ManifestSchemaUnsupportedError, ManifestValidationError
 from palmimo_portal.core.public_catalog import (
     PublicAppChangedError,
     PublicAppInstalledError,
@@ -70,6 +77,7 @@ from palmimo_portal.ports import (
     AppsLockTimeoutError,
     AppsState,
     AppUnitPort,
+    DisplayBusyError,
     GitCommandError,
     PolkitDeniedError,
     StateStore,
@@ -91,6 +99,14 @@ _ADAPTER_ERROR_CODE = "sync_unit_uncontained"
 
 
 def _job_error_code(error: Exception) -> str | None:
+    if isinstance(error, ManifestSchemaUnsupportedError):
+        return error.code
+    if isinstance(error, (DisplayAssetConversionError, DisplayAssetsRequireV2Error, DisplayCapacityError)):
+        return error.code
+    if isinstance(error, DisplayBusyError):
+        return "display_busy"
+    if isinstance(error, ManifestValidationError):
+        return "manifest_invalid"
     if isinstance(error, PublicAppUnavailableError):
         return "public_app_unavailable"
     if isinstance(error, GitCommandError):
@@ -123,6 +139,7 @@ def _merge_job_record(current: AppRecord | None, job_record: AppRecord) -> AppRe
         broken_reason=job_record.broken_reason,
         manifest=job_record.manifest,
         requires_python=job_record.requires_python,
+        display_firmware=job_record.display_firmware,
     )
 
 
@@ -216,8 +233,13 @@ class AppsJobRunner:
                 latest = self._state.read_apps_state()
                 try:
                     _new_state, record = commit_install(self._ctx, latest, prepared, started, on_step)
-                    self._write_own_record(name, record)
-                    self._finish_registration(name)
+                    try:
+                        self._write_own_record(name, record)
+                        self._finish_registration(name)
+                    except BaseException:
+                        if prepared.manifest.assets and name not in self._state.read_apps_state().apps:
+                            discard_install_assets(self._ctx, name)
+                        raise
                     finished = record.last_job or job
                     result["job"] = finished
                     logger.info(

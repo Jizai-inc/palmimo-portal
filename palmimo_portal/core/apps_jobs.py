@@ -50,12 +50,14 @@ from palmimo_portal.core.apps import (
     resolve_subdir,
     suggest_app_name,
 )
+from palmimo_portal.core.apps_assets import ASSETS_LOCK_TIMEOUT_SECONDS, asset_source_path, stage_display_assets
 from palmimo_portal.core.apps_layout import LayoutPaths, resolve_layout
 from palmimo_portal.core.apps_zip import UPLOAD_MAX_BYTES, extract_zip_to_staging
 from palmimo_portal.core.legacy_official import is_retired_official
 from palmimo_portal.core.manifest import (
     DEFAULT_MANIFEST_FILENAME,
     Manifest,
+    ManifestValidationError,
     manifest_from_snapshot,
     manifest_snapshot,
     parse_manifest,
@@ -70,6 +72,7 @@ from palmimo_portal.core.public_catalog import (
 )
 from palmimo_portal.core.secrets import mask_authorization_lines
 from palmimo_portal.ports import (
+    AppEnvironmentPort,
     AppExistsError,
     AppJob,
     AppNotFoundError,
@@ -81,9 +84,12 @@ from palmimo_portal.ports import (
     AppUnitPort,
     DiskFullError,
     DiskPort,
+    DisplayAssetConverterPort,
+    DisplaySyncPending,
     GitPort,
     InvalidManifestSourceError,
     JournalPort,
+    PlatformPort,
     PublicCatalogApp,
     RunDirPort,
     SecretsStore,
@@ -140,6 +146,9 @@ class AppsJobContext:
     run_dir: RunDirPort | None = None
     public_catalog_cache: PublicCatalogCache | None = None
     public_catalog_url: str | None = None
+    app_environment: AppEnvironmentPort | None = None
+    asset_converter: DisplayAssetConverterPort | None = None
+    platform: PlatformPort | None = None
 
     @property
     def staging_dir(self) -> Path:
@@ -395,7 +404,20 @@ def _read_manifest(project_dir: Path, manifest_filename: str = DEFAULT_MANIFEST_
     manifest_path = project_dir / manifest_filename
     if not manifest_path.is_file():
         raise InvalidManifestSourceError(f"{manifest_filename} not found in {project_dir}")
-    manifest = parse_manifest(manifest_path.read_text(encoding="utf-8"))
+
+    def read_include(path: str) -> str:
+        try:
+            with asset_source_path(project_dir, path).open("rb") as stream:
+                content = stream.read(65_537)
+            if len(content) > 65_536:
+                raise ValueError("asset include exceeds 64 KiB")
+            return content.decode("utf-8")
+        except (OSError, ValueError) as error:
+            raise ManifestValidationError([f"invalid asset include: {error}"]) from error
+
+    manifest = parse_manifest(manifest_path.read_text(encoding="utf-8"), read_include=read_include)
+    for asset in manifest.assets.values():
+        asset_source_path(project_dir, asset.file)
     return replace(manifest, translations=_read_translations(project_dir, manifest_filename))
 
 
@@ -865,34 +887,59 @@ def commit_install(
         prepared.install_root,
         prepared.requires_python,
     )
-    on_step("swap")
-    dest = ctx.app_dir(app_id)
-    prepared.install_root.rename(dest)
-    on_step("register")
-    job = AppJob(
-        id=prepared.job_id,
-        kind="install",
-        state="done",
-        step="register",
-        error=None,
-        started_at=started,
-        finished_at=ctx.now(),
-        display_name=prepared.manifest.name,
-        lock_generated=lock_generated,
+    need = stage_display_assets(
+        ctx,
+        prepared.manifest,
+        app_id,
+        prepared.project_dir,
+        prepared.staging_container,
+        had_assets=False,
+        on_step=on_step,
     )
-    record = AppRecord(
-        name=prepared.manifest.name,
-        source=replace(prepared.source, commit=prepared.commit),
-        installed_at=ctx.now(),
-        params={},
-        autostart=False,
-        last_job=job,
-        manifest=manifest_snapshot(prepared.manifest),
-        requires_python=prepared.requires_python,
-        id=app_id,
-    )
-    new_state = AppsState(apps={**state.apps, app_id: record})
-    return new_state, record
+    try:
+        on_step("swap")
+        dest = ctx.app_dir(app_id)
+        prepared.install_root.rename(dest)
+        on_step("register")
+        job = AppJob(
+            id=prepared.job_id,
+            kind="install",
+            state="done",
+            step="register",
+            error=None,
+            started_at=started,
+            finished_at=ctx.now(),
+            display_name=prepared.manifest.name,
+            lock_generated=lock_generated,
+        )
+        record = AppRecord(
+            name=prepared.manifest.name,
+            source=replace(prepared.source, commit=prepared.commit),
+            installed_at=ctx.now(),
+            params={},
+            autostart=False,
+            last_job=job,
+            manifest=manifest_snapshot(prepared.manifest),
+            requires_python=prepared.requires_python,
+            id=app_id,
+            display_firmware=need,
+        )
+        new_state = AppsState(apps={**state.apps, app_id: record})
+        return new_state, record
+    except BaseException:
+        if prepared.manifest.assets:
+            discard_install_assets(ctx, app_id)
+        raise
+
+
+def discard_install_assets(ctx: AppsJobContext, app_id: str) -> None:
+    if ctx.state is None or ctx.platform is None:
+        return
+    try:
+        with ctx.state.lock_run(timeout_s=ASSETS_LOCK_TIMEOUT_SECONDS):
+            ctx.platform.uninstall_display_assets(app_id)
+    except Exception as error:
+        logger.warning("apps: failed install left display assets app=%s reason=%s", app_id, error)
 
 
 def install_zip(
@@ -1004,23 +1051,49 @@ def update_git(
             ctx, job_id, record.id, staging_container, layout, staging_container, requires_python
         )
 
-        # Computed before the swap (the dropped set depends on the new manifest, fetched
-        # above) but only ever written at "register", after a successful swap -- a failed
-        # swap must leave the existing bindings completely intact, not partially dropped
-        # for an app whose old tree (and old manifest) is still the one running.
-        dropped_bindings, dropped_params, kept_bindings = _reconcile_dropped(ctx, name, manifest, record.params)
+        need = stage_display_assets(
+            ctx,
+            manifest,
+            name,
+            project_dir,
+            staging_container,
+            had_assets=bool(record.manifest and record.manifest.get("assets")),
+            on_step=on_step,
+        )
 
-        on_step("swap")
-        swap_lock = _ensure_not_running_before_swap(ctx, name)
         try:
-            dest = ctx.app_dir(name)
-            trash = ctx.trash_dir / job_id
-            if dest.exists():
-                ctx.trash_dir.mkdir(parents=True, exist_ok=True)
-                dest.rename(trash)
-            staging_container.rename(dest)
-        finally:
-            swap_lock.__exit__(None, None, None)
+            # Computed before the swap (the dropped set depends on the new manifest, fetched
+            # above) but only ever written at "register", after a successful swap -- a failed
+            # swap must leave the existing bindings completely intact, not partially dropped
+            # for an app whose old tree (and old manifest) is still the one running.
+            dropped_bindings, dropped_params, kept_bindings = _reconcile_dropped(ctx, name, manifest, record.params)
+
+            on_step("swap")
+            swap_lock = _ensure_not_running_before_swap(ctx, name)
+            try:
+                dest = ctx.app_dir(name)
+                trash = ctx.trash_dir / job_id
+                if dest.exists():
+                    ctx.trash_dir.mkdir(parents=True, exist_ok=True)
+                    dest.rename(trash)
+                try:
+                    staging_container.rename(dest)
+                except Exception:
+                    if trash.exists() and not dest.exists():
+                        try:
+                            trash.rename(dest)
+                        except OSError:
+                            logger.warning("apps: old tree could not be restored app=%s", name)
+                    raise
+            finally:
+                swap_lock.__exit__(None, None, None)
+        except Exception:
+            if manifest.assets or (record.manifest and record.manifest.get("assets")):
+                old_tree = ctx.app_dir(name)
+                if not old_tree.exists():
+                    old_tree = ctx.trash_dir / job_id
+                _restore_update_assets(ctx, record, old_tree, staging_container)
+            raise
         on_step("register")
         if dropped_bindings:
             ctx.secrets.write_bindings(name, kept_bindings)
@@ -1055,6 +1128,7 @@ def update_git(
             manifest=manifest_snapshot(manifest),
             requires_python=requires_python,
             id=record.id,
+            display_firmware=need,
         )
         on_registered(new_record)
         leftover = purge_path(ctx, trash)
@@ -1074,6 +1148,26 @@ def update_git(
     finally:
         if not uncontained:
             purge_path(ctx, staging_container)
+
+
+def _restore_update_assets(ctx: AppsJobContext, record: AppRecord, old_tree: Path, staging: Path) -> None:
+    directory = staging / ".asset-rollback"
+    try:
+        project = resolve_subdir(old_tree, record.source.subdir)
+        manifest = (
+            manifest_from_snapshot(record.manifest)
+            if record.manifest is not None
+            else _read_manifest(project, _manifest_filename_for(record.source))
+        )
+        directory.mkdir(parents=True, exist_ok=True)
+        stage_display_assets(ctx, manifest, record.id, project, directory, had_assets=True, on_step=_no_step)
+    except Exception as error:
+        logger.warning("apps: display assets could not be restored app=%s reason=%s", record.id, error)
+        if ctx.state is not None and ctx.platform is not None:
+            try:
+                ctx.state.write_display_sync(DisplaySyncPending(True, str(error), ctx.platform.read_boot_id()))
+            except OSError:
+                logger.warning("display sync record could not be written")
 
 
 def _reconcile_dropped(
@@ -1126,6 +1220,12 @@ def purge_app_files(ctx: AppsJobContext, name: str, on_step: Callable[[str], Non
             dest.rename(trash)
         finally:
             swap_lock.__exit__(None, None, None)
+    if ctx.platform is not None and ctx.state is not None:
+        try:
+            with ctx.state.lock_run(timeout_s=ASSETS_LOCK_TIMEOUT_SECONDS):
+                ctx.platform.uninstall_display_assets(name)
+        except Exception as error:
+            logger.warning("apps: could not uninstall display assets app=%s: %s", name, error)
     ctx.secrets.delete_bindings(name)
     if ctx.run_dir is not None:
         ctx.run_dir.remove(name)

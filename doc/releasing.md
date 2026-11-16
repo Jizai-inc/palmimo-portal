@@ -22,7 +22,8 @@ Updater.
 ## 2. Before tagging
 
 1. Bump `version` in `pyproject.toml`.
-2. Merge it, and confirm CI is green on `main`.
+2. Publish the required platform bundle and upstream specifications before the Portal release that depends on them.
+3. Merge the version bump, and confirm CI is green on `main`.
 
 ## 3. Tag and push
 
@@ -31,7 +32,7 @@ git tag -a vX.Y.Z -m "vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
-Tag the merged commit from step 2 above.
+Tag the merged commit from step 3 above.
 
 Who may do this: every member of the GitHub organization has write access
 to this repository, and write access is all it takes to push a tag, run

@@ -155,10 +155,11 @@ class WifiSetupApps:
                             replace(self.deps, before_start=lambda devices: None, platform_ready=lambda: True),
                             name,
                             host=self.hostname,
+                            origin="restore",
                         )
                         result = "started"
                 except AppStartError as error:
-                    if error.code in {"app_busy", "app_job_in_progress"}:
+                    if error.code in {"app_busy", "app_job_in_progress", "display_busy"}:
                         return False
                     result = "failed"
                     logger.warning("wifi-setup: cannot restore app=%s", name)

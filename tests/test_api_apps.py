@@ -19,12 +19,14 @@ from starlette.testclient import TestClient
 
 from palmimo_portal.api.apps import _read_upload_bounded
 from palmimo_portal.api.errors import PortalError
+from palmimo_portal.core.manifest import manifest_snapshot, parse_manifest
 from palmimo_portal.core.periodic import run_git_check_sweep
 from palmimo_portal.ports import (
     AppJob,
     AppRecord,
     AppSource,
     AppsState,
+    DisplayFirmwareNeed,
     GitCommandError,
     UnitStatus,
     UpdateJob,
@@ -112,6 +114,7 @@ def settings(tmp_path: Path) -> Settings:
         uv_cache_dir=tmp_path / "uv-cache",
         platform_dir=platform_dir,
         apps_run_in_thread=False,
+        start_run_in_thread=False,
     )
 
 
@@ -141,6 +144,32 @@ def _install_zip(client: TestClient, name: str = "palmimo-teleop") -> httpx.Resp
     return client.post(
         "/api/v1/apps/install", files={"file": ("app.zip", _zip_bytes(name), "application/zip")}, headers=CSRF_HEADERS
     )
+
+
+@pytest.mark.parametrize("need", [None, "none", "1", "2"])
+def test_app_list_and_detail_report_display_requirements(
+    client: TestClient, adapters: FakeAdapterBundle, need: DisplayFirmwareNeed | None
+) -> None:
+    client = _authenticated_client(client, adapters)
+    assert _install_zip(client).status_code == 202
+    state = adapters.state.read_apps_state()
+    manifest = parse_manifest(
+        'schema = 2\nname = "palmimo-teleop"\ndescription = "d"\ncommand = ["run"]\n'
+        '[assets.wave]\nfile = "wave.json"\ndescription = "Wave"\n'
+        '[assets.blink]\nfile = "blink.gif"\ndescription = "Blink"\n'
+        if need == "2"
+        else 'schema = 1\nname = "palmimo-teleop"\ndescription = "d"\ncommand = ["run"]\n'
+    )
+    record = replace(state.apps[ZIP_TELEOP_ID], display_firmware=need, manifest=manifest_snapshot(manifest))
+    adapters.state.write_apps_state(replace(state, apps={ZIP_TELEOP_ID: record}))
+
+    listed = client.get("/api/v1/apps")
+    detail = client.get(f"/api/v1/apps/{ZIP_TELEOP_ID}")
+
+    assert listed.status_code == detail.status_code == 200
+    for payload in (listed.json()["apps"][0], detail.json()):
+        assert payload["display_firmware"] == need
+        assert payload["display_assets"] == (["blink", "wave"] if need == "2" else [])
 
 
 def _zip_bytes_with_two_manifests() -> bytes:
@@ -244,6 +273,7 @@ def test_list_apps_shows_a_deleting_row_after_the_ledger_entry_is_removed(
                 "step": "cleanup",
                 "error": None,
                 "error_code": None,
+                "warning": None,
                 "started_at": 1,
                 "finished_at": None,
                 "lock_generated": False,
@@ -265,6 +295,8 @@ def test_list_apps_shows_a_deleting_row_after_the_ledger_entry_is_removed(
             "reason": None,
             "url": None,
             "missing_env": [],
+            "display_firmware": None,
+            "display_assets": [],
         }
     ]
 
@@ -952,7 +984,8 @@ def test_start_returns_202_and_starts_the_unit_once_prechecks_pass(
     response = client.post(f"/api/v1/apps/{ZIP_TELEOP_ID}/start", headers=CSRF_HEADERS)
 
     assert response.status_code == 202
-    assert response.json() == {"status": "activating"}
+    assert response.json()["job"]["kind"] == "start"
+    assert response.json()["job"]["state"] == "done"
     assert adapters.app_unit.start_calls == [ZIP_TELEOP_ID]
 
 
@@ -974,7 +1007,7 @@ def test_start_returns_409_app_running_naming_the_already_active_app(
     assert body["params"]["running"] == "zip.palmimo-other"
 
 
-def test_start_returns_503_polkit_denied_when_systemd_refuses(
+def test_start_job_records_polkit_denied_when_systemd_refuses(
     client: TestClient, adapters: FakeAdapterBundle, settings: Settings
 ) -> None:
     from palmimo_portal.ports import PolkitDeniedError
@@ -986,13 +1019,12 @@ def test_start_returns_503_polkit_denied_when_systemd_refuses(
 
     response = client.post("/api/v1/apps/zip.palmimo-teleop/start", headers=CSRF_HEADERS)
 
-    # Distinguishing this from a generic 503 backend failure is the point of the code, not
-    # any wording it carries.
-    assert response.status_code == 503
-    assert response.json()["error"]["code"] == "polkit_denied"
+    assert response.status_code == 202
+    assert response.json()["job"]["state"] == "failed"
+    assert response.json()["job"]["error_code"] == "polkit_denied"
 
 
-def test_start_returns_500_start_failed_with_journal_tail_on_unexpected_unit_error(
+def test_start_job_records_start_failed_with_journal_on_unexpected_unit_error(
     client: TestClient, adapters: FakeAdapterBundle, settings: Settings
 ) -> None:
     from palmimo_portal.ports import JournalEntry
@@ -1007,10 +1039,11 @@ def test_start_returns_500_start_failed_with_journal_tail_on_unexpected_unit_err
 
     response = client.post("/api/v1/apps/zip.palmimo-teleop/start", headers=CSRF_HEADERS)
 
-    assert response.status_code == 500
-    body = response.json()["error"]
-    assert body["code"] == "start_failed"
-    assert body["params"]["journal_tail"] == ["boom"]
+    assert response.status_code == 202
+    body = response.json()["job"]
+    assert body["state"] == "failed"
+    assert body["error_code"] == "start_failed"
+    assert "boom" in body["error"]
 
 
 def test_start_failed_journal_tail_masks_a_registered_secret_value(
@@ -1029,8 +1062,9 @@ def test_start_failed_journal_tail_masks_a_registered_secret_value(
 
     response = client.post("/api/v1/apps/zip.palmimo-teleop/start", headers=CSRF_HEADERS)
 
-    assert response.status_code == 500
-    [line] = response.json()["error"]["params"]["journal_tail"]
+    assert response.status_code == 202
+    assert response.json()["job"]["error_code"] == "start_failed"
+    line = response.json()["job"]["error"]
     assert "sk-supersecret" not in line
     assert "***" in line
 
@@ -1556,3 +1590,92 @@ def test_deprecated_autostart_enable_keeps_at_most_one_app_on(client: TestClient
 
     apps = adapters.state.read_apps_state().apps
     assert (apps["zip.app-a"].autostart, apps["zip.app-b"].autostart) == (False, True)
+
+
+def test_start_job_exposes_firmware_progress_and_blocks_power_until_finished(
+    client: TestClient, app: FastAPI, adapters: FakeAdapterBundle, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from palmimo_portal.core.apps_start_job import StartJobRunner
+    from palmimo_portal.ports import DisplayFirmwareResult
+
+    client = _authenticated_client(client, adapters)
+    _install_zip(client)
+    _touch_venv(settings, ZIP_TELEOP_ID)
+    record = adapters.state.read_apps_state().apps[ZIP_TELEOP_ID]
+    assert record.manifest is not None
+    record = replace(record, manifest={**record.manifest, "devices": ["motor_display"]})
+    adapters.state.write_apps_state(AppsState(apps={ZIP_TELEOP_ID: record}))
+    adapters.app_environment.display_firmware_need = "2"
+    entered, release = threading.Event(), threading.Event()
+
+    def ensure() -> DisplayFirmwareResult:
+        entered.set()
+        assert release.wait(5)
+        return DisplayFirmwareResult("absent")
+
+    monkeypatch.setattr(adapters.platform, "ensure_display_firmware", ensure)
+    runner = StartJobRunner(app.state.start_deps)
+    app.state.start_job_runner = runner
+    response = client.post(f"/api/v1/apps/{ZIP_TELEOP_ID}/start", headers=CSRF_HEADERS)
+    try:
+        assert response.status_code == 202
+        assert entered.wait(2)
+        job_id = response.json()["job"]["id"]
+        job = client.get(f"/api/v1/apps/jobs/{job_id}").json()
+        assert job["kind"] == "start" and job["step"] == "firmware" and job["state"] == "running"
+        assert client.get("/api/v1/apps").json()["apps"][0]["status"] == "starting"
+        for operation in ("reboot", "shutdown"):
+            result = client.post(f"/api/v1/system/{operation}", headers=CSRF_HEADERS)
+            assert result.status_code == 409
+            assert result.json()["error"]["code"] == "platform_update_in_progress"
+        assert client.post(f"/api/v1/apps/{ZIP_TELEOP_ID}/stop", headers=CSRF_HEADERS).status_code == 409
+    finally:
+        release.set()
+        deadline = time.monotonic() + 3
+        while runner.is_alive() and time.monotonic() < deadline:
+            time.sleep(0.01)
+    assert not runner.is_alive()
+    job = client.get(f"/api/v1/apps/jobs/{job_id}").json()
+    assert job["state"] == "done" and job["warning"] == "absent"
+    assert client.post("/api/v1/system/reboot", headers=CSRF_HEADERS).status_code == 200
+
+
+@pytest.mark.parametrize("endpoint", ["preview", "install"])
+def test_unsupported_manifest_schema_is_reported_to_api_clients(
+    client: TestClient, adapters: FakeAdapterBundle, endpoint: str
+) -> None:
+    client = _authenticated_client(client, adapters)
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr("palmimo.toml", 'schema = 3\nname = "palmimo-teleop"\ndescription = "d"\ncommand = ["run"]\n')
+        archive.writestr("pyproject.toml", "[project]\nname='app'\nversion='0'\n")
+
+    response = client.post(
+        f"/api/v1/apps/{endpoint}", files={"file": ("app.zip", buffer.getvalue())}, headers=CSRF_HEADERS
+    )
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "manifest_schema_unsupported"
+
+
+def test_update_job_reports_unsupported_manifest_schema(client: TestClient, adapters: FakeAdapterBundle) -> None:
+    client = _authenticated_client(client, adapters)
+    assert _install_zip(client).status_code == 202
+    state = adapters.state.read_apps_state()
+    record = state.apps[ZIP_TELEOP_ID]
+    record = replace(
+        record, source=replace(record.source, type="git", url="https://example.com/repo", ref="main", ref_kind="branch")
+    )
+    adapters.state.write_apps_state(replace(state, apps={ZIP_TELEOP_ID: record}))
+
+    def seed(dest: Path, url: str, ref: str, ref_kind: str) -> None:
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "palmimo.toml").write_text('schema=3\nname="palmimo-teleop"\ndescription="d"\ncommand=["run"]\n')
+        (dest / "pyproject.toml").write_text("[project]\nname='app'\nversion='0'\n")
+
+    adapters.git.on_clone = seed
+    response = client.post(f"/api/v1/apps/{ZIP_TELEOP_ID}/update", headers=CSRF_HEADERS)
+
+    assert response.status_code == 202
+    assert response.json()["job"]["state"] == "failed"
+    assert response.json()["job"]["error_code"] == "manifest_schema_unsupported"

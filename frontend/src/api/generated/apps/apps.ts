@@ -42,7 +42,6 @@ import type {
   PublicInstallRequest,
   PublicUpdateRequest,
   SourceUpdateRequest,
-  StartResponse,
   StopResponse,
   UpdateCheckResponse
 } from '../models';
@@ -1469,21 +1468,14 @@ export const usePutSourceApiV1AppsNameSourcePut = <TError = HTTPValidationError,
 }
 
 /**
- * Run the design doc 3.5 prechecks and start ``name``, changing nothing on any failure.
+ * Accept a start job after synchronous prechecks and display release.
  *
- * Raises:
- *     PortalError: 404 ``app_not_found``; 409 for every precheck refusal
- *         (``app_busy``, ``display_recovery_pending``, ``app_running``, ``manifest_invalid``,
- *         ``env_unbound``, ``params_missing``, ``params_invalid``,
- *         ``venv_missing``, ``platform_not_ready``); 503 ``polkit_denied``
- *         if systemd itself refuses the ``set-property``/``start`` verb;
- *         500 ``start_failed`` (with a ``journal_tail``) for any other
- *         error the unit start itself raises.
+ * Precheck refusals return 404 or 409. Failures after acceptance are recorded on the job.
  * @summary Start App Endpoint
  */
-export const startAppEndpointApiV1AppsNameStartPost = async (name: string, options?: RequestInit): Promise<StartResponse> => {
+export const startAppEndpointApiV1AppsNameStartPost = async (name: string, options?: RequestInit): Promise<AppJobAcceptedResponse> => {
 
-  return customFetch<StartResponse>(getStartAppEndpointApiV1AppsNameStartPostUrl(name),
+  return customFetch<AppJobAcceptedResponse>(getStartAppEndpointApiV1AppsNameStartPostUrl(name),
   {
     ...options,
     method: 'POST'

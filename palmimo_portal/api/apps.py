@@ -110,7 +110,6 @@ from palmimo_portal.core.apps_start import (
     missing_env,
     precheck_report,
     resolve_running_url,
-    start_app,
     stop_app,
     with_default_app,
 )
@@ -119,6 +118,7 @@ from palmimo_portal.core.legacy_official import is_retired_official, legacy_offi
 from palmimo_portal.core.manifest import (
     InvalidManifestFilenameError,
     Manifest,
+    ManifestSchemaUnsupportedError,
     ManifestValidationError,
     manifest_from_snapshot,
     validate_manifest_filename,
@@ -154,6 +154,7 @@ from palmimo_portal.ports import (
     ClockPort,
     DiskFullError,
     DiskPort,
+    DisplayFirmwareNeed,
     GitCommandError,
     Identity,
     IdentityStore,
@@ -169,19 +170,10 @@ from palmimo_portal.ports import (
 from palmimo_portal.version import portal_version
 
 
-#: Journal lines attached to a 500 `start_failed` response (design doc pass E).
-_START_FAILED_JOURNAL_LINES = 20
 APP_LABEL_MAX_LENGTH = 64
 
 #: Journal lines included in `GET /apps/{id}/diagnostics`'s `[journal]` section (design doc 3.2).
 _DIAGNOSTICS_JOURNAL_LINES = 50
-
-
-def _start_failure_journal_tail(journal: JournalPort, name: str, known_secret_values: list[str]) -> list[str]:
-    if not journal.can_read():
-        return []
-    page = journal.read(app_unit_name(name), cursor=None, lines=_START_FAILED_JOURNAL_LINES)
-    return [mask_known_values(entry.message, known_secret_values) for entry in page.entries]
 
 
 logger = logging.getLogger("palmimo_portal")
@@ -223,6 +215,12 @@ def _raise_for_start_error(error: Exception) -> NoReturn:
     raise error
 
 
+def _raise_for_manifest_error(error: ManifestValidationError) -> NoReturn:
+    if isinstance(error, ManifestSchemaUnsupportedError):
+        raise PortalError(422, "manifest_schema_unsupported", schema=error.schema) from error
+    raise PortalError(422, "manifest_invalid", errors=error.errors) from error
+
+
 def _raise_for_git_error(error: GitCommandError, status_code: int) -> NoReturn:
     """Translate a `GitCommandError`'s `reason` into its literal `PortalError` code.
 
@@ -262,7 +260,12 @@ AppStatus = Literal[
 ]
 
 #: AppJob.kind -> the AppStatus it implies while state.current_job targets this app.
-_JOB_KIND_STATUS: dict[str, AppStatus] = {"install": "installing", "update": "updating", "delete": "deleting"}
+_JOB_KIND_STATUS: dict[str, AppStatus] = {
+    "install": "installing",
+    "update": "updating",
+    "delete": "deleting",
+    "start": "starting",
+}
 
 
 class AppSourceInfo(BaseModel):
@@ -291,6 +294,7 @@ class AppJobInfo(BaseModel):
     #: The failure's machine-readable reason (see :attr:`~palmimo_portal.ports.AppJob.error_code`),
     #: for the same per-cause UI guidance a synchronous preview/install git failure gets.
     error_code: str | None
+    warning: str | None = None
     started_at: float | None
     finished_at: float | None
     lock_generated: bool
@@ -345,6 +349,8 @@ class AppSummary(PublicAvailabilityResponse):
     reason: str | None = None
     url: str | None = None
     missing_env: list[str] = Field(default_factory=list)
+    display_firmware: DisplayFirmwareNeed | None = None
+    display_assets: list[str] = Field(default_factory=list)
 
 
 class AppsListResponse(BaseModel):
@@ -422,6 +428,8 @@ class AppDetailResponse(PublicAvailabilityResponse):
     reason: str | None = None
     url: str | None = None
     missing_env: list[str] = Field(default_factory=list)
+    display_firmware: DisplayFirmwareNeed | None = None
+    display_assets: list[str] = Field(default_factory=list)
 
 
 class ManifestPreviewResponse(BaseModel):
@@ -511,10 +519,6 @@ class SourceUpdateRequest(BaseModel):
             raise ValueError(str(error)) from error
 
 
-class StartResponse(BaseModel):
-    status: Literal["activating"]
-
-
 class StopResponse(BaseModel):
     status: Literal["stopping"]
 
@@ -598,6 +602,7 @@ def _job_info(job: AppJob, app_id: str | None = None) -> AppJobInfo:
         step=job.step,
         error=job.error,
         error_code=job.error_code,
+        warning=job.warning,
         started_at=job.started_at,
         finished_at=job.finished_at,
         lock_generated=job.lock_generated,
@@ -721,6 +726,7 @@ def _summary(
 ) -> AppSummary:
     status, exit_code, reason = _run_status(record, state, app_unit, deps.run_dir, deps.state)
     url = resolve_running_url(deps, record, host=host) if status == "running" else None
+    manifest = _snapshot_manifest(record)
     return AppSummary(
         name=record.name,
         id=record.id,
@@ -740,7 +746,9 @@ def _summary(
         exit_code=exit_code,
         reason=reason,
         url=url,
-        missing_env=_missing_env(record, _snapshot_manifest(record), deps.apps_job_ctx.secrets, registered),
+        missing_env=_missing_env(record, manifest, deps.apps_job_ctx.secrets, registered),
+        display_firmware=record.display_firmware,
+        display_assets=sorted(manifest.assets) if manifest is not None else [],
     )
 
 
@@ -838,6 +846,8 @@ def _detail(
         reason=reason,
         url=url,
         missing_env=_missing_env(record, manifest, secrets, _registered_secret_names(secrets)),
+        display_firmware=record.display_firmware,
+        display_assets=sorted(manifest.assets) if manifest is not None else [],
     )
 
 
@@ -980,7 +990,7 @@ async def preview(
                 )
             )
     except ManifestValidationError as error:
-        raise PortalError(422, "manifest_invalid", errors=error.errors) from error
+        _raise_for_manifest_error(error)
     except InvalidManifestSourceError as error:
         raise PortalError(422, "preview_failed", detail=str(error)) from error
     except GitCommandError as error:
@@ -1053,7 +1063,7 @@ async def install(
                 )
             )
     except ManifestValidationError as error:
-        raise PortalError(422, "manifest_invalid", errors=error.errors) from error
+        _raise_for_manifest_error(error)
     except DiskFullError as error:
         raise PortalError(507, "disk_full") from error
     except AppsDirUnavailableError as error:
@@ -1113,7 +1123,7 @@ def install_public(
     except PublicAppMismatchError as error:
         raise PortalError(422, "public_app_mismatch") from error
     except ManifestValidationError as error:
-        raise PortalError(422, "manifest_invalid", errors=error.errors) from error
+        _raise_for_manifest_error(error)
     except DiskFullError as error:
         raise PortalError(507, "disk_full") from error
     except AppsDirUnavailableError as error:
@@ -1412,42 +1422,24 @@ def start_app_endpoint(
     name: str,
     request: Request,
     state_store: StateStore = Depends(get_state_store),
-    deps: StartDeps = Depends(get_start_deps),
-    journal: JournalPort = Depends(get_journal_port),
-    secrets: SecretsStore = Depends(get_secrets_store),
-) -> StartResponse:
-    """Run the design doc 3.5 prechecks and start ``name``, changing nothing on any failure.
+) -> AppJobAcceptedResponse:
+    """Accept a start job after synchronous prechecks and display release.
 
-    Raises:
-        PortalError: 404 ``app_not_found``; 409 for every precheck refusal
-            (``app_busy``, ``display_recovery_pending``, ``app_running``, ``manifest_invalid``,
-            ``env_unbound``, ``params_missing``, ``params_invalid``,
-            ``venv_missing``, ``platform_not_ready``); 503 ``polkit_denied``
-            if systemd itself refuses the ``set-property``/``start`` verb;
-            500 ``start_failed`` (with a ``journal_tail``) for any other
-            error the unit start itself raises.
+    Precheck refusals return 404 or 409. Failures after acceptance are recorded on the job.
     """
     _ensure_not_corrupt(state_store)
     try:
-        start_app(deps, name, host=_request_host(request))
+        job = request.app.state.start_job_runner.start(name, host=_request_host(request), origin="api")
     except AppNotFoundError as error:
         raise PortalError(404, "app_not_found") from error
-    except PolkitDeniedError as error:
-        raise PortalError(503, "polkit_denied") from error
     except AppStartError as error:
-        names = getattr(error, "names", None) or ([error.running] if isinstance(error, AppRunningError) else None)
-        logger.warning("app start refused code=%s names=%s", error.code, names)
         _raise_for_start_error(error)
     except AdapterUnavailableError:
-        # Left to the app-wide handler (api/app.py) -- a transient D-Bus
-        # outage, not a unit-start failure this endpoint should annotate.
         raise
     except Exception as error:
-        logger.error("app start failed unexpectedly name=%s: %s", name, error, exc_info=True)
-        known_secret_values = collect_registered_secret_values(secrets)
-        journal_tail = _start_failure_journal_tail(journal, name, known_secret_values)
-        raise PortalError(500, "start_failed", journal_tail=journal_tail) from error
-    return StartResponse(status="activating")
+        logger.error("app start could not be accepted name=%s", name, exc_info=True)
+        raise PortalError(500, "start_failed") from error
+    return AppJobAcceptedResponse(job=_job_info(job, name))
 
 
 @router.post("/{name}/stop", status_code=202)

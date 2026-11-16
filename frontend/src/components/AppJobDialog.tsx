@@ -16,17 +16,18 @@ import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ProgressBar";
 import { appJobStepLabel } from "@/lib/appStatus";
 
-/** How often to re-poll a running install/update/delete job (design doc 3.7's log-poll cadence applies to jobs too). */
+/** How often to re-poll a running app job (design doc 3.7's log-poll cadence applies to jobs too). */
 const JOB_POLL_INTERVAL_MS = 1_000;
 
 /**
- * The install/update/delete job-progress modal (design doc 3.7): polls `GET /apps/jobs/{id}`
+ * The app job-progress modal (design doc 3.7): polls `GET /apps/jobs/{id}`
  * while the job is running, shows the current step, and calls {@link onDone}/{@link onFailed}
  * once it settles. Closing the dialog (via {@link onClose}) does not cancel the job -- the note
  * under the progress bar says so explicitly, since there is no cancel endpoint.
  */
 export function AppJobDialog({
   jobId,
+  open = true,
   title,
   completedMessage,
   onClose,
@@ -34,6 +35,7 @@ export function AppJobDialog({
   onFailed,
 }: {
   jobId: string | null;
+  open?: boolean;
   title: string;
   completedMessage?: string;
   onClose: () => void;
@@ -67,7 +69,7 @@ export function AppJobDialog({
   }, [job?.id, job?.state]);
 
   return (
-    <AlertDialog open={jobId !== null} onOpenChange={(open) => !open && onClose()}>
+    <AlertDialog open={jobId !== null && open} onOpenChange={(open) => !open && onClose()}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>
@@ -86,10 +88,13 @@ export function AppJobDialog({
             </AlertDescription>
           </Alert>
         ) : job?.state === "done" ? (
-          <p role="status" className="text-sm">{completedMessage ?? t("apps.jobCompleted")}</p>
+          <div className="flex flex-col gap-3">
+            <p role="status" className="text-sm">{completedMessage ?? t("apps.jobCompleted")}</p>
+            {job.warning ? <Alert><AlertDescription>{t("display.firmware.unavailable")}</AlertDescription></Alert> : null}
+          </div>
         ) : (
           <div className="flex flex-col gap-2">
-            <p className="text-sm">{appJobStepLabel(t, job?.step ?? null)}</p>
+            <p role="status" className="text-sm">{appJobStepLabel(t, job?.step ?? null)}</p>
             <ProgressBar label={t("common.inProgress")} />
           </div>
         )}

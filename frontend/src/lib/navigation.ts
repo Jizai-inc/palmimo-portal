@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Cpu, Download, House, KeyRound, Package, Settings, SquareTerminal, Wifi } from "lucide-react";
+import { Cpu, Download, House, KeyRound, Package, Settings, Smile, SquareTerminal, Wifi } from "lucide-react";
 
 /** One entry in a navigation list (sidebar, drawer). */
 export interface NavItem {
@@ -13,6 +13,7 @@ export interface NavItem {
 
 export const SETTINGS_ITEMS: readonly NavItem[] = [
   { to: "/settings/network", icon: Wifi, labelKey: "nav.network", descriptionKey: "nav.networkDescription" },
+  { to: "/settings/display", icon: Smile, labelKey: "settings.display.title", descriptionKey: "settings.display.description" },
   { to: "/settings/secrets", icon: KeyRound, labelKey: "nav.secrets", descriptionKey: "nav.secretsDescription" },
   { to: "/settings/update", icon: Download, labelKey: "nav.softwareUpdate", descriptionKey: "nav.softwareUpdateDescription" },
   { to: "/settings/device", icon: Cpu, labelKey: "nav.device", descriptionKey: "nav.deviceDescription" },

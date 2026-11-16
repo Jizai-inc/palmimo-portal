@@ -6,9 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getListAppsApiV1AppsGetMockHandler } from "@/api/generated/apps/apps.msw";
 import { getGetPlatformApiV1PlatformGetMockHandler } from "@/api/generated/platform/platform.msw";
+import { getGetPlatformApiV1PlatformGetQueryKey } from "@/api/generated/platform/platform";
 import type { AppSummary, PlatformStatusResponse } from "@/api/generated/models";
 import { AppsListPanel } from "@/components/AppsListPanel";
 import { renderWithRouter } from "@/test/render";
+import { startJob } from "@/test/startJob";
 import { server } from "@/test/server";
 
 const READY_PLATFORM: PlatformStatusResponse = {
@@ -244,10 +246,10 @@ describe("AppsListPanel", () => {
     await waitFor(() => expect(updateStarted).toBe(true));
   });
 
-  it("disables Start for every app while another app's install/update/delete is in progress", async () => {
+  it.each(["starting", "installing", "updating", "deleting"] as const)("disables Start for every app while another app is %s", async (status) => {
     server.use(
       getListAppsApiV1AppsGetMockHandler({
-        apps: [app({ name: "app-a", status: "stopped" }), app({ name: "app-b", status: "deleting" })],
+        apps: [app({ name: "app-a", status: "stopped" }), app({ name: "app-b", status })],
       }),
       getGetPlatformApiV1PlatformGetMockHandler(READY_PLATFORM),
     );
@@ -302,4 +304,59 @@ it("hides previously fetched installed apps after a failed refresh", async () =>
   await act(() => queryClient.refetchQueries());
   expect(await screen.findByRole("alert")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: i18n.t("apps.startButton") })).not.toBeInTheDocument();
+});
+
+it("opens the start job after a list action receives 202", async () => {
+  server.use(
+    getListAppsApiV1AppsGetMockHandler({ apps: [app({ display_firmware: "none" })] }),
+    getGetPlatformApiV1PlatformGetMockHandler(READY_PLATFORM),
+    http.post("*/api/v1/apps/zip.palmimo-teleop/start", () => HttpResponse.json({ job: startJob }, { status: 202 })),
+    http.get("*/api/v1/apps/jobs/start-1", () => HttpResponse.json(startJob)),
+  );
+  renderWithRouter(<AppsListPanel />);
+  await userEvent.click(await screen.findByRole("button", { name: "Start" }));
+  expect(await screen.findByRole("progressbar")).toBeInTheDocument();
+});
+
+it.each([
+  ["1", 2, true, true],
+  ["2", 2, false, false],
+  [null, 2, false, false],
+  ["1", 1, false, true],
+] as const)("shows firmware guidance for requirement %s and desired %s in the list", async (firmware, desired, warning, badge) => {
+  server.use(getListAppsApiV1AppsGetMockHandler({ apps: [app({ display_firmware: firmware })] }), getGetPlatformApiV1PlatformGetMockHandler({ ...READY_PLATFORM, display_firmware_desired: desired }));
+  const { queryClient } = renderWithRouter(<AppsListPanel />);
+  await screen.findByRole("button", { name: "Start" });
+  await waitFor(() => expect(queryClient.getQueryData(getGetPlatformApiV1PlatformGetQueryKey())).toBeDefined());
+  await waitFor(() => {
+    expect(screen.queryByRole("alert") !== null).toBe(warning);
+    expect(screen.queryByRole("note") !== null).toBe(badge);
+  });
+});
+
+it("keeps the accepted job when another start is attempted before the response", async () => {
+  let release!: () => void;
+  const received = vi.fn();
+  server.use(
+    getListAppsApiV1AppsGetMockHandler({ apps: [app({ name: "a" }), app({ name: "b" })] }),
+    getGetPlatformApiV1PlatformGetMockHandler(READY_PLATFORM),
+    http.post("*/api/v1/apps/zip.a/start", async () => {
+      received();
+      await new Promise<void>((resolve) => { release = resolve; });
+      return HttpResponse.json({ job: startJob }, { status: 202 });
+    }),
+    http.get("*/api/v1/apps/jobs/start-1", () => HttpResponse.json(startJob)),
+  );
+  renderWithRouter(<AppsListPanel />);
+  const buttons = await screen.findAllByRole("button", { name: "Start" });
+  try {
+    await userEvent.click(buttons[0]);
+    await waitFor(() => expect(received).toHaveBeenCalledOnce());
+    expect(buttons[1]).toBeDisabled();
+    await userEvent.click(buttons[1]);
+    release();
+    expect(await screen.findByRole("progressbar")).toBeInTheDocument();
+  } finally {
+    release?.();
+  }
 });

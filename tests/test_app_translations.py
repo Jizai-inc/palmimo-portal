@@ -61,3 +61,21 @@ def test_translation_parser_discards_invalid_fields_without_discarding_valid_one
             "JA": {"description": "Invalid locale"},
         }
     ) == {"ja": {"description": "Valid"}}
+
+
+def test_asset_translations_remain_display_only_after_include_expansion(tmp_path: Path) -> None:
+    (tmp_path / "palmimo.toml").write_text(
+        'schema=2\nname="face"\ndescription="Original"\ncommand=["run"]\n[assets]\ninclude="more.toml"'
+    )
+    (tmp_path / "more.toml").write_text(
+        '[assets.face]\nfile="face.json"\ndescription="Face"\n[assets.face.params.eye_color]\ndescription="Eye color"'
+    )
+    (tmp_path / "face.json").write_text("{}")
+    translations = {"ja": {"assets.face": "Translated face", "assets.face.params.eye_color": "Translated color"}}
+    (tmp_path / "palmimo.toml.i18n.json").write_text(json.dumps({"schema": 1, "translations": translations}))
+    manifest = _read_manifest(tmp_path)
+    assert manifest.translations == translations
+    assert manifest.assets["face"].description == "Face"
+    assert manifest.assets["face"].params == {"eye_color": "Eye color"}
+    assert "translations" not in manifest_snapshot(manifest)
+    assert resolve_command(manifest, {}, host="robot", app_dir="/app") == ["run"]

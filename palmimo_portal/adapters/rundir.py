@@ -59,6 +59,7 @@ class TmpfsRunDirPort(RunDirPort):
         cwd: str,
         project: str,
         python: str | None = None,
+        assets: str | None = None,
     ) -> None:
         app_dir = self._app_dir(name)
         shutil.rmtree(app_dir, ignore_errors=True)
@@ -78,11 +79,18 @@ class TmpfsRunDirPort(RunDirPort):
         )
         argv_path.chmod(0o640)
 
+        assets_path = app_dir / "assets.json"
+        if assets is not None:
+            assets_path.write_text(assets, encoding="utf-8")
+            assets_path.chmod(0o640)
+
         gid = apps_gid()
         if gid is not None:
             with contextlib.suppress(OSError):
                 os.chown(app_dir, -1, gid)
                 os.chown(argv_path, -1, gid)
+                if assets is not None:
+                    os.chown(assets_path, -1, gid)
 
     def remove(self, name: str) -> None:
         shutil.rmtree(self._app_dir(name), ignore_errors=True)

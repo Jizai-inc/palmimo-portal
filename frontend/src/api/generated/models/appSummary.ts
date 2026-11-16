@@ -6,6 +6,7 @@
  */
 import type { AppJobInfo } from './appJobInfo';
 import type { AppSourceInfo } from './appSourceInfo';
+import type { AppSummaryDisplayFirmware } from './appSummaryDisplayFirmware';
 import type { AppSummaryStatus } from './appSummaryStatus';
 import type { PublicUpdateSourceInfo } from './publicUpdateSourceInfo';
 
@@ -21,6 +22,8 @@ export interface AppSummary {
   autostart: boolean;
   broken_reason: string | null;
   credential_rejected: boolean;
+  display_assets?: string[];
+  display_firmware?: AppSummaryDisplayFirmware;
   exit_code?: number | null;
   id: string;
   installed_at: number | null;

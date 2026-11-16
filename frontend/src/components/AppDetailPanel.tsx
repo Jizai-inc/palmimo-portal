@@ -17,7 +17,6 @@ import {
   usePutBindingsApiV1AppsNameBindingsPut,
   usePutParamsApiV1AppsNameParamsPut,
   usePutSourceApiV1AppsNameSourcePut,
-  useStartAppEndpointApiV1AppsNameStartPost,
   useStopAppEndpointApiV1AppsNameStopPost,
   useUpdateAppApiV1AppsNameUpdatePost,
   useUpdateCheckApiV1AppsNameUpdateCheckPost,
@@ -27,6 +26,9 @@ import { getGetStatusApiV1SystemStatusGetQueryKey } from "@/api/generated/system
 import type { PublicUpdateSourceInfo, AppDetailResponse, ParamSpecInfo, SourceUpdateRequestRefKind } from "@/api/generated/models";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { appIdNamePart } from "@/components/AppIdLabel";
+import { AppStartDialogs } from "@/components/AppStartDialogs";
+import { DisplayFirmwareAlert } from "@/components/DisplayFirmwareAlert";
+import { useAppStart } from "@/lib/useAppStart";
 import { AppJobDialog } from "@/components/AppJobDialog";
 import { AppTitleEditor } from "@/components/AppTitle";
 import { LogViewer } from "@/components/LogViewer";
@@ -100,7 +102,7 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
     invalidate();
     void queryClient.invalidateQueries({ queryKey: getGetStatusApiV1SystemStatusGetQueryKey() });
   };
-  const startApp = useStartAppEndpointApiV1AppsNameStartPost({ mutation: { onSuccess: invalidateWithStatus } });
+  const startApp = useAppStart(app ? [app] : []);
   const stopApp = useStopAppEndpointApiV1AppsNameStopPost({ mutation: { onSuccess: invalidateWithStatus } });
   const updateApp = useUpdateAppApiV1AppsNameUpdatePost({
     mutation: { onSuccess: (data) => setJob({ id: data.job.id, kind: "update" }),
@@ -157,7 +159,7 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
             {app.status === "running" ? (
               <Button variant="outline" onClick={() => stopApp.mutate({ name: id })} disabled={stopApp.isPending}>{t("apps.stopButton")}</Button>
             ) : app.status === "stopped" || app.status === "failed" ? (
-              <Button onClick={() => startApp.mutate({ name: id })} disabled={startApp.isPending}>{t("apps.startButton")}</Button>
+              <Button onClick={() => startApp.request(app)} disabled={startApp.isPending}>{t("apps.startButton")}</Button>
             ) : null}
           </div>
         </div>
@@ -168,6 +170,8 @@ export function AppDetailPanel({ id, onDeleted = () => undefined }: { id: string
         ) : null}
         {app.name !== appIdNamePart(app.id) ? <p className="text-sm text-muted-foreground [overflow-wrap:anywhere]">{app.name}</p> : null}
       </div>
+      <AppStartDialogs start={startApp} />
+      <DisplayFirmwareAlert firmware={app.display_firmware} />
       <ApiErrorAlert error={startApp.error} />
       <ApiErrorAlert error={stopApp.error} />
 

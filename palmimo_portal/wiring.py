@@ -211,7 +211,10 @@ def build_adapters(settings: Settings) -> AdapterBundle:
             asset_converter=fake_converter,
             standard_assets=FakeStandardAssetsPort(),
             display_previews=DisplayAssetPreviews(
-                settings.state_dir / "display-assets", fake_converter, fake_clock.monotonic, initialize=False
+                settings.state_dir / "display-assets" / "previews",
+                fake_converter,
+                fake_clock.monotonic,
+                initialize=False,
             ),
             display_sync=FakeDisplaySyncService(fake_platform, fake_state),
             run_dir=FakeRunDirPort(),
@@ -263,7 +266,9 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         app_environment=AppEnvironment(),
         asset_converter=DisplayAssetConverter(),
         standard_assets=StandardAssets(),
-        display_previews=DisplayAssetPreviews(settings.state_dir / "display-assets", DisplayAssetConverter()),
+        display_previews=DisplayAssetPreviews(
+            settings.state_dir / "display-assets" / "previews", DisplayAssetConverter()
+        ),
         display_sync=None,
         run_dir=TmpfsRunDirPort(settings.run_dir),
         journal=JournalctlPort(),

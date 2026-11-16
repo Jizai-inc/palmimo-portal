@@ -1679,3 +1679,48 @@ def test_update_job_reports_unsupported_manifest_schema(client: TestClient, adap
     assert response.status_code == 202
     assert response.json()["job"]["state"] == "failed"
     assert response.json()["job"]["error_code"] == "manifest_schema_unsupported"
+
+
+@pytest.mark.parametrize("suffix", ["json", "png", "jpg", "gif"])
+@pytest.mark.parametrize("condition", ["valid", "missing", "symlink", "parent-symlink", "oversized", "undeclared"])
+def test_app_asset_source_serves_only_bounded_declared_regular_files(
+    client: TestClient, app: FastAPI, adapters: FakeAdapterBundle, settings: Settings, suffix: str, condition: str
+) -> None:
+    from palmimo_portal.adapters.display_assets import AppEnvironment
+
+    client = _authenticated_client(client, adapters)
+    assert _install_zip(client).status_code == 202
+    state = adapters.state.read_apps_state()
+    manifest = parse_manifest(
+        'schema = 2\nname = "palmimo-teleop"\ndescription = "d"\ncommand = ["run"]\n'
+        f'[assets.wave]\nfile = "faces/wave.{suffix}"\ndescription = "Wave"\n'
+    )
+    record = replace(state.apps[ZIP_TELEOP_ID], manifest=manifest_snapshot(manifest))
+    adapters.state.write_apps_state(replace(state, apps={ZIP_TELEOP_ID: record}))
+    project = settings.apps_dir / ZIP_TELEOP_ID
+    faces = project / "faces"
+    faces.mkdir()
+    asset = faces / f"wave.{suffix}"
+    content = b'{"v":"test"}' if suffix == "json" else b"image"
+    outside = settings.apps_dir / f"outside.{suffix}"
+    outside.write_bytes(content)
+    if condition == "parent-symlink":
+        faces.rmdir()
+        faces.symlink_to(settings.apps_dir, target_is_directory=True)
+        (settings.apps_dir / asset.name).write_bytes(content)
+    elif condition == "symlink":
+        asset.symlink_to(outside)
+    elif condition != "missing":
+        asset.write_bytes(b"x" * (16 * 1024 * 1024 + 1) if condition == "oversized" else content)
+    app.state.apps_job_context.app_environment = AppEnvironment()
+    name = "unknown" if condition == "undeclared" else "wave"
+
+    response = client.get(f"/api/v1/apps/{ZIP_TELEOP_ID}/assets/{name}/source")
+
+    assert response.status_code == (200 if condition == "valid" else 404)
+    if condition == "valid":
+        assert response.content == content
+        assert (
+            response.headers["content-type"]
+            == {"json": "application/json", "png": "image/png", "jpg": "image/jpeg", "gif": "image/gif"}[suffix]
+        )

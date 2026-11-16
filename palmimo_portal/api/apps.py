@@ -44,7 +44,7 @@ from typing import Any, Literal, NoReturn, cast
 
 import anyio.to_thread
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from pydantic import (
     BaseModel,
     Field,
@@ -183,6 +183,34 @@ router = APIRouter(
     tags=["apps"],
     dependencies=[Depends(require_provisioned), Depends(require_auth), Depends(require_full_session)],
 )
+
+
+@router.get(
+    "/{name}/assets/{asset_name}/source",
+    response_class=Response,
+    responses={200: {"content": {media: {} for media in ("image/png", "image/jpeg", "image/gif", "application/json")}}},
+)
+def get_app_asset_source(
+    name: str,
+    asset_name: str,
+    state_store: StateStore = Depends(get_state_store),
+    ctx: AppsJobContext = Depends(get_apps_job_context),
+) -> Response:
+    """Return a declared original up to 16 MiB, rejecting symlinks and missing sources with 404."""
+    try:
+        with state_store.lock_apps():
+            record = state_store.read_apps_state().apps.get(name)
+            if record is None:
+                raise PortalError(404, "app_not_found")
+            source = apps_jobs.read_asset_source_for_app(ctx, record, asset_name)
+            if source is None:
+                raise PortalError(404, "display_asset_unknown")
+    except AppsLockTimeoutError as error:
+        raise PortalError(409, "app_busy") from error
+    content, media_type = source
+    return Response(
+        content, media_type=media_type, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
+    )
 
 
 def _raise_for_start_error(error: Exception) -> NoReturn:

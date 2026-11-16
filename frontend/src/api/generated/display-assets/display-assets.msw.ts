@@ -36,6 +36,8 @@ export const getPutStandardAssetApiV1DisplayAssetsStandardNamePutResponseMock = 
 
 export const getPreviewStandardAssetApiV1DisplayAssetsStandardNamePreviewPostResponseMock = (overrideResponse: Partial<Extract<DisplayAssetPreviewResponse, object>> = {}): DisplayAssetPreviewResponse => ({bytes: faker.number.int(), capacity: {apps_no_longer_fit: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), ok: faker.datatype.boolean(), short_by: faker.number.int()}, crc32: faker.string.alpha({length: {min: 10, max: 20}}), kind: faker.helpers.arrayElement(['vector','image','gif'] as const), params_lost: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), token: faker.string.alpha({length: {min: 10, max: 20}}), warnings: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => ({code: faker.string.alpha({length: {min: 10, max: 20}}), message: faker.string.alpha({length: {min: 10, max: 20}}), path: faker.helpers.arrayElement([faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), undefined])})), ...overrideResponse})
 
+export const getGetStandardAssetSourceApiV1DisplayAssetsStandardNameSourceGetResponseMock = (): ArrayBuffer => (faker.helpers.arrayElement([new ArrayBuffer(faker.number.int({ min: 1, max: 64 })), new ArrayBuffer(faker.number.int({ min: 1, max: 64 })), new ArrayBuffer(faker.number.int({ min: 1, max: 64 }))]))
+
 export const getSyncDisplayAssetsApiV1DisplayAssetsSyncPostResponseMock = (overrideResponse: Partial<Extract<DisplaySyncResult, object>> = {}): DisplaySyncResult => ({deleted: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), put: Array.from({ length: faker.number.int({min: 1, max: 10}) }, (_, i) => i + 1).map(() => (faker.string.alpha({length: {min: 10, max: 20}}))), reason: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), result: faker.helpers.arrayElement(['synced','busy','skipped','failed'] as const), ...overrideResponse})
 
 
@@ -87,6 +89,22 @@ export const getPreviewStandardAssetApiV1DisplayAssetsStandardNamePreviewPostMoc
   }, options)
 }
 
+export const getGetStandardAssetSourceApiV1DisplayAssetsStandardNameSourceGetMockHandler = (overrideResponse?: ArrayBuffer | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<ArrayBuffer> | ArrayBuffer), options?: RequestHandlerOptions) => {
+  return http.get('*/api/v1/display-assets/standard/:name/source', async (info: Parameters<Parameters<typeof http.get>[1]>[0]) => {
+
+  const binaryBody = overrideResponse !== undefined
+    ? (typeof overrideResponse === "function" ? await overrideResponse(info) : overrideResponse)
+    : getGetStandardAssetSourceApiV1DisplayAssetsStandardNameSourceGetResponseMock();
+    return HttpResponse.arrayBuffer(
+      binaryBody instanceof ArrayBuffer
+        ? binaryBody
+        : new ArrayBuffer(0),
+      { status: 200,
+        headers: { 'Content-Type': 'image/gif' }
+      })
+  }, options)
+}
+
 export const getSyncDisplayAssetsApiV1DisplayAssetsSyncPostMockHandler = (overrideResponse?: DisplaySyncResult | ((info: Parameters<Parameters<typeof http.post>[1]>[0]) => Promise<DisplaySyncResult> | DisplaySyncResult), options?: RequestHandlerOptions) => {
   return http.post('*/api/v1/display-assets/sync', async (info: Parameters<Parameters<typeof http.post>[1]>[0]) => {
 
@@ -103,5 +121,6 @@ export const getDisplayAssetsMock = () => [
   getDeleteStandardAssetApiV1DisplayAssetsStandardNameDeleteMockHandler(),
   getPutStandardAssetApiV1DisplayAssetsStandardNamePutMockHandler(),
   getPreviewStandardAssetApiV1DisplayAssetsStandardNamePreviewPostMockHandler(),
+  getGetStandardAssetSourceApiV1DisplayAssetsStandardNameSourceGetMockHandler(),
   getSyncDisplayAssetsApiV1DisplayAssetsSyncPostMockHandler()
 ]

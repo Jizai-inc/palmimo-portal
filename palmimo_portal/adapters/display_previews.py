@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import secrets
 import shutil
@@ -9,8 +10,8 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
+from palmimo_portal.adapters.display_assets import SOURCE_MAX_BYTES, SOURCE_MEDIA_TYPES, _read_regular, valid_asset_name
 from palmimo_portal.ports import DisplayAssetConverterPort, DisplayAssetPreview
 
 
@@ -43,19 +44,25 @@ class DisplayAssetPreviews:
                 shutil.rmtree(path)
             else:
                 path.unlink()
+        if self.originals.is_dir() and not self.originals.is_symlink():
+            for path in self.originals.iterdir():
+                if re.match(r"\.[0-9a-f]{32}(?:-|\.)", path.name):
+                    path.unlink()
         self._initialized = True
 
     def create(self, name: str, content: bytes, suffix: str) -> DisplayAssetPreview:
+        suffix = suffix.lower()
+        if suffix not in SOURCE_MEDIA_TYPES:
+            raise ValueError("unsupported source extension")
         with self._lock:
             self._prepare()
         token = secrets.token_hex(16)
         destination = self.directory / f"{token}.bin"
+        original = self.directory / f"{token}{suffix}"
         try:
-            with TemporaryDirectory(dir=self.directory) as work:
-                source = Path(work) / f"source{suffix}"
-                source.write_bytes(content)
-                conversion = self.converter.convert(source, destination)
-            preview = DisplayAssetPreview(token, name, destination, conversion)
+            original.write_bytes(content)
+            conversion = self.converter.convert(original, destination)
+            preview = DisplayAssetPreview(token, name, destination, conversion, original)
             if conversion.ok:
                 timer = threading.Timer(PREVIEW_TTL_SECONDS, self.delete, args=(token,))
                 timer.daemon = True
@@ -64,10 +71,64 @@ class DisplayAssetPreviews:
                     timer.start()
             else:
                 destination.unlink(missing_ok=True)
+                original.unlink(missing_ok=True)
             return preview
         except BaseException:
             destination.unlink(missing_ok=True)
+            original.unlink(missing_ok=True)
             raise
+
+    @property
+    def originals(self) -> Path:
+        return self.directory.parent / "originals"
+
+    def read_original(self, name: str) -> tuple[bytes, str] | None:
+        if not valid_asset_name(name):
+            return None
+        for suffix, media_type in SOURCE_MEDIA_TYPES.items():
+            try:
+                return _read_regular(self.originals / f"{name}{suffix}", SOURCE_MAX_BYTES), media_type
+            except (OSError, ValueError):
+                continue
+        return None
+
+    def delete_original(self, name: str) -> None:
+        if not valid_asset_name(name):
+            raise ValueError("invalid asset name")
+        for suffix in SOURCE_MEDIA_TYPES:
+            (self.originals / f"{name}{suffix}").unlink(missing_ok=True)
+
+    @contextmanager
+    def save_original(self, name: str, preview: DisplayAssetPreview) -> Iterator[None]:
+        if not valid_asset_name(name):
+            raise ValueError("invalid asset name")
+        if self.originals.is_symlink():
+            raise ValueError("originals directory cannot be a symlink")
+        self.originals.mkdir(mode=0o700, parents=True, exist_ok=True)
+        suffix = preview.source_path.suffix
+        destination = self.originals / f"{name}{suffix}"
+        temporary = self.originals / f".{preview.token}{suffix}"
+        backups: list[tuple[Path, Path]] = []
+        overridden = False
+        try:
+            temporary.write_bytes(_read_regular(preview.source_path, SOURCE_MAX_BYTES))
+            # A process death during the override must not expose a stale original.
+            for extension in SOURCE_MEDIA_TYPES:
+                current = self.originals / f"{name}{extension}"
+                if current.exists() or current.is_symlink():
+                    backup = self.originals / f".{preview.token}-{name}{extension}"
+                    os.replace(current, backup)
+                    backups.append((current, backup))
+            yield
+            overridden = True
+            os.replace(temporary, destination)
+        finally:
+            for current, backup in backups:
+                if overridden:
+                    backup.unlink(missing_ok=True)
+                else:
+                    os.replace(backup, current)
+            temporary.unlink(missing_ok=True)
 
     def _read(self, name: str, token: str) -> DisplayAssetPreview | None:
         if re.fullmatch(r"[0-9a-f]{32}", token) is None:
@@ -111,3 +172,4 @@ class DisplayAssetPreviews:
             preview, _, timer = entry
             timer.cancel()
             preview.path.unlink(missing_ok=True)
+            preview.source_path.unlink(missing_ok=True)

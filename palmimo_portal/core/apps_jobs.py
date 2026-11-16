@@ -1230,6 +1230,17 @@ def _project_dir_for(ctx: AppsJobContext, record: AppRecord) -> Path:
     return resolve_subdir(ctx.app_dir(record.id), record.source.subdir)
 
 
+def read_asset_source_for_app(ctx: AppsJobContext, record: AppRecord, name: str) -> tuple[bytes, str] | None:
+    try:
+        manifest = read_manifest_for_app(ctx, record)
+        asset = manifest.assets.get(name)
+        if asset is None or ctx.app_environment is None:
+            return None
+        return ctx.app_environment.read_asset_source(_project_dir_for(ctx, record), asset.file)
+    except (ManifestValidationError, InvalidManifestSourceError):
+        return None
+
+
 def disk_state_checks(ctx: AppsJobContext, state: AppsState) -> tuple[Callable[[str], bool], Callable[[str], bool]]:
     """Build the ``manifest_exists``/``venv_exists`` callables :func:`~palmimo_portal.core.apps.finalize_apps_state` needs."""
 

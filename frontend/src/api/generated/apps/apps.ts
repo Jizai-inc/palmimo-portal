@@ -841,6 +841,115 @@ export function useGetAppApiV1AppsNameGet<TData = Awaited<ReturnType<typeof getA
 
 
 
+export const getGetAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGetUrl = (name: string,
+    assetName: string,) => {
+
+
+
+
+  return `/api/v1/apps/${name}/assets/${assetName}/source`
+}
+
+/**
+ * Return a declared original up to 16 MiB, rejecting symlinks and missing sources with 404.
+ * @summary Get App Asset Source
+ */
+export const getAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet = async (name: string,
+    assetName: string, options?: RequestInit): Promise<Blob> => {
+
+  return customFetch<Blob>(getGetAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGetUrl(name,assetName),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGetQueryKey = (name: string,
+    assetName: string,) => {
+    return [
+    `/api/v1/apps/${name}/assets/${assetName}/source`
+    ] as const;
+    }
+
+
+export const getGetAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGetQueryOptions = <TData = Awaited<ReturnType<typeof getAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet>>, TError = HTTPValidationError>(name: string,
+    assetName: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGetQueryKey(name,assetName);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet>>> = ({ signal }) => getAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet(name,assetName, { signal });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: name !== null && name !== undefined && assetName !== null && assetName !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGetQueryResult = NonNullable<Awaited<ReturnType<typeof getAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet>>>
+export type GetAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGetQueryError = HTTPValidationError
+
+
+export function useGetAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet<TData = Awaited<ReturnType<typeof getAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet>>, TError = HTTPValidationError>(
+ name: string,
+    assetName: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet>>,
+          TError,
+          Awaited<ReturnType<typeof getAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet<TData = Awaited<ReturnType<typeof getAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet>>, TError = HTTPValidationError>(
+ name: string,
+    assetName: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet>>,
+          TError,
+          Awaited<ReturnType<typeof getAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet<TData = Awaited<ReturnType<typeof getAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet>>, TError = HTTPValidationError>(
+ name: string,
+    assetName: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get App Asset Source
+ */
+
+export function useGetAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet<TData = Awaited<ReturnType<typeof getAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet>>, TError = HTTPValidationError>(
+ name: string,
+    assetName: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetAppAssetSourceApiV1AppsNameAssetsAssetNameSourceGetQueryOptions(name,assetName,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
 export const getPutAutostartApiV1AppsNameAutostartPutUrl = (name: string,) => {
 
 

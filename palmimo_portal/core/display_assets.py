@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from palmimo_portal.core.apps_assets import DisplayAssetConversionError, DisplayCapacityError
 from palmimo_portal.ports import (
@@ -70,21 +70,18 @@ class DisplayAssetsService:
         entries = {entry["id"].removeprefix("palmimo/"): entry for entry in catalog.get("assets", [])}
         return status, entries
 
-    def source(self, name: str) -> tuple[bytes, str]:
+    def source(self, name: str, variant: Literal["default", "override"]) -> tuple[bytes, str]:
         self.require_standard(name)
-        with self.state.lock_run():
-            status = self.platform.display_assets_status()
-            asset = next((row for row in status.standard if row.name == name), None)
-            source = None
-            if asset is not None and asset.overridden:
-                source = self.previews.read_original(name)
-            elif asset is not None:
-                content = self.standards.read_source(name)
-                if content is not None:
-                    source = content, "application/json"
-            if source is None:
-                raise UnknownDisplayAssetError(name)
-            return source
+        source = None
+        if variant == "override":
+            source = self.previews.read_original(name)
+        else:
+            content = self.standards.read_source(name)
+            if content is not None:
+                source = content, "application/json"
+        if source is None:
+            raise UnknownDisplayAssetError(name)
+        return source
 
     def preview(
         self, name: str, content: bytes, suffix: str

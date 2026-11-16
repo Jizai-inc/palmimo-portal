@@ -481,9 +481,19 @@ def test_asset_operations_require_ready_platform_before_calling_tools(
     assert adapters.asset_converter.convert_calls == []
 
 
-@pytest.mark.parametrize("overridden, original", [(False, False), (True, True), (True, False)])
-def test_standard_source_selects_current_original_or_returns_not_found(
-    client: TestClient, adapters: FakeAdapterBundle, overridden: bool, original: bool
+@pytest.mark.parametrize(
+    "variant, overridden, original",
+    [
+        ("default", False, False),
+        ("default", True, True),
+        ("override", True, True),
+        ("override", False, True),
+        ("override", True, False),
+        ("override", False, False),
+    ],
+)
+def test_standard_source_reads_requested_variant_without_tools_or_locks(
+    client: TestClient, adapters: FakeAdapterBundle, variant: str, overridden: bool, original: bool
 ) -> None:
     adapters.standard_assets.sources["happy"] = b'{"v":"default"}'
     if original:
@@ -492,25 +502,34 @@ def test_standard_source_selects_current_original_or_returns_not_found(
     adapters.platform.display_assets = replace(
         adapters.platform.display_assets, standard=(replace(STANDARD, overridden=overridden),)
     )
+    adapters.platform.display_assets_status_calls = 0
+    adapters.platform.display_error = DisplayToolError("preview must not call the tool")
 
-    response = client.get(f"{BASE}/standard/happy/source")
+    with adapters.state.lock_apps(), adapters.state.lock_run():
+        response = client.get(f"{BASE}/standard/happy/source", params={"variant": variant})
 
-    assert response.status_code == (404 if overridden and not original else 200)
+    assert response.status_code == (404 if variant == "override" and not original else 200)
+    assert adapters.platform.display_assets_status_calls == 0
     if response.status_code == 200:
-        assert response.content == (b"source" if overridden else b'{"v":"default"}')
-        assert response.headers["content-type"] == ("image/gif" if overridden else "application/json")
+        assert response.content == (b"source" if variant == "override" else b'{"v":"default"}')
+        assert response.headers["content-type"] == ("image/gif" if variant == "override" else "application/json")
         assert response.headers["cache-control"] == "no-store"
 
 
+@pytest.mark.parametrize("variant", ["default", "override"])
 @pytest.mark.parametrize("name", ["unknown", "include", "UPPER", "a" * 41, "happy%2Fother"])
-def test_standard_source_rejects_invalid_or_unknown_names(client: TestClient, name: str) -> None:
-    assert client.get(f"{BASE}/standard/{name}/source").status_code == 404
+def test_standard_source_rejects_invalid_or_unknown_names(client: TestClient, name: str, variant: str) -> None:
+    assert client.get(f"{BASE}/standard/{name}/source", params={"variant": variant}).status_code == 404
 
 
-def test_standard_source_returns_not_found_without_bundled_original(
-    client: TestClient,
-) -> None:
-    assert client.get(f"{BASE}/standard/happy/source").status_code == 404
+def test_standard_source_returns_not_found_without_bundled_original(client: TestClient) -> None:
+    assert client.get(f"{BASE}/standard/happy/source", params={"variant": "default"}).status_code == 404
+
+
+@pytest.mark.parametrize("variant", [None, "other"])
+def test_standard_source_requires_an_explicit_supported_variant(client: TestClient, variant: str | None) -> None:
+    params = {} if variant is None else {"variant": variant}
+    assert client.get(f"{BASE}/standard/happy/source", params=params).status_code == 422
 
 
 @pytest.mark.parametrize("name", ["happy", "retired"])

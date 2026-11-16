@@ -4592,7 +4592,7 @@
     },
     "/api/v1/display-assets/standard/{name}/source": {
       "get": {
-        "description": "Return the current original, up to 16 MiB; older overrides without originals return 404.",
+        "description": "Read the selected original up to 16 MiB, without privileged tools or locks; missing originals return 404.",
         "operationId": "get_standard_asset_source_api_v1_display_assets_standard__name__source_get",
         "parameters": [
           {
@@ -4601,6 +4601,19 @@
             "required": true,
             "schema": {
               "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "variant",
+            "required": true,
+            "schema": {
+              "enum": [
+                "default",
+                "override"
+              ],
+              "title": "Variant",
               "type": "string"
             }
           }

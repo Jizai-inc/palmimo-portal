@@ -187,10 +187,14 @@ async def preview_standard_asset(
     response_class=Response,
     responses={200: {"content": {media: {} for media in ("image/png", "image/jpeg", "image/gif", "application/json")}}},
 )
-def get_standard_asset_source(name: str, service: DisplayAssetsService = Depends(get_display_assets)) -> Response:
-    """Return the current original, up to 16 MiB; older overrides without originals return 404."""
+def get_standard_asset_source(
+    name: str,
+    variant: Literal["default", "override"],
+    service: DisplayAssetsService = Depends(get_display_assets),
+) -> Response:
+    """Read the selected original up to 16 MiB, without privileged tools or locks; missing originals return 404."""
     with _translate_errors():
-        content, media_type = service.source(name)
+        content, media_type = service.source(name, variant)
     return Response(
         content, media_type=media_type, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
     )

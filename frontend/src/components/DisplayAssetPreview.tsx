@@ -64,6 +64,21 @@ function Preview({ src, label, retryBusy = true }: PreviewProps) {
         for (const composition of [data, ...(data.assets ?? [])]) {
           for (const layer of composition.layers ?? []) layer.st ??= 0;
         }
+        // Compact scalar keyframes need the array form expected by lottie-web.
+        const pending = [data];
+        while (pending.length) {
+          const value = pending.pop();
+          if (Array.isArray(value.k)) {
+            for (const keyframe of value.k) {
+              if (typeof keyframe?.t !== "number") continue;
+              if (typeof keyframe.s === "number") keyframe.s = [keyframe.s];
+              if (typeof keyframe.e === "number") keyframe.e = [keyframe.e];
+            }
+          }
+          for (const child of Object.values(value)) {
+            if (child && typeof child === "object") pending.push(child);
+          }
+        }
         const { default: lottie } = await import("lottie-web/build/player/lottie_light");
         if (controller.signal.aborted || !container.current) return;
         const config = { container: container.current, renderer: "svg" as const, loop: true, autoplay: true, autoloadSegments: false, animationData: data };

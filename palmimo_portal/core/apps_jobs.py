@@ -85,6 +85,7 @@ from palmimo_portal.ports import (
     DiskFullError,
     DiskPort,
     DisplayAssetConverterPort,
+    DisplaySyncPending,
     GitPort,
     InvalidManifestSourceError,
     JournalPort,
@@ -1045,23 +1046,39 @@ def update_git(
             on_step=on_step,
         )
 
-        # Computed before the swap (the dropped set depends on the new manifest, fetched
-        # above) but only ever written at "register", after a successful swap -- a failed
-        # swap must leave the existing bindings completely intact, not partially dropped
-        # for an app whose old tree (and old manifest) is still the one running.
-        dropped_bindings, dropped_params, kept_bindings = _reconcile_dropped(ctx, name, manifest, record.params)
-
-        on_step("swap")
-        swap_lock = _ensure_not_running_before_swap(ctx, name)
         try:
-            dest = ctx.app_dir(name)
-            trash = ctx.trash_dir / job_id
-            if dest.exists():
-                ctx.trash_dir.mkdir(parents=True, exist_ok=True)
-                dest.rename(trash)
-            staging_container.rename(dest)
-        finally:
-            swap_lock.__exit__(None, None, None)
+            # Computed before the swap (the dropped set depends on the new manifest, fetched
+            # above) but only ever written at "register", after a successful swap -- a failed
+            # swap must leave the existing bindings completely intact, not partially dropped
+            # for an app whose old tree (and old manifest) is still the one running.
+            dropped_bindings, dropped_params, kept_bindings = _reconcile_dropped(ctx, name, manifest, record.params)
+
+            on_step("swap")
+            swap_lock = _ensure_not_running_before_swap(ctx, name)
+            try:
+                dest = ctx.app_dir(name)
+                trash = ctx.trash_dir / job_id
+                if dest.exists():
+                    ctx.trash_dir.mkdir(parents=True, exist_ok=True)
+                    dest.rename(trash)
+                try:
+                    staging_container.rename(dest)
+                except Exception:
+                    if trash.exists() and not dest.exists():
+                        try:
+                            trash.rename(dest)
+                        except OSError:
+                            logger.warning("apps: old tree could not be restored app=%s", name)
+                    raise
+            finally:
+                swap_lock.__exit__(None, None, None)
+        except Exception:
+            if manifest.assets or (record.manifest and record.manifest.get("assets")):
+                old_tree = ctx.app_dir(name)
+                if not old_tree.exists():
+                    old_tree = ctx.trash_dir / job_id
+                _restore_update_assets(ctx, record, old_tree, staging_container)
+            raise
         on_step("register")
         if dropped_bindings:
             ctx.secrets.write_bindings(name, kept_bindings)
@@ -1116,6 +1133,26 @@ def update_git(
     finally:
         if not uncontained:
             purge_path(ctx, staging_container)
+
+
+def _restore_update_assets(ctx: AppsJobContext, record: AppRecord, old_tree: Path, staging: Path) -> None:
+    directory = staging / ".asset-rollback"
+    try:
+        project = resolve_subdir(old_tree, record.source.subdir)
+        manifest = (
+            manifest_from_snapshot(record.manifest)
+            if record.manifest is not None
+            else _read_manifest(project, _manifest_filename_for(record.source))
+        )
+        directory.mkdir(parents=True, exist_ok=True)
+        stage_display_assets(ctx, manifest, record.id, project, directory, had_assets=True, on_step=_no_step)
+    except Exception as error:
+        logger.warning("apps: display assets could not be restored app=%s reason=%s", record.id, error)
+        if ctx.state is not None and ctx.platform is not None:
+            try:
+                ctx.state.write_display_sync(DisplaySyncPending(True, str(error), ctx.platform.read_boot_id()))
+            except OSError:
+                logger.warning("display sync record could not be written")
 
 
 def _reconcile_dropped(

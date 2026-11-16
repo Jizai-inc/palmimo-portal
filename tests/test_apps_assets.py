@@ -359,3 +359,68 @@ def test_asset_sources_changed_by_sync_are_rejected_before_conversion(
     assert not adapters.asset_converter.convert_calls
     assert not adapters.platform.replace_display_assets_calls
     assert APP_ID not in adapters.state.read_apps_state().apps
+
+
+@pytest.mark.parametrize("old_names", [("old",), ()])
+@pytest.mark.parametrize("failure", ["old-rename", "new-rename", "lock", "rollback"])
+def test_failed_update_restores_old_asset_set(
+    env: tuple[AppsJobContext, FakeAdapterBundle, AppsJobRunner],
+    monkeypatch: pytest.MonkeyPatch,
+    old_names: tuple[str, ...],
+    failure: str,
+) -> None:
+    ctx, adapters, runner = env
+    assert runner.start_install(prepare_install_zip(ctx, archive(old_names))).state == "done"
+    record = adapters.state.read_apps_state().apps[APP_ID]
+    source = replace(record.source, type="git", url="https://example.com/repo", ref="main", ref_kind="branch")
+    adapters.state.update_apps_state(lambda state: replace(state, apps={APP_ID: replace(record, source=source)}))
+    if old_names:
+        (ctx.app_dir(APP_ID) / "old.json").write_text('{"old":true}')
+
+    def clone(url: str, ref: str, ref_kind: str, dest: Path, **kwargs: Any) -> str:
+        dest.mkdir(parents=True)
+        with zipfile.ZipFile(io.BytesIO(archive(("new",)))) as zipped:
+            zipped.extractall(dest)
+        return "new-commit"
+
+    monkeypatch.setattr(adapters.git, "clone_shallow", clone)
+    sets = []
+
+    def replace_assets(app_id: str, directory: Path) -> None:
+        sets.append({path.stem for path in directory.glob("*.bin")})
+        if len(sets) == 2 and failure == "rollback":
+            raise DisplayToolError("restore failed")
+
+    monkeypatch.setattr(adapters.platform, "replace_display_assets", replace_assets)
+    rename = Path.rename
+
+    def fail_rename(path: Path, target: Path) -> Path:
+        if path == ctx.app_dir(APP_ID) and failure in {"old-rename", "rollback"}:
+            raise OSError("swap failed")
+        if path.parent == ctx.staging_dir and failure == "new-rename":
+            raise OSError("swap failed")
+        return rename(path, target)
+
+    monkeypatch.setattr(Path, "rename", fail_rename)
+    status = adapters.app_unit.status
+
+    def occupied_at_swap(name: str) -> Any:
+        if failure == "lock" and sets:
+            from palmimo_portal.ports import UnitStatus
+
+            return UnitStatus("active", "running", "success", 0)
+        return status(name)
+
+    monkeypatch.setattr(adapters.app_unit, "status", occupied_at_swap)
+    conversions_before = len(adapters.asset_converter.convert_calls)
+    job = runner.start_update(APP_ID)
+    assert job.state == "failed"
+    if failure != "lock":
+        assert job.error is not None and "swap failed" in job.error
+    assert sets == [{"new"}, set(old_names)]
+    assert adapters.state.read_apps_state().apps[APP_ID].manifest == record.manifest
+    assert (ctx.app_dir(APP_ID) / "palmimo.toml").exists()
+    if old_names:
+        assert (ctx.app_dir(APP_ID) / "old.json").read_text() == '{"old":true}'
+        assert any(src.name == "old.json" for src, _ in adapters.asset_converter.convert_calls[conversions_before:])
+    assert (adapters.state.read_display_sync() is not None) == (failure == "rollback")

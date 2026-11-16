@@ -50,12 +50,12 @@ Synchronous precheck failures still reject the request before creating a job.
 
 For apps declaring `motor_display`, Portal selects the protocol requested by
 the installed SDK before launch. Switching protocols takes about three minutes;
-writing cannot be stopped once it begins. The UI asks for confirmation when
-the app's requirement differs from the selected protocol, or warns that a
-rewrite may be needed when the selected protocol is unknown. Apps requiring
-v1 carry a legacy-firmware alert. A missing or undeclared display allows launch
-with a warning; a busy display defers recovery or fails a requested start so
-it can be retried.
+writing cannot be stopped once it begins. The UI shows a rewrite warning and
+asks for confirmation when the app's requirement differs from the selected
+protocol. An unknown selection shows a muted advisory and asks for confirmation.
+Apps requiring v1 carry a small legacy-SDK badge. A missing or undeclared
+display allows launch with a warning; a busy display defers recovery or fails
+a requested start so it can be retried.
 
 ### App assets and pending synchronization
 

@@ -741,12 +741,14 @@
   },
   "display": {
     "firmware": {
-      "legacy": "This app uses older face display firmware. Starting it may rewrite the firmware (about 3 minutes).",
+      "legacy": "Legacy SDK",
       "unavailable": "The face display was not found, so its firmware could not be checked.",
       "syncPending": "Face asset synchronization is pending (display in use).",
       "syncRunning": "Synchronizing face assets…",
       "syncNow": "Sync now",
-      "syncBusy": "The display is still in use. Face asset synchronization remains pending."
+      "syncBusy": "The display is still in use. Face asset synchronization remains pending.",
+      "switchRequired": "Starting this app will rewrite the face display firmware (about 3 minutes).",
+      "switchUnknown": "Starting this app may rewrite the face display firmware (about 3 minutes)."
     }
   },
   "settings": {

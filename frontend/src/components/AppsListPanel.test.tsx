@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getListAppsApiV1AppsGetMockHandler } from "@/api/generated/apps/apps.msw";
 import { getGetPlatformApiV1PlatformGetMockHandler } from "@/api/generated/platform/platform.msw";
+import { getGetPlatformApiV1PlatformGetQueryKey } from "@/api/generated/platform/platform";
 import type { AppSummary, PlatformStatusResponse } from "@/api/generated/models";
 import { AppsListPanel } from "@/components/AppsListPanel";
 import { renderWithRouter } from "@/test/render";
@@ -317,11 +318,20 @@ it("opens the start job after a list action receives 202", async () => {
   expect(await screen.findByRole("progressbar")).toBeInTheDocument();
 });
 
-it.each(["1", "2", null] as const)("alerts only for an old display requirement %s in the list", async (firmware) => {
-  server.use(getListAppsApiV1AppsGetMockHandler({ apps: [app({ display_firmware: firmware })] }), getGetPlatformApiV1PlatformGetMockHandler(READY_PLATFORM));
-  renderWithRouter(<AppsListPanel />);
+it.each([
+  ["1", 2, true, true],
+  ["2", 2, false, false],
+  [null, 2, false, false],
+  ["1", 1, false, true],
+] as const)("shows firmware guidance for requirement %s and desired %s in the list", async (firmware, desired, warning, badge) => {
+  server.use(getListAppsApiV1AppsGetMockHandler({ apps: [app({ display_firmware: firmware })] }), getGetPlatformApiV1PlatformGetMockHandler({ ...READY_PLATFORM, display_firmware_desired: desired }));
+  const { queryClient } = renderWithRouter(<AppsListPanel />);
   await screen.findByRole("button", { name: "Start" });
-  expect(screen.queryAllByRole("alert")).toHaveLength(firmware === "1" ? 1 : 0);
+  await waitFor(() => expect(queryClient.getQueryData(getGetPlatformApiV1PlatformGetQueryKey())).toBeDefined());
+  await waitFor(() => {
+    expect(screen.queryByRole("alert") !== null).toBe(warning);
+    expect(screen.queryByRole("note") !== null).toBe(badge);
+  });
 });
 
 it("keeps the accepted job when another start is attempted before the response", async () => {

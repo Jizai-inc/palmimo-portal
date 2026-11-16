@@ -1,7 +1,10 @@
+import logging
 import threading
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from fastapi import FastAPI
 
 from palmimo_portal.api.app import create_app
 from palmimo_portal.core.apps_start import stop_app
@@ -15,6 +18,7 @@ from palmimo_portal.ports import (
     DisplaySyncResult,
     DisplayToolError,
     PlatformCommandError,
+    PlatformVerifyDiff,
 )
 from palmimo_portal.settings import Settings
 from palmimo_portal.testing.fakes import FakeAdapterBundle, FakeClockPort, FakePlatformPort, FakeStateStore
@@ -90,6 +94,7 @@ def test_sync_record_failure_preserves_tool_result(outcome: str, monkeypatch: py
 
 def test_stop_schedules_pending_sync_without_waiting(tmp_path: Path) -> None:
     app = create_app(Settings(apps_dir=tmp_path, periodic_enabled=False, autostart_enabled=False))
+    app.state.platform_verify_diffs = []
     adapters: FakeAdapterBundle = app.state.adapters
     adapters.state.write_apps_state(AppsState(apps={"face": AppRecord("face", AppSource("zip"), 0, {}, False, None)}))
     adapters.state.write_display_sync(DisplaySyncPending(True, None, None))
@@ -165,6 +170,7 @@ def test_destructive_sync_failure_is_retried_by_periodic_task(
     tmp_path: Path, failure: DisplaySyncResult | Exception
 ) -> None:
     app = create_app(Settings(apps_dir=tmp_path, periodic_enabled=False, autostart_enabled=False))
+    app.state.platform_verify_diffs = []
     adapters: FakeAdapterBundle = app.state.adapters
     adapters.platform.boot_id = "boot"
     reason: str | None
@@ -185,4 +191,81 @@ def test_destructive_sync_failure_is_retried_by_periodic_task(
     adapters.clock.monotonic_value += 60
     app.state.periodic_scheduler.tick()
     assert adapters.platform.sync_display_assets_calls == ["zip.face", None]
+    assert adapters.state.read_display_sync() is None
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        PlatformCommandError("display_assets", "unavailable"),
+        DisplayToolError("unavailable"),
+        DisplaySyncResult("failed", (), (), "unavailable"),
+    ],
+)
+def test_periodic_sync_backs_off_repeated_failures_without_tracebacks(
+    failure: Exception | DisplaySyncResult, caplog: pytest.LogCaptureFixture
+) -> None:
+    state = FakeStateStore()
+    pending = DisplaySyncPending(True, "pending", "boot")
+    state.write_display_sync(pending)
+    platform = FakePlatformPort()
+    if isinstance(failure, Exception):
+        platform.display_error = failure
+    else:
+        platform.display_sync_result = failure
+    clock = FakeClockPort()
+    service = DisplaySyncService(state, platform, monotonic=clock.monotonic)
+    scheduler = PeriodicScheduler(clock, [PeriodicTask("display_sync", 60, service.retry_pending, requires_ntp=False)])
+    for _ in range(6):
+        clock.monotonic_value += 60
+        scheduler.tick()
+    assert 1 < len(platform.sync_display_assets_calls) < 6
+    records = [record for record in caplog.records if record.levelno >= logging.WARNING]
+    assert len(records) == 1
+    assert records[0].levelno == logging.WARNING and records[0].exc_info is None
+    assert state.read_display_sync() is not None
+    assert not service.running
+    platform.display_error = None
+    platform.display_sync_result = DisplaySyncResult("synced", (), (), None)
+    clock.monotonic_value += 900
+    scheduler.tick()
+    assert state.read_display_sync() is None
+    assert len(platform.sync_display_assets_calls) < 7
+    caplog.clear()
+    state.write_display_sync(pending)
+    if isinstance(failure, Exception):
+        platform.display_error = failure
+    else:
+        platform.display_sync_result = failure
+    clock.monotonic_value += 60
+    scheduler.tick()
+    assert state.read_display_sync() is not None
+    assert len(caplog.records) == 1
+    assert caplog.records[0].exc_info is None
+
+
+@pytest.mark.parametrize("unready", ["missing", "outdated", "unverified", "drift"])
+def test_periodic_sync_waits_for_platform_readiness(app: FastAPI, unready: str) -> None:
+    adapters: FakeAdapterBundle = app.state.adapters
+    pending = DisplaySyncPending(True, "pending", "boot")
+    adapters.state.write_display_sync(pending)
+    installed = adapters.platform.installed
+    assert installed is not None
+    app.state.platform_verify_diffs = None if unready == "unverified" else []
+    if unready == "missing":
+        adapters.platform.installed = None
+    elif unready == "outdated":
+        adapters.platform.installed = replace(installed, version=app.state.settings.required_platform_version - 1)
+    elif unready == "drift":
+        app.state.platform_verify_diffs = [PlatformVerifyDiff("/changed", "changed")]
+    for _ in range(3):
+        adapters.clock.monotonic_value += 60
+        app.state.periodic_scheduler.tick()
+    assert adapters.platform.sync_display_assets_calls == []
+    assert adapters.state.read_display_sync() == pending
+    adapters.platform.installed = installed
+    app.state.platform_verify_diffs = []
+    adapters.clock.monotonic_value += 60
+    app.state.periodic_scheduler.tick()
+    assert adapters.platform.sync_display_assets_calls == [None]
     assert adapters.state.read_display_sync() is None

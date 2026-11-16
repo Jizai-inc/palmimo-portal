@@ -858,8 +858,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         adapters.state, app.state.platform_update_runner, run_in_thread=bool(settings.apps_run_in_thread)
     )
 
+    def _platform_ready() -> bool:
+        installed = adapters.platform.read_installed()
+        status = compute_status(
+            installed, settings.required_platform_version, app.state.platform_verify_diffs, None, None, None
+        )
+        return bool(status["ready"])
+
     app.state.startup_recovery_complete = threading.Event()
-    app.state.display_sync = DisplaySyncService(adapters.state, adapters.platform)
+    app.state.display_sync = DisplaySyncService(
+        adapters.state, adapters.platform, platform_ready=_platform_ready, monotonic=adapters.clock.monotonic
+    )
     app.state.periodic_scheduler = build_scheduler(
         clock=adapters.clock,
         apps_job_context=app.state.apps_job_context,
@@ -871,13 +880,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             retry_preempted_app(app.state.start_deps) if app.state.startup_recovery_complete.is_set() else None
         ),
     )
-
-    def _platform_ready() -> bool:
-        installed = adapters.platform.read_installed()
-        status = compute_status(
-            installed, settings.required_platform_version, app.state.platform_verify_diffs, None, None, None
-        )
-        return bool(status["ready"])
 
     app.state.startup_display_ensure = threading.Event()
     app.state.start_deps = StartDeps(

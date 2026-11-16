@@ -6,11 +6,12 @@ import json
 import logging
 import time
 from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, cast
 
 from palmimo_portal.core.apps_jobs import AppsJobContext, read_manifest_for_app
 from palmimo_portal.core.apps_layout import LayoutPaths, resolve_layout
+from palmimo_portal.core.display_firmware_activity import DisplayFirmwareActivity
 from palmimo_portal.core.display_sync import DisplaySyncService, record_display_sync
 from palmimo_portal.core.manifest import (
     Manifest,
@@ -156,6 +157,7 @@ class StartDeps:
     display_sync: DisplaySyncService | None = None
     trigger_display_sync: Callable[[], None] = lambda: None
     on_display_ensure: Callable[[], None] = lambda: None
+    firmware_activity: DisplayFirmwareActivity = field(default_factory=DisplayFirmwareActivity)
 
 
 def _layout_for(ctx: AppsJobContext, record: AppRecord) -> LayoutPaths:
@@ -383,7 +385,7 @@ def _display_firmware(deps: StartDeps, plan: _StartPlan) -> tuple[bool, str | No
             raise RuntimeError("display platform is unavailable")
         platform.desire_display_firmware(1 if plan.need == "1" else 2, "app-start")
         deps.on_display_ensure()
-        result = platform.ensure_display_firmware()
+        result = deps.firmware_activity.ensure(platform)
     except DisplayBusyError as error:
         raise DisplayBusyStartError(str(error)) from error
     except Exception as error:

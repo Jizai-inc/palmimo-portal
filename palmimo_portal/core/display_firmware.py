@@ -157,7 +157,7 @@ def run_display_firmware(deps: StartDeps, platform: PlatformPort) -> DisplayFirm
                             return DisplayFirmwareResult(result="busy", reason="app did not stop within 20 seconds")
                         time.sleep(0.1)
                     break
-                result = platform.ensure_display_firmware()
+                result = deps.firmware_activity.ensure(platform)
                 selection = platform.read_display_firmware_selection()
                 if result.result in {"current", "updated"} and selection is not None and selection.protocol == 2:
                     try:

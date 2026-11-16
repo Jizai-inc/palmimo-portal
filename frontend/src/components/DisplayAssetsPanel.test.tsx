@@ -242,3 +242,15 @@ it("reloads the visual source after a replacement is saved", async () => {
   await user.click(within(dialog).getByRole("button", { name: text("settings.display.save") }));
   await waitFor(() => expect(sources).toEqual(["0", "1"]));
 });
+
+
+it("requests the variant selected by each standard asset row", async () => {
+  stubList([asset, { ...asset, name: "sad", overridden: true }]);
+  const requested: Record<string, string | null> = {};
+  server.use(http.get("*/api/v1/display-assets/standard/:name/source", ({ request, params }) => {
+    requested[String(params.name)] = new URL(request.url).searchParams.get("variant");
+    return new HttpResponse(null, { status: 404 });
+  }));
+  renderWithProviders(<DisplayAssetsPanel />);
+  await waitFor(() => expect(requested).toEqual({ happy: "default", sad: "override" }));
+});

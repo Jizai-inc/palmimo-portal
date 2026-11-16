@@ -66,7 +66,7 @@ it.each([
   expect(loadAnimation).not.toHaveBeenCalled();
 });
 
-it("serializes source requests and retries temporary lock contention", async () => {
+it.each([false, true])("bounds concurrency and serializes lock-sensitive sources: %s", async (retryBusy) => {
   let active = 0;
   let maximum = 0;
   let calls = 0;
@@ -75,13 +75,23 @@ it("serializes source requests and retries temporary lock contention", async () 
     maximum = Math.max(active, maximum);
     await new Promise((resolve) => setTimeout(resolve, 5));
     active--;
-    return ++calls === 1 ? new HttpResponse(null, { status: 409 }) : HttpResponse.json({ layers: [] });
+    calls++;
+    return HttpResponse.json({ layers: [] });
   }));
-  renderWithProviders(<><DisplayAssetPreview src="/source/a" label="A" /><DisplayAssetPreview src="/source/b" label="B" /></>);
-  expect(await screen.findByRole("img", { name: "A" })).toBeInTheDocument();
-  expect(await screen.findByRole("img", { name: "B" })).toBeInTheDocument();
-  expect(maximum).toBe(1);
-  expect(calls).toBe(3);
+  renderWithProviders(<>{Array.from({ length: 17 }, (_, id) =>
+    <DisplayAssetPreview key={id} src={`/source/${id}`} label={`Face ${id}`} retryBusy={retryBusy} />)}</>);
+  await waitFor(() => expect(screen.getAllByRole("img")).toHaveLength(17));
+  if (!retryBusy) expect(maximum).toBeGreaterThan(1);
+  expect(maximum).toBeLessThanOrEqual(retryBusy ? 1 : 4);
+  expect(calls).toBe(17);
+});
+
+it.each([false, true])("retries busy responses only when enabled: %s", async (retryBusy) => {
+  let calls = 0;
+  server.use(http.get("/source", () => ++calls === 1 ? new HttpResponse(null, { status: 409 }) : HttpResponse.json({ layers: [] })));
+  renderWithProviders(<DisplayAssetPreview src="/source" label="Face" retryBusy={retryBusy} />);
+  await screen.findByRole(retryBusy ? "img" : "status");
+  expect(calls).toBe(retryBusy ? 2 : 1);
 });
 
 it.each(["", undefined])("refuses external image bases even when the image path is %j", async (path) => {

@@ -2,26 +2,36 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { AnimationItem } from "lottie-web";
 
-let sourceQueue: Promise<unknown> = Promise.resolve();
+const sourcePools = {
+  parallel: { active: 0, waiters: [] as Array<() => void> },
+  serialized: { active: 0, waiters: [] as Array<() => void> },
+};
 
-function fetchSource(src: string, signal: AbortSignal): Promise<Response> {
-  const request = sourceQueue.catch(() => undefined).then(async () => {
+async function fetchSource(src: string, signal: AbortSignal, retryBusy: boolean): Promise<Response> {
+  const pool = sourcePools[retryBusy ? "serialized" : "parallel"];
+  if (pool.active >= (retryBusy ? 1 : 4)) await new Promise<void>((resolve) => pool.waiters.push(resolve));
+  else pool.active++;
+  try {
     for (let attempt = 0; ; attempt++) {
       signal.throwIfAborted();
       const response = await fetch(src, { credentials: "include", cache: "no-store", signal });
-      if (response.status !== 409 || attempt === 3) return response;
+      if (!retryBusy || response.status !== 409 || attempt === 3) return response;
       await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
     }
-  });
-  sourceQueue = request.catch(() => undefined);
-  return request;
+  } finally {
+    const next = pool.waiters.shift();
+    if (next) next();
+    else pool.active--;
+  }
 }
 
-export function DisplayAssetPreview({ src, label }: { src: string; label: string }) {
-  return <Preview key={src} src={src} label={label} />;
+type PreviewProps = { src: string; label: string; retryBusy?: boolean };
+
+export function DisplayAssetPreview({ src, label, retryBusy = true }: PreviewProps) {
+  return <Preview key={src} src={src} label={label} retryBusy={retryBusy} />;
 }
 
-function Preview({ src, label }: { src: string; label: string }) {
+function Preview({ src, label, retryBusy = true }: PreviewProps) {
   const { t } = useTranslation();
   const container = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<"loading" | "image" | "lottie" | "failed">("loading");
@@ -38,7 +48,7 @@ function Preview({ src, label }: { src: string; label: string }) {
       setState("failed");
     };
     const load = async () => {
-      const response = await fetchSource(src, controller.signal);
+      const response = await fetchSource(src, controller.signal, retryBusy);
       if (!response.ok) throw new Error("source unavailable");
       const mediaType = response.headers.get("content-type")?.split(";")[0];
       if (mediaType === "application/json") {
@@ -49,6 +59,10 @@ function Preview({ src, label }: { src: string; label: string }) {
           (typeof asset.p !== "string" || asset.e !== 1 || asset.u || !/^data:image\/(png|jpeg|gif);base64,/.test(asset.p))) ||
           data.fonts?.list?.some((font: { fPath?: string }) => font.fPath)) {
           throw new Error("external animation asset");
+        }
+        // The device's compact Lottie sources omit the zero layer start time.
+        for (const composition of [data, ...(data.assets ?? [])]) {
+          for (const layer of composition.layers ?? []) layer.st ??= 0;
         }
         const { default: lottie } = await import("lottie-web/build/player/lottie_light");
         if (controller.signal.aborted || !container.current) return;
@@ -71,7 +85,7 @@ function Preview({ src, label }: { src: string; label: string }) {
       animation?.destroy();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [src]);
+  }, [src, retryBusy]);
 
   return <div className="flex shrink-0 flex-col items-center gap-1">
     <div className="flex size-20 items-center justify-center overflow-hidden rounded-lg bg-black">

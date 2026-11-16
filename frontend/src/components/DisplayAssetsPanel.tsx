@@ -112,7 +112,7 @@ export function DisplayAssetsPanel() {
             <ul className="overflow-hidden rounded-xl border border-border text-[13px] divide-y divide-border">
               {list.data?.standard.map((asset) => <li key={asset.name} className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:justify-between">
                 <div className="flex min-w-0 items-center gap-4 md:max-w-[55%]">
-                  <DisplayAssetPreview src={`/api/v1/display-assets/standard/${encodeURIComponent(asset.name)}/source?v=${previewVersion}`} label={displayAssetName(t, asset.name)} />
+                  <DisplayAssetPreview src={`/api/v1/display-assets/standard/${encodeURIComponent(asset.name)}/source?variant=${asset.overridden ? "override" : "default"}&v=${previewVersion}`} retryBusy={false} label={displayAssetName(t, asset.name)} />
                   <div className="flex min-w-0 flex-col gap-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 className="font-semibold">{displayAssetName(t, asset.name)}</h3>

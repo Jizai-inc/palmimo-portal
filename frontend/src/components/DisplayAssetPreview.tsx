@@ -86,6 +86,11 @@ function Preview({ src, label, retryBusy = true }: PreviewProps) {
         const pending = [data];
         while (pending.length) {
           const value = pending.pop();
+          // Solid-layer colors are assigned directly to SVG fill attributes.
+          if (value.ty === 1 && "sc" in value && (typeof value.sc !== "string" ||
+            !/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value.sc))) {
+            throw new Error("external animation asset");
+          }
           if (Array.isArray(value.k)) {
             for (const keyframe of value.k) {
               if (typeof keyframe?.t !== "number") continue;

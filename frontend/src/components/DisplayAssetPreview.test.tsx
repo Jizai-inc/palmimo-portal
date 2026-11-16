@@ -69,6 +69,9 @@ it.each([
   { layers: [{ ty: 2, refId: "image" }, { ty: 2, refId: "image" }],
     assets: [{ id: "image", sid: "first", e: 1, p: "data:image/png;base64,AA==" }],
     slots: { first: { p: { sid: "second" } }, second: { p: { p: "https://example.com/retargeted.png" } } } },
+  { layers: [{ ty: 1, sc: "url(https://example.com/paint.svg#color)" }] },
+  { assets: [{ id: "composition", layers: [{ ty: 1, sc: "url(https://example.com/paint.svg#color)" }] }] },
+  { chars: [{ data: { layers: [{ ty: 1, sc: ["url(https://example.com/paint.svg#color)"] }] } }] },
   ...["p", "t"].map((origin) => ({ fonts: { list: [{ fFamily: "x", fName: "x", fOrigin: origin, fPath: "https://example.com/font.css" }] } })),
   { assets: [{ p: "data:image/png;base64,AA==", e: 0, u: "https://example.com/" }] },
   { fonts: { list: [{ fFamily: "x", fName: "x", fOrigin: "g", fPath: "https://example.com/evil.css" }] } },
@@ -121,6 +124,7 @@ it.each([
   { assets: [{ id: "composition", layers: [] }], fonts: { list: [{ fFamily: "Arial", fName: "Arial", fPath: "" }] } },
   { assets: [{ id: "image", sid: "replacement", e: 1, p: "data:image/png;base64,AA==" }],
     slots: { replacement: { p: { p: "data:image/png;base64,AQ==" } } } },
+  ...["#fff", "#fff8", "#ffffff", "#ffffff88"].map((color) => ({ layers: [{ ty: 1, sc: color }] })),
 ])("allows self-contained animation resources: %j", async (data) => {
   server.use(http.get("/source", () => HttpResponse.json({ layers: [], ...data })));
   renderWithProviders(<DisplayAssetPreview src="/source" label="Face" />);

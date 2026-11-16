@@ -57,6 +57,19 @@ it.each(["http", "json", "animation"])("falls back when %s loading fails", async
 
 it.each([
   { assets: [{ p: "https://example.com/image.png" }] },
+  { layers: [{ ty: 2, refId: "external" }], assets: [{ id: "external", layers: [], e: 1, p: "https://example.com/image.png" }] },
+  { layers: [{ ty: 2, refId: "external" }], assets: [{ id: "external", layers: [], e: 0, u: "https://example.com/", p: "image.png" }] },
+  { assets: [{ layers: [], e: 1, p: "data:image/svg+xml;base64,PHN2Zy8+" }] },
+  { layers: [{ ty: 2, refId: "image" }], assets: [{ id: "image", sid: "replacement", e: 1, p: "data:image/png;base64,AA==" }],
+    slots: { replacement: { p: { e: 1, p: "https://example.com/replacement.png" } } } },
+  { layers: [{ ty: 2, refId: "image" }], assets: [{ id: "image", sid: "replacement", layers: [], e: 1, p: "data:image/png;base64,AA==" }],
+    slots: { replacement: { p: { e: 1, p: "https://example.com/replacement.png" } } } },
+  { layers: [{ ty: 2, refId: "image" }], assets: [{ id: "image", sid: "replacement", layers: [] }],
+    slots: { replacement: { p: JSON.parse('{"__proto__":{"e":1,"p":"https://example.com/prototype.png"}}') } } },
+  { layers: [{ ty: 2, refId: "image" }, { ty: 2, refId: "image" }],
+    assets: [{ id: "image", sid: "first", e: 1, p: "data:image/png;base64,AA==" }],
+    slots: { first: { p: { sid: "second" } }, second: { p: { p: "https://example.com/retargeted.png" } } } },
+  ...["p", "t"].map((origin) => ({ fonts: { list: [{ fFamily: "x", fName: "x", fOrigin: origin, fPath: "https://example.com/font.css" }] } })),
   { assets: [{ p: "data:image/png;base64,AA==", e: 0, u: "https://example.com/" }] },
   { fonts: { list: [{ fFamily: "x", fName: "x", fOrigin: "g", fPath: "https://example.com/evil.css" }] } },
 ])("refuses animation data that would fetch external resources: %j", async (data) => {
@@ -99,4 +112,18 @@ it.each(["", undefined])("refuses external image bases even when the image path 
   renderWithProviders(<DisplayAssetPreview src="/source" label="Face" />);
   await screen.findByRole("status");
   expect(loadAnimation).not.toHaveBeenCalled();
+});
+
+it.each([
+  { assets: [{ id: "image", e: 1, p: "data:image/png;base64,AA==" }] },
+  { assets: [{ id: "image", layers: [], e: 1, p: "data:image/jpeg;base64,AA==" }] },
+  { assets: [{ id: "image", e: 1, u: "", p: "data:image/gif;base64,AA==" }] },
+  { assets: [{ id: "composition", layers: [] }], fonts: { list: [{ fFamily: "Arial", fName: "Arial", fPath: "" }] } },
+  { assets: [{ id: "image", sid: "replacement", e: 1, p: "data:image/png;base64,AA==" }],
+    slots: { replacement: { p: { p: "data:image/png;base64,AQ==" } } } },
+])("allows self-contained animation resources: %j", async (data) => {
+  server.use(http.get("/source", () => HttpResponse.json({ layers: [], ...data })));
+  renderWithProviders(<DisplayAssetPreview src="/source" label="Face" />);
+  await screen.findByRole("img", { name: "Face" });
+  expect(loadAnimation).toHaveBeenCalledOnce();
 });

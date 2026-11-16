@@ -27,6 +27,18 @@ async function fetchSource(src: string, signal: AbortSignal, retryBusy: boolean)
 
 type PreviewProps = { src: string; label: string; retryBusy?: boolean };
 
+type LottieAsset = Record<string, unknown> & { sid?: string };
+
+function isSelfContainedAsset(value: unknown): value is LottieAsset {
+  if (!value || typeof value !== "object") return false;
+  const asset = value as Record<string, unknown>;
+  if (asset.sid !== undefined && typeof asset.sid !== "string") return false;
+  if (!("p" in asset || "u" in asset || "e" in asset)) return Array.isArray(asset.layers);
+  return typeof asset.p === "string" && asset.e === 1 &&
+    (asset.u === undefined || asset.u === "") &&
+    /^data:image\/(png|jpeg|gif);base64,[A-Za-z0-9+/]+={0,2}$/.test(asset.p);
+}
+
 export function DisplayAssetPreview({ src, label, retryBusy = true }: PreviewProps) {
   return <Preview key={src} src={src} label={label} retryBusy={retryBusy} />;
 }
@@ -55,9 +67,15 @@ function Preview({ src, label, retryBusy = true }: PreviewProps) {
         const data = await response.json();
         if (!data || !Array.isArray(data.layers)) throw new Error("invalid animation");
         // Uploaded animations must not make the browser fetch external assets.
-        if (data.assets?.some((asset: { layers?: unknown; p?: string; e?: number; u?: string }) => !asset.layers &&
-          (typeof asset.p !== "string" || asset.e !== 1 || asset.u || !/^data:image\/(png|jpeg|gif);base64,/.test(asset.p))) ||
-          data.fonts?.list?.some((font: { fPath?: string }) => font.fPath)) {
+        if (data.assets?.some((asset: unknown) => {
+          if (!isSelfContainedAsset(asset)) return true;
+          const replacement: unknown = asset.sid ? data.slots?.[asset.sid]?.p : undefined;
+          if (replacement === undefined) return false;
+          // SlotManager's Object.assign can affect later references to the same asset.
+          return !replacement || typeof replacement !== "object" || Array.isArray(replacement) ||
+            Object.hasOwn(replacement, "__proto__") || Object.hasOwn(replacement, "sid") ||
+            !isSelfContainedAsset({ ...asset, ...replacement });
+        }) || data.fonts?.list?.some((font: { fPath?: unknown }) => font.fPath !== undefined && font.fPath !== "")) {
           throw new Error("external animation asset");
         }
         // The device's compact Lottie sources omit the zero layer start time.

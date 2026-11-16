@@ -733,6 +733,10 @@ class FakeAppEnvironmentPort(AppEnvironmentPort):
     display_firmware_need: DisplayFirmwareNeed = "none"
     needs: dict[Path, DisplayFirmwareNeed] = field(default_factory=dict)
     calls: list[Path] = field(default_factory=list)
+    asset_sources: dict[tuple[Path, str], tuple[bytes, str]] = field(default_factory=dict)
+
+    def read_asset_source(self, project_dir: Path, path: str) -> tuple[bytes, str] | None:
+        return self.asset_sources.get((project_dir, path))
 
     def read_display_firmware_need(self, venv: Path) -> DisplayFirmwareNeed:
         self.calls.append(venv)
@@ -767,6 +771,7 @@ class FakeDisplayAssetConverterPort(DisplayAssetConverterPort):
 @dataclass
 class FakeStandardAssetsPort(StandardAssetsPort):
     names: tuple[str, ...] = ("happy", "sad")
+    sources: dict[str, bytes] = field(default_factory=dict)
     catalog: dict[str, Any] = field(
         default_factory=lambda: {
             "schema": 1,
@@ -787,6 +792,9 @@ class FakeStandardAssetsPort(StandardAssetsPort):
 
     def read_catalog(self) -> dict[str, Any]:
         return self.catalog
+
+    def read_source(self, name: str) -> bytes | None:
+        return self.sources.get(name)
 
 
 @dataclass

@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from palmimo_portal.core.apps_assets import asset_source_path
+from palmimo_portal.core.manifest import ManifestValidationError
 from palmimo_portal.ports import (
     DisplayAssetConversion,
     DisplayAssetMessage,
@@ -20,6 +22,19 @@ from palmimo_portal.ports import (
 
 
 logger = logging.getLogger("palmimo_portal")
+
+SOURCE_MAX_BYTES = 16 * 1024 * 1024
+SOURCE_MEDIA_TYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".json": "application/json",
+}
+
+
+def valid_asset_name(name: str) -> bool:
+    return re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,39}", name) is not None and name != "include"
 
 
 def _read_regular(path: Path, limit: int | None = None, *, root: Path | None = None) -> bytes:
@@ -54,6 +69,16 @@ def _read_regular(path: Path, limit: int | None = None, *, root: Path | None = N
 
 @dataclass
 class AppEnvironment:
+    def read_asset_source(self, project_dir: Path, path: str) -> tuple[bytes, str] | None:
+        try:
+            source = asset_source_path(project_dir, path)
+            media_type = SOURCE_MEDIA_TYPES.get(source.suffix.lower())
+            if media_type is None:
+                return None
+            return _read_regular(source, SOURCE_MAX_BYTES, root=project_dir.resolve()), media_type
+        except (OSError, ValueError, ManifestValidationError):
+            return None
+
     def read_display_firmware_need(self, venv: Path) -> DisplayFirmwareNeed:
         try:
             distributions = list(venv.glob("lib/python3.*/site-packages/palmimo_sdk-*.dist-info"))
@@ -88,6 +113,14 @@ class AppEnvironment:
 @dataclass
 class StandardAssets:
     directory: Path = Path("/usr/local/share/palmimo/display-assets")
+
+    def read_source(self, name: str) -> bytes | None:
+        if not valid_asset_name(name):
+            return None
+        try:
+            return _read_regular(self.directory / "source" / f"{name}.json", SOURCE_MAX_BYTES, root=self.directory)
+        except (OSError, ValueError):
+            return None
 
     def list_standard_names(self) -> tuple[str, ...]:
         try:

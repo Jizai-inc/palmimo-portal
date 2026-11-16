@@ -836,3 +836,19 @@ it.each(["1", "2", null] as const)("alerts only for an old display requirement %
   await screen.findByRole("button", { name: "Start" });
   expect(screen.queryAllByRole("alert")).toHaveLength(firmware === "1" ? 1 : 0);
 });
+
+it("requests each declared display asset source in the app detail", async () => {
+  const sources: string[] = [];
+  server.use(
+    getGetAppApiV1AppsNameGetMockHandler(detail({ display_assets: ["wave", "blink"] })),
+    getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+    getListAppsApiV1AppsGetMockHandler({ apps: [] }),
+    getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], next_cursor: null }),
+    http.get("*/api/v1/apps/palmimo.teleop/assets/:asset/source", ({ params }) => {
+      sources.push(String(params.asset));
+      return new HttpResponse(null, { status: 404 });
+    }),
+  );
+  renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
+  await waitFor(() => expect(sources.sort()).toEqual(["blink", "wave"]));
+});

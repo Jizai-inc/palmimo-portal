@@ -1765,6 +1765,7 @@ class DisplayAssetPreview:
     name: str
     path: Path
     conversion: DisplayAssetConversion
+    source_path: Path
 
 
 class DisplayAssetPreviewsPort(Protocol):
@@ -1775,6 +1776,14 @@ class DisplayAssetPreviewsPort(Protocol):
         ...
 
     def delete(self, token: str) -> None: ...
+
+    def save_original(self, name: str, preview: DisplayAssetPreview) -> AbstractContextManager[None]:
+        """Prepare before the override; publish the original only when the override succeeds."""
+        ...
+
+    def delete_original(self, name: str) -> None: ...
+
+    def read_original(self, name: str) -> tuple[bytes, str] | None: ...
 
 
 class DisplaySyncPort(Protocol):
@@ -1787,6 +1796,8 @@ class DisplaySyncPort(Protocol):
 
 
 class AppEnvironmentPort(Protocol):
+    def read_asset_source(self, project_dir: Path, path: str) -> tuple[bytes, str] | None: ...
+
     def read_display_firmware_need(self, venv: Path) -> DisplayFirmwareNeed:
         """Fall back to protocol 1 when the installed environment cannot be read."""
         ...
@@ -1798,6 +1809,8 @@ class StandardAssetsPort(Protocol):
         ...
 
     def read_catalog(self) -> dict[str, Any]: ...
+
+    def read_source(self, name: str) -> bytes | None: ...
 
 
 DisplayFirmwareOutcome = Literal[

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 from palmimo_portal.core.apps_assets import DisplayAssetConversionError, DisplayCapacityError
 from palmimo_portal.ports import (
@@ -70,6 +70,19 @@ class DisplayAssetsService:
         entries = {entry["id"].removeprefix("palmimo/"): entry for entry in catalog.get("assets", [])}
         return status, entries
 
+    def source(self, name: str, variant: Literal["default", "override"]) -> tuple[bytes, str]:
+        self.require_standard(name)
+        source = None
+        if variant == "override":
+            source = self.previews.read_original(name)
+        else:
+            content = self.standards.read_source(name)
+            if content is not None:
+                source = content, "application/json"
+        if source is None:
+            raise UnknownDisplayAssetError(name)
+        return source
+
     def preview(
         self, name: str, content: bytes, suffix: str
     ) -> tuple[DisplayAssetPreview, list[str], DisplayAssetCapacity]:
@@ -93,20 +106,31 @@ class DisplayAssetsService:
     def put(self, name: str, token: str, sync: DisplaySyncPort) -> DisplaySyncResult:
         self.require_standard(name)
         with self.state.lock_apps(), self.state.lock_run():
-            with self.previews.open(name, token) as preview:
-                if preview is None:
-                    raise DisplayPreviewExpiredError(token)
-                status = self.platform.display_assets_status()
-                if preview.conversion.bytes is None:
-                    raise ValueError("converted asset has no size")
-                capacity = replacement_capacity(status, name, preview.conversion.bytes)
-                if not capacity.ok:
-                    raise DisplayCapacityError(capacity.short_by)
-                self.platform.override_display_asset(name, preview.path)
+            saved = False
             try:
-                return self._sync_saved(sync)
+                with self.previews.open(name, token) as preview:
+                    if preview is None:
+                        raise DisplayPreviewExpiredError(token)
+                    status = self.platform.display_assets_status()
+                    if preview.conversion.bytes is None:
+                        raise ValueError("converted asset has no size")
+                    capacity = replacement_capacity(status, name, preview.conversion.bytes)
+                    if not capacity.ok:
+                        raise DisplayCapacityError(capacity.short_by)
+                    with self.previews.save_original(name, preview):
+                        self.platform.override_display_asset(name, preview.path)
+                        saved = True
+            except OSError:
+                if saved:
+                    self.previews.delete_original(name)
+                raise
             finally:
-                self.previews.delete(token)
+                if saved:
+                    try:
+                        result = self._sync_saved(sync)
+                    finally:
+                        self.previews.delete(token)
+            return result
 
     def delete(self, name: str, sync: DisplaySyncPort) -> DisplaySyncResult:
         names = self.standards.list_standard_names()
@@ -114,7 +138,11 @@ class DisplayAssetsService:
             if name not in names and name not in self.platform.display_assets_status().orphan_overrides:
                 raise UnknownDisplayAssetError(name)
             self.platform.override_display_asset(name, None)
-            return self._sync_saved(sync)
+            try:
+                self.previews.delete_original(name)
+            finally:
+                result = self._sync_saved(sync)
+            return result
 
     def _sync_saved(self, sync: DisplaySyncPort) -> DisplaySyncResult:
         try:

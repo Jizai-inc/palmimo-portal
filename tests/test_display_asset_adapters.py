@@ -318,3 +318,33 @@ def test_platform_desire_preserves_tool_failure_payload(tmp_path: Path) -> None:
         SudoPlatformPort(tmp_path / "installed", runner=run).desire_display_firmware(2, "initial")
     assert caught.value.reason == "unavailable"
     assert caught.value.short_by is None
+
+
+@pytest.mark.parametrize("condition", ["valid", "missing", "symlink", "parent-symlink", "oversized"])
+def test_bundled_source_rejects_unbounded_or_nonregular_paths(tmp_path: Path, condition: str) -> None:
+    directory = tmp_path / "bundle"
+    source = directory / "source"
+    source.mkdir(parents=True)
+    outside = tmp_path / "outside.json"
+    outside.write_bytes(b"private")
+    path = source / "happy.json"
+    if condition == "symlink":
+        path.symlink_to(outside)
+    elif condition == "parent-symlink":
+        source.rmdir()
+        source.symlink_to(tmp_path, target_is_directory=True)
+        (tmp_path / "happy.json").write_bytes(b"private")
+    elif condition != "missing":
+        path.write_bytes(b"x" * (16 * 1024 * 1024 + 1) if condition == "oversized" else b"lottie")
+
+    assert StandardAssets(directory).read_source("happy") == (b"lottie" if condition == "valid" else None)
+
+
+def test_app_source_allows_symlinks_above_project_root(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "face.json").write_bytes(b"original")
+    alias = tmp_path / "alias"
+    alias.symlink_to(project, target_is_directory=True)
+
+    assert AppEnvironment().read_asset_source(alias, "face.json") == (b"original", "application/json")

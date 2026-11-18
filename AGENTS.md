@@ -14,7 +14,9 @@ internal monorepo, not here.
   the two committed artifact sets (`frontend/openapi.json`,
   `frontend/src/api/generated/`).
 - Layering: `api/` → `core/` → `ports.py`; only `adapters/` touches the
-  OS. `PALMIMO_ADAPTERS=fake` (default) wires the in-memory fakes.
+  OS, and only `api/` may import `fastapi`/`starlette`.
+  `PALMIMO_ADAPTERS=fake` (default) wires the in-memory fakes.
+  `tests/test_import_contracts.py` states and enforces the full rule set.
 - Endpoint docstrings feed `openapi.json`: editing one requires
   regenerating (`make check`) and committing the artifacts.
 - All prose in the tree is English (enforced by

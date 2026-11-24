@@ -9,6 +9,7 @@ from typing import Literal
 
 import anyio.to_thread
 from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from palmimo_portal.api.deps import require_auth, require_full_session, require_provisioned
@@ -121,6 +122,9 @@ def _translate_errors() -> Iterator[None]:
     except DisplayToolError as error:
         logger.error("display asset tool failed: %s", error.reason)
         raise PortalError(500, "internal_error") from error
+    except OSError as error:
+        logger.error("display asset source storage failed: %s", error)
+        raise PortalError(500, "internal_error") from error
 
 
 @router.get("/standard")
@@ -161,9 +165,10 @@ async def preview_standard_asset(
             content.extend(chunk)
             if len(content) > MAX_UPLOAD_BYTES:
                 raise PortalError(422, "display_asset_invalid")
-        preview, lost, capacity = await anyio.to_thread.run_sync(
-            service.preview, name, bytes(content), PurePath(file.filename or "").suffix
-        )
+        suffix = PurePath(file.filename or "").suffix.lower()
+        if suffix not in {".json", ".png", ".jpg", ".jpeg", ".gif"}:
+            raise PortalError(422, "display_asset_invalid")
+        preview, lost, capacity = await anyio.to_thread.run_sync(service.preview, name, bytes(content), suffix)
     conversion = preview.conversion
     assert conversion.kind is not None and conversion.bytes is not None and conversion.crc32 is not None
     return DisplayAssetPreviewResponse(
@@ -174,6 +179,24 @@ async def preview_standard_asset(
         warnings=list(conversion.warnings),
         params_lost=lost,
         capacity=capacity,
+    )
+
+
+@router.get(
+    "/standard/{name}/source",
+    response_class=Response,
+    responses={200: {"content": {media: {} for media in ("image/png", "image/jpeg", "image/gif", "application/json")}}},
+)
+def get_standard_asset_source(
+    name: str,
+    variant: Literal["default", "override"],
+    service: DisplayAssetsService = Depends(get_display_assets),
+) -> Response:
+    """Read the selected original up to 16 MiB, without privileged tools or locks; missing originals return 404."""
+    with _translate_errors():
+        content, media_type = service.source(name, variant)
+    return Response(
+        content, media_type=media_type, headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
     )
 
 

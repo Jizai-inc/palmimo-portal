@@ -12,6 +12,7 @@ import {
 } from "@/api/generated/display-assets/display-assets";
 import type { DisplayAssetPreviewResponse, DisplaySyncResult, StandardAssetInfo } from "@/api/generated/models";
 import { getGetStatusApiV1SystemStatusGetQueryKey } from "@/api/generated/system/system";
+import { DisplayAssetPreview, DisplayPreviewNote } from "@/components/DisplayAssetPreview";
 import { ApiErrorAlert } from "@/components/ApiErrorAlert";
 import { PageHeader, SectionHeader } from "@/components/PageHeader";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -36,11 +37,13 @@ export function DisplayAssetsPanel() {
   const queryClient = useQueryClient();
   const list = useListStandardAssetsApiV1DisplayAssetsStandardGet({ query: { staleTime: 60_000, refetchOnWindowFocus: false } });
   const [confirmation, setConfirmation] = useState<Confirmation>(null);
+  const [previewVersion, setPreviewVersion] = useState(0);
   const [outcome, setOutcome] = useState<DisplaySyncResult | null>(null);
   const [fileError, setFileError] = useState(false);
   const preview = usePreviewStandardAssetApiV1DisplayAssetsStandardNamePreviewPost();
   const saved = (response: { sync: DisplaySyncResult }) => {
     setConfirmation(null);
+    setPreviewVersion((version) => version + 1);
     setOutcome(response.sync);
     void queryClient.invalidateQueries({ queryKey: getListStandardAssetsApiV1DisplayAssetsStandardGetQueryKey() });
     void queryClient.invalidateQueries({ queryKey: getGetStatusApiV1SystemStatusGetQueryKey() });
@@ -104,16 +107,20 @@ export function DisplayAssetsPanel() {
       {list.data ? <>
         <section className="flex flex-col gap-3">
           <SectionHeader title={t("settings.display.standard")} description={t("settings.display.fileHint")} />
+          <DisplayPreviewNote />
           {list.data?.standard.length === 0 ? <p className="text-sm text-muted-foreground">{t("settings.display.empty")}</p> :
             <ul className="overflow-hidden rounded-xl border border-border text-[13px] divide-y divide-border">
               {list.data?.standard.map((asset) => <li key={asset.name} className="flex flex-col gap-3 px-5 py-4 md:flex-row md:items-center md:justify-between">
-                <div className="flex min-w-0 flex-col gap-1 md:max-w-[55%]">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-semibold">{displayAssetName(t, asset.name)}</h3>
-                    {asset.overridden && <Badge variant="outline">{t("settings.display.overridden")}</Badge>}
+                <div className="flex min-w-0 items-center gap-4 md:max-w-[55%]">
+                  <DisplayAssetPreview src={`/api/v1/display-assets/standard/${encodeURIComponent(asset.name)}/source?variant=${asset.overridden ? "override" : "default"}&v=${previewVersion}`} retryBusy={false} label={displayAssetName(t, asset.name)} />
+                  <div className="flex min-w-0 flex-col gap-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-semibold">{displayAssetName(t, asset.name)}</h3>
+                      {asset.overridden && <Badge variant="outline">{t("settings.display.overridden")}</Badge>}
+                    </div>
+                    <p className="break-words text-muted-foreground">{appText(asset.translations, i18n.language, "description", asset.description ?? "")}</p>
+                    <p className="text-muted-foreground">{kind(asset.kind)} · {size(asset.bytes)}</p>
                   </div>
-                  <p className="break-words text-muted-foreground">{appText(asset.translations, i18n.language, "description", asset.description ?? "")}</p>
-                  <p className="text-muted-foreground">{kind(asset.kind)} · {size(asset.bytes)}</p>
                 </div>
                 <div className="flex flex-wrap items-end gap-2 md:justify-end">
                   <div className="flex flex-col gap-1">

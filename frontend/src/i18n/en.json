@@ -1,4 +1,9 @@
 {
+  "displayPreview": {
+    "unavailable": "No preview",
+    "appearanceNote": "Previews look slightly different from the device: glow is not shown.",
+    "assets": "Display assets"
+  },
   "app": {
     "wordmark": "Palmimo DevKit",
     "toggleSidebar": "Toggle sidebar",

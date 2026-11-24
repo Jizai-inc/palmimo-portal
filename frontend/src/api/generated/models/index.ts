@@ -52,6 +52,8 @@ export * from './envSpecInfo';
 export * from './forgetResponse';
 export * from './getLogsApiV1AppsNameLogsGetParams';
 export * from './getPlatformApiV1PlatformGetParams';
+export * from './getStandardAssetSourceApiV1DisplayAssetsStandardNameSourceGetParams';
+export * from './getStandardAssetSourceApiV1DisplayAssetsStandardNameSourceGetVariant';
 export * from './gitCredentialRecordInfo';
 export * from './gitCredentialsListResponse';
 export * from './hTTPValidationError';

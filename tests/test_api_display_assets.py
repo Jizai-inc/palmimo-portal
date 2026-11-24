@@ -8,6 +8,7 @@ import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
 
+from palmimo_portal.adapters.display_previews import DisplayAssetPreviews
 from palmimo_portal.api.app import create_app
 from palmimo_portal.ports import (
     AppAssetsStatus,
@@ -478,3 +479,135 @@ def test_asset_operations_require_ready_platform_before_calling_tools(
     assert adapters.platform.override_display_asset_calls == []
     assert adapters.platform.sync_display_assets_calls == []
     assert adapters.asset_converter.convert_calls == []
+
+
+@pytest.mark.parametrize(
+    "variant, overridden, original",
+    [
+        ("default", False, False),
+        ("default", True, True),
+        ("override", True, True),
+        ("override", False, True),
+        ("override", True, False),
+        ("override", False, False),
+    ],
+)
+def test_standard_source_reads_requested_variant_without_tools_or_locks(
+    client: TestClient, adapters: FakeAdapterBundle, variant: str, overridden: bool, original: bool
+) -> None:
+    adapters.standard_assets.sources["happy"] = b'{"v":"default"}'
+    if original:
+        token = _preview(client)["token"]
+        assert client.put(f"{BASE}/standard/happy", json={"token": token}, headers=HEADERS).status_code == 200
+    adapters.platform.display_assets = replace(
+        adapters.platform.display_assets, standard=(replace(STANDARD, overridden=overridden),)
+    )
+    adapters.platform.display_assets_status_calls = 0
+    adapters.platform.display_error = DisplayToolError("preview must not call the tool")
+
+    with adapters.state.lock_apps(), adapters.state.lock_run():
+        response = client.get(f"{BASE}/standard/happy/source", params={"variant": variant})
+
+    assert response.status_code == (404 if variant == "override" and not original else 200)
+    assert adapters.platform.display_assets_status_calls == 0
+    if response.status_code == 200:
+        assert response.content == (b"source" if variant == "override" else b'{"v":"default"}')
+        assert response.headers["content-type"] == ("image/gif" if variant == "override" else "application/json")
+        assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize("variant", ["default", "override"])
+@pytest.mark.parametrize("name", ["unknown", "include", "UPPER", "a" * 41, "happy%2Fother"])
+def test_standard_source_rejects_invalid_or_unknown_names(client: TestClient, name: str, variant: str) -> None:
+    assert client.get(f"{BASE}/standard/{name}/source", params={"variant": variant}).status_code == 404
+
+
+def test_standard_source_returns_not_found_without_bundled_original(client: TestClient) -> None:
+    assert client.get(f"{BASE}/standard/happy/source", params={"variant": "default"}).status_code == 404
+
+
+@pytest.mark.parametrize("variant", [None, "other"])
+def test_standard_source_requires_an_explicit_supported_variant(client: TestClient, variant: str | None) -> None:
+    params = {} if variant is None else {"variant": variant}
+    assert client.get(f"{BASE}/standard/happy/source", params=params).status_code == 422
+
+
+@pytest.mark.parametrize("name", ["happy", "retired"])
+def test_reset_and_orphan_deletion_remove_saved_original(
+    client: TestClient, adapters: FakeAdapterBundle, name: str
+) -> None:
+    token = _preview(client)["token"]
+    assert client.put(f"{BASE}/standard/happy", json={"token": token}, headers=HEADERS).status_code == 200
+    assert isinstance(adapters.display_previews, DisplayAssetPreviews)
+    originals = adapters.display_previews.originals
+    if name == "retired":
+        (originals / "happy.gif").rename(originals / "retired.gif")
+    assert (originals / f"{name}.gif").read_bytes() == b"source"
+
+    assert client.delete(f"{BASE}/standard/{name}", headers=HEADERS).status_code == 200
+
+    assert not (originals / f"{name}.gif").exists()
+
+
+def test_replacement_updates_original_and_removes_previous_extension(
+    client: TestClient, adapters: FakeAdapterBundle
+) -> None:
+    for filename, content in [("a.gif", b"first"), ("a.png", b"second")]:
+        response = client.post(f"{BASE}/standard/happy/preview", files={"file": (filename, content)}, headers=HEADERS)
+        assert response.status_code == 200
+        assert (
+            client.put(f"{BASE}/standard/happy", json={"token": response.json()["token"]}, headers=HEADERS).status_code
+            == 200
+        )
+    assert isinstance(adapters.display_previews, DisplayAssetPreviews)
+    originals = adapters.display_previews.originals
+    assert sorted(path.name for path in originals.iterdir()) == ["happy.png"]
+    assert (originals / "happy.png").read_bytes() == b"second"
+
+
+def test_failed_override_preserves_previous_original(
+    client: TestClient, adapters: FakeAdapterBundle, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = _preview(client)["token"]
+    assert client.put(f"{BASE}/standard/happy", json={"token": first}, headers=HEADERS).status_code == 200
+    replacement = client.post(
+        f"{BASE}/standard/happy/preview", files={"file": ("new.png", b"new")}, headers=HEADERS
+    ).json()["token"]
+
+    def fail(name: str, path: Path | None) -> None:
+        raise DisplayToolError("failed override")
+
+    monkeypatch.setattr(adapters.platform, "override_display_asset", fail)
+    assert client.put(f"{BASE}/standard/happy", json={"token": replacement}, headers=HEADERS).status_code == 500
+    assert adapters.display_previews.read_original("happy") == (b"source", "image/gif")
+
+
+@pytest.mark.parametrize("stage", ["prepare", "commit"])
+def test_original_storage_failure_preserves_saved_state_or_schedules_sync(
+    client: TestClient, adapters: FakeAdapterBundle, monkeypatch: pytest.MonkeyPatch, stage: str
+) -> None:
+    from contextlib import contextmanager
+
+    first = _preview(client)["token"]
+    assert client.put(f"{BASE}/standard/happy", json={"token": first}, headers=HEADERS).status_code == 200
+    replacement = client.post(
+        f"{BASE}/standard/happy/preview", files={"file": ("new.png", b"new")}, headers=HEADERS
+    ).json()["token"]
+    adapters.platform.override_display_asset_calls.clear()
+    adapters.platform.sync_display_assets_calls.clear()
+
+    @contextmanager
+    def fail(name: str, preview: object) -> Iterator[None]:
+        if stage == "prepare":
+            raise OSError("disk full")
+        yield
+        raise OSError("rename failed")
+
+    monkeypatch.setattr(adapters.display_previews, "save_original", fail)
+    response = client.put(f"{BASE}/standard/happy", json={"token": replacement}, headers=HEADERS)
+    assert response.status_code == 500
+    assert len(adapters.platform.override_display_asset_calls) == (0 if stage == "prepare" else 1)
+    assert adapters.platform.sync_display_assets_calls == ([] if stage == "prepare" else [None])
+    assert adapters.display_previews.read_original("happy") == (
+        (b"source", "image/gif") if stage == "prepare" else None
+    )

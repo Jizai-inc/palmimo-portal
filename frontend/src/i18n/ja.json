@@ -1,4 +1,9 @@
 {
+  "displayPreview": {
+    "unavailable": "プレビュー無し",
+    "appearanceNote": "発光は表示されないため、プレビューは実機と見た目が少し異なります。",
+    "assets": "表示アセット"
+  },
   "app": {
     "wordmark": "Palmimo DevKit",
     "toggleSidebar": "サイドバーの切り替え",

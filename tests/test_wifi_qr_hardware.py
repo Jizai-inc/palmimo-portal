@@ -376,8 +376,12 @@ def test_decoder_scans_both_grayscale_scales_and_only_enables_qr(module: Any) ->
     assert jpeg.closed
 
 
-@pytest.mark.parametrize("denominator,width,height", [(4, 648, 486), (2, 1296, 972)])
-def test_turbojpeg_binding_requests_scaled_gray_pixels(module: Any, denominator: int, width: int, height: int) -> None:
+@pytest.mark.parametrize(
+    "denominator,width,height,rgb", [(4, 648, 486, False), (2, 1296, 972, False), (8, 324, 243, True)]
+)
+def test_turbojpeg_binding_requests_scaled_pixels(
+    module: Any, denominator: int, width: int, height: int, rgb: bool
+) -> None:
     from types import SimpleNamespace
     from unittest.mock import Mock
 
@@ -390,8 +394,8 @@ def test_turbojpeg_binding_requests_scaled_gray_pixels(module: Any, denominator:
     def decompress(
         handle: Any, data: bytes, length: int, pixels: Any, w: int, pitch: int, h: int, format_: int, flags: int
     ) -> int:
-        assert (w, h, pitch, format_) == (width, height, 0, 6)
-        ctypes.memset(pixels, 127, w * h)
+        assert (w, h, pitch, format_) == (width, height, 0, 0 if rgb else 6)
+        ctypes.memset(pixels, 127, w * h * (3 if rgb else 1))
         return 0
 
     library = SimpleNamespace(
@@ -402,7 +406,7 @@ def test_turbojpeg_binding_requests_scaled_gray_pixels(module: Any, denominator:
         tjDestroy=Mock(return_value=0),
     )
     jpeg = module.TurboJPEG(library)
-    assert jpeg.decode(b"jpeg", denominator) == (b"\x7f" * width * height, width, height)
+    assert jpeg.decode(b"jpeg", denominator, rgb=rgb) == (b"\x7f" * width * height * (3 if rgb else 1), width, height)
     jpeg.close()
     library.tjDestroy.assert_called_once_with(0x100000001)
 
@@ -1039,3 +1043,59 @@ def test_grayscale_preview_stays_neutral_for_every_intensity(module: Any) -> Non
     assert levels == sorted(levels)
     assert len(set(levels)) == 32
     assert colors[0] == 0 and colors[-1] == 0xFFFF
+
+
+@pytest.mark.parametrize("v2", [False, True])
+def test_reader_preview_preserves_v2_color_and_v1_gray_while_decoding_gray(
+    module: Any, tmp_path: Path, v2: bool
+) -> None:
+    from types import SimpleNamespace
+
+    class JPEG:
+        def decode(self, frame: bytes, denominator: int, *, rgb: bool = False) -> tuple[bytes, int, int]:
+            if rgb:
+                assert denominator == 8
+                return (b"\xff\x00\x00" * 4 + b"\x00\xff\x00" * 4 + b"\x00\x00\xff" * 4 + b"\xff\xff\x00" * 4), 4, 4
+            return bytes(range(16)), 4, 4
+
+        def close(self) -> None:
+            pass
+
+    decoded: list[bytes] = []
+
+    def image(width: int, height: int, format_: str, pixels: bytes) -> list[Any]:
+        assert (width, height, format_) == (4, 4, "Y800")
+        decoded.append(pixels)
+        return []
+
+    scanner = SimpleNamespace(parse_config=lambda config: None, scan=lambda image: None)
+    decoder = module.Decoder(jpeg=JPEG(), zbar_module=SimpleNamespace(ImageScanner=lambda: scanner, Image=image))
+    serial: Any = StreamSerial(Clock()) if v2 else SlowSerial(Clock())
+    display = module.Display(port_factory=lambda: serial, clock=serial.clock)
+    harness = reader_tests.Harness(module, tmp_path)
+    harness.reader.decoder_factory = lambda: decoder
+    harness.reader.display_factory = lambda: display
+    try:
+        harness.reader.start()
+        harness.reader._screen("scanning", {})
+        harness.reader.camera.frames.append(b"jpeg")
+        harness.reader._frame()
+        expected = b"\xe0\xff" if v2 else b"\x0f"
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            frames = serial.frames if v2 else [pixels for _, pixels in serial.finished]
+            if frames and frames[-1].startswith(expected):
+                break
+            time.sleep(0.001)
+        assert decoded == [bytes(range(16)), bytes(range(16))]
+        pixels = frames[-1]
+        assert pixels.startswith(expected * (168 if v2 else 42))
+        if v2:
+            for row, color in ((42, b"\x1f\x00"), (84, b"\xe0\x07"), (126, b"\x00\xf8")):
+                assert pixels[row * 168 * 2 : (row + 1) * 168 * 2] == color * 168
+            assert set(pixels[154 * 168 * 2 :]) == {0, 255}
+        else:
+            assert serial.finished[-1][0] == "GRAY8"
+            assert set(pixels[154 * 168 :]) == {0, 255}
+    finally:
+        harness.reader.close()

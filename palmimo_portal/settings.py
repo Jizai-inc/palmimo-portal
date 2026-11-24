@@ -38,7 +38,7 @@ DEFAULT_RUN_DIR = Path("/run/palmimo/apps")
 DEFAULT_UV_CACHE_DIR = Path("/var/lib/palmimo/uv-cache")
 DEFAULT_PLATFORM_REPO = "Jizai-inc/palmimo-image"
 DEFAULT_PUBLIC_CATALOG_URL = "https://apps.palmimo.dev/v1/catalog.json"
-DEFAULT_REQUIRED_PLATFORM_VERSION = 1
+DEFAULT_REQUIRED_PLATFORM_VERSION = 11
 DEFAULT_SUDO_BIN = "sudo"
 DEFAULT_PLATFORM_DIR = Path("/var/lib/palmimo/platform")
 
@@ -119,6 +119,9 @@ class Settings:
     #: default) or inline before the triggering request returns. A test seam, not read from the
     #: environment -- mirrors update_run_in_thread.
     apps_run_in_thread: bool = True
+    #: Test seams for StartJobRunner and the startup sequence; not read from the environment.
+    start_run_in_thread: bool = True
+    startup_run_in_thread: bool = True
     #: Whether startup finalize starts an `autostart: true` app (design doc 2.5). A test seam,
     #: not read from the environment -- default True so a real device always attempts it.
     autostart_enabled: bool = True

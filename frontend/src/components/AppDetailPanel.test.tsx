@@ -15,6 +15,7 @@ import type { AppDetailResponse, AppSummary } from "@/api/generated/models";
 import { AppDetailPanel } from "@/components/AppDetailPanel";
 import { renderWithRouter } from "@/test/render";
 import { chooseOption, selectedOptionIndex } from "@/test/select";
+import { startJob } from "@/test/startJob";
 import { server } from "@/test/server";
 
 function detail(overrides: Partial<AppDetailResponse> = {}): AppDetailResponse {
@@ -74,7 +75,8 @@ describe("AppDetailPanel", () => {
   // LogsSection always fetches on mount regardless of which behavior a test targets; give every
   // test a default empty response so only the logs-specific tests need to know its shape.
   beforeEach(() => {
-    server.use(getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }));
+    server.use(getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }),
+      http.get("*/api/v1/apps/jobs/start-1", () => HttpResponse.json(startJob)));
   });
 
   // name (the payload must be {REQ_NAME: STORE_NAME}, never {REQ_NAME: value}), and an unbound
@@ -347,7 +349,7 @@ describe("AppDetailPanel", () => {
         getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
         http.post("*/api/v1/apps/palmimo.teleop/start", () => {
           running = true;
-          return HttpResponse.json({ status: "activating" }, { status: 202 });
+          return HttpResponse.json({ job: startJob }, { status: 202 });
         }),
         http.get("*/api/v1/apps/palmimo.teleop/logs", ({ request }) => {
           const url = new URL(request.url);
@@ -536,7 +538,7 @@ describe("AppDetailPanel", () => {
       http.post("*/api/v1/apps/palmimo.teleop/update/check", () => HttpResponse.json(UPDATE_AVAILABLE)),
       http.post("*/api/v1/apps/palmimo.teleop/start", () => {
         started = true;
-        return HttpResponse.json({ status: "activating" }, { status: 202 });
+        return HttpResponse.json({ job: startJob }, { status: 202 });
       }),
     );
     renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
@@ -544,6 +546,8 @@ describe("AppDetailPanel", () => {
     expect(await screen.findByRole("button", { name: "Update" })).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: "Start" }));
+    expect(await screen.findByRole("progressbar")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close" }));
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Update" })).toBeDisabled());
     expect(screen.getByText("Stop the running app before updating an app.")).toBeInTheDocument();
@@ -818,4 +822,17 @@ it.each(["stopped", "broken", "needs_repair"] as const)("offers retired official
     await userEvent.click(repair!);
     await waitFor(() => expect(posted).toHaveBeenCalledWith(""));
   }
+});
+
+it.each(["1", "2", null] as const)("alerts only for an old display requirement %s in detail", async (firmware) => {
+  server.use(
+    getGetAppApiV1AppsNameGetMockHandler(detail({ display_firmware: firmware, env: [] })),
+    getListAppsApiV1AppsGetMockHandler({ apps: [] }),
+    getListSecretsApiV1SecretsGetMockHandler({ secrets: [] }),
+    getGetLogsApiV1AppsNameLogsGetMockHandler({ entries: [], invocations: [], next_cursor: null }),
+    http.get("*/api/v1/platform", () => HttpResponse.json({ ready: true, display_firmware_desired: 2 })),
+  );
+  renderWithRouter(<AppDetailPanel id="palmimo.teleop" />);
+  await screen.findByRole("button", { name: "Start" });
+  expect(screen.queryAllByRole("alert")).toHaveLength(firmware === "1" ? 1 : 0);
 });

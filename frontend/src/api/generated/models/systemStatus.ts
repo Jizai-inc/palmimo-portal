@@ -4,6 +4,7 @@
  * Palmimo Portal
  * OpenAPI spec version: 0.1.0
  */
+import type { DisplaySyncInfo } from './displaySyncInfo';
 import type { RunningAppInfo } from './runningAppInfo';
 import type { VersionInfo } from './versionInfo';
 import type { WifiAttemptInfo } from './wifiAttemptInfo';
@@ -14,6 +15,7 @@ export interface SystemStatus {
   auth_state: string;
   device_id: string | null;
   disk_free_bytes: number;
+  display_sync?: DisplaySyncInfo;
   hostname: string;
   last_wifi_attempt: WifiAttemptInfo | null;
   ntp_synchronized: boolean;

@@ -17,6 +17,8 @@ from functools import partial
 from palmimo_portal.adapters.clock import SystemClockPort
 from palmimo_portal.adapters.comitup import ComitupNetworkPort
 from palmimo_portal.adapters.disk import OsDiskPort
+from palmimo_portal.adapters.display_assets import AppEnvironment, DisplayAssetConverter, StandardAssets
+from palmimo_portal.adapters.display_previews import DisplayAssetPreviews
 from palmimo_portal.adapters.git_port import SubprocessGitPort
 from palmimo_portal.adapters.git_uv_updater import GitUvUpdater
 from palmimo_portal.adapters.github_releases import GitHubReleaseSource
@@ -42,10 +44,14 @@ from palmimo_portal.adapters.uv_port import SubprocessUvPort
 from palmimo_portal.adapters.wifi_qr_socket import WifiQrSocketClient
 from palmimo_portal.core.wifi_attempt_manager import WifiAttemptManager, connect_legacy
 from palmimo_portal.ports import (
+    AppEnvironmentPort,
     AppUnitPort,
     ClockPort,
     ComitupServicePort,
     DiskPort,
+    DisplayAssetConverterPort,
+    DisplayAssetPreviewsPort,
+    DisplaySyncPort,
     GitPort,
     IdentityStore,
     JournalPort,
@@ -59,6 +65,7 @@ from palmimo_portal.ports import (
     SavedNetworkPort,
     SecretsStore,
     SshKeyPort,
+    StandardAssetsPort,
     StateStore,
     SyncUnitPort,
     SystemPort,
@@ -70,10 +77,13 @@ from palmimo_portal.ports import (
 )
 from palmimo_portal.settings import Settings
 from palmimo_portal.testing.fakes import (
+    FakeAppEnvironmentPort,
     FakeAppUnitPort,
     FakeClockPort,
     FakeComitupServicePort,
     FakeDiskPort,
+    FakeDisplayAssetConverterPort,
+    FakeDisplaySyncService,
     FakeGitPort,
     FakeIdentityStore,
     FakeJournalPort,
@@ -87,6 +97,7 @@ from palmimo_portal.testing.fakes import (
     FakeSavedNetworkPort,
     FakeSecretsStore,
     FakeSshKeyPort,
+    FakeStandardAssetsPort,
     FakeStateStore,
     FakeSyncUnitPort,
     FakeSystemPort,
@@ -125,6 +136,11 @@ class AdapterBundle:
     sync_unit: SyncUnitPort
     disk: DiskPort
     app_unit: AppUnitPort
+    app_environment: AppEnvironmentPort
+    asset_converter: DisplayAssetConverterPort
+    standard_assets: StandardAssetsPort
+    display_previews: DisplayAssetPreviewsPort
+    display_sync: DisplaySyncPort | None
     run_dir: RunDirPort
     journal: JournalPort
     platform: PlatformPort
@@ -151,6 +167,9 @@ def build_adapters(settings: Settings) -> AdapterBundle:
     edit_lock = threading.RLock()
     if settings.adapters == "fake":
         fake_state = FakeStateStore()
+        fake_platform = FakePlatformPort()
+        fake_clock = FakeClockPort()
+        fake_converter = FakeDisplayAssetConverterPort()
         fake_profiles = FakeWifiProfilePort()
         fake_network = FakeNetworkPort(
             profiles=fake_profiles,
@@ -188,12 +207,19 @@ def build_adapters(settings: Settings) -> AdapterBundle:
             sync_unit=FakeSyncUnitPort(),
             disk=FakeDiskPort(),
             app_unit=FakeAppUnitPort(),
+            app_environment=FakeAppEnvironmentPort(),
+            asset_converter=fake_converter,
+            standard_assets=FakeStandardAssetsPort(),
+            display_previews=DisplayAssetPreviews(
+                settings.state_dir / "display-assets", fake_converter, fake_clock.monotonic, initialize=False
+            ),
+            display_sync=FakeDisplaySyncService(fake_platform, fake_state),
             run_dir=FakeRunDirPort(),
             journal=FakeJournalPort(),
-            platform=FakePlatformPort(),
+            platform=fake_platform,
             platform_bundle=FakePlatformBundleSource(),
             platform_releases=FakeReleaseSource(),
-            clock=FakeClockPort(),
+            clock=fake_clock,
             public_catalog=FakePublicCatalogSource(),
         )
     preflight_state_dir(settings.state_dir)
@@ -234,6 +260,11 @@ def build_adapters(settings: Settings) -> AdapterBundle:
         sync_unit=SystemdSyncUnitPort(),
         disk=OsDiskPort(),
         app_unit=SystemdAppUnitPort(),
+        app_environment=AppEnvironment(),
+        asset_converter=DisplayAssetConverter(),
+        standard_assets=StandardAssets(),
+        display_previews=DisplayAssetPreviews(settings.state_dir / "display-assets", DisplayAssetConverter()),
+        display_sync=None,
         run_dir=TmpfsRunDirPort(settings.run_dir),
         journal=JournalctlPort(),
         platform=SudoPlatformPort(installed_path=settings.platform_dir / "installed.json", sudo_bin=settings.sudo_bin),

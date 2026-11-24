@@ -28,6 +28,7 @@ from palmimo_portal.ports import (
     AppsStateFileState,
     DisplayFirmwareResult,
     DisplayFirmwareState,
+    DisplayProtocol,
     PlatformLockTimeoutError,
     StateStore,
 )
@@ -85,6 +86,7 @@ class PlatformStatusResponse(BaseModel):
     latest_error: str | None
     display_firmware: DisplayFirmwareState | None = None
     display_firmware_available: bool = False
+    display_firmware_desired: DisplayProtocol | None = None
 
 
 class PlatformJobInfo(BaseModel):
@@ -129,6 +131,7 @@ def _status_response(request: Request, state_store: StateStore, *, force_verify:
     status = platform_core.compute_status(
         installed, settings.required_platform_version, diffs, latest_manifest, latest_tag, latest_error
     )
+    selection = adapters.platform.read_display_firmware_selection()
     return PlatformStatusResponse(
         installed_version=status["installed_version"],
         installed_at=status["installed_at"],
@@ -140,6 +143,7 @@ def _status_response(request: Request, state_store: StateStore, *, force_verify:
         latest_error=status["latest_error"],
         display_firmware=adapters.platform.read_display_firmware_state(),
         display_firmware_available=adapters.platform.has_display_firmware_tool(),
+        display_firmware_desired=selection.protocol if selection is not None else None,
     )
 
 

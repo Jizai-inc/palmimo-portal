@@ -70,6 +70,8 @@ def settings(tmp_path: Path) -> Settings:
         # PeriodicScheduler.tick() directly against the fake clock instead
         # (see core/periodic.py's module docstring).
         periodic_enabled=False,
+        startup_run_in_thread=False,
+        start_run_in_thread=False,
     )
 
 

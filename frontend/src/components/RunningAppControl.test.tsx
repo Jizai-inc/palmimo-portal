@@ -9,6 +9,7 @@ import { getGetAppApiV1AppsNameGetQueryKey } from "@/api/generated/apps/apps";
 import type { RunningAppInfo } from "@/api/generated/models";
 import { getGetStatusApiV1SystemStatusGetQueryKey } from "@/api/generated/system/system";
 import { RunningAppControl } from "@/components/RunningAppControl";
+import { startJob } from "@/test/startJob";
 import { server } from "@/test/server";
 
 function renderControl(runningApp: RunningAppInfo | null, defaultApp: { id: string; name: string } | null = null) {
@@ -88,13 +89,15 @@ describe("RunningAppControl", () => {
     const user = userEvent.setup();
     const startSpy = vi.fn();
     server.use(
-      http.post("*/api/v1/apps/robot/start", () => (startSpy(), HttpResponse.json({ status: "activating" }, { status: 202 }))),
+      http.get("*/api/v1/apps/jobs/start-1", () => HttpResponse.json(startJob)),
+      http.post("*/api/v1/apps/robot/start", () => (startSpy(), HttpResponse.json({ job: startJob }, { status: 202 }))),
     );
     const { invalidateSpy } = renderControl(null, { id: "robot", name: "Hello Robot" });
 
     await user.click(await screen.findByRole("button", { name: "Start Hello Robot" }));
 
     await waitFor(() => expect(startSpy).toHaveBeenCalledOnce());
+    expect(await screen.findByRole("progressbar")).toBeInTheDocument();
     expect(screen.queryByText("No app running")).not.toBeInTheDocument();
     await waitFor(() =>
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: getGetAppApiV1AppsNameGetQueryKey("robot") }),

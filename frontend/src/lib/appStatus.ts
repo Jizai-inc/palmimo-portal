@@ -41,14 +41,10 @@ export function shouldPollAppStatus(status: string): boolean {
   return isAppStatusBusy(status) || status === AppSummaryStatus.running;
 }
 
-/**
- * Whether `status` is an install/update/delete job status -- the same `apps.lock` job the
- * backend's `app_job_in_progress` start precheck refuses every app's start against (design
- * doc 3.10: its sync step runs untrusted build hooks as the same uid an app unit runs as).
- * Exactly one app in the list can have one of these statuses at a time.
- */
+/** Starting, installing, updating, and deleting all hold apps.lock. */
 export function isAppJobStatus(status: string): boolean {
   return (
+    status === AppSummaryStatus.starting ||
     status === AppSummaryStatus.installing ||
     status === AppSummaryStatus.updating ||
     status === AppSummaryStatus.deleting
@@ -87,9 +83,15 @@ export function appStatusLabel(t: TFunction, status: string, exitCode: number | 
   }
 }
 
-/** Translated label for one install/update/delete job step, via explicit `t(...)` calls (same reason as {@link appStatusLabel}). */
+/** Literal translation keys remain visible to the i18n parity scanner. */
 export function appJobStepLabel(t: TFunction, step: string | null): string {
   switch (step) {
+    case "firmware":
+      return t("apps.start.stepFirmware");
+    case "assets":
+      return t("apps.start.stepAssets");
+    case "launch":
+      return t("apps.start.stepLaunch");
     case "fetch":
       return t("apps.jobStepFetch");
     case "extract":

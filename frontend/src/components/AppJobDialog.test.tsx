@@ -1,9 +1,10 @@
-import { act, screen } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import { HttpResponse, http } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppJobDialog } from "@/components/AppJobDialog";
 import { renderWithProviders } from "@/test/render";
+import { startJob } from "@/test/startJob";
 import { server } from "@/test/server";
 
 function jsonError(status: number, code: string) {
@@ -70,4 +71,23 @@ describe("AppJobDialog", () => {
 
     expect(await screen.findByText(/Git credentials were rejected/)).toBeInTheDocument();
   });
+});
+
+it.each(["firmware", "assets", "launch"])("renders localized start progress for %s", async (step) => {
+  server.use(http.get("*/api/v1/apps/jobs/start-1", () => HttpResponse.json({ ...startJob, step })));
+  renderWithProviders(<AppJobDialog jobId="start-1" title="Face" onClose={vi.fn()} onDone={vi.fn()} />);
+  expect(await screen.findByRole("progressbar")).toBeInTheDocument();
+  await waitFor(() => {
+    expect(screen.getByRole("status")).not.toBeEmptyDOMElement();
+    expect(screen.getByRole("status").textContent).not.toBe(step);
+  });
+});
+
+it("shows a warning on a successful start", async () => {
+  server.use(http.get("*/api/v1/apps/jobs/start-1", () => HttpResponse.json({ ...startJob, state: "done", warning: "absent" })));
+  const done = vi.fn();
+  renderWithProviders(<AppJobDialog jobId="start-1" title="Face" onClose={vi.fn()} onDone={done} />);
+  expect(await screen.findByRole("alert")).not.toBeEmptyDOMElement();
+  expect(screen.getByRole("alertdialog")).toBeInTheDocument();
+  expect(done).toHaveBeenCalledOnce();
 });

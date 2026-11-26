@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
-import { Download, ExternalLink, Upload } from "lucide-react";
+import { Download, ExternalLink, Package, Upload } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -322,11 +322,28 @@ function catalogAppTitle(app: PublicCatalogAppInfo): string {
   return app.public.official ? app.name : `${app.public.namespace}/${app.name}`;
 }
 
-function CatalogTab({ onInstalled, appRunning, installedApps, onOpenInstalled }: FlowProps & { installedApps: AppSummary[]; onOpenInstalled: (appId: string) => void }) {
+function tagKey(tag: string): string {
+  return tag.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
+}
+
+function CatalogThumbnail({ app }: { app: PublicCatalogAppInfo }) {
   const { t } = useTranslation();
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const thumbnail = app.thumbnail;
+  const label = t("appAdd.catalogThumbnail", { name: catalogAppTitle(app) });
+  return <div className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border bg-card text-muted-foreground">
+    {thumbnail && "emoji" in thumbnail ? <span role="img" aria-label={label} className="text-4xl">{thumbnail.emoji}</span>
+      : thumbnail && "image_url" in thumbnail && thumbnail.image_url !== failedUrl ? <img src={thumbnail.image_url} alt={label} loading="lazy" referrerPolicy="no-referrer" className="size-full object-cover" onError={() => setFailedUrl(thumbnail.image_url)} />
+        : <Package role="img" aria-label={label} className="size-8" />}
+  </div>;
+}
+
+function CatalogTab({ onInstalled, appRunning, installedApps, onOpenInstalled }: FlowProps & { installedApps: AppSummary[]; onOpenInstalled: (appId: string) => void }) {
+  const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const { data, error, isLoading } = useGetPublicCatalogApiV1CatalogPublicGet();
   const [kind, setKind] = useState("official");
+  const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [selected, setSelected] = useState<PublicCatalogAppInfo | null>(null);
   const [installError, setInstallError] = useState<unknown>(null);
   const install = useInstallPublicApiV1AppsInstallPublicPost({ mutation: {
@@ -348,17 +365,40 @@ function CatalogTab({ onInstalled, appRunning, installedApps, onOpenInstalled }:
     if (data) void queryClient.invalidateQueries({ queryKey: getListAppsApiV1AppsGetQueryKey() });
   }, [data, queryClient]);
   const catalog = error ? undefined : data;
-  const apps = (catalog?.apps ?? []).filter((app) => app.public.official === (kind === "official"));
+  const categoryApps = (catalog?.apps ?? []).filter((app) => app.public.official === (kind === "official"));
+  const tagCounts = new Map<string, { key: string; label: string; count: number }>();
+  for (const app of categoryApps) {
+    const seen = new Set<string>();
+    for (const tag of app.tags ?? []) {
+      const key = tagKey(tag);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const existing = tagCounts.get(key);
+      if (existing) existing.count++;
+      else tagCounts.set(key, { key, label: appText(app.translations, i18n.language, `tags.${key}`, tag), count: 1 });
+    }
+  }
+  const tags = [...tagCounts.values()].sort((a, b) => b.count - a.count).slice(0, 12);
+  const activeTag = tags.some((tag) => tag.key === selectedTag) ? selectedTag : null;
+  const apps = categoryApps.filter((app) => activeTag === null || (app.tags ?? []).some((tag) => tagKey(tag) === activeTag));
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-col gap-1">
         <Label htmlFor="catalog-kind">{t("appAdd.catalogFilterLabel")}</Label>
-        <select id="catalog-kind" value={kind} onChange={(event) => setKind(event.target.value)} className="h-9 w-fit rounded-md border border-input bg-background px-3 text-sm">
+        <select id="catalog-kind" value={kind} onChange={(event) => { setKind(event.target.value); setSelectedTag(null); }} className="h-9 w-fit rounded-md border border-input bg-background px-3 text-sm">
           <option value="official">{t("appAdd.catalogOfficialBadge")}</option>
           <option value="public">{t("appAdd.catalogPublicOption")}</option>
         </select>
       </div>
+      {tags.length > 0 ? <div role="group" aria-label={t("appAdd.catalogTagsLabel")} className="flex flex-wrap gap-2">
+        <button type="button" aria-pressed={activeTag === null} onClick={() => setSelectedTag(null)} className="rounded-md focus-visible:outline-2 focus-visible:outline-ring">
+          <Badge variant={activeTag === null ? "default" : "outline"}>{t("appAdd.catalogAllTags")}</Badge>
+        </button>
+        {tags.map((tag) => <button key={tag.key} type="button" aria-pressed={activeTag === tag.key} onClick={() => setSelectedTag(tag.key)} className="max-w-full rounded-md focus-visible:outline-2 focus-visible:outline-ring">
+          <Badge className="max-w-full whitespace-normal break-words" variant={activeTag === tag.key ? "default" : "outline"}>{tag.label} ({tag.count})</Badge>
+        </button>)}
+      </div> : null}
       <ApiErrorAlert error={error} />
       <ApiErrorAlert error={installError} />
       {catalog?.stale ? (
@@ -380,19 +420,27 @@ function CatalogTab({ onInstalled, appRunning, installedApps, onOpenInstalled }:
           {apps.map((app) => {
             const installed = installedApps.find((record) => record.source.public_app_id === app.public.app_id);
             return (
-              <div key={app.public.app_id} className="flex flex-col gap-2 rounded-xl border border-border bg-card p-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="font-semibold">{catalogAppTitle(app)}</h3>
-                  {installed ? <Badge variant="outline">{t("appAdd.installedBadge")}</Badge> : null}
-                  {app.public.official ? <Badge>{t("appAdd.catalogOfficialBadge")}</Badge> : null}
-                  {app.source.ref ? <Badge variant="outline">{app.source.ref}</Badge> : null}
+              <article key={app.public.app_id} className="flex min-w-0 flex-col gap-2 rounded-xl border border-border bg-card p-4">
+                <div className="flex items-start gap-3">
+                  <CatalogThumbnail app={app} />
+                  <div className="flex min-w-0 flex-col gap-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <h3 className="max-w-full font-semibold [overflow-wrap:anywhere]">{catalogAppTitle(app)}</h3>
+                      {installed ? <Badge variant="outline">{t("appAdd.installedBadge")}</Badge> : null}
+                      {app.public.official ? <Badge>{t("appAdd.catalogOfficialBadge")}</Badge> : null}
+                      {app.source.ref ? <Badge variant="outline" className="max-w-full whitespace-normal [overflow-wrap:anywhere]">{app.source.ref}</Badge> : null}
+                    </div>
+                    {(app.tags?.length ?? 0) > 0 ? <div className="flex flex-wrap gap-1">
+                      {app.tags.map((tag, index) => <Badge key={`${tag}-${index}`} variant="secondary" className="max-w-full whitespace-normal break-words">{appText(app.translations, i18n.language, `tags.${tagKey(tag)}`, tag)}</Badge>)}
+                    </div> : null}
+                  </div>
                 </div>
                 <CatalogAppDetails app={app} />
                 {installed ? <Button className="mt-auto w-fit" onClick={() => onOpenInstalled(installed.id)}>{t("appAdd.openInstalledButton")}</Button> : <Button className="mt-auto w-fit" disabled={appRunning || !app.source.commit} onClick={() => { setInstallError(null); setSelected(app); }}>
                   <Download className="size-4" aria-hidden />{t("appAdd.installButton")}
                 </Button>}
                 {appRunning && !installed ? <p className="text-sm text-muted-foreground">{t("appAdd.installDisabledAppRunning")}</p> : null}
-              </div>
+              </article>
             );
           })}
         </div>

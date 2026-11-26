@@ -554,6 +554,16 @@ class PublicAppIdentity:
 
 
 @dataclass(frozen=True)
+class PublicCatalogEmojiThumbnail:
+    emoji: str
+
+
+@dataclass(frozen=True)
+class PublicCatalogImageThumbnail:
+    image_url: str
+
+
+@dataclass(frozen=True)
 class PublicCatalogApp:
     name: str
     description: str
@@ -562,6 +572,8 @@ class PublicCatalogApp:
     devices: tuple[str, ...]
     public: PublicAppIdentity
     translations: dict[str, dict[str, str]] = field(default_factory=dict)
+    tags: tuple[str, ...] = ()
+    thumbnail: PublicCatalogEmojiThumbnail | PublicCatalogImageThumbnail | None = None
 
 
 @dataclass(frozen=True)

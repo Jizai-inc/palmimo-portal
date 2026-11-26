@@ -66,6 +66,8 @@ export * from './platformVerifyDiffInfo';
 export * from './publicAppIdentity';
 export * from './publicCatalogAppInfo';
 export * from './publicCatalogAppInfoTranslations';
+export * from './publicCatalogEmojiThumbnail';
+export * from './publicCatalogImageThumbnail';
 export * from './publicCatalogResponse';
 export * from './publicInstallRequest';
 export * from './publicUpdateRequest';

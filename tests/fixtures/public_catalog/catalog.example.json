@@ -11,7 +11,8 @@
       "translations": {
         "ja": {
           "description": "ダンスの見本",
-          "env.API_KEY": "APIキー"
+          "env.API_KEY": "APIキー",
+          "tags.dance": "ダンス"
         }
       },
       "env": {
@@ -39,7 +40,14 @@
         "official": false,
         "future_public": true
       },
-      "future_item": true
+      "future_item": true,
+      "tags": [
+        "Dance",
+        "Music"
+      ],
+      "thumbnail": {
+        "emoji": "💃"
+      }
     },
     {
       "name": "teleop",
@@ -64,6 +72,12 @@
         "app_id": "019a3f2c-0000-7000-8000-000000000002",
         "namespace": "palmimo",
         "official": true
+      },
+      "tags": [
+        "Remote"
+      ],
+      "thumbnail": {
+        "image_url": "https://raw.githubusercontent.com/Jizai-inc/palmimo-apps/3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/assets/thumb.png"
       }
     },
     {
@@ -95,6 +109,18 @@
         "app_id": "019a3f2c-0000-7000-8000-000000000003",
         "namespace": "bob",
         "official": false
+      },
+      "tags": [
+        "Music",
+        "bad.tag",
+        1,
+        "",
+        "a\tb",
+        "a​b",
+        "あああああああああああああああああああああああああああああああああ"
+      ],
+      "thumbnail": {
+        "image_url": "https://raw.githubusercontent.com/other/dance/3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/thumb.png"
       }
     },
     {
@@ -467,6 +493,12 @@
         "app_id": "019a3f2c-0000-7000-8000-000000000015",
         "namespace": "alice",
         "official": false
+      },
+      "tags": [
+        "Dance"
+      ],
+      "thumbnail": {
+        "image_url": "https://raw.githubusercontent.com/alice/palmimo-dance/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/thumb.png"
       }
     },
     {

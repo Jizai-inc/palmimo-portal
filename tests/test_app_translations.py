@@ -61,3 +61,21 @@ def test_translation_parser_discards_invalid_fields_without_discarding_valid_one
             "JA": {"description": "Invalid locale"},
         }
     ) == {"ja": {"description": "Valid"}}
+
+
+@pytest.mark.parametrize(
+    "tag, valid",
+    [
+        ("dance", True),
+        ("ダンス", True),
+        ("🐶" * 32, True),
+        ("", False),
+        ("a.b", False),
+        ("a\tb", False),
+        ("a\x7f", False),
+        ("あ" * 33, False),
+    ],
+)
+def test_translation_parser_accepts_bounded_tag_keys(tag: str, valid: bool) -> None:
+    key = f"tags.{tag}"
+    assert parse_translations({"ja": {key: "Translated"}}) == {"ja": {key: "Translated"} if valid else {}}

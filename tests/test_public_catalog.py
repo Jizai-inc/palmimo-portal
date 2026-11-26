@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import subprocess
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,94 @@ FIXTURES = Path(__file__).parent / "fixtures/public_catalog"
 
 def catalog_bytes() -> bytes:
     return (FIXTURES / "catalog.example.json").read_bytes()
+
+
+@pytest.mark.parametrize(
+    "tags, expected",
+    [
+        (None, ()),
+        ("Dance", ()),
+        (["Dance", "ダンス", "🐶" * 32], ("Dance", "ダンス", "🐶" * 32)),
+        (["", 1, "a.b", "a\tb", "a\u200bb", "\u202eabc", "あ" * 33, "Music"], ("Music",)),
+        (["ＡＢＣ", "  Dance  ", "v１．０", "Ärger", "ärger"], ("ＡＢＣ", "  Dance  ", "v１．０", "Ärger", "ärger")),
+    ],
+)
+def test_public_catalog_tags_drop_only_invalid_elements(tags: Any, expected: tuple[str, ...]) -> None:
+    payload = json.loads(catalog_bytes())
+    payload["apps"] = [{**payload["apps"][0], "tags": tags}]
+    (app,) = parse_public_catalog(json.dumps(payload).encode()).apps
+    assert app.tags == expected
+
+
+@pytest.mark.parametrize(
+    "thumbnail, expected",
+    [
+        (None, None),
+        ({}, None),
+        ("💃", None),
+        *[({"emoji": value}, {"emoji": value}) for value in ("💃", "👩‍💻", "❤️", "😀" * 16)],
+        *[
+            ({"emoji": value}, None)
+            for value in (
+                "",
+                "1️⃣",
+                "abc",
+                "😀" * 17,
+                "a\n",
+                "💃\u00a0",
+                "💃\u2028",
+                "💃\u2029",
+                "💃\u200b",
+                "🏴\U000e0067",
+            )
+        ],
+        (
+            {
+                "image_url": "https://raw.githubusercontent.com/ALICE/palmimo-dance/"
+                + "a" * 40
+                + "/assets/thumb%20one.png"
+            },
+            {
+                "image_url": "https://raw.githubusercontent.com/ALICE/palmimo-dance/"
+                + "a" * 40
+                + "/assets/thumb%20one.png"
+            },
+        ),
+        *[
+            ({"image_url": url}, None)
+            for url in (
+                "https://raw.githubusercontent.com/bob/palmimo-dance/" + "a" * 40 + "/thumb.png",
+                "https://raw.githubusercontent.com/alice/other/" + "a" * 40 + "/thumb.png",
+                "https://raw.githubusercontent.com/alice/palmimo-dance/" + "b" * 40 + "/thumb.png",
+                "https://raw.githubusercontent.com.evil/alice/palmimo-dance/" + "a" * 40 + "/thumb.png",
+                "http://raw.githubusercontent.com/alice/palmimo-dance/" + "a" * 40 + "/thumb.png",
+                "https://raw.githubusercontent.com/alice/palmimo-dance/" + "a" * 40 + "/",
+            )
+        ],
+    ],
+)
+def test_public_catalog_thumbnail_drops_invalid_values(thumbnail: Any, expected: Any) -> None:
+    payload = json.loads(catalog_bytes())
+    payload["apps"] = [{**payload["apps"][0], "thumbnail": thumbnail}]
+    payload["apps"][0]["source"]["commit"] = "a" * 40
+    (app,) = parse_public_catalog(json.dumps(payload).encode()).apps
+    assert (asdict(app.thumbnail) if app.thumbnail else None) == expected
+
+
+def test_public_catalog_listing_fields_match_shared_fixture() -> None:
+    expected = json.loads((FIXTURES / "catalog.example.expected.json").read_text())
+    apps = {app.public.app_id: app for app in parse_public_catalog(catalog_bytes()).apps}
+    for case in expected["listing_fields"]:
+        app = apps[case["app_id"]]
+        assert list(app.tags) == case["tags"]
+        assert (asdict(app.thumbnail) if app.thumbnail else None) == case["thumbnail"]
+
+
+def test_public_catalog_listing_fields_survive_cache_round_trip(tmp_path: Path) -> None:
+    store = JsonFileStateStore(tmp_path)
+    cache = PublicCatalogCache(HttpPublicCatalogSource(opener=lambda *args: io.BytesIO(catalog_bytes())), store)
+    cache.refresh(ntp_synchronized=True)
+    assert PublicCatalogCache(HttpPublicCatalogSource(), store).peek().apps == cache.peek().apps
 
 
 @pytest.mark.parametrize(

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from palmimo_portal.api.apps import AppSourceInfo, EnvSpecInfo
 from palmimo_portal.api.deps import require_auth, require_full_session, require_provisioned
 from palmimo_portal.core.public_catalog import PublicCatalogCache, public_page_url
-from palmimo_portal.ports import PublicAppIdentity
+from palmimo_portal.ports import PublicAppIdentity, PublicCatalogEmojiThumbnail, PublicCatalogImageThumbnail
 
 
 router = APIRouter(
@@ -20,6 +20,8 @@ class PublicCatalogAppInfo(BaseModel):
     name: str
     description: str
     translations: dict[str, dict[str, str]]
+    tags: list[str]
+    thumbnail: PublicCatalogEmojiThumbnail | PublicCatalogImageThumbnail | None
     source: AppSourceInfo
     env: list[EnvSpecInfo]
     devices: list[str]
@@ -47,6 +49,8 @@ def get_public_catalog(request: Request) -> PublicCatalogResponse:
                 name=app.name,
                 description=app.description,
                 translations=app.translations,
+                tags=list(app.tags),
+                thumbnail=app.thumbnail,
                 source=AppSourceInfo(
                     type=app.source.type,
                     url=app.source.url,

@@ -445,5 +445,44 @@
         }
       }
     }
+  ],
+  "listing_fields": [
+    {
+      "index": 0,
+      "app_id": "019a3f2c-0000-7000-8000-000000000001",
+      "tags": [
+        "Dance",
+        "Music"
+      ],
+      "thumbnail": {
+        "emoji": "💃"
+      }
+    },
+    {
+      "index": 1,
+      "app_id": "019a3f2c-0000-7000-8000-000000000002",
+      "tags": [
+        "Remote"
+      ],
+      "thumbnail": {
+        "image_url": "https://raw.githubusercontent.com/Jizai-inc/palmimo-apps/3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/assets/thumb.png"
+      }
+    },
+    {
+      "index": 2,
+      "app_id": "019a3f2c-0000-7000-8000-000000000003",
+      "tags": [
+        "Music"
+      ],
+      "thumbnail": null
+    },
+    {
+      "index": 14,
+      "app_id": "019a3f2c-0000-7000-8000-000000000015",
+      "tags": [
+        "Dance"
+      ],
+      "thumbnail": null
+    }
   ]
 }

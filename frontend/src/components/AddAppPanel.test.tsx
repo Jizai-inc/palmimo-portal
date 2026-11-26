@@ -20,7 +20,7 @@ const CATALOG: PublicCatalogResponse = {
   apps: [
     {
       public: { app_id: "019a3f2c-0000-7000-8000-000000000001", namespace: "palmimo", official: true },
-      translations: {},
+      translations: {}, tags: [], thumbnail: null,
       public_page_url: "https://catalog.example/apps/019a3f2c-0000-7000-8000-000000000001",
       name: "palmimo-teleop",
       description: "Drive the robot from a browser.",

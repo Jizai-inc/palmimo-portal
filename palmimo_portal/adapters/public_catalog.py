@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import logging
 import re
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from palmimo_portal.adapters.static_asset import Opener, StaticAssetError, default_opener, download
 from palmimo_portal.core.app_translations import parse_translations
@@ -17,6 +18,8 @@ from palmimo_portal.ports import (
     PublicAppIdentity,
     PublicCatalogApp,
     PublicCatalogAsset,
+    PublicCatalogEmojiThumbnail,
+    PublicCatalogImageThumbnail,
     PublicCatalogSource,
     PublicCatalogSourceError,
 )
@@ -33,6 +36,10 @@ _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 _URL = r"https://github\.com/[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}"
 _REF = r"[A-Za-z0-9][A-Za-z0-9._/-]{0,127}"
 _TIMESTAMP = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})"
+_IMAGE_URL = re.compile(
+    r"https://raw\.githubusercontent\.com/(?P<repo>[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100})/"
+    r"(?P<commit>[0-9a-f]{40})/(?P<path>[^\s?#\\]+)"
+)
 
 
 def _matches(value: Any, pattern: str) -> bool:
@@ -54,6 +61,37 @@ def _help_url(value: Any) -> bool:
         return bool(parsed.hostname) and not any(char.isspace() for char in parsed.netloc)
     except ValueError:
         return False
+
+
+def _parse_thumbnail(
+    raw: Any, source: dict[str, Any]
+) -> PublicCatalogEmojiThumbnail | PublicCatalogImageThumbnail | None:
+    if not isinstance(raw, dict):
+        return None
+    emoji = raw.get("emoji")
+    if (
+        set(raw) == {"emoji"}
+        and isinstance(emoji, str)
+        and 1 <= len(emoji) <= 16
+        and all(
+            ord(char) >= 128
+            and unicodedata.category(char) not in ("Cc", "Zs", "Zl", "Zp")
+            and (unicodedata.category(char) != "Cf" or char == "\u200d")
+            for char in emoji
+        )
+    ):
+        return PublicCatalogEmojiThumbnail(emoji)
+    image_url = raw.get("image_url")
+    if set(raw) == {"image_url"} and isinstance(image_url, str):
+        match = _IMAGE_URL.fullmatch(image_url)
+        if (
+            match
+            and source["url"].removeprefix("https://github.com/").lower() == match["repo"].lower()
+            and source["commit"] == match["commit"]
+            and all(part not in ("", ".", "..") for part in unquote(match["path"]).split("/"))
+        ):
+            return PublicCatalogImageThumbnail(image_url)
+    return None
 
 
 def _parse_item(raw: Any, index: int) -> PublicCatalogApp:
@@ -122,6 +160,15 @@ def _parse_item(raw: Any, index: int) -> PublicCatalogApp:
     }
     if "translations" in item and raw_translations != translations:
         logger.warning("public catalog item %s: dropped or normalized translation fields", index)
+    raw_tags = item.get("tags")
+    tags = tuple(
+        tag
+        for tag in (raw_tags if isinstance(raw_tags, list) else [])
+        if isinstance(tag, str)
+        and 1 <= len(tag) <= 32
+        and "." not in tag
+        and all(unicodedata.category(char) not in ("Cc", "Cf") for char in tag)
+    )
     return PublicCatalogApp(
         name=item["name"],
         description=item["description"],
@@ -138,6 +185,8 @@ def _parse_item(raw: Any, index: int) -> PublicCatalogApp:
         env=env,
         devices=tuple(devices),
         translations=translations,
+        tags=tags,
+        thumbnail=_parse_thumbnail(item.get("thumbnail"), source),
     )
 
 

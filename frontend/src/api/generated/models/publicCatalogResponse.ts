@@ -11,5 +11,6 @@ export interface PublicCatalogResponse {
   fetched_at: number | null;
   generated_at: string | null;
   reason: string | null;
+  site_url: string | null;
   stale: boolean;
 }

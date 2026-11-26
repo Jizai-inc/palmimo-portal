@@ -542,6 +542,8 @@
     "emptyStateBody": "公式アプリから始めるか、GitHub リポジトリや zip ファイルから自分のアプリを追加しましょう。"
   },
   "appAdd": {
+    "findMoreApps": "もっとアプリを見つける",
+    "findMoreAppsDescription": "コミュニティが作ったアプリを探そう。",
     "continueButton": "次へ",
     "title": "アプリを追加",
     "tabCatalog": "アプリ一覧",

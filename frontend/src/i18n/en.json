@@ -542,6 +542,8 @@
     "emptyStateBody": "Start with an official app, or add your own from a GitHub repository or zip file."
   },
   "appAdd": {
+    "findMoreApps": "Find more apps",
+    "findMoreAppsDescription": "Browse apps made by the community.",
     "continueButton": "Continue",
     "title": "Add app",
     "tabCatalog": "App catalog",

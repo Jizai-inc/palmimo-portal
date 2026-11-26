@@ -25,7 +25,7 @@ export const getGetPublicCatalogApiV1CatalogPublicGetResponseMock = (overrideRes
         [faker.string.alphanumeric(5)]: {
         [faker.string.alphanumeric(5)]: faker.string.alpha({length: {min: 10, max: 20}})
       }
-      }})), fetched_at: faker.helpers.arrayElement([faker.number.float({fractionDigits: 2}),null,]), generated_at: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), reason: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), stale: faker.datatype.boolean(), ...overrideResponse})
+      }})), fetched_at: faker.helpers.arrayElement([faker.number.float({fractionDigits: 2}),null,]), generated_at: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), reason: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), site_url: faker.helpers.arrayElement([faker.string.alpha({length: {min: 10, max: 20}}),null,]), stale: faker.datatype.boolean(), ...overrideResponse})
 
 
 export const getGetPublicCatalogApiV1CatalogPublicGetMockHandler = (overrideResponse?: PublicCatalogResponse | ((info: Parameters<Parameters<typeof http.get>[1]>[0]) => Promise<PublicCatalogResponse> | PublicCatalogResponse), options?: RequestHandlerOptions) => {

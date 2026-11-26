@@ -102,6 +102,45 @@ def refresh(app: FastAPI, adapters: FakeAdapterBundle, *apps: PublicCatalogApp) 
     app.state.public_catalog_cache.refresh(ntp_synchronized=True)
 
 
+@pytest.mark.parametrize(
+    "catalog_url, expected",
+    [
+        (None, "https://apps.palmimo.dev/"),
+        ("https://catalog.example:8443/custom/catalog.json?version=1#top", "https://catalog.example:8443/"),
+        ("http://catalog.example/v1/catalog.json", "http://catalog.example/"),
+        ("ftp://catalog.example/catalog.json", None),
+        ("https:///catalog.json", None),
+        ("https://[invalid/catalog.json", None),
+        ("", None),
+    ],
+)
+@pytest.mark.parametrize("stale", [False, True])
+def test_public_catalog_site_url_uses_configured_origin_with_empty_catalog(
+    client: TestClient,
+    app: FastAPI,
+    adapters: FakeAdapterBundle,
+    monkeypatch: pytest.MonkeyPatch,
+    catalog_url: str | None,
+    expected: str | None,
+    stale: bool,
+) -> None:
+    from palmimo_portal.settings import get_settings
+
+    monkeypatch.delenv("PALMIMO_PUBLIC_CATALOG_URL", raising=False)
+    if catalog_url is not None:
+        monkeypatch.setenv("PALMIMO_PUBLIC_CATALOG_URL", catalog_url)
+    app.state.apps_job_context.public_catalog_url = get_settings().public_catalog_url
+    adapters.public_catalog.asset = PublicCatalogAsset("2026-11-09T00:00:00Z", ())
+    if stale:
+        adapters.public_catalog.raise_on_fetch = PublicCatalogSourceError("offline")
+    response = client.get("/api/v1/catalog/public")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["apps"] == []
+    assert body["stale"] is stale
+    assert body["site_url"] == expected
+
+
 def test_public_catalog_endpoint_fetches_on_first_request(
     client: TestClient, adapters: FakeAdapterBundle, public_app: PublicCatalogApp
 ) -> None:

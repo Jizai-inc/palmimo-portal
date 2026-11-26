@@ -13,6 +13,7 @@ import { renderWithProviders } from "@/test/render";
 import { server } from "@/test/server";
 
 const CATALOG: PublicCatalogResponse = {
+  site_url: null,
   generated_at: "2026-11-09T00:00:00Z",
   fetched_at: 1_700_000_000,
   stale: false,

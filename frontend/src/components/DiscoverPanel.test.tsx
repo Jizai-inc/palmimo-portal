@@ -16,7 +16,7 @@ const COMMUNITY: PublicCatalogAppInfo = {
   source: { type: "git", url: "https://github.com/alice/dance", ref: "v1", ref_kind: "tag", commit: "a".repeat(40), subdir: null, manifest: null, official: false },
 };
 const OFFICIAL: PublicCatalogAppInfo = { ...COMMUNITY, public_page_url: "https://apps.palmimo.dev/apps/019a3f2c-0000-7000-8000-000000000002", description: "Official dance", public: { ...COMMUNITY.public, app_id: "019a3f2c-0000-7000-8000-000000000002", namespace: "palmimo", official: true }, source: { ...COMMUNITY.source, official: true } };
-const CATALOG: PublicCatalogResponse = { generated_at: "2026-11-09T00:00:00Z", fetched_at: 1700000000, stale: false, reason: null, apps: [OFFICIAL, COMMUNITY] };
+const CATALOG: PublicCatalogResponse = { site_url: "https://apps.palmimo.dev/", generated_at: "2026-11-09T00:00:00Z", fetched_at: 1700000000, stale: false, reason: null, apps: [OFFICIAL, COMMUNITY] };
 const JOB = { id: "public-job", app_id: "alice.dance", kind: "install", state: "done", step: "register", error: null, error_code: null, started_at: 1, finished_at: 2, lock_generated: false, dropped_params: [], dropped_bindings: [] };
 
 function handlers(catalog = CATALOG) {
@@ -32,6 +32,21 @@ async function choosePublic(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("DiscoverPanel", () => {
+  it.each(["https://catalog.example/", null])("links to the public site in a new tab only when available: %s", async (site_url) => {
+    handlers({ ...CATALOG, site_url });
+    const { queryClient } = renderWithProviders(<DiscoverPanel />);
+    await screen.findByRole("heading", { name: OFFICIAL.name });
+    const banner = () => screen.queryByRole("link", { name: new RegExp(i18n.t("appAdd.findMoreApps")) });
+    if (site_url) {
+      expect(banner()).toHaveAttribute("href", site_url);
+      expect(banner()).toHaveAttribute("target", "_blank");
+      expect(banner()).toHaveAttribute("rel", "noopener noreferrer");
+      server.use(http.get("*/api/v1/catalog/public", () => HttpResponse.json({}, { status: 503 })));
+      await act(() => queryClient.refetchQueries());
+    }
+    await waitFor(() => expect(banner()).not.toBeInTheDocument());
+  });
+
   it("filters official and public apps using catalog identity", async () => {
     handlers();
     const user = userEvent.setup();

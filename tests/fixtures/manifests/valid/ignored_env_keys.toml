@@ -1,6 +1,5 @@
-# env unknown key: "scope" is not one of required, description, help_url
 schema = 1
-name = "bad-app"
+name = "app"
 description = "test"
 command = ["run"]
 

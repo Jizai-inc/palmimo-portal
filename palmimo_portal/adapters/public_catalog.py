@@ -36,6 +36,9 @@ _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}"
 _URL = r"https://github\.com/[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}"
 _REF = r"[A-Za-z0-9][A-Za-z0-9._/-]{0,127}"
 _TIMESTAMP = r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})"
+MAX_TAGS = 8
+_FORBIDDEN_TAG_CATEGORIES = frozenset({"Cc", "Cf", "Cs", "Co", "Zl", "Zp"})
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 _IMAGE_URL = re.compile(
     r"https://raw\.githubusercontent\.com/(?P<repo>[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100})/"
     r"(?P<commit>[0-9a-f]{40})/(?P<path>[^\s?#\\]+)"
@@ -75,14 +78,14 @@ def _parse_thumbnail(
         and 1 <= len(emoji) <= 16
         and all(
             ord(char) >= 128
-            and unicodedata.category(char) not in ("Cc", "Zs", "Zl", "Zp")
+            and unicodedata.category(char) not in ("Cc", "Cs", "Zs", "Zl", "Zp")
             and (unicodedata.category(char) != "Cf" or char == "\u200d")
             for char in emoji
         )
     ):
         return PublicCatalogEmojiThumbnail(emoji)
     image_url = raw.get("image_url")
-    if set(raw) == {"image_url"} and isinstance(image_url, str):
+    if set(raw) == {"image_url"} and isinstance(image_url, str) and image_url.isascii():
         match = _IMAGE_URL.fullmatch(image_url)
         if (
             match
@@ -161,14 +164,16 @@ def _parse_item(raw: Any, index: int) -> PublicCatalogApp:
     if "translations" in item and raw_translations != translations:
         logger.warning("public catalog item %s: dropped or normalized translation fields", index)
     raw_tags = item.get("tags")
-    tags = tuple(
-        tag
-        for tag in (raw_tags if isinstance(raw_tags, list) else [])
-        if isinstance(tag, str)
-        and 1 <= len(tag) <= 32
-        and "." not in tag
-        and all(unicodedata.category(char) not in ("Cc", "Cf") for char in tag)
-    )
+    tags_by_key: dict[str, str] = {}
+    for tag in raw_tags if isinstance(raw_tags, list) else []:
+        if (
+            isinstance(tag, str)
+            and 1 <= len(tag) <= 32
+            and "." not in tag
+            and all(unicodedata.category(char) not in _FORBIDDEN_TAG_CATEGORIES for char in tag)
+        ):
+            tags_by_key.setdefault(tag.translate(_ASCII_LOWER), tag)
+    tags = tuple(tags_by_key.values())[:MAX_TAGS]
     return PublicCatalogApp(
         name=item["name"],
         description=item["description"],

@@ -34,6 +34,8 @@ def catalog_bytes() -> bytes:
         (["Dance", "ダンス", "🐶" * 32], ("Dance", "ダンス", "🐶" * 32)),
         (["", 1, "a.b", "a\tb", "a\u200bb", "\u202eabc", "あ" * 33, "Music"], ("Music",)),
         (["ＡＢＣ", "  Dance  ", "v１．０", "Ärger", "ärger"], ("ＡＢＣ", "  Dance  ", "v１．０", "Ärger", "ärger")),
+        (["\ud800", "\ue000", "a\u2028b", "Music"], ("Music",)),
+        (["Dance", "dance", "DANCE", *[f"t{i}" for i in range(100_000)]], ("Dance", *[f"t{i}" for i in range(7)])),
     ],
 )
 def test_public_catalog_tags_drop_only_invalid_elements(tags: Any, expected: tuple[str, ...]) -> None:
@@ -63,6 +65,7 @@ def test_public_catalog_tags_drop_only_invalid_elements(tags: Any, expected: tup
                 "💃\u2029",
                 "💃\u200b",
                 "🏴\U000e0067",
+                "\ud83d",
             )
         ],
         (
@@ -86,6 +89,7 @@ def test_public_catalog_tags_drop_only_invalid_elements(tags: Any, expected: tup
                 "https://raw.githubusercontent.com.evil/alice/palmimo-dance/" + "a" * 40 + "/thumb.png",
                 "http://raw.githubusercontent.com/alice/palmimo-dance/" + "a" * 40 + "/thumb.png",
                 "https://raw.githubusercontent.com/alice/palmimo-dance/" + "a" * 40 + "/",
+                "https://raw.githubusercontent.com/alice/palmimo-dance/" + "a" * 40 + "/\ud800.png",
             )
         ],
     ],

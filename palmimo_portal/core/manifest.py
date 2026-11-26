@@ -1,19 +1,20 @@
 """Parser and validator for the schema=1 ``palmimo.toml`` app manifest.
 
-Portal is the only reader of this format (design doc "app-platform" ch. 1);
-devkit only ships the spec text and example files. Every top-level key is
-declared here on purpose -- an unknown key is rejected rather than ignored,
-so a typo in a manifest cannot silently fail to take effect.
+Unknown keys are ignored for forward compatibility. Invalid known fields,
+unknown devices, and unknown param types remain validation errors.
 """
 
 from __future__ import annotations
 
+import logging
 import math
 import re
 import tomllib
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
+
+logger = logging.getLogger("palmimo_portal")
 
 _NAME_PATTERN = re.compile(r"^[a-z][a-z0-9-]{0,39}$")
 #: A directory may ship several manifests, one app each: the default ``palmimo.toml`` or a
@@ -214,9 +215,7 @@ def parse_manifest(text: str) -> Manifest:
 def _validate_manifest_dict(raw: dict[str, Any]) -> Manifest:
     """Validate the small manifest schema against an already-parsed dict (TOML or a ledger snapshot)."""
     errors: list[str] = []
-    unknown_keys = set(raw) - _TOP_LEVEL_KEYS
-    for key in sorted(unknown_keys):
-        errors.append(f"unknown top-level key: {key!r}")
+    ignored_keys = sorted(set(raw) - _TOP_LEVEL_KEYS)
 
     schema = raw.get("schema")
     if schema != 1:
@@ -249,8 +248,11 @@ def _validate_manifest_dict(raw: dict[str, Any]) -> Manifest:
             errors.append(f"unknown device: {device!r}")
         devices = frozenset(devices_raw) & _KNOWN_DEVICES
 
-    env = _parse_env(raw.get("env", {}), errors)
-    params = _parse_params(raw.get("params", {}), errors)
+    env = _parse_env(raw.get("env", {}), errors, ignored_keys)
+    params = _parse_params(raw.get("params", {}), errors, ignored_keys)
+
+    if ignored_keys:
+        logger.info("Ignoring unknown manifest keys: %s", ", ".join(ignored_keys))
 
     _validate_placeholders(command, "command", params, errors)
     if isinstance(url, str):
@@ -271,7 +273,7 @@ def _validate_manifest_dict(raw: dict[str, Any]) -> Manifest:
     )
 
 
-def _parse_env(raw: Any, errors: list[str]) -> dict[str, EnvSpec]:
+def _parse_env(raw: Any, errors: list[str], ignored_keys: list[str]) -> dict[str, EnvSpec]:
     env: dict[str, EnvSpec] = {}
     if not isinstance(raw, dict):
         errors.append("env must be a table")
@@ -287,9 +289,7 @@ def _parse_env(raw: Any, errors: list[str]) -> dict[str, EnvSpec]:
             errors.append(f"env.{name} must be a table")
             continue
         unknown_env_keys = set(spec) - _ENV_TABLE_KEYS
-        if unknown_env_keys:
-            errors.append(f"env.{name} has unknown key(s): {sorted(unknown_env_keys)}")
-            continue
+        ignored_keys.extend(f"env.{name}.{key}" for key in sorted(unknown_env_keys))
         description = spec.get("description")
         if not isinstance(description, str) or not (1 <= len(description) <= 200):
             errors.append(f"env.{name}.description must be a string of 1-200 characters")
@@ -324,7 +324,7 @@ def _has_nested_quantifier(pattern: str) -> bool:
     return _NESTED_QUANTIFIER_RE.search(pattern) is not None
 
 
-def _parse_params(raw: Any, errors: list[str]) -> dict[str, ParamSpec]:
+def _parse_params(raw: Any, errors: list[str], ignored_keys: list[str]) -> dict[str, ParamSpec]:
     params: dict[str, ParamSpec] = {}
     if not isinstance(raw, dict):
         errors.append("params must be a table")
@@ -342,9 +342,7 @@ def _parse_params(raw: Any, errors: list[str]) -> dict[str, ParamSpec]:
             continue
         allowed_keys = {"type", "default", "description"} | _PARAM_TYPE_EXTRA_KEYS[param_type]
         unknown_param_keys = set(spec) - allowed_keys
-        if unknown_param_keys:
-            errors.append(f"params.{name} has unknown key(s) for type {param_type!r}: {sorted(unknown_param_keys)}")
-            continue
+        ignored_keys.extend(f"params.{name}.{key}" for key in sorted(unknown_param_keys))
         description = spec.get("description")
         if description is not None and not isinstance(description, str):
             errors.append(f"params.{name}.description must be a string")

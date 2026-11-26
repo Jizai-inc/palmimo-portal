@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -29,11 +30,78 @@ def test_parse_manifest_accepts_example_fixture(path: Path) -> None:
     assert manifest.name
 
 
+@pytest.mark.parametrize("from_snapshot", [False, True], ids=["toml", "snapshot"])
 @pytest.mark.parametrize("path", INVALID_FIXTURES, ids=lambda p: p.stem)
-def test_parse_manifest_rejects_invalid_fixture(path: Path) -> None:
+def test_parse_manifest_rejects_invalid_fixture(path: Path, from_snapshot: bool) -> None:
     with pytest.raises(ManifestValidationError) as excinfo:
-        parse_manifest(path.read_text())
+        if from_snapshot:
+            manifest_from_snapshot(tomllib.loads(path.read_text()))
+        else:
+            parse_manifest(path.read_text())
     assert excinfo.value.errors
+
+
+@pytest.mark.parametrize("from_snapshot", [False, True], ids=["toml", "snapshot"])
+@pytest.mark.parametrize(
+    "top,env,param",
+    [
+        ('tags = ["demo"]\nthumbnail = "image.png"', "", ""),
+        ("", "secret = true", ""),
+        ("", "", 'unit = "seconds"\nchoices = 42'),
+        ('tags = ["demo"]', "secret = true", 'unit = "seconds"'),
+    ],
+    ids=["top-level", "env", "params", "combined"],
+)
+def test_manifest_ignores_unknown_keys_and_preserves_known_values(
+    top: str, env: str, param: str, from_snapshot: bool
+) -> None:
+    text = """\
+schema = 1
+name = "app"
+description = "test"
+command = ["run", "{timeout}"]
+url = "http://{host}/"
+devices = ["camera"]
+
+[env.API_KEY]
+description = "API key"
+required = false
+help_url = "https://example.com/keys"
+
+[params.timeout]
+type = "int"
+description = "Timeout"
+default = 10
+min = 1
+max = 60
+"""
+    expected = parse_manifest(text)
+    extended = top + "\n" + text.replace("[params.timeout]", env + "\n[params.timeout]") + param
+
+    actual = manifest_from_snapshot(tomllib.loads(extended)) if from_snapshot else parse_manifest(extended)
+
+    assert actual == expected
+
+
+@pytest.mark.parametrize("from_snapshot", [False, True], ids=["toml", "snapshot"])
+@pytest.mark.parametrize(
+    "fields",
+    [
+        'devices = ["unknown"]',
+        '[env.API_KEY]\ndescription = "API key"\nrequired = "yes"\nsecret = true',
+        '[params.timeout]\ntype = "unknown"\nunit = "seconds"',
+        '[params.timeout]\ntype = "int"\ndefault = "ten"\nunit = "seconds"',
+    ],
+    ids=["device", "env-required", "param-type", "param-default"],
+)
+def test_manifest_rejects_invalid_known_fields_with_unknown_keys(fields: str, from_snapshot: bool) -> None:
+    text = 'schema = 1\nname = "app"\ndescription = "test"\ncommand = ["run"]\ntags = ["demo"]\n' + fields
+
+    with pytest.raises(ManifestValidationError):
+        if from_snapshot:
+            manifest_from_snapshot(tomllib.loads(text))
+        else:
+            parse_manifest(text)
 
 
 def test_manifest_from_snapshot_round_trips_a_control_character_in_a_string_value() -> None:
@@ -75,10 +143,8 @@ def test_manifest_from_snapshot_rejects_a_non_finite_param_default() -> None:
 
 
 def test_parse_manifest_reports_every_error_at_once() -> None:
-    # unknown top-level key AND bad name pattern in the same document: a single
-    # validation pass should surface both errors, not stop at the first.
     text = """
-    schema = 1
+    schema = 2
     name = "BadName"
     description = "x"
     command = ["run"]

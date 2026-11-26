@@ -5,7 +5,7 @@ from pydantic import BaseModel
 
 from palmimo_portal.api.apps import AppSourceInfo, EnvSpecInfo
 from palmimo_portal.api.deps import require_auth, require_full_session, require_provisioned
-from palmimo_portal.core.public_catalog import PublicCatalogCache, public_page_url
+from palmimo_portal.core.public_catalog import PublicCatalogCache, public_page_url, public_site_url
 from palmimo_portal.ports import PublicAppIdentity
 
 
@@ -28,6 +28,7 @@ class PublicCatalogAppInfo(BaseModel):
 
 
 class PublicCatalogResponse(BaseModel):
+    site_url: str | None
     generated_at: str | None
     apps: list[PublicCatalogAppInfo]
     fetched_at: float | None
@@ -41,6 +42,7 @@ def get_public_catalog(request: Request) -> PublicCatalogResponse:
     cache: PublicCatalogCache = request.app.state.public_catalog_cache
     snapshot = cache.get(ntp_synchronized=request.app.state.adapters.clock.ntp_synchronized())
     return PublicCatalogResponse(
+        site_url=public_site_url(request.app.state.apps_job_context.public_catalog_url),
         generated_at=snapshot.generated_at,
         apps=[
             PublicCatalogAppInfo(

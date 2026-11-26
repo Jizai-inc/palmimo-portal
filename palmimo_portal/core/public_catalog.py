@@ -194,13 +194,18 @@ def public_update_source(cache: PublicCatalogCache | None, record: AppRecord) ->
     return replace(app.source, public_app_id=source.public_app_id)
 
 
-def public_page_url(catalog_url: str | None, public_app_id: str) -> str | None:
+def public_site_url(catalog_url: str | None) -> str | None:
     if catalog_url is None:
         return None
     try:
         origin = urlsplit(catalog_url)
         if origin.scheme not in ("http", "https") or not origin.netloc:
             return None
-        return urlunsplit((origin.scheme, origin.netloc, f"/apps/{quote(public_app_id, safe='')}", "", ""))
+        return urlunsplit((origin.scheme, origin.netloc, "/", "", ""))
     except ValueError:
         return None
+
+
+def public_page_url(catalog_url: str | None, public_app_id: str) -> str | None:
+    site_url = public_site_url(catalog_url)
+    return f"{site_url}apps/{quote(public_app_id, safe='')}" if site_url else None

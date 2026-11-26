@@ -1915,12 +1915,24 @@
             ],
             "title": "Reason"
           },
+          "site_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Url"
+          },
           "stale": {
             "title": "Stale",
             "type": "boolean"
           }
         },
         "required": [
+          "site_url",
           "generated_at",
           "apps",
           "fetched_at",

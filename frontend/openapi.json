@@ -1849,6 +1849,27 @@
           "source": {
             "$ref": "#/components/schemas/AppSourceInfo"
           },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          },
+          "thumbnail": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PublicCatalogEmojiThumbnail"
+              },
+              {
+                "$ref": "#/components/schemas/PublicCatalogImageThumbnail"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumbnail"
+          },
           "translations": {
             "additionalProperties": {
               "additionalProperties": {
@@ -1864,6 +1885,8 @@
           "name",
           "description",
           "translations",
+          "tags",
+          "thumbnail",
           "source",
           "env",
           "devices",
@@ -1871,6 +1894,32 @@
           "public_page_url"
         ],
         "title": "PublicCatalogAppInfo",
+        "type": "object"
+      },
+      "PublicCatalogEmojiThumbnail": {
+        "properties": {
+          "emoji": {
+            "title": "Emoji",
+            "type": "string"
+          }
+        },
+        "required": [
+          "emoji"
+        ],
+        "title": "PublicCatalogEmojiThumbnail",
+        "type": "object"
+      },
+      "PublicCatalogImageThumbnail": {
+        "properties": {
+          "image_url": {
+            "title": "Image Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "image_url"
+        ],
+        "title": "PublicCatalogImageThumbnail",
         "type": "object"
       },
       "PublicCatalogResponse": {

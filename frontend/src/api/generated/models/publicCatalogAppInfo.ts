@@ -8,6 +8,8 @@ import type { AppSourceInfo } from './appSourceInfo';
 import type { EnvSpecInfo } from './envSpecInfo';
 import type { PublicAppIdentity } from './publicAppIdentity';
 import type { PublicCatalogAppInfoTranslations } from './publicCatalogAppInfoTranslations';
+import type { PublicCatalogEmojiThumbnail } from './publicCatalogEmojiThumbnail';
+import type { PublicCatalogImageThumbnail } from './publicCatalogImageThumbnail';
 
 export interface PublicCatalogAppInfo {
   description: string;
@@ -17,5 +19,7 @@ export interface PublicCatalogAppInfo {
   public: PublicAppIdentity;
   public_page_url: string | null;
   source: AppSourceInfo;
+  tags: string[];
+  thumbnail: PublicCatalogEmojiThumbnail | PublicCatalogImageThumbnail | null;
   translations: PublicCatalogAppInfoTranslations;
 }

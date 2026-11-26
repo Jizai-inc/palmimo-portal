@@ -43,6 +43,22 @@
     {
       "index": 45,
       "app_id": "019a3f2c-0000-7000-8000-000000000046"
+    },
+    {
+      "index": 48,
+      "app_id": "019a3f2c-0000-7000-8000-000000000049"
+    },
+    {
+      "index": 49,
+      "app_id": "019a3f2c-0000-7000-8000-000000000050"
+    },
+    {
+      "index": 50,
+      "app_id": "019a3f2c-0000-7000-8000-000000000051"
+    },
+    {
+      "index": 51,
+      "app_id": "019a3f2c-0000-7000-8000-000000000052"
     }
   ],
   "discarded": [
@@ -323,6 +339,11 @@
       "index": 35,
       "app_id": "019a3f2c-0000-7000-8000-000000000036",
       "path": "translations"
+    },
+    {
+      "index": 51,
+      "app_id": "019a3f2c-0000-7000-8000-000000000052",
+      "path": "env.API_KEY.help_url"
     }
   ],
   "normalized_translations": [
@@ -444,6 +465,64 @@
           "description": "Language"
         }
       }
+    }
+  ],
+  "listing_fields": [
+    {
+      "index": 0,
+      "tags": ["ダンス", "Music"],
+      "thumbnail": {
+        "emoji": "💃"
+      },
+      "app_id": "019a3f2c-0000-7000-8000-000000000001"
+    },
+    {
+      "index": 1,
+      "tags": ["Remote Control"],
+      "thumbnail": {
+        "image_url": "https://raw.githubusercontent.com/Jizai-inc/palmimo-apps/3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/assets/thumb.png"
+      },
+      "app_id": "019a3f2c-0000-7000-8000-000000000002"
+    },
+    {
+      "index": 2,
+      "tags": [],
+      "thumbnail": null,
+      "app_id": "019a3f2c-0000-7000-8000-000000000003"
+    },
+    {
+      "index": 14,
+      "tags": [],
+      "thumbnail": null,
+      "app_id": "019a3f2c-0000-7000-8000-000000000015"
+    },
+    {
+      "index": 48,
+      "app_id": "019a3f2c-0000-7000-8000-000000000049",
+      "tags": ["Dance", "Music"],
+      "thumbnail": {
+        "emoji": "💃"
+      }
+    },
+    {
+      "index": 49,
+      "app_id": "019a3f2c-0000-7000-8000-000000000050",
+      "tags": ["Remote"],
+      "thumbnail": {
+        "image_url": "https://raw.githubusercontent.com/Jizai-inc/palmimo-apps/3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/assets/thumb.png"
+      }
+    },
+    {
+      "index": 50,
+      "app_id": "019a3f2c-0000-7000-8000-000000000051",
+      "tags": ["Music"],
+      "thumbnail": null
+    },
+    {
+      "index": 51,
+      "app_id": "019a3f2c-0000-7000-8000-000000000052",
+      "tags": ["Dance"],
+      "thumbnail": null
     }
   ]
 }

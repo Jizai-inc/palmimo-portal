@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { describe, expect, it, vi } from "vitest";
@@ -11,7 +11,7 @@ import { server } from "@/test/server";
 
 const COMMUNITY: PublicCatalogAppInfo = {
   public_page_url: "https://apps.palmimo.dev/apps/019a3f2c-0000-7000-8000-000000000001",
-  name: "dance", description: "Community dance", translations: {}, env: [], devices: [],
+  name: "dance", description: "Community dance", translations: {}, tags: [], thumbnail: null, env: [], devices: [],
   public: { app_id: "019a3f2c-0000-7000-8000-000000000001", namespace: "alice", official: false },
   source: { type: "git", url: "https://github.com/alice/dance", ref: "v1", ref_kind: "tag", commit: "a".repeat(40), subdir: null, manifest: null, official: false },
 };
@@ -32,6 +32,65 @@ async function choosePublic(user: ReturnType<typeof userEvent.setup>) {
 }
 
 describe("DiscoverPanel", () => {
+  it.each([null, { emoji: "💃" }, { image_url: "https://raw.githubusercontent.com/alice/dance/" + "a".repeat(40) + "/thumb.png" }])("shows catalog thumbnail %j", async (thumbnail) => {
+    handlers({ ...CATALOG, apps: [{ ...OFFICIAL, thumbnail }] });
+    renderWithProviders(<DiscoverPanel />);
+    const image = await screen.findByRole("img", { name: i18n.t("appAdd.catalogThumbnail", { name: OFFICIAL.name }) });
+    if (thumbnail?.emoji) expect(image).toHaveTextContent(thumbnail.emoji);
+    else if (thumbnail && "image_url" in thumbnail) {
+      expect(image).toHaveAttribute("src", thumbnail.image_url);
+      expect(image).toHaveAttribute("loading", "lazy");
+      expect(image).toHaveAttribute("referrerpolicy", "no-referrer");
+    } else expect(image.tagName.toLowerCase()).toBe("svg");
+  });
+
+  it("falls back to the package icon when the thumbnail fails", async () => {
+    handlers({ ...CATALOG, apps: [{ ...OFFICIAL, thumbnail: { image_url: "https://example.com/thumb.png" } }] });
+    renderWithProviders(<DiscoverPanel />);
+    const label = i18n.t("appAdd.catalogThumbnail", { name: OFFICIAL.name });
+    fireEvent.error(await screen.findByRole("img", { name: label }));
+    expect(screen.getByRole("img", { name: label }).tagName.toLowerCase()).toBe("svg");
+  });
+
+  it.each(["en", "ja"])("translates tags and falls back to their spelling in %s", async (language) => {
+    await i18n.changeLanguage(language);
+    handlers({ ...CATALOG, apps: [{ ...OFFICIAL, tags: ["Dance", "Ärger", "Music"], translations: { en: { "tags.dance": "Dancing", "tags.Ärger": "Anger" }, ja: { "tags.dance": "ダンス", "tags.Ärger": "怒り" } } }] });
+    renderWithProviders(<DiscoverPanel />);
+    await screen.findByRole("heading", { name: OFFICIAL.name });
+    const card = within(screen.getByRole("heading", { name: OFFICIAL.name }).closest("article")!);
+    expect(card.getByText(language === "ja" ? "ダンス" : "Dancing")).toBeInTheDocument();
+    expect(card.getByText(language === "ja" ? "怒り" : "Anger")).toBeInTheDocument();
+    expect(card.getByText("Music")).toBeInTheDocument();
+  });
+
+  it("filters by ASCII tag key and restores all apps", async () => {
+    handlers({ ...CATALOG, apps: [{ ...OFFICIAL, tags: ["Dance"] }, { ...OFFICIAL, name: "music", public: { ...OFFICIAL.public, app_id: "music" }, tags: ["Music"] }] });
+    const user = userEvent.setup();
+    renderWithProviders(<DiscoverPanel />);
+    await user.click(await screen.findByRole("button", { name: "Dance (1)" }));
+    expect(screen.getByRole("heading", { name: OFFICIAL.name })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "music" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: i18n.t("appAdd.catalogAllTags") }));
+    expect(screen.getByRole("heading", { name: "music" })).toBeInTheDocument();
+  });
+
+  it("ranks at most twelve tag filters by app count within the selected catalog", async () => {
+    const tags = Array.from({ length: 13 }, (_, i) => `Tag${i}`);
+    handlers({ ...CATALOG, apps: [{ ...OFFICIAL, tags: [...tags, "TAG12"] }, { ...OFFICIAL, name: "second", public: { ...OFFICIAL.public, app_id: "second" }, tags: ["tag12"] }, { ...COMMUNITY, tags: ["Community"] }] });
+    const user = userEvent.setup();
+    renderWithProviders(<DiscoverPanel />);
+    await screen.findByRole("heading", { name: OFFICIAL.name });
+    const filters = within(screen.getByRole("group", { name: i18n.t("appAdd.catalogTagsLabel") }));
+    expect(filters.getAllByRole("button")).toHaveLength(13);
+    expect(filters.getAllByRole("button")[1]).toHaveTextContent("Tag12 (2)");
+    expect(filters.queryByRole("button", { name: "Tag11 (1)" })).not.toBeInTheDocument();
+    await user.click(filters.getByRole("button", { name: "Tag12 (2)" }));
+    await choosePublic(user);
+    expect(screen.getByRole("heading", { name: "alice/dance" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Tag12 (2)" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Community (1)" })).toBeInTheDocument();
+  });
+
   it("filters official and public apps using catalog identity", async () => {
     handlers();
     const user = userEvent.setup();

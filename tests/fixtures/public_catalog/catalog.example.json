@@ -39,7 +39,11 @@
         "official": false,
         "future_public": true
       },
-      "future_item": true
+      "future_item": true,
+      "tags": ["ダンス", "Music"],
+      "thumbnail": {
+        "emoji": "💃"
+      }
     },
     {
       "name": "teleop",
@@ -64,6 +68,10 @@
         "app_id": "019a3f2c-0000-7000-8000-000000000002",
         "namespace": "palmimo",
         "official": true
+      },
+      "tags": ["Remote Control"],
+      "thumbnail": {
+        "image_url": "https://raw.githubusercontent.com/Jizai-inc/palmimo-apps/3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/assets/thumb.png"
       }
     },
     {
@@ -95,6 +103,10 @@
         "app_id": "019a3f2c-0000-7000-8000-000000000003",
         "namespace": "bob",
         "official": false
+      },
+      "tags": ["bad.tag"],
+      "thumbnail": {
+        "image_url": "https://attacker.test/thumb.png"
       }
     },
     {
@@ -1687,6 +1699,154 @@
         "future_public": true
       },
       "future_item": true
+    },
+    {
+      "name": "portal-dance",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本",
+          "env.API_KEY": "APIキー",
+          "tags.dance": "ダンス"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help",
+          "future_env": true
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "future_source": true
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000049",
+        "namespace": "alice",
+        "official": false,
+        "future_public": true
+      },
+      "future_item": true,
+      "tags": ["Dance", "Music"],
+      "thumbnail": {
+        "emoji": "💃"
+      }
+    },
+    {
+      "name": "portal-teleop",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {},
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/Jizai-inc/palmimo-apps",
+        "ref": "main",
+        "ref_kind": "branch",
+        "subdir": "teleop",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000050",
+        "namespace": "palmimo",
+        "official": true
+      },
+      "tags": ["Remote"],
+      "thumbnail": {
+        "image_url": "https://raw.githubusercontent.com/Jizai-inc/palmimo-apps/3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/assets/thumb.png"
+      }
+    },
+    {
+      "name": "portal-branch-dance",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "https://alice.example/help"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/bob/dance",
+        "ref": "feature/dance",
+        "ref_kind": "branch",
+        "subdir": null,
+        "manifest": "palmimo.dance.toml",
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000051",
+        "namespace": "bob",
+        "official": false
+      },
+      "tags": [
+        "Music",
+        "bad.tag",
+        1,
+        "",
+        "a\tb",
+        "a​b",
+        "あああああああああああああああああああああああああああああああああ"
+      ],
+      "thumbnail": {
+        "image_url": "https://raw.githubusercontent.com/other/dance/3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/thumb.png"
+      }
+    },
+    {
+      "name": "portal-dance-14",
+      "description": "A fictional dance app",
+      "translations": {
+        "ja": {
+          "description": "ダンスの見本"
+        }
+      },
+      "env": {
+        "API_KEY": {
+          "required": true,
+          "description": "API key",
+          "help_url": "javascript:alert(1)"
+        }
+      },
+      "devices": ["motor_display", "audio"],
+      "source": {
+        "type": "git",
+        "url": "https://github.com/alice/palmimo-dance",
+        "ref": "v0.2.0",
+        "ref_kind": "tag",
+        "subdir": "apps/dance",
+        "manifest": null,
+        "commit": "3f2caaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "public": {
+        "app_id": "019a3f2c-0000-7000-8000-000000000052",
+        "namespace": "alice",
+        "official": false
+      },
+      "tags": ["Dance"],
+      "thumbnail": {
+        "image_url": "https://raw.githubusercontent.com/alice/palmimo-dance/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/thumb.png"
+      }
     }
   ]
 }
